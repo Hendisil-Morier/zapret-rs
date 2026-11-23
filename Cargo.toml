@@ -1,0 +1,10 @@
+[package]
+name = "zapret-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = "4.6.9"
+mlua = { version = "0.12.3", features = ["lua55"] }
+nfq = "0.2.6"
+thiserror = "2.0.21"
