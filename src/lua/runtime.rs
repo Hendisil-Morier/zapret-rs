@@ -12,6 +12,8 @@ use mlua::{AnyUserData, Lua, RegistryKey, Value};
 
 /// Configuration structs applied when loading blobs, scripts, and verifying desync functions.
 use crate::config::{AppConfig, DesyncProfile, LuaInitEntry};
+/// Bidirectional connection tracking pool shared between `DesyncEngine` and Lua `conntrack_feed`.
+use crate::conntrack::{ConntrackPool, ConntrackTimeouts};
 /// Bitwise logic and shift Lua primitives.
 use crate::lua::bitwise::register_bitwise_functions;
 /// Binary integer packing, byte mutation, random-blob, and hex primitives.
@@ -47,6 +49,8 @@ pub struct LuaRuntime {
     desync_ctx: Rc<RefCell<DesyncContextState>>,
     /// Lua registry handle preserving the singleton `ctx` userdata across packet calls.
     desync_ctx_key: RegistryKey,
+    /// Shared bidirectional TCP/UDP connection tracking pool.
+    conntrack: Rc<RefCell<ConntrackPool>>,
     /// Scheduled timer pool accessible from Lua and event loops.
     timer_pool: Rc<RefCell<TimerPool>>,
     /// Monotonic timestamp in milliseconds of the last completed garbage collection pass.
@@ -74,12 +78,19 @@ impl LuaRuntime {
         register_packet_functions(&lua)?;
         register_system_functions(&lua, &config)?;
         register_rawsend_functions(&lua, &config, sender)?;
-        register_desync_functions(&lua, config.debug)?;
+
+        let desync_ctx = Rc::new(RefCell::new(DesyncContextState::default()));
+        let conntrack = Rc::new(RefCell::new(ConntrackPool::new(ConntrackTimeouts::default())));
+        register_desync_functions(
+            &lua,
+            &config,
+            Rc::clone(&desync_ctx),
+            Rc::clone(&conntrack),
+        )?;
 
         let timer_pool = Rc::new(RefCell::new(TimerPool::new()));
         register_timer_functions(&lua, Rc::clone(&timer_pool))?;
 
-        let desync_ctx = Rc::new(RefCell::new(DesyncContextState::default()));
         let desync_ctx_key = create_desync_ctx_userdata(&lua, Rc::clone(&desync_ctx))?;
 
         Ok(Self {
@@ -87,6 +98,7 @@ impl LuaRuntime {
             config,
             desync_ctx,
             desync_ctx_key,
+            conntrack,
             timer_pool,
             last_gc_ms: Cell::new(0),
         })
@@ -105,6 +117,11 @@ impl LuaRuntime {
     /// Returns the shared handle controlling the active Lua desync context state.
     pub fn desync_ctx_state(&self) -> &Rc<RefCell<DesyncContextState>> {
         &self.desync_ctx
+    }
+
+    /// Returns the shared handle controlling the connection tracking pool.
+    pub fn conntrack(&self) -> &Rc<RefCell<ConntrackPool>> {
+        &self.conntrack
     }
 
     /// Returns the shared handle controlling registered timers.
@@ -178,5 +195,13 @@ impl LuaRuntime {
             .set_name(path.to_string_lossy())
             .exec()?;
         Ok(())
+    }
+}
+
+impl Drop for LuaRuntime {
+    /// Clears conntrack entries and `ctx.ctrack` handles so Lua registry keys drop before `Lua`.
+    fn drop(&mut self) {
+        self.desync_ctx.borrow_mut().ctrack = None;
+        self.conntrack.borrow_mut().clear();
     }
 }

@@ -5,63 +5,67 @@ use std::cell::RefCell;
 /// Single-thread reference counting for profile snapshots and packet senders.
 use std::rc::Rc;
 
-/// Core `mlua` types for invoking Lua desync callbacks and reading multi-return verdicts.
-use mlua::{Function, MultiValue, Value};
+/// Dynamic Lua value variant matched against resolved desync callback functions.
+use mlua::Value;
 
-/// Profile, match input, L7 protocol type, and payload mask evaluation helpers.
-use crate::config::{AppConfig, DesyncProfile, L7Proto, ProfileMatchInput, l7_payload_matches};
-/// Verdict aggregation, Lua verdict parsing, and baseline L7 payload classification.
-use crate::desync::verdict::{aggregate_verdict, classify_baseline_payload, parse_lua_verdict};
+/// Profile, match input, L7 protocol/payload types evaluated per packet.
+use crate::config::{AppConfig, DesyncProfile, L7Payload, L7Proto, ProfileMatchInput};
+/// Tracked flow entry and per-direction position snapshot types.
+use crate::conntrack::{CtrackEntry, CtrackPosition};
+/// Verdict aggregation, gate evaluation, Lua verdict decoding, context guards, and conntrack helpers.
+use crate::desync::verdict::{
+    SessionCtxGuard, action_is_runnable, aggregate_verdict, all_actions_cut_off,
+    any_action_runnable, classify_baseline_payload, extract_l3_ttl, extract_pos_for_side,
+    finalize_decision, invoke_action_callback, parse_lua_verdict,
+};
 /// Intercepted packet metadata and kernel verdict decision enum.
 use crate::intercepter::{Decision, QueuedPacket};
-/// Lua runtime, desync context state, table builders, and error definitions.
+/// Lua runtime, error enum, and desync table/argument builders.
 use crate::lua::{
     LuaEngineError, LuaRuntime,
-    desync_api::DesyncContextState,
     desync_encode::{
         DesyncTableInput, build_action_args_table, build_desync_table, desync_instance_name,
     },
-    packet_decode::lua_to_dissect,
 };
-/// Verdict action and preservation flags returned by Lua actions.
-use crate::packet::constants::{
-    VERDICT_DROP, VERDICT_MASK, VERDICT_MODIFY, VERDICT_PASS, VERDICT_PRESERVE_NEXT,
-};
-/// Packet dissector and wire reconstruction with RFC checksums.
-use crate::packet::{ReconstructOptions, dissect_packet, reconstruct_packet};
+/// Default pass verdict bitmask initialized before profile actions execute.
+use crate::packet::constants::VERDICT_PASS;
+/// Dissected packet view and L3/L4 wire parser.
+use crate::packet::{DissectedPacket, dissect_packet};
 /// Abstract packet sender trait for injectable/testable raw packet transmission.
 use crate::rawsend::PacketSender;
+/// Monotonic boottime `timespec` helper for conntrack feeding and idle sweeps.
+use crate::timer::boottime_now;
 
-/// RAII guard clearing per-packet state on [`DesyncContextState`] even across early returns.
-struct SessionCtxGuard<'a>(
-    /// Reference to the shared context cell cleared on drop.
-    &'a Rc<RefCell<DesyncContextState>>,
-);
-
-impl Drop for SessionCtxGuard<'_> {
-    /// Resets per-packet context fields when profile evaluation finishes.
-    fn drop(&mut self) {
-        let mut state = self.0.borrow_mut();
-        state.valid = false;
-        state.cancel = false;
-        state.profile = None;
-        state.raw_packet.clear();
-        state.func.clear();
-        state.instance.clear();
-    }
-}
-
-/// RAII guard invalidating `ctx` immediately after each individual Lua callback returns.
-struct ValidCtxGuard<'a>(
-    /// Reference to the shared context cell whose `valid` flag is cleared on drop.
-    &'a Rc<RefCell<DesyncContextState>>,
-);
-
-impl Drop for ValidCtxGuard<'_> {
-    /// Marks `ctx` invalid so Lua cannot reuse a stashed context reference after returning.
-    fn drop(&mut self) {
-        self.0.borrow_mut().valid = false;
-    }
+/// Borrowed packet, direction, target, and conntrack metadata passed into profile execution.
+struct DispatchMeta<'a> {
+    /// Dissected L3/L4 view of the intercepted packet.
+    dis: &'a DissectedPacket,
+    /// Raw L3 wire bytes of the intercepted packet.
+    raw_pkt: &'a [u8],
+    /// Incoming interface name, if present.
+    ifin: Option<&'a str>,
+    /// Outgoing interface name, if present.
+    ifout: Option<&'a str>,
+    /// Kernel netfilter mark attached to the packet.
+    fwmark: u32,
+    /// Local host direction (`true` = incoming, `false` = outgoing).
+    incoming: bool,
+    /// Logical connection direction (`true` = server -> client, `false` = client -> server).
+    b_reverse: bool,
+    /// Resolved remote IPv4 address (`desync.target.ip`).
+    target_ip4: Option<[u8; 4]>,
+    /// Resolved remote IPv6 address (`desync.target.ip6`).
+    target_ip6: Option<[u8; 16]>,
+    /// Resolved remote transport port (`desync.target.port`).
+    target_port: u16,
+    /// Classified L7 payload tag.
+    l7payload: L7Payload,
+    /// Classified L7 protocol tag.
+    l7proto: L7Proto,
+    /// Active conntrack entry associated with this flow, if any.
+    ctrack: Option<Rc<RefCell<CtrackEntry>>>,
+    /// Copied position snapshot for range checks on the sender side.
+    pos_opt: Option<CtrackPosition>,
 }
 
 /// Orchestrates packet dissection, profile filter selection, and `zapret2` Lua desync execution.
@@ -123,9 +127,49 @@ impl DesyncEngine {
             return Decision::Pass;
         }
 
-        // shortcut: without conntrack, direction falls back to interface presence (`ifin && !ifout`) as in desync.c.
-        let incoming =
-            pkt.ifin.is_some_and(|s| !s.is_empty()) && !pkt.ifout.is_some_and(|s| !s.is_empty());
+        let ctrack_hit = if !self.runtime.config().ctrack_disable {
+            let now = boottime_now();
+            let feed_res = {
+                let mut pool = self.runtime.conntrack().borrow_mut();
+                pool.purge_rate_limited(now.sec);
+                pool.feed(Some(self.runtime.lua()), &dis, now)
+            };
+            match feed_res {
+                Ok(hit) => hit,
+                Err(err) => {
+                    eprintln!("conntrack ERROR: {err}. passing packet unmodified.");
+                    return Decision::Pass;
+                }
+            }
+        } else {
+            None
+        };
+
+        let (ctrack_rc, b_reverse, incoming) = match ctrack_hit {
+            Some((entry_rc, rev)) => (Some(entry_rc), rev, rev ^ self.server),
+            None => {
+                let inc = pkt.ifin.is_some_and(|s| !s.is_empty())
+                    && !pkt.ifout.is_some_and(|s| !s.is_empty());
+                (None, inc, inc)
+            }
+        };
+
+        let mut pos_opt = None;
+        if let Some(entry_rc) = &ctrack_rc {
+            let mut entry = entry_rc.borrow_mut();
+            if incoming && entry.incoming_ttl == 0 {
+                entry.incoming_ttl = extract_l3_ttl(&dis);
+            }
+            if (incoming && entry.lua_in_cutoff) || (!incoming && entry.lua_out_cutoff) {
+                return Decision::Pass;
+            }
+            pos_opt = Some(if b_reverse {
+                entry.pos.server
+            } else {
+                entry.pos.client
+            });
+        }
+
         let target_ip4 = dis.ip.as_ref().map(|ip| if incoming { ip.src } else { ip.dst });
         let target_ip6 = dis
             .ip6
@@ -159,37 +203,46 @@ impl DesyncEngine {
             return Decision::Pass;
         }
 
-        let any_in_range = profile.actions.iter().any(|action| {
-            let range = if incoming {
-                action.in_range
-            } else {
-                action.out_range
-            };
-            range.matches_without_conntrack()
-        });
-        let any_wants_payload = profile
-            .actions
-            .iter()
-            .any(|action| l7_payload_matches(l7payload, action.payload_mask));
-        if !any_in_range || !any_wants_payload {
+        if all_actions_cut_off(profile, ctrack_rc.as_ref(), pos_opt.as_ref(), incoming) {
+            if let Some(entry_rc) = &ctrack_rc {
+                let mut entry = entry_rc.borrow_mut();
+                if incoming {
+                    entry.lua_in_cutoff = true;
+                } else {
+                    entry.lua_out_cutoff = true;
+                }
+            }
             return Decision::Pass;
         }
 
-        let table_input = DesyncTableInput {
-            dis: &dis,
+        if !any_action_runnable(
             profile,
+            ctrack_rc.as_ref(),
+            pos_opt.as_ref(),
             incoming,
+            l7payload,
+        ) {
+            return Decision::Pass;
+        }
+
+        let meta = DispatchMeta {
+            dis: &dis,
+            raw_pkt: pkt.payload,
             ifin: pkt.ifin,
             ifout: pkt.ifout,
             fwmark: pkt.mark,
+            incoming,
+            b_reverse,
             target_ip4,
             target_ip6,
             target_port,
             l7payload,
             l7proto,
+            ctrack: ctrack_rc,
+            pos_opt,
         };
 
-        match self.try_run_profile(profile, pkt.payload, &table_input) {
+        match self.try_run_profile(profile, meta) {
             Ok(decision) => decision,
             Err(err) => {
                 eprintln!("desync ERROR: {err}. passing packet unmodified.");
@@ -202,25 +255,59 @@ impl DesyncEngine {
     fn try_run_profile(
         &self,
         profile: &Rc<DesyncProfile>,
-        raw_pkt: &[u8],
-        input: &DesyncTableInput<'_>,
+        meta: DispatchMeta<'_>,
     ) -> Result<Decision, String> {
         let lua = self.runtime.lua();
         let ctx_state = self.runtime.desync_ctx_state();
+        let mut active_ctrack = meta.ctrack;
+        let mut active_incoming = meta.incoming;
+        let mut active_b_reverse = meta.b_reverse;
+        let mut pos_opt = meta.pos_opt;
+
         {
             let mut state = ctx_state.borrow_mut();
             state.profile = Some(Rc::clone(profile));
             state.profile_n = profile.index;
-            state.incoming = input.incoming;
+            state.incoming = active_incoming;
+            state.ctrack = active_ctrack.clone();
             state.cancel = false;
             state.valid = false;
             state.raw_packet.clear();
-            state.raw_packet.extend_from_slice(raw_pkt);
+            state.raw_packet.extend_from_slice(meta.raw_pkt);
         }
         let _session_guard = SessionCtxGuard(ctx_state);
 
-        let desync_tbl = build_desync_table(lua, input)
-            .map_err(|e| format!("failed to build desync table: {e}"))?;
+        // Drop `track_ref` before any Lua callback executes so `instance_cutoff`/`lua_cutoff` can borrow mutably.
+        let desync_tbl = {
+            let track_ref = active_ctrack.as_ref().map(|rc| rc.borrow());
+            let table_input = DesyncTableInput {
+                dis: meta.dis,
+                profile,
+                incoming: active_incoming,
+                ifin: meta.ifin,
+                ifout: meta.ifout,
+                fwmark: meta.fwmark,
+                target_ip4: meta.target_ip4,
+                target_ip6: meta.target_ip6,
+                target_port: meta.target_port,
+                l7payload: meta.l7payload,
+                l7proto: meta.l7proto,
+                track: track_ref.as_deref(),
+                tpos: None,
+                b_reverse: active_b_reverse,
+                replay_piece: 0,
+                replay_piece_count: 0,
+                reasm_offset: 0,
+                reasm_data: if meta.dis.tcp.is_some() {
+                    meta.dis.payload.as_deref()
+                } else {
+                    None
+                },
+                decrypt_data: None,
+            };
+            build_desync_table(lua, &table_input)
+                .map_err(|e| format!("failed to build desync table: {e}"))?
+        };
         let ctx_ud = self
             .runtime
             .desync_ctx_userdata()
@@ -229,19 +316,19 @@ impl DesyncEngine {
 
         let mut verdict = VERDICT_PASS;
         for (idx, action) in profile.actions.iter().enumerate() {
-            let range = if input.incoming {
-                action.in_range
-            } else {
-                action.out_range
-            };
-            if !range.matches_without_conntrack()
-                || !l7_payload_matches(input.l7payload, action.payload_mask)
-            {
-                continue;
-            }
-
             let func_n = (idx as u32) + 1;
             let instance = desync_instance_name(&action.func, profile.index, func_n);
+            if !action_is_runnable(
+                action,
+                profile.index,
+                &instance,
+                active_ctrack.as_ref(),
+                pos_opt.as_ref(),
+                active_incoming,
+                meta.l7payload,
+            ) {
+                continue;
+            }
 
             let func_val = globals
                 .get::<Value>(action.func.as_str())
@@ -263,7 +350,7 @@ impl DesyncEngine {
                 .and_then(|()| desync_tbl.raw_set("func_instance", instance.as_str()))
                 .map_err(|e| format!("failed to update desync table fields: {e}"))?;
 
-            let results = Self::invoke_action_callback(
+            let results = invoke_action_callback(
                 ctx_state,
                 &func,
                 &ctx_ud,
@@ -279,61 +366,21 @@ impl DesyncEngine {
             if ctx_state.borrow().cancel {
                 break;
             }
-        }
 
-        match verdict & VERDICT_MASK {
-            VERDICT_DROP => Ok(Decision::Drop),
-            VERDICT_MODIFY => {
-                let dis_val = desync_tbl
-                    .get::<Value>("dis")
-                    .map_err(|e| format!("failed to read modified desync.dis: {e}"))?;
-                let Value::Table(dis_tbl) = dis_val else {
-                    return Err("dissect data is bad. VERDICT_MODIFY cancel".to_owned());
+            if active_ctrack.is_none() {
+                let adopted = {
+                    let state = ctx_state.borrow();
+                    state.ctrack.as_ref().map(|rc| (Rc::clone(rc), state.incoming))
                 };
-                let mod_dis = lua_to_dissect(lua, &dis_tbl)
-                    .map_err(|e| format!("failed to decode modified desync.dis: {e}"))?;
-                let opts = ReconstructOptions {
-                    keepsum: false,
-                    badsum: false,
-                    ip6_preserve_next: (verdict & VERDICT_PRESERVE_NEXT) != 0,
-                    ip6_last_proto: None,
-                };
-                let mod_bytes = reconstruct_packet(&mod_dis, &opts)
-                    .map_err(|e| format!("failed to reconstruct packet after VERDICT_MODIFY: {e}"))?;
-                if self.debug {
-                    eprintln!(
-                        "reconstructed packet due to VERDICT_MODIFY. size {} => {}",
-                        raw_pkt.len(),
-                        mod_bytes.len()
-                    );
+                if let Some((rc, ctx_inc)) = adopted {
+                    active_ctrack = Some(rc);
+                    active_incoming = ctx_inc;
+                    active_b_reverse = active_incoming ^ self.server;
+                    pos_opt = extract_pos_for_side(active_ctrack.as_ref(), active_b_reverse);
                 }
-                Ok(Decision::Replace(mod_bytes))
             }
-            _ => Ok(Decision::Pass),
         }
-    }
 
-    /// Arms `ctx.valid`, invokes a single Lua action function, and clears `ctx.valid` before returning.
-    fn invoke_action_callback(
-        ctx_state: &Rc<RefCell<DesyncContextState>>,
-        func: &Function,
-        ctx_ud: &mlua::AnyUserData,
-        desync_tbl: &mlua::Table,
-        func_n: u32,
-        func_name: &str,
-        instance: &str,
-    ) -> Result<MultiValue, String> {
-        {
-            let mut state = ctx_state.borrow_mut();
-            state.func_n = func_n;
-            state.func.clear();
-            state.func.push_str(func_name);
-            state.instance.clear();
-            state.instance.push_str(instance);
-            state.valid = true;
-        }
-        let _valid_guard = ValidCtxGuard(ctx_state);
-        func.call::<MultiValue>((ctx_ud.clone(), desync_tbl.clone()))
-            .map_err(|e| format!("LUA ERROR: {e}"))
+        finalize_decision(lua, &desync_tbl, verdict, meta.raw_pkt.len(), self.debug)
     }
 }

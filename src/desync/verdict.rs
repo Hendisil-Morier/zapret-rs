@@ -1,18 +1,31 @@
-//! Verdict aggregation, Lua return-value decoding, and baseline L7 payload classification.
+//! Verdict aggregation, Lua return-value decoding, context RAII guards, and conntrack helpers.
 
-/// Multi-return value container yielded by Lua desync callbacks.
-use mlua::{MultiValue, Value};
+/// Interior mutability for clearing shared context and reading conntrack snapshots.
+use std::cell::RefCell;
+/// Reference counting for shared conntrack entries and context state handles.
+use std::rc::Rc;
 
-/// Baseline L7 payload classification enum.
-use crate::config::L7Payload;
+/// Multi-return value, function, userdata, and table container types used by Lua desync callbacks.
+use mlua::{AnyUserData, Function, Lua, MultiValue, Table, Value};
+
+/// Profile, action, range, L7 payload, and payload mask evaluation helpers.
+use crate::config::{DesyncAction, DesyncProfile, L7Payload, l7_payload_matches};
+/// Connection tracking entry and directional position snapshot types.
+use crate::conntrack::{CtrackEntry, CtrackPosition};
+/// Intercepted verdict decision enum returned to NFQUEUE.
+use crate::intercepter::Decision;
+/// Active Lua desync context state, table dissector, and instance naming helpers.
+use crate::lua::{
+    desync_api::DesyncContextState, desync_encode::desync_instance_name, packet_decode::lua_to_dissect,
+};
 /// ICMP error type constants and verdict action/flag bitmasks.
 use crate::packet::constants::{
     ICMP_DEST_UNREACH, ICMP_PARAMETERPROB, ICMP_REDIRECT, ICMP_TIME_EXCEEDED, ICMP6_DST_UNREACH,
     ICMP6_PACKET_TOO_BIG, ICMP6_PARAM_PROB, ICMP6_TIME_EXCEEDED, VERDICT_DROP, VERDICT_MASK,
     VERDICT_MASK_VALID_LUA, VERDICT_MODIFY, VERDICT_PASS, VERDICT_PRESERVE_NEXT,
 };
-/// Wire packet dissection helper and container struct.
-use crate::packet::{DissectedPacket, dissect_packet};
+/// Wire packet dissection, reconstruction options, and wire serializer.
+use crate::packet::{DissectedPacket, ReconstructOptions, dissect_packet, reconstruct_packet};
 
 /// Combines two `zapret2` Lua verdicts (`DROP` > `MODIFY` > `PASS`), propagating `VERDICT_PRESERVE_NEXT`.
 pub const fn aggregate_verdict(v1: u8, v2: u8) -> u8 {
@@ -109,5 +122,200 @@ pub(crate) fn parse_lua_verdict(values: &MultiValue) -> Result<u8, String> {
             Ok(v as u8)
         }
         _ => Err("desync function returned non-int result".to_owned()),
+    }
+}
+
+/// RAII guard clearing per-packet state on [`DesyncContextState`] even across early returns.
+pub(crate) struct SessionCtxGuard<'a>(
+    /// Reference to the shared context cell cleared on drop.
+    pub(crate) &'a Rc<RefCell<DesyncContextState>>,
+);
+
+impl Drop for SessionCtxGuard<'_> {
+    /// Resets per-packet context fields when profile evaluation finishes.
+    fn drop(&mut self) {
+        let mut state = self.0.borrow_mut();
+        state.valid = false;
+        state.cancel = false;
+        state.profile = None;
+        state.ctrack = None;
+        state.raw_packet.clear();
+        state.func.clear();
+        state.instance.clear();
+    }
+}
+
+/// RAII guard invalidating `ctx` immediately after each individual Lua callback returns.
+pub(crate) struct ValidCtxGuard<'a>(
+    /// Reference to the shared context cell whose `valid` flag is cleared on drop.
+    pub(crate) &'a Rc<RefCell<DesyncContextState>>,
+);
+
+impl Drop for ValidCtxGuard<'_> {
+    /// Marks `ctx` invalid so Lua cannot reuse a stashed context reference after returning.
+    fn drop(&mut self) {
+        self.0.borrow_mut().valid = false;
+    }
+}
+
+/// Copies the packet sender's directional [`CtrackPosition`] (`server` if `b_reverse`, else `client`).
+pub(crate) fn extract_pos_for_side(
+    ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
+    b_reverse: bool,
+) -> Option<CtrackPosition> {
+    let entry_rc = ctrack?;
+    let entry = entry_rc.borrow();
+    Some(if b_reverse {
+        entry.pos.server
+    } else {
+        entry.pos.client
+    })
+}
+
+/// Reads IPv4 `ttl` or IPv6 `hop_limit` from a dissected packet (`ttl46` in `darkmagic.c`).
+pub(crate) fn extract_l3_ttl(dis: &DissectedPacket) -> u8 {
+    if let Some(ip) = &dis.ip {
+        ip.ttl
+    } else if let Some(ip6) = &dis.ip6 {
+        ip6.hop_limit
+    } else {
+        0
+    }
+}
+
+/// Returns `true` if `instance` on `profile_n` has an active instance cutoff in direction `incoming`.
+pub(crate) fn is_instance_cut_off(
+    ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
+    instance: &str,
+    profile_n: u32,
+    incoming: bool,
+) -> bool {
+    ctrack.is_some_and(|rc| rc.borrow().is_instance_cutoff(instance, profile_n, incoming))
+}
+
+/// Returns `true` when `action` satisfies instance cutoff, directional range, and payload filters.
+pub(crate) fn action_is_runnable(
+    action: &DesyncAction,
+    profile_n: u32,
+    instance: &str,
+    ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
+    pos_opt: Option<&CtrackPosition>,
+    incoming: bool,
+    l7payload: L7Payload,
+) -> bool {
+    if is_instance_cut_off(ctrack, instance, profile_n, incoming) {
+        return false;
+    }
+    let range = if incoming {
+        action.in_range
+    } else {
+        action.out_range
+    };
+    range.check_pos_range(pos_opt) && l7_payload_matches(l7payload, action.payload_mask)
+}
+
+/// Returns `true` when every action in `profile` is cut off by instance flags or packet range bounds.
+pub(crate) fn all_actions_cut_off(
+    profile: &DesyncProfile,
+    ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
+    pos_opt: Option<&CtrackPosition>,
+    incoming: bool,
+) -> bool {
+    profile.actions.iter().enumerate().all(|(idx, action)| {
+        let func_n = (idx as u32) + 1;
+        let instance = desync_instance_name(&action.func, profile.index, func_n);
+        let inst_cut = is_instance_cut_off(ctrack, &instance, profile.index, incoming);
+        let range = if incoming {
+            action.in_range
+        } else {
+            action.out_range
+        };
+        inst_cut || range.check_pos_cutoff(pos_opt)
+    })
+}
+
+/// Returns `true` when at least one profile action passes instance cutoff, range, and payload checks.
+pub(crate) fn any_action_runnable(
+    profile: &DesyncProfile,
+    ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
+    pos_opt: Option<&CtrackPosition>,
+    incoming: bool,
+    l7payload: L7Payload,
+) -> bool {
+    profile.actions.iter().enumerate().any(|(idx, action)| {
+        let func_n = (idx as u32) + 1;
+        let instance = desync_instance_name(&action.func, profile.index, func_n);
+        action_is_runnable(
+            action,
+            profile.index,
+            &instance,
+            ctrack,
+            pos_opt,
+            incoming,
+            l7payload,
+        )
+    })
+}
+
+/// Arms `ctx.valid`, invokes a single Lua action callback, and clears `ctx.valid` before returning.
+pub(crate) fn invoke_action_callback(
+    ctx_state: &Rc<RefCell<DesyncContextState>>,
+    func: &Function,
+    ctx_ud: &AnyUserData,
+    desync_tbl: &Table,
+    func_n: u32,
+    func_name: &str,
+    instance: &str,
+) -> Result<MultiValue, String> {
+    {
+        let mut state = ctx_state.borrow_mut();
+        state.func_n = func_n;
+        state.func.clear();
+        state.func.push_str(func_name);
+        state.instance.clear();
+        state.instance.push_str(instance);
+        state.valid = true;
+    }
+    let _valid_guard = ValidCtxGuard(ctx_state);
+    func.call::<MultiValue>((ctx_ud.clone(), desync_tbl.clone()))
+        .map_err(|e| format!("LUA ERROR: {e}"))
+}
+
+/// Resolves an aggregated Lua `VERDICT_*` bitmask into an NFQUEUE [`Decision`].
+pub(crate) fn finalize_decision(
+    lua: &Lua,
+    desync_tbl: &Table,
+    verdict: u8,
+    raw_len: usize,
+    debug: bool,
+) -> Result<Decision, String> {
+    match verdict & VERDICT_MASK {
+        VERDICT_DROP => Ok(Decision::Drop),
+        VERDICT_MODIFY => {
+            let dis_val = desync_tbl
+                .get::<Value>("dis")
+                .map_err(|e| format!("failed to read modified desync.dis: {e}"))?;
+            let Value::Table(dis_tbl) = dis_val else {
+                return Err("dissect data is bad. VERDICT_MODIFY cancel".to_owned());
+            };
+            let mod_dis = lua_to_dissect(lua, &dis_tbl)
+                .map_err(|e| format!("failed to decode modified desync.dis: {e}"))?;
+            let opts = ReconstructOptions {
+                keepsum: false,
+                badsum: false,
+                ip6_preserve_next: (verdict & VERDICT_PRESERVE_NEXT) != 0,
+                ip6_last_proto: None,
+            };
+            let mod_bytes = reconstruct_packet(&mod_dis, &opts)
+                .map_err(|e| format!("failed to reconstruct packet after VERDICT_MODIFY: {e}"))?;
+            if debug {
+                eprintln!(
+                    "reconstructed packet due to VERDICT_MODIFY. size {raw_len} => {}",
+                    mod_bytes.len()
+                );
+            }
+            Ok(Decision::Replace(mod_bytes))
+        }
+        _ => Ok(Decision::Pass),
     }
 }

@@ -10,15 +10,27 @@ use mlua::{Lua, RegistryKey, UserData, Value, Variadic};
 
 /// Configuration profile type and payload filter string formatter.
 use crate::config::{DesyncProfile, l7_payload_str_list};
+/// Bidirectional connection tracking pool and flow entry types.
+use crate::conntrack::{ConntrackPool, CtrackEntry};
+/// Runtime configuration flags read by Lua desync host helpers.
+use crate::lua::constants::LuaConfig;
+/// Conntrack-to-Lua table serializer used by `conntrack_feed`.
+use crate::lua::ctrack_encode::ctrack_to_lua;
 /// Lua table serializers for `execution_plan` entries, arguments, ranges, and payload masks.
 use crate::lua::desync_encode::{
     build_action_args_table, desync_instance_name, packet_range_to_lua, payload_mask_to_lua_table,
 };
 /// Shared Lua argument-count check helpers.
 use crate::lua::helpers::{check_argc, check_argc_range};
+/// Lua table dissectors and reconstruct option parsers used by `conntrack_feed`.
+use crate::lua::packet_decode::{lua_to_dissect, parse_reconstruct_opts};
+/// Wire packet dissector and reconstructor invoked by `conntrack_feed`.
+use crate::packet::{dissect_packet, reconstruct_packet};
+/// Monotonic boottime `timespec` helper for conntrack feeding and expiration sweeps.
+use crate::timer::boottime_now;
 
 /// Mutable per-packet state backing Lua's singleton `ctx` userdata during profile execution.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct DesyncContextState {
     /// True only while Lua is executing inside a direct `DesyncEngine` callback.
     pub valid: bool,
@@ -38,6 +50,8 @@ pub struct DesyncContextState {
     pub raw_packet: Vec<u8>,
     /// Active profile snapshot backing `execution_plan(ctx)`.
     pub profile: Option<Rc<DesyncProfile>>,
+    /// Active connection tracking entry associated with this packet or created by `conntrack_feed`.
+    pub ctrack: Option<Rc<RefCell<CtrackEntry>>>,
 }
 
 /// Lua userdata wrapper referencing the shared [`DesyncContextState`].
@@ -87,9 +101,18 @@ fn parse_cutoff_direction(opt: Option<&Value>) -> mlua::Result<(bool, bool)> {
     }
 }
 
-/// Registers `raw_packet`, `execution_plan`, `execution_plan_cancel`, `instance_cutoff`, and `lua_cutoff`.
-pub fn register_desync_functions(lua: &Lua, debug: bool) -> mlua::Result<()> {
+/// Registers `raw_packet`, `execution_plan`, `execution_plan_cancel`, `instance_cutoff`,
+/// `lua_cutoff`, and `conntrack_feed` into Lua `_G`.
+pub fn register_desync_functions(
+    lua: &Lua,
+    config: &LuaConfig,
+    ctx_state: Rc<RefCell<DesyncContextState>>,
+    conntrack: Rc<RefCell<ConntrackPool>>,
+) -> mlua::Result<()> {
     let globals = lua.globals();
+    let debug = config.debug;
+    let ctrack_disable = config.ctrack_disable;
+    let server = config.server;
 
     globals.set(
         "raw_packet",
@@ -181,15 +204,28 @@ pub fn register_desync_functions(lua: &Lua, debug: bool) -> mlua::Result<()> {
             }
             let ctx = extract_valid_ctx(&args[0])?;
             let (b_in, b_out) = parse_cutoff_direction(args.get(1))?;
-            if debug {
-                let inst = ctx.borrow().instance.clone();
+            let (ctrack_opt, inst, profile_n) = {
+                let state = ctx.borrow();
+                (state.ctrack.clone(), state.instance.clone(), state.profile_n)
+            };
+            if let Some(ctrack_rc) = ctrack_opt {
+                ctrack_rc
+                    .borrow_mut()
+                    .set_instance_cutoff(&inst, profile_n, b_in, b_out);
+                if debug {
+                    eprintln!(
+                        "instance cutoff from '{inst}' in={} out={}",
+                        u8::from(b_in),
+                        u8::from(b_out)
+                    );
+                }
+            } else if debug {
                 eprintln!(
-                    "instance cutoff requested for '{inst}' in={} out={} but not possible without conntrack",
+                    "instance cutoff requested for '{inst}' in={} out={} without active conntrack",
                     u8::from(b_in),
                     u8::from(b_out)
                 );
             }
-            // shortcut: no conntrack table in Milestone 2; per-instance cutoff storage arrives in Milestone 3
             Ok(())
         })?,
     )?;
@@ -200,16 +236,80 @@ pub fn register_desync_functions(lua: &Lua, debug: bool) -> mlua::Result<()> {
             check_argc_range("lua_cutoff", &args, 1, 2)?;
             let ctx = extract_valid_ctx(&args[0])?;
             let (b_in, b_out) = parse_cutoff_direction(args.get(1))?;
-            if debug {
-                let inst = ctx.borrow().instance.clone();
+            let (ctrack_opt, inst) = {
+                let state = ctx.borrow();
+                (state.ctrack.clone(), state.instance.clone())
+            };
+            if let Some(ctrack_rc) = ctrack_opt {
+                let mut ct = ctrack_rc.borrow_mut();
+                if b_in {
+                    ct.lua_in_cutoff = true;
+                }
+                if b_out {
+                    ct.lua_out_cutoff = true;
+                }
+                if debug {
+                    eprintln!(
+                        "lua cutoff from '{inst}' in={} out={}",
+                        u8::from(b_in),
+                        u8::from(b_out)
+                    );
+                }
+            } else if debug {
                 eprintln!(
-                    "lua cutoff requested from '{inst}' in={} out={} but not possible without conntrack",
+                    "lua cutoff requested from '{inst}' in={} out={} without active conntrack",
                     u8::from(b_in),
                     u8::from(b_out)
                 );
             }
-            // shortcut: no conntrack table in Milestone 2; connection cutoff flags arrive in Milestone 3
             Ok(())
+        })?,
+    )?;
+
+    globals.set(
+        "conntrack_feed",
+        lua.create_function(move |lua, args: Variadic<Value>| {
+            check_argc_range("conntrack_feed", &args, 1, 2)?;
+            if ctrack_disable {
+                return Ok((Value::Nil, Value::Nil));
+            }
+            let raw = match &args[0] {
+                Value::Table(dis_tbl) => {
+                    let dis = lua_to_dissect(lua, dis_tbl)
+                        .map_err(|_| mlua::Error::external("invalid dissect data"))?;
+                    let opts = parse_reconstruct_opts(lua, args.get(1))?;
+                    reconstruct_packet(&dis, &opts)
+                        .map_err(|_| mlua::Error::external("invalid dissect data"))?
+                }
+                Value::String(s) => s.as_bytes().to_vec(),
+                _ => return Err(mlua::Error::external("invalid packet data type")),
+            };
+
+            let dis = dissect_packet(&raw, false);
+            let now = boottime_now();
+            let hit = {
+                let mut pool = conntrack.borrow_mut();
+                pool.purge_rate_limited(now.sec);
+                pool.feed(Some(lua), &dis, now)?
+            };
+
+            let Some((entry_rc, b_reverse)) = hit else {
+                return Ok((Value::Nil, Value::Nil));
+            };
+
+            let track_tbl = {
+                let entry = entry_rc.borrow();
+                ctrack_to_lua(lua, &entry, None, b_reverse ^ server)?
+            };
+            {
+                let mut state = ctx_state.borrow_mut();
+                if state.ctrack.is_none() {
+                    state.ctrack = Some(Rc::clone(&entry_rc));
+                    state.incoming = b_reverse;
+                }
+            }
+
+            Ok((Value::Table(track_tbl), Value::Boolean(!b_reverse)))
         })?,
     )?;
 

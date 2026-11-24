@@ -177,26 +177,27 @@ Target verification commands used across tasks:
 **Description:** Port `zapret2/nfq2/conntrack.c` into `src/conntrack` (`types.rs`, `reasm.rs`, `pool.rs`, `mod.rs`) with 5-tuple IPv4/IPv6 TCP and UDP tracking, SYN/SYN-ACK/ESTABLISHED/FIN transitions, `scale <= 14` window shifting, wrapping sequence positions, `rseq_over_2g`, `bReverse`/`bReverseFixed` direction resolution, timeout purging via monotonic `CLOCK_BOOTTIME` seconds, FIFO delayed-packet replay snapshots, and continuous `ReasmFeed` reassembly. Implement `check_pos_from`, `check_pos_to`, `check_pos_range`, and `check_pos_cutoff` in `src/config/range.rs`, encode `desync.track` (with persistent `lua_state` table, `pos.direct`/`pos.reverse` aliases, relative TCP fields, and `replay*`/`reasm_offset`/`reasm_data` fields) in `src/lua/ctrack_encode.rs` + `src/lua/desync_encode.rs`, and wire `conntrack_feed`, `instance_cutoff`, and `lua_cutoff` in `src/lua/desync_api.rs` + `src/lua/runtime.rs`.
 
 **Acceptance criteria:**
-- [ ] `ConntrackPool::feed` tracks client/server bidirectional TCP and UDP flows (`SYN-ACK` creates swapped key preserving client/server orientation), updates `pcounter`/`pdcounter`/`pbcounter`/`pos`/`uppos`/`uppos_prev`/`winsize_calc`/`mss`, latches `rseq_over_2g`, and evicts expired entries at rate-limited intervals.
-- [ ] `ReasmState` rejects forward gaps and overflow (`0x100000` window), overwrites overlapping retransmissions consistently, and buffers up to 64 delayed packets for replay on completion.
-- [ ] `PacketRange` enforces `n`/`d`/`b`/`s`/`p`/`a`/`x` bounds and cutoff semantics cleanly on both tracked and untracked flows.
-- [ ] Lua `desync.track` preserves `lua_state` across packets of the same flow, `conntrack_feed` injects synthetic/dissected packets and propagates `ctx.ctrack` to subsequent actions, and `instance_cutoff` / `lua_cutoff` suppress further execution on matching directions.
+- [x] `ConntrackPool::feed` tracks client/server bidirectional TCP and UDP flows (`SYN-ACK` creates swapped key preserving client/server orientation), updates `pcounter`/`pdcounter`/`pbcounter`/`pos`/`uppos`/`uppos_prev`/`winsize_calc`/`mss`, latches `rseq_over_2g`, and evicts expired entries at rate-limited intervals.
+- [x] `ReasmState` rejects forward gaps and overflow (`0x100000` window), overwrites overlapping retransmissions consistently, and buffers up to 64 delayed packets for replay on completion.
+- [x] `PacketRange` enforces `n`/`d`/`b`/`s`/`p`/`a`/`x` bounds and cutoff semantics cleanly on both tracked and untracked flows.
+- [x] Lua `desync.track` preserves `lua_state` across packets of the same flow, `conntrack_feed` injects synthetic/dissected packets and propagates `ctx.ctrack` to subsequent actions, and `instance_cutoff` / `lua_cutoff` suppress further execution on matching directions.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(conntrack_reasm) or binary(config_filters) or binary(desync_lua_bridge) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: verify `LuaRuntime` drops `ConntrackPool` registry keys cleanly before shutdown and `tests/repo_hygiene.rs` passes (`src/` <= 400 lines, `tests/` <= 450 lines).
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(conntrack_reasm) or binary(conntrack_lua) or binary(config_filters) or binary(desync_lua_bridge) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Manual check: verify `LuaRuntime` drops `ConntrackPool` registry keys cleanly before shutdown and `tests/repo_hygiene.rs` passes (`src/` <= 400 lines, `tests/` <= 450 lines).
 
 **Dependencies:** Milestone 2
 
 **Files likely touched:**
 - `src/lib.rs`
 - `src/timer/clock.rs` & `src/timer/mod.rs`
-- `src/conntrack/{mod.rs,types.rs,reasm.rs,pool.rs}`
+- `src/conntrack/{mod.rs,types.rs,reasm.rs,entry.rs,pool.rs}`
 - `src/config/range.rs`
 - `src/lua/{mod.rs,ctrack_encode.rs,desync_encode.rs,desync_api.rs,runtime.rs}`
-- `src/desync/engine.rs`
+- `src/desync/{engine.rs,verdict.rs}`
 - `tests/conntrack_reasm.rs`
+- `tests/conntrack_lua.rs`
 - `tests/config_filters.rs`
 - `tests/desync_lua_bridge.rs`
 

@@ -10,8 +10,14 @@ use mlua::{Lua, Table, Value};
 use crate::config::{
     DesyncProfile, L7Payload, L7Proto, PacketPos, PacketRange, l7_payload_names,
 };
+/// Conntrack entry and position snapshots serialized into `desync.track`.
+use crate::conntrack::{CtrackEntry, CtrackPositions};
+/// Conntrack-to-Lua table serializer.
+use crate::lua::ctrack_encode::ctrack_to_lua;
 /// Packet dissection to Lua table serializer.
 use crate::lua::packet_encode::dissect_to_lua;
+/// Default fallback TCP MSS constant (`DEFAULT_MSS` = 1220) when option MSS is missing.
+use crate::packet::constants::DEFAULT_MSS;
 /// Parsed wire packet representation passed into `desync.dis`.
 use crate::packet::DissectedPacket;
 
@@ -118,7 +124,7 @@ pub fn build_action_args_table(
     Ok(Some(tbl))
 }
 
-/// Input packet and profile metadata used to construct Lua's `desync` argument table.
+/// Input packet, profile, and optional conntrack/reassembly state serialized into `desync`.
 pub struct DesyncTableInput<'a> {
     /// Dissected wire packet serialized into `desync.dis`.
     pub dis: &'a DissectedPacket,
@@ -138,18 +144,41 @@ pub struct DesyncTableInput<'a> {
     pub target_ip6: Option<[u8; 16]>,
     /// Remote peer transport port for `desync.target.port` (`0` omits field).
     pub target_port: u16,
-    /// Baseline L7 payload classification name (`desync.l7payload`).
+    /// L7 payload classification name (`desync.l7payload`).
     pub l7payload: L7Payload,
     /// L7 protocol classification name (`desync.l7proto`).
     pub l7proto: L7Proto,
+    /// Optional conntrack entry backing `desync.track`.
+    pub track: Option<&'a CtrackEntry>,
+    /// Optional frozen position snapshot overriding `track.pos` during replay.
+    pub tpos: Option<&'a CtrackPositions>,
+    /// Logical reverse flag (`direct_is_server`) controlling `track.pos.direct`/`reverse` aliasing.
+    pub b_reverse: bool,
+    /// Zero-based replay index within an active delayed-packet replay batch.
+    pub replay_piece: usize,
+    /// Total packets in the delayed replay batch (`0` when not replaying).
+    pub replay_piece_count: usize,
+    /// Byte offset within the reassembled stream corresponding to this segment (`reasm_offset`).
+    pub reasm_offset: usize,
+    /// Contiguous segment or reassembled client payload slice (`desync.reasm_data`).
+    pub reasm_data: Option<&'a [u8]>,
+    /// Decrypted QUIC handshake slice (`desync.decrypt_data`), when available.
+    pub decrypt_data: Option<&'a [u8]>,
 }
 
 /// Builds the base `desync` Lua table shared across all action invocations for one packet.
 pub fn build_desync_table(lua: &Lua, input: &DesyncTableInput<'_>) -> mlua::Result<Table> {
-    let tbl = lua.create_table_with_capacity(0, 14)?;
+    let tbl = lua.create_table_with_capacity(0, 18)?;
     tbl.raw_set("dis", dissect_to_lua(lua, input.dis)?)?;
-    // shortcut: conntrack table arrives in Milestone 3
-    tbl.raw_set("track", Value::Nil)?;
+    match input.track {
+        Some(entry) => {
+            tbl.raw_set(
+                "track",
+                ctrack_to_lua(lua, entry, input.tpos, input.b_reverse)?,
+            )?;
+        }
+        None => tbl.raw_set("track", Value::Nil)?,
+    }
     tbl.raw_set("profile_n", i64::from(input.profile.index))?;
     if let Some(name) = &input.profile.name {
         tbl.raw_set("profile_name", name.as_str())?;
@@ -178,13 +207,41 @@ pub fn build_desync_table(lua: &Lua, input: &DesyncTableInput<'_>) -> mlua::Resu
     }
     tbl.raw_set("target", target)?;
 
-    tbl.raw_set("replay", false)?;
+    let is_replay = input.replay_piece_count != 0;
+    tbl.raw_set("replay", is_replay)?;
+    if is_replay {
+        let piece_one_based = input.replay_piece.saturating_add(1);
+        tbl.raw_set(
+            "replay_piece",
+            i64::try_from(piece_one_based).unwrap_or(i64::MAX),
+        )?;
+        tbl.raw_set(
+            "replay_piece_count",
+            i64::try_from(input.replay_piece_count).unwrap_or(i64::MAX),
+        )?;
+        tbl.raw_set("replay_piece_last", piece_one_based >= input.replay_piece_count)?;
+    }
     tbl.raw_set("l7payload", input.l7payload.as_str())?;
     tbl.raw_set("l7proto", input.l7proto.as_str())?;
-    tbl.raw_set("reasm_offset", 0i64)?;
+    tbl.raw_set(
+        "reasm_offset",
+        i64::try_from(input.reasm_offset).unwrap_or(i64::MAX),
+    )?;
+    if let Some(bytes) = input.reasm_data {
+        tbl.raw_set("reasm_data", lua.create_string(bytes)?)?;
+    }
+    if let Some(bytes) = input.decrypt_data {
+        tbl.raw_set("decrypt_data", lua.create_string(bytes)?)?;
+    }
     if input.dis.tcp.is_some() {
-        let default_mss = lua.globals().get::<Value>("DEFAULT_MSS")?;
-        tbl.raw_set("tcp_mss", default_mss)?;
+        let positions = input.tpos.or_else(|| input.track.map(|e| &e.pos));
+        let mss = match positions {
+            Some(tp) if tp.client.mss != 0 && tp.server.mss != 0 => {
+                i64::from(tp.client.mss.min(tp.server.mss))
+            }
+            _ => i64::from(DEFAULT_MSS),
+        };
+        tbl.raw_set("tcp_mss", mss)?;
     }
 
     Ok(tbl)
