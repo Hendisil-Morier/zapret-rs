@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 clap = "4.6.9"
-mlua = { version = "0.12.3", features = ["lua55"] }
+mlua = { version = "0.12.3", features = ["luajit", "vendored"] }
 nfq = "0.2.6"
 thiserror = "2.0.21"

@@ -1,15 +1,22 @@
-use crate::{
-    packet::{
-        byte_reader::PEResult,
-        types::*
+use crate::packet::{
+    byte_reader::{
+        ByteReader,
+        PEResult
     },
-    
-    utils::{
-        error::PacketError,
-        helpers::*
-    }
+    error::PacketError, 
+    types::*
 };
 
+
+fn upper_4bits(input: u8) -> u8
+{
+    input >> 4
+}
+
+fn lower_4bits(input: u8) -> u8
+{
+    input & 0x0F
+}
 
 pub fn parse_ipv4_header(r: &mut ByteReader<'_>)
 -> PEResult<Ipv4Header>
@@ -99,6 +106,8 @@ pub fn parse_ipv4_tcp(raw: &[u8])
     let mut reader = ByteReader::new(raw);
     
     let ip = parse_ipv4_header(&mut reader)?;
+    reader.truncate(ip.total_len as usize)?;
+    
     if ip.protocol != 6
     {
         return Err(PacketError::UnsupportedProtocol(ip.protocol));
@@ -110,7 +119,42 @@ pub fn parse_ipv4_tcp(raw: &[u8])
     Ok(Dissecter { ip, tcp, payload })
 }
 
+const TCP_KIND_END: u8 = 0;
+const TCP_KIND_NOOP: u8 = 1;
+
+///Parse variable length TCP options past byte 20
 fn parse_tcp_option(input: &[u8]) -> Vec<TcpOption>
 {
-    unimplemented!();
+    let mut reader = ByteReader::new(input);
+    let mut option = Vec::new();
+    
+    while let Ok(kind) = reader.read_u8()
+    {
+        if kind == TCP_KIND_END || kind == TCP_KIND_NOOP
+        {
+            option.push( TcpOption {kind, data: None} );
+        }
+        else
+        {
+            let Ok(len) = reader.read_u8() else {break};
+            let Some(data_len) = (len as usize).checked_sub(2) else {break};
+            
+            let Ok(data) = reader.read_bytes(data_len) else {break};
+            
+            option.push( TcpOption {
+                kind,
+                data: Some(data.to_vec())
+            });
+        }
+    }
+    
+    //Strip trailing END padding to keep TCP header a multiple of 4
+    while option.last()
+        .is_some_and(|opt| opt.kind == TCP_KIND_END)
+    {
+        option.pop();
+    }
+    
+    option
 }
+

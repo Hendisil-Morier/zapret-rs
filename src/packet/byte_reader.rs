@@ -1,5 +1,10 @@
-use crate::packet::types::ByteReader;
-use crate::utils::error::PacketError;
+use crate::packet::{error::PacketError};
+
+pub struct ByteReader<'a>
+{
+    data: &'a [u8],
+    pos: usize,
+}
 
 pub type PEResult<T> = Result<T, PacketError>;
 
@@ -78,5 +83,19 @@ impl<'a> ByteReader<'a>
         self.data
             .get(self.pos..)
             .unwrap_or(&[])
+    }
+    
+    /// Shrinks the readable end of the buffer to `max_len`, dropping trailing padding.    
+    pub fn truncate(&mut self, max_len: usize) -> PEResult<()>
+    {
+        if max_len > self.data.len()
+        || max_len < self.pos
+        {
+            return Err(PacketError::Truncated);
+        }
+        
+        self.data = &self.data[..max_len];
+        
+        return Ok(());
     }
 }

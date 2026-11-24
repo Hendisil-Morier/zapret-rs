@@ -1,8 +1,12 @@
 use nfq::Queue;
 
-use crate::{
-    utils::error::IntercepterError, intercepter::types::{Decision, QueueCatcher}
-};
+use crate::intercepter::{error::IntercepterError, types::{Decision}};
+
+
+pub struct QueueCatcher
+{
+    pub queue: Queue,
+}
 
 impl QueueCatcher
 {

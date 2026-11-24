@@ -1,3 +1,4 @@
+#[derive(Debug, Clone)]
 pub struct Dissecter
 {
     pub ip: Ipv4Header,
@@ -42,10 +43,4 @@ pub struct TcpHeader {
     pub checksum: u16,           // th_sum: error-check value for TCP header + payload
     pub urgent_ptr: u16,         // th_urp: urgent byte offset (used by rare OOB tricks)
     pub options: Vec<TcpOption>, // extra options appended past the first 20 bytes
-}
-
-pub struct ByteReader<'a>
-{
-    pub(crate) data: &'a [u8],
-    pub(crate) pos: usize,
 }
