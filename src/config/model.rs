@@ -14,10 +14,12 @@ use crate::config::filter::{
     IcmpFilter, IppFilter, MarkFilter, PortFilter, icmp_filters_match, ipp_filters_match,
     port_filters_match,
 };
-/// L7 protocol enums and bitmask matcher.
-use crate::config::l7::{L7Proto, l7_proto_matches};
+/// L7 protocol enums, bitmask matchers, and default none-disable bitmask constant.
+use crate::config::l7::{L7_PAYLOAD_NONE_MASK, L7Proto, l7_proto_matches};
 /// Packet position range filters evaluated per action.
 use crate::config::range::PacketRange;
+/// Milestone 3 conntrack, ipcache, and per-profile list configuration types.
+use crate::config::runtime_cfg::{ConntrackConfig, IpCacheConfig, ProfileListsConfig};
 /// Default NFQUEUE configuration constants and [`QueueConfig`] target struct.
 use crate::intercepter::{DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_NUM, QueueConfig};
 /// Lua runtime configuration struct populated from [`AppConfig`].
@@ -96,6 +98,8 @@ pub struct DesyncProfile {
     pub filter_l7: u64,
     /// Kernel firewall mark matcher (`mark/mask`).
     pub filter_mark: MarkFilter,
+    /// Per-profile include/exclude hostlists, autohostlist, and CIDR ipset configuration.
+    pub lists: ProfileListsConfig,
     /// Ordered Lua desync action pipeline for matching packets.
     pub actions: Vec<DesyncAction>,
 }
@@ -134,6 +138,8 @@ pub struct AppConfig {
     pub bind_fix4: bool,
     /// Enable IPv6 `SO_BINDTODEVICE` routing fixup.
     pub bind_fix6: bool,
+    /// Enable server-side direction tracking (`--server`, `b_server`).
+    pub server: bool,
     /// Enable verbose debug logging.
     pub debug: bool,
     /// Enable NFQUEUE packet interception (`false` runs timers/init only).
@@ -150,6 +156,16 @@ pub struct AppConfig {
     pub uid: Option<String>,
     /// Forced Lua garbage collection interval in seconds (`0` disables periodic GC).
     pub lua_gc: u64,
+    /// Global connection tracking disable switch and stage timeouts (`--ctrack-*`).
+    pub conntrack: ConntrackConfig,
+    /// Global IP-to-hostname and hop-count cache configuration (`--ipcache-*`).
+    pub ipcache: IpCacheConfig,
+    /// Bitmask of L7 payloads excluded from discovery (`--payload-disable`).
+    pub payload_disable: u64,
+    /// Bitmask of L7 payloads excluded from client-side reassembly (`--reasm-disable`).
+    pub reasm_disable: u64,
+    /// Optional autohostlist failure debug log path (`--hostlist-auto-debug`).
+    pub hostlist_auto_debug: Option<PathBuf>,
     /// Ordered Lua startup scripts and inline snippets.
     pub lua_init: Vec<LuaInitEntry>,
     /// Named binary blobs registered into Lua globals (`fake_default_*` plus custom entries).
@@ -166,6 +182,7 @@ impl Default for AppConfig {
             fwmark: DEFAULT_DESYNC_FWMARK,
             bind_fix4: false,
             bind_fix6: false,
+            server: false,
             debug: false,
             intercept: true,
             daemon: false,
@@ -174,6 +191,11 @@ impl Default for AppConfig {
             user: None,
             uid: None,
             lua_gc: DEFAULT_LUA_GC_INTERVAL,
+            conntrack: ConntrackConfig::default(),
+            ipcache: IpCacheConfig::default(),
+            payload_disable: L7_PAYLOAD_NONE_MASK,
+            reasm_disable: L7_PAYLOAD_NONE_MASK,
+            hostlist_auto_debug: None,
             lua_init: Vec::new(),
             blobs: default_blobs(),
             profiles: Vec::new(),
@@ -188,6 +210,23 @@ impl AppConfig {
             return Err(ConfigError::Validation(
                 "cannot specify both `user` and `uid` for privilege drop".to_owned(),
             ));
+        }
+        for profile in &self.profiles {
+            if let Err(msg) = profile.lists.hostlist_auto_settings.validate() {
+                return Err(ConfigError::Validation(msg.to_owned()));
+            }
+            if profile.lists.hostlist_auto.is_some() {
+                if self.server {
+                    return Err(ConfigError::Validation(
+                        "autohostlist is not supported in server mode".to_owned(),
+                    ));
+                }
+                if self.conntrack.disable {
+                    return Err(ConfigError::Validation(
+                        "autohostlist is not supported when conntrack is disabled".to_owned(),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -210,6 +249,10 @@ impl AppConfig {
             bind_fix6: self.bind_fix6,
             debug: self.debug,
             daemon: self.daemon,
+            server: self.server,
+            cache_hostname: self.ipcache.hostname,
+            ctrack_disable: self.conntrack.disable,
+            ctrack_timeouts: self.conntrack.timeouts,
             lua_gc_sec: self.lua_gc,
             ..LuaConfig::default()
         }

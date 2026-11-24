@@ -13,7 +13,7 @@ use mlua::{AnyUserData, Lua, RegistryKey, Value};
 /// Configuration structs applied when loading blobs, scripts, and verifying desync functions.
 use crate::config::{AppConfig, DesyncProfile, LuaInitEntry};
 /// Bidirectional connection tracking pool shared between `DesyncEngine` and Lua `conntrack_feed`.
-use crate::conntrack::{ConntrackPool, ConntrackTimeouts};
+use crate::conntrack::ConntrackPool;
 /// Bitwise logic and shift Lua primitives.
 use crate::lua::bitwise::register_bitwise_functions;
 /// Binary integer packing, byte mutation, random-blob, and hex primitives.
@@ -83,7 +83,7 @@ impl LuaRuntime {
         register_rawsend_functions(&lua, &config, sender)?;
 
         let desync_ctx = Rc::new(RefCell::new(DesyncContextState::default()));
-        let conntrack = Rc::new(RefCell::new(ConntrackPool::new(ConntrackTimeouts::default())));
+        let conntrack = Rc::new(RefCell::new(ConntrackPool::new(config.ctrack_timeouts)));
         register_desync_functions(
             &lua,
             &config,

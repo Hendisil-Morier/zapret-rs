@@ -10,8 +10,12 @@ use clap::Parser;
 use crate::config::error::ConfigError;
 /// Decimal and `0x`-hex parser shared with fwmark filter syntax.
 use crate::config::filter::parse_u32_radix;
+/// L7 payload disable list parser for `--payload-disable` and `--reasm-disable`.
+use crate::config::l7::parse_l7_disable_mask;
 /// Validated application configuration and Lua init source variants loaded from TOML/CLI.
 use crate::config::model::{AppConfig, LuaInitEntry};
+/// Conntrack `S:E:F[:U]` timeout parser for `--ctrack-timeouts`.
+use crate::config::runtime_cfg::parse_timeouts;
 
 /// Parses `--fwmark` from decimal or `0x` hex notation for `clap`.
 fn parse_fwmark_arg(raw: &str) -> Result<u32, String> {
@@ -50,6 +54,9 @@ pub struct CliArgs {
     /// Override IPv6 `SO_BINDTODEVICE` routing fixup.
     #[arg(long = "bind-fix6", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
     pub bind_fix6: Option<bool>,
+    /// Enable or disable server mode direction semantics.
+    #[arg(long = "server", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
+    pub server: Option<bool>,
     /// Enable or disable debug output.
     #[arg(long = "debug", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
     pub debug: Option<bool>,
@@ -77,6 +84,27 @@ pub struct CliArgs {
     /// Override forced Lua garbage collection interval in seconds (`0` disables periodic GC).
     #[arg(long = "lua-gc")]
     pub lua_gc: Option<u64>,
+    /// Override conntrack stage timeouts (`syn:est:fin[:udp]` in seconds).
+    #[arg(long = "ctrack-timeouts")]
+    pub ctrack_timeouts: Option<String>,
+    /// Disable internal connection tracking.
+    #[arg(long = "ctrack-disable", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
+    pub ctrack_disable: Option<bool>,
+    /// Override IP cache lifetime in seconds (`0` disables expiration).
+    #[arg(long = "ipcache-lifetime")]
+    pub ipcache_lifetime: Option<u32>,
+    /// Enable or disable DNS response hostname caching in IP cache.
+    #[arg(long = "ipcache-hostname", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
+    pub ipcache_hostname: Option<bool>,
+    /// Exclude L7 payloads from discovery (`"all"` when given with no value).
+    #[arg(long = "payload-disable", num_args = 0..=1, default_missing_value = "all")]
+    pub payload_disable: Option<String>,
+    /// Exclude L7 payloads from client-side reassembly (`"all"` when given with no value).
+    #[arg(long = "reasm-disable", num_args = 0..=1, default_missing_value = "all")]
+    pub reasm_disable: Option<String>,
+    /// Override autohostlist failure debug log file path.
+    #[arg(long = "hostlist-auto-debug")]
+    pub hostlist_auto_debug: Option<PathBuf>,
     /// Append Lua startup script (`@path` for file, otherwise inline Lua source).
     #[arg(long = "lua-init")]
     pub lua_init: Vec<String>,
@@ -99,6 +127,9 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError> {
     }
     if let Some(bind_fix6) = cli.bind_fix6 {
         cfg.bind_fix6 = bind_fix6;
+    }
+    if let Some(server) = cli.server {
+        cfg.server = server;
     }
     if let Some(debug) = cli.debug {
         cfg.debug = debug;
@@ -123,6 +154,27 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError> {
     }
     if let Some(lua_gc) = cli.lua_gc {
         cfg.lua_gc = lua_gc;
+    }
+    if let Some(raw_timeouts) = cli.ctrack_timeouts.as_deref() {
+        cfg.conntrack.timeouts = parse_timeouts(raw_timeouts)?;
+    }
+    if let Some(ctrack_disable) = cli.ctrack_disable {
+        cfg.conntrack.disable = ctrack_disable;
+    }
+    if let Some(lifetime) = cli.ipcache_lifetime {
+        cfg.ipcache.lifetime_sec = lifetime;
+    }
+    if let Some(hostname) = cli.ipcache_hostname {
+        cfg.ipcache.hostname = hostname;
+    }
+    if let Some(payload_disable) = &cli.payload_disable {
+        cfg.payload_disable = parse_l7_disable_mask(std::slice::from_ref(payload_disable))?;
+    }
+    if let Some(reasm_disable) = &cli.reasm_disable {
+        cfg.reasm_disable = parse_l7_disable_mask(std::slice::from_ref(reasm_disable))?;
+    }
+    if let Some(debug_log) = &cli.hostlist_auto_debug {
+        cfg.hostlist_auto_debug = Some(debug_log.clone());
     }
     for entry in &cli.lua_init {
         if let Some(path) = entry.strip_prefix('@') {

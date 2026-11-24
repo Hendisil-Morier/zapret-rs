@@ -248,3 +248,132 @@ fn clap_cli_parses_numeric_bools_and_lua_init_entries() {
         Err(ConfigError::Validation(_))
     ));
 }
+
+/// Verifies M3 TOML options, relative list path resolution, `to_lua_config`, and autohostlist guards.
+#[test]
+fn parses_m3_toml_lists_timeouts_and_validates_autohostlist_constraints() {
+    let dir = unique_temp_dir("m3-toml");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create temp test dir");
+    let toml_path = dir.join("m3.toml");
+    let toml_body = r#"
+server = false
+ctrack_timeouts = "12:34:56:78"
+ctrack_disable = false
+ipcache_lifetime = 900
+ipcache_hostname = true
+payload_disable = ["dns_query"]
+reasm_disable = ["tls_client_hello", "quic_initial"]
+hostlist_auto_debug = "logs/auto.log"
+
+[[profiles]]
+name = "auto"
+hostlist = ["lists/include.txt"]
+hostlist_domains = ["example.com,example.org"]
+hostlist_exclude = ["lists/exclude.txt.gz"]
+hostlist_exclude_domains = ["skip.example.com"]
+hostlist_auto = "lists/auto.txt"
+hostlist_auto_fail_threshold = 4
+hostlist_auto_fail_time = 90
+hostlist_auto_retrans_threshold = 3
+hostlist_auto_retrans_maxseq = 16384
+hostlist_auto_retrans_reset = false
+hostlist_auto_incoming_maxseq = 2048
+hostlist_auto_udp_out = 6
+hostlist_auto_udp_in = 2
+ipset = ["lists/cidrs.txt"]
+ipset_ip = ["10.0.0.0/8,192.0.2.1"]
+ipset_exclude = ["lists/skip-cidrs.txt"]
+ipset_exclude_ip = ["127.0.0.0/8"]
+"#;
+    fs::write(&toml_path, toml_body).expect("write M3 TOML");
+
+    let cfg = AppConfig::from_toml_file(&toml_path).expect("M3 TOML should parse");
+    let _ = fs::remove_dir_all(&dir);
+
+    assert!(!cfg.server);
+    assert_eq!(cfg.conntrack.timeouts.syn, 12);
+    assert_eq!(cfg.conntrack.timeouts.established, 34);
+    assert_eq!(cfg.conntrack.timeouts.fin, 56);
+    assert_eq!(cfg.conntrack.timeouts.udp, 78);
+    assert_eq!(cfg.ipcache.lifetime_sec, 900);
+    assert!(cfg.ipcache.hostname);
+    assert_ne!(cfg.payload_disable, 0);
+    assert_ne!(cfg.reasm_disable, 0);
+    assert_eq!(cfg.hostlist_auto_debug, Some(dir.join("logs/auto.log")));
+
+    let p = &cfg.profiles[0];
+    assert_eq!(p.lists.hostlist, vec![dir.join("lists/include.txt")]);
+    assert_eq!(p.lists.hostlist_domains, vec!["example.com", "example.org"]);
+    assert_eq!(p.lists.hostlist_exclude, vec![dir.join("lists/exclude.txt.gz")]);
+    assert_eq!(p.lists.hostlist_exclude_domains, vec!["skip.example.com"]);
+    assert_eq!(p.lists.hostlist_auto, Some(dir.join("lists/auto.txt")));
+    assert_eq!(p.lists.hostlist_auto_settings.fail_threshold, 4);
+    assert_eq!(p.lists.hostlist_auto_settings.fail_time_sec, 90);
+    assert!(!p.lists.hostlist_auto_settings.retrans_reset);
+    assert_eq!(p.lists.hostlist_auto_settings.udp_out, 6);
+    assert_eq!(p.lists.hostlist_auto_settings.udp_in, 2);
+    assert_eq!(p.lists.ipset, vec![dir.join("lists/cidrs.txt")]);
+    assert_eq!(p.lists.ipset_ip, vec!["10.0.0.0/8", "192.0.2.1"]);
+    assert_eq!(p.lists.ipset_exclude, vec![dir.join("lists/skip-cidrs.txt")]);
+    assert_eq!(p.lists.ipset_exclude_ip, vec!["127.0.0.0/8"]);
+
+    let lcfg = cfg.to_lua_config();
+    assert!(lcfg.cache_hostname);
+    assert_eq!(lcfg.ctrack_timeouts.established, 34);
+
+    let srv_conflict = "server = true\n[[profiles]]\nhostlist_auto = \"auto.txt\"\n";
+    assert!(matches!(
+        AppConfig::from_toml_str(srv_conflict, None),
+        Err(ConfigError::Validation(_))
+    ));
+    let ct_conflict = "ctrack_disable = true\n[[profiles]]\nhostlist_auto = \"auto.txt\"\n";
+    assert!(matches!(
+        AppConfig::from_toml_str(ct_conflict, None),
+        Err(ConfigError::Validation(_))
+    ));
+}
+
+/// Verifies M3 CLI flags override TOML values and bare `--payload-disable` disables all payloads.
+#[test]
+fn cli_m3_flags_override_toml_settings() {
+    let dir = unique_temp_dir("m3-cli");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create temp test dir");
+    let toml_path = dir.join("base.toml");
+    fs::write(
+        &toml_path,
+        "server = false\nipcache_lifetime = 3600\n[[profiles]]\nhostlist_auto = \"auto.txt\"\n",
+    )
+    .expect("write base toml");
+
+    let cli = CliArgs::try_parse_from([
+        "nfqws2",
+        "--config",
+        toml_path.to_str().expect("utf8 path"),
+        "--ctrack-timeouts=5:10:15",
+        "--ipcache-lifetime=120",
+        "--ipcache-hostname=1",
+        "--payload-disable",
+        "--reasm-disable=quic_initial",
+        "--hostlist-auto-debug=/tmp/auto-dbg.log",
+    ])
+    .expect("M3 CLI flags parse");
+    let resolved = resolve_config(&cli).expect("M3 CLI resolution succeeds");
+    assert_eq!(resolved.conntrack.timeouts.syn, 5);
+    assert_eq!(resolved.conntrack.timeouts.udp, 60);
+    assert_eq!(resolved.ipcache.lifetime_sec, 120);
+    assert!(resolved.ipcache.hostname);
+    assert_eq!(resolved.payload_disable, 0);
+    assert_eq!(resolved.hostlist_auto_debug, Some(PathBuf::from("/tmp/auto-dbg.log")));
+
+    let err_cli = CliArgs::try_parse_from([
+        "nfqws2",
+        "--config",
+        toml_path.to_str().expect("utf8 path"),
+        "--server",
+    ])
+    .expect("CLI syntax valid");
+    assert!(matches!(resolve_config(&err_cli), Err(ConfigError::Validation(_))));
+    let _ = fs::remove_dir_all(&dir);
+}

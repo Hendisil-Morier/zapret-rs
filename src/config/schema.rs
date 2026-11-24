@@ -1,27 +1,27 @@
-//! TOML configuration file deserialization into validated [`AppConfig`] structures.
+//! Top-level TOML configuration file deserialization into validated [`AppConfig`] structures.
 
-/// Ordered key-value maps for named blobs and Lua desync function arguments.
+/// Ordered key-value maps for named custom blobs.
 use std::collections::BTreeMap;
 /// Filesystem reader for TOML config files.
 use std::fs;
 /// File path and borrowed path types for resolving relative config references.
 use std::path::{Path, PathBuf};
 
-/// Serde `Deserialize` macro for strict TOML schema parsing.
+/// Serde `Deserialize` macro for strict top-level TOML schema parsing.
 use serde::Deserialize;
 
 /// Hex and file binary blob loaders.
 use crate::config::blobs::{load_file_blob, parse_hex_blob};
 /// Typed configuration parsing and validation errors.
 use crate::config::error::ConfigError;
-/// Packet and profile filter primitives (`PortFilter`, `IcmpFilter`, etc.).
-use crate::config::filter::{IcmpFilter, IppFilter, MarkFilter, PortFilter};
-/// L7 protocol and payload bitmask parsers.
-use crate::config::l7::{parse_l7_payload_mask, parse_l7_proto_mask};
-/// Validated runtime configuration types populated by the TOML deserializer.
-use crate::config::model::{AppConfig, DesyncAction, DesyncProfile, LuaInitEntry};
-/// Packet position range parser for action `in_range` and `out_range` filters.
-use crate::config::range::PacketRange;
+/// L7 payload disable bitmask parser (`--payload-disable`, `--reasm-disable`).
+use crate::config::l7::parse_l7_disable_mask;
+/// Validated runtime application configuration and startup script variants.
+use crate::config::model::{AppConfig, LuaInitEntry};
+/// Per-profile TOML schema and validated [`crate::config::DesyncProfile`] builder.
+use crate::config::profile_schema::{RawProfile, build_profile};
+/// Conntrack timeout parser for TOML `ctrack_timeouts`.
+use crate::config::runtime_cfg::parse_timeouts;
 
 /// Raw TOML `lua_init` item supporting a script path or an inline chunk table (`{ inline = "..." }`).
 #[derive(Debug, Clone, Deserialize)]
@@ -52,72 +52,6 @@ enum RawBlobSpec {
     },
 }
 
-/// Raw TOML scalar argument value forwarded into Lua's `desync.arg` table.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-enum RawActionArg {
-    /// Boolean flag (`true` becomes `""` matching C flag presence; `false` is omitted).
-    Bool(bool),
-    /// Signed 64-bit integer encoded as decimal string for Lua compatibility.
-    Int(i64),
-    /// String parameter copied verbatim.
-    Str(String),
-}
-
-/// Raw TOML `[[profiles.actions]]` block describing a Lua desync invocation.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawAction {
-    /// Target Lua function name (e.g., `"fake"`, `"multisplit"`).
-    func: String,
-    /// Allowed L7 payload names (`"all"` when empty).
-    #[serde(default)]
-    payload: Vec<String>,
-    /// Incoming packet position range filter (`"x"` when omitted).
-    in_range: Option<String>,
-    /// Outgoing packet position range filter (`"a"` when omitted).
-    out_range: Option<String>,
-    /// Named scalar parameters passed in `desync.arg`.
-    #[serde(default)]
-    args: BTreeMap<String, RawActionArg>,
-}
-
-/// Raw TOML `[[profiles]]` block defining matching criteria and action pipeline.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawProfile {
-    /// Optional human-readable profile name.
-    name: Option<String>,
-    /// Optional profile-bound string exposed to Lua via `desync.cookie`.
-    cookie: Option<String>,
-    /// Skip this profile entirely when `true`.
-    #[serde(default)]
-    skip: bool,
-    /// L3 filter list (`"ipv4"`, `"ipv6"`, or empty for both).
-    #[serde(default)]
-    filter_l3: Vec<String>,
-    /// TCP port filter list (`[~]p1[-p2]|*`).
-    #[serde(default)]
-    filter_tcp: Vec<String>,
-    /// UDP port filter list (`[~]p1[-p2]|*`).
-    #[serde(default)]
-    filter_udp: Vec<String>,
-    /// ICMP type[:code] filter list (`*|-|type[:code]`).
-    #[serde(default)]
-    filter_icmp: Vec<String>,
-    /// IP protocol number filter list (`*|-|proto`).
-    #[serde(default)]
-    filter_ipp: Vec<String>,
-    /// L7 protocol filter list (`all`, `http`, `tls`, `quic`, etc.).
-    #[serde(default)]
-    filter_l7: Vec<String>,
-    /// Optional firewall mark filter (`mark[/mask]`).
-    filter_mark: Option<String>,
-    /// Ordered Lua desync actions invoked when this profile matches.
-    #[serde(default)]
-    actions: Vec<RawAction>,
-}
-
 /// Top-level TOML configuration file structure (`nfqws2.toml`).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -130,6 +64,8 @@ struct RawConfig {
     bind_fix4: Option<bool>,
     /// Enable IPv6 `SO_BINDTODEVICE` routing fixup (`--bind-fix6`).
     bind_fix6: Option<bool>,
+    /// Enable server-side direction semantics (`--server`).
+    server: Option<bool>,
     /// Enable verbose debug logging (`--debug`).
     debug: Option<bool>,
     /// Enable NFQUEUE interception (`--intercept`).
@@ -146,6 +82,22 @@ struct RawConfig {
     uid: Option<String>,
     /// Forced Lua GC interval in seconds (`--lua-gc`).
     lua_gc: Option<u64>,
+    /// Colon-delimited conntrack stage timeouts `S:E:F[:U]` (`--ctrack-timeouts`).
+    ctrack_timeouts: Option<String>,
+    /// Disable internal connection tracking (`--ctrack-disable`).
+    ctrack_disable: Option<bool>,
+    /// IPCache entry lifetime in seconds (`--ipcache-lifetime`).
+    ipcache_lifetime: Option<u32>,
+    /// Enable DNS response domain-to-IP caching (`--ipcache-hostname`).
+    ipcache_hostname: Option<bool>,
+    /// L7 payloads excluded from detection (`--payload-disable`).
+    #[serde(default)]
+    payload_disable: Vec<String>,
+    /// L7 payloads excluded from client-side reassembly (`--reasm-disable`).
+    #[serde(default)]
+    reasm_disable: Vec<String>,
+    /// Autohostlist failure debug log path (`--hostlist-auto-debug`).
+    hostlist_auto_debug: Option<PathBuf>,
     /// Ordered list of startup Lua scripts or inline chunks.
     #[serde(default)]
     lua_init: Vec<RawLuaInit>,
@@ -162,34 +114,7 @@ impl AppConfig {
     pub fn from_toml_str(input: &str, base_dir: Option<&Path>) -> Result<Self, ConfigError> {
         let raw: RawConfig = toml::from_str(input)?;
         let mut cfg = Self::default();
-        if let Some(qnum) = raw.qnum {
-            cfg.qnum = qnum;
-        }
-        if let Some(fwmark) = raw.fwmark {
-            cfg.fwmark = fwmark;
-        }
-        if let Some(bind_fix4) = raw.bind_fix4 {
-            cfg.bind_fix4 = bind_fix4;
-        }
-        if let Some(bind_fix6) = raw.bind_fix6 {
-            cfg.bind_fix6 = bind_fix6;
-        }
-        if let Some(debug) = raw.debug {
-            cfg.debug = debug;
-        }
-        if let Some(intercept) = raw.intercept {
-            cfg.intercept = intercept;
-        }
-        if let Some(daemon) = raw.daemon {
-            cfg.daemon = daemon;
-        }
-        cfg.pidfile = raw.pidfile.map(|p| resolve_path(p, base_dir));
-        cfg.chdir = raw.chdir.map(|p| resolve_path(p, base_dir));
-        cfg.user = raw.user;
-        cfg.uid = raw.uid;
-        if let Some(lua_gc) = raw.lua_gc {
-            cfg.lua_gc = lua_gc;
-        }
+        apply_scalar_fields(&mut cfg, &raw, base_dir)?;
 
         cfg.lua_init = raw
             .lua_init
@@ -220,7 +145,8 @@ impl AppConfig {
             if raw_profile.skip {
                 continue;
             }
-            cfg.profiles.push(build_profile(next_index, raw_profile)?);
+            cfg.profiles
+                .push(build_profile(next_index, raw_profile, base_dir)?);
             next_index = next_index.saturating_add(1);
         }
 
@@ -238,154 +164,74 @@ impl AppConfig {
     }
 }
 
+/// Applies top-level scalar, path, conntrack, ipcache, and L7 disable options from `raw`.
+fn apply_scalar_fields(
+    cfg: &mut AppConfig,
+    raw: &RawConfig,
+    base_dir: Option<&Path>,
+) -> Result<(), ConfigError> {
+    if let Some(qnum) = raw.qnum {
+        cfg.qnum = qnum;
+    }
+    if let Some(fwmark) = raw.fwmark {
+        cfg.fwmark = fwmark;
+    }
+    if let Some(bind_fix4) = raw.bind_fix4 {
+        cfg.bind_fix4 = bind_fix4;
+    }
+    if let Some(bind_fix6) = raw.bind_fix6 {
+        cfg.bind_fix6 = bind_fix6;
+    }
+    if let Some(server) = raw.server {
+        cfg.server = server;
+    }
+    if let Some(debug) = raw.debug {
+        cfg.debug = debug;
+    }
+    if let Some(intercept) = raw.intercept {
+        cfg.intercept = intercept;
+    }
+    if let Some(daemon) = raw.daemon {
+        cfg.daemon = daemon;
+    }
+    cfg.pidfile = raw.pidfile.clone().map(|p| resolve_path(p, base_dir));
+    cfg.chdir = raw.chdir.clone().map(|p| resolve_path(p, base_dir));
+    cfg.user = raw.user.clone();
+    cfg.uid = raw.uid.clone();
+    if let Some(lua_gc) = raw.lua_gc {
+        cfg.lua_gc = lua_gc;
+    }
+    if let Some(timeouts) = raw.ctrack_timeouts.as_deref() {
+        cfg.conntrack.timeouts = parse_timeouts(timeouts)?;
+    }
+    if let Some(disable) = raw.ctrack_disable {
+        cfg.conntrack.disable = disable;
+    }
+    if let Some(lifetime) = raw.ipcache_lifetime {
+        cfg.ipcache.lifetime_sec = lifetime;
+    }
+    if let Some(hostname) = raw.ipcache_hostname {
+        cfg.ipcache.hostname = hostname;
+    }
+    if !raw.payload_disable.is_empty() {
+        cfg.payload_disable = parse_l7_disable_mask(&raw.payload_disable)?;
+    }
+    if !raw.reasm_disable.is_empty() {
+        cfg.reasm_disable = parse_l7_disable_mask(&raw.reasm_disable)?;
+    }
+    cfg.hostlist_auto_debug = raw
+        .hostlist_auto_debug
+        .clone()
+        .map(|p| resolve_path(p, base_dir));
+    Ok(())
+}
+
 /// Resolves relative file paths against `base_dir` when present.
-fn resolve_path(path: PathBuf, base_dir: Option<&Path>) -> PathBuf {
+pub(super) fn resolve_path(path: PathBuf, base_dir: Option<&Path>) -> PathBuf {
     if path.is_relative()
         && let Some(dir) = base_dir
     {
         return dir.join(path);
     }
     path
-}
-
-/// Parses comma-separated or array-element filter items using `parse_one`.
-fn parse_comma_list<T>(
-    items: &[String],
-    parse_one: impl Fn(&str) -> Result<T, ConfigError>,
-) -> Result<Vec<T>, ConfigError> {
-    let mut out = Vec::new();
-    for entry in items {
-        for token in entry.split(',') {
-            let trimmed = token.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            out.push(parse_one(trimmed)?);
-        }
-    }
-    Ok(out)
-}
-
-/// Converts a raw TOML profile into a validated [`DesyncProfile`] with `filter_defaults` applied.
-fn build_profile(index: u32, raw: RawProfile) -> Result<DesyncProfile, ConfigError> {
-    let (filter_ipv4, filter_ipv6) = parse_l3_filters(&raw.filter_l3)?;
-    let mut filter_tcp = parse_comma_list(&raw.filter_tcp, PortFilter::parse)?;
-    let mut filter_udp = parse_comma_list(&raw.filter_udp, PortFilter::parse)?;
-    let mut filter_icmp = parse_comma_list(&raw.filter_icmp, IcmpFilter::parse)?;
-    let mut filter_ipp = parse_comma_list(&raw.filter_ipp, IppFilter::parse)?;
-
-    // Mirror `zapret2`'s `filter_defaults`: if any L4 filter is set, deny unset L4 protocol families.
-    let any_l4 = !filter_tcp.is_empty()
-        || !filter_udp.is_empty()
-        || !filter_icmp.is_empty()
-        || !filter_ipp.is_empty();
-    if any_l4 {
-        if filter_tcp.is_empty() {
-            filter_tcp.push(PortFilter::deny_all());
-        }
-        if filter_udp.is_empty() {
-            filter_udp.push(PortFilter::deny_all());
-        }
-        if filter_icmp.is_empty() {
-            filter_icmp.push(IcmpFilter::skip());
-        }
-        if filter_ipp.is_empty() {
-            filter_ipp.push(IppFilter::skip());
-        }
-    }
-
-    let filter_l7 = parse_l7_proto_mask(&raw.filter_l7)?;
-    let filter_mark = match raw.filter_mark.as_deref() {
-        Some(raw_mark) => MarkFilter::parse(raw_mark)?,
-        None => MarkFilter::default(),
-    };
-
-    let mut actions = Vec::with_capacity(raw.actions.len());
-    for raw_action in raw.actions {
-        actions.push(build_action(raw_action)?);
-    }
-
-    Ok(DesyncProfile {
-        index,
-        name: raw.name,
-        cookie: raw.cookie,
-        filter_ipv4,
-        filter_ipv6,
-        filter_tcp,
-        filter_udp,
-        filter_icmp,
-        filter_ipp,
-        filter_l7,
-        filter_mark,
-        actions,
-    })
-}
-
-/// Parses `filter_l3` items (`ipv4`/`ipv6`), defaulting to both enabled when empty.
-fn parse_l3_filters(items: &[String]) -> Result<(bool, bool), ConfigError> {
-    let mut saw_any = false;
-    let mut ipv4 = false;
-    let mut ipv6 = false;
-    for entry in items {
-        for token in entry.split(',') {
-            let trimmed = token.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            saw_any = true;
-            match trimmed {
-                "ipv4" => ipv4 = true,
-                "ipv6" => ipv6 = true,
-                _ => return Err(ConfigError::InvalidL3Filter(trimmed.to_owned())),
-            }
-        }
-    }
-    if !saw_any {
-        return Ok((true, true));
-    }
-    Ok((ipv4, ipv6))
-}
-
-/// Converts a raw TOML action block into a validated [`DesyncAction`].
-fn build_action(raw: RawAction) -> Result<DesyncAction, ConfigError> {
-    let func = raw.func.trim().to_owned();
-    if func.is_empty() {
-        return Err(ConfigError::Validation(
-            "action `func` name cannot be empty".to_owned(),
-        ));
-    }
-    let payload_mask = parse_l7_payload_mask(&raw.payload)?;
-    let in_range = match raw.in_range.as_deref() {
-        Some(expr) => PacketRange::parse(expr)?,
-        None => PacketRange::NEVER,
-    };
-    let out_range = match raw.out_range.as_deref() {
-        Some(expr) => PacketRange::parse(expr)?,
-        None => PacketRange::ALWAYS,
-    };
-
-    let mut args = BTreeMap::new();
-    for (key, val) in raw.args {
-        match val {
-            RawActionArg::Bool(true) => {
-                // In `zapret2`, boolean flags like `tcp_md5` are empty strings (`""`), which are truthy in Lua.
-                args.insert(key, String::new());
-            }
-            RawActionArg::Bool(false) => {}
-            RawActionArg::Int(n) => {
-                args.insert(key, n.to_string());
-            }
-            RawActionArg::Str(s) => {
-                args.insert(key, s);
-            }
-        }
-    }
-
-    Ok(DesyncAction {
-        func,
-        payload_mask,
-        in_range,
-        out_range,
-        args,
-    })
 }

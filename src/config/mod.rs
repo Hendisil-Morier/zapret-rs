@@ -12,9 +12,13 @@ pub mod filter;
 pub mod l7;
 /// Validated runtime application, profile, and action models.
 pub mod model;
+/// Per-profile TOML schema deserialization and action/list builders.
+pub mod profile_schema;
 /// Packet position counter and range expression filters.
 pub mod range;
-/// TOML configuration file deserialization.
+/// Milestone 3 conntrack, ipcache, and per-profile list configuration types.
+pub mod runtime_cfg;
+/// Top-level TOML configuration file deserialization.
 pub mod schema;
 
 /// Re-exported default and custom blob helpers.
@@ -33,8 +37,9 @@ pub use filter::{
 };
 /// Re-exported L7 protocol/payload enums and mask matchers.
 pub use l7::{
-    ALL_L7_PAYLOADS, L7Payload, L7Proto, l7_payload_matches, l7_payload_names,
-    l7_payload_str_list, l7_proto_matches, parse_l7_payload_mask, parse_l7_proto_mask,
+    ALL_L7_PAYLOADS, L7_PAYLOAD_NONE_MASK, L7Payload, L7Proto, l7_payload_matches,
+    l7_payload_names, l7_payload_str_list, l7_proto_matches, parse_l7_disable_mask,
+    parse_l7_payload_mask, parse_l7_proto_mask,
 };
 /// Re-exported validated runtime configuration and profile/action structs.
 pub use model::{
@@ -43,3 +48,5 @@ pub use model::{
 };
 /// Re-exported packet position and range filter primitives.
 pub use range::{PacketPos, PacketPosMode, PacketRange};
+/// Re-exported conntrack, IP cache, and per-profile list configuration structs.
+pub use runtime_cfg::{ConntrackConfig, IpCacheConfig, ProfileListsConfig, parse_timeouts};

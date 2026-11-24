@@ -5,12 +5,13 @@ use std::fs;
 /// PathBuf helper for temporary test blob cleanup.
 use std::path::PathBuf;
 
-/// Filter primitives, L7 classification masks, and default/custom blob helpers.
+/// Filter primitives, L7 classification masks, timeout parsers, and default/custom blob helpers.
 use zapret_rs::config::{
-    ConfigError, FAKE_QUIC_DEFAULT_LEN, FilterMode, IcmpFilter, IppFilter, L7Payload, L7Proto,
-    MarkFilter, PacketPos, PacketPosMode, PacketRange, PortFilter, default_blobs,
-    icmp_filters_match, ipp_filters_match, l7_payload_matches, l7_proto_matches, load_file_blob,
-    parse_hex_blob, parse_l7_payload_mask, parse_l7_proto_mask, port_filters_match,
+    ConfigError, FAKE_QUIC_DEFAULT_LEN, FilterMode, IcmpFilter, IppFilter, L7_PAYLOAD_NONE_MASK,
+    L7Payload, L7Proto, MarkFilter, PacketPos, PacketPosMode, PacketRange, PortFilter,
+    default_blobs, icmp_filters_match, ipp_filters_match, l7_payload_matches, l7_proto_matches,
+    load_file_blob, parse_hex_blob, parse_l7_disable_mask, parse_l7_payload_mask,
+    parse_l7_proto_mask, parse_timeouts, port_filters_match,
 };
 
 /// Returns a per-process unique temporary path under `std::env::temp_dir()`.
@@ -211,4 +212,34 @@ fn default_hex_and_file_blobs_load_accurately() {
     let loaded = load_file_blob("custom_file", &path, 7).expect("read temp blob with offset");
     let _ = fs::remove_file(&path);
     assert_eq!(loaded, b"abcdef");
+}
+
+/// Verifies M3 `parse_l7_disable_mask` and `parse_timeouts` helpers match `zapret2` defaults.
+#[test]
+fn l7_disable_mask_and_ctrack_timeouts_parse_and_validate() {
+    let none = parse_l7_disable_mask(&[]).expect("empty means none disabled");
+    assert_eq!(none, L7_PAYLOAD_NONE_MASK);
+    assert!(!l7_payload_matches(L7Payload::HttpReq, none));
+
+    let blank = parse_l7_disable_mask(&["  ".to_owned()]).expect("whitespace means none");
+    assert_eq!(blank, L7_PAYLOAD_NONE_MASK);
+
+    let all = parse_l7_disable_mask(&["http_req,all".to_owned()]).expect("all resets mask to 0");
+    assert_eq!(all, 0);
+    assert!(l7_payload_matches(L7Payload::TlsClientHello, all));
+
+    let subset = parse_l7_disable_mask(&["http_req,quic_initial".to_owned()]).expect("subset");
+    assert!(l7_payload_matches(L7Payload::HttpReq, subset));
+    assert!(l7_payload_matches(L7Payload::QuicInitial, subset));
+    assert!(!l7_payload_matches(L7Payload::TlsClientHello, subset));
+
+    let three = parse_timeouts("10:20:30").expect("3-part S:E:F keeps default udp timeout");
+    assert_eq!((three.syn, three.established, three.fin, three.udp), (10, 20, 30, 60));
+
+    let four = parse_timeouts("5:15:25:35").expect("4-part S:E:F:U overrides udp timeout");
+    assert_eq!((four.syn, four.established, four.fin, four.udp), (5, 15, 25, 35));
+
+    assert!(matches!(parse_timeouts("10:20"), Err(ConfigError::Validation(_))));
+    assert!(matches!(parse_timeouts("1:2:3:4:5"), Err(ConfigError::Validation(_))));
+    assert!(matches!(parse_timeouts("1:bad:3"), Err(ConfigError::Validation(_))));
 }

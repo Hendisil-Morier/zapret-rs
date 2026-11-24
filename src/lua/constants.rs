@@ -3,6 +3,8 @@
 /// Core `mlua` types for global table mutation.
 use mlua::{Lua, Table, Value};
 
+/// Typed configuration errors are unnecessary here; conntrack timeouts flow directly into Lua state.
+use crate::conntrack::ConntrackTimeouts;
 /// Protocol, verdict, flag, and compatibility constants shared with the packet engine.
 use crate::packet::constants::{
     DEFAULT_MSS, ICMP_BASE_LEN, ICMP_DEST_UNREACH, ICMP_ECHO, ICMP_ECHOREPLY, ICMP_INFO_REPLY,
@@ -55,6 +57,8 @@ pub struct LuaConfig {
     pub cache_hostname: bool,
     /// Conntrack disabled flag (`b_ctrack_disable`).
     pub ctrack_disable: bool,
+    /// Idle timeouts and purge cadence for the built-in conntrack table.
+    pub ctrack_timeouts: ConntrackTimeouts,
     /// Forced garbage collection interval in seconds (0 = disabled).
     pub lua_gc_sec: u64,
 }
@@ -73,6 +77,7 @@ impl Default for LuaConfig {
             server: false,
             cache_hostname: false,
             ctrack_disable: false,
+            ctrack_timeouts: ConntrackTimeouts::default(),
             lua_gc_sec: 60,
         }
     }

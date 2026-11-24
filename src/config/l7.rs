@@ -270,6 +270,9 @@ impl L7Payload {
     }
 }
 
+/// Bitmask representing `L7P_NONE` (no payloads selected, used as default disable mask).
+pub const L7_PAYLOAD_NONE_MASK: u64 = 1u64 << 31;
+
 /// Parses comma-separated or list-separated L7 payload names into a 64-bit mask (`0` = all).
 pub fn parse_l7_payload_mask(items: &[String]) -> Result<u64, ConfigError> {
     let mut mask = 0u64;
@@ -288,6 +291,18 @@ pub fn parse_l7_payload_mask(items: &[String]) -> Result<u64, ConfigError> {
         }
     }
     Ok(mask)
+}
+
+/// Parses `--payload-disable` / `--reasm-disable` lists (`empty` => [`L7_PAYLOAD_NONE_MASK`], `"all"` => `0`).
+pub fn parse_l7_disable_mask(items: &[String]) -> Result<u64, ConfigError> {
+    let has_tokens = items
+        .iter()
+        .flat_map(|entry| entry.split(','))
+        .any(|token| !token.trim().is_empty());
+    if !has_tokens {
+        return Ok(L7_PAYLOAD_NONE_MASK);
+    }
+    parse_l7_payload_mask(items)
 }
 
 /// Returns `true` if `payload` satisfies `filter_mask` (`0` or `L7Payload::Known` handled identically to `l7_payload_match`).
