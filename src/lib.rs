@@ -8,6 +8,8 @@ pub mod conntrack;
 pub mod desync;
 /// Linux NFQUEUE packet interception and verdict loop.
 pub mod intercepter;
+/// Hostlists, autohostlist failure detection, disjoint CIDR IPsets, and TTL IPCache.
+pub mod lists;
 /// Embedded `zapret2`-compatible LuaJIT runtime and script bindings.
 pub mod lua;
 /// Wire packet dissection, checksums, constants, and reconstruction engine.
