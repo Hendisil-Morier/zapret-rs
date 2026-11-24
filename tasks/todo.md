@@ -101,7 +101,7 @@ Target verification commands used across tasks:
 - [x] All tests (including `repo_hygiene`) pass (`cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`)
 - [x] Clippy passes cleanly with `-D warnings`
 - [x] Synthetic packet -> profile filter -> Lua desync -> `Pass`/`Drop`/`Replace` + `rawsend_dissect` flow works end-to-end
-- [ ] Review with user before proceeding to Tasks 2.4-2.5
+- [x] Review with user before proceeding to Tasks 2.4-2.5
 
 ---
 
@@ -140,14 +140,14 @@ Target verification commands used across tasks:
 **Description:** Replace the placeholder `src/main.rs` with `src/bin/nfqws2.rs` (plus `src/runtime/process.rs` for pidfile, daemonize, `--chdir`, `--user`/`--uid` privilege drop, capability retention for `CAP_NET_RAW`/`CAP_NET_ADMIN`, and `SIGINT`/`SIGTERM`/`SIGHUP` signal flags). Connect CLI parsing, `RawSender::preinit`, Lua init/blobs, `--dry-run`, `--intercept=0`, and the NFQUEUE event loop.
 
 **Acceptance criteria:**
-- [ ] `nfqws2 --version`, `nfqws2 --dry-run ...`, and `nfqws2 --intercept=0 --lua-init=...` exit 0 with expected output and clean signal shutdown.
-- [ ] Startup initializes `RawSender::preinit` before dropping privileges and handles `SIGINT`/`SIGTERM` cleanly without hanging or leaking pidfiles.
-- [ ] End-to-end CLI smoke test passes offline, and live `unshare -r -n` NFQUEUE test runs if kernel `nfnetlink_queue` is accessible (or reports clearly if blocked by kernel config).
+- [x] `nfqws2 --version`, `nfqws2 --dry-run ...`, and `nfqws2 --intercept=0 --lua-init=...` exit 0 with expected output and clean signal shutdown.
+- [x] Startup initializes `RawSender::preinit` before dropping privileges and handles `SIGINT`/`SIGTERM` cleanly without hanging or leaking pidfiles.
+- [x] End-to-end CLI smoke test passes offline, and live `unshare -r -n` NFQUEUE test (`live_nfqueue_daemon_starts_and_exits_on_sigterm`) passes alongside `rawsend_live`.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: run `nfqws2 --intercept=0 --lua-init=@../zapret2/lua/zapret-lib.lua --lua-init='DLOG_CONDUP("ok")'` and confirm clean exit 0.
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Manual check: run `nfqws2 --intercept=0 --lua-init=@../zapret2/lua/zapret-lib.lua --lua-init='DLOG_CONDUP("ok")'` and confirm clean exit 0.
 
 **Dependencies:** Task 2.1, Task 2.2, Task 2.3, Task 2.4
 
@@ -163,7 +163,7 @@ Target verification commands used across tasks:
 ---
 
 ## Checkpoint 2B: Milestone 2 Complete
-- [ ] All tasks 2.1 through 2.5 checked off with individual atomic commits
-- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
-- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and `rawsend_live` passes in `unshare -r -n`
+- [x] All tasks 2.1 through 2.5 checked off with individual atomic commits
+- [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [x] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and all 3 live tests (`rawsend_live` + `live_nfqueue_daemon_starts_and_exits_on_sigterm`) pass in `unshare -r -n`
 - [ ] Review with user and plan Milestone 3
