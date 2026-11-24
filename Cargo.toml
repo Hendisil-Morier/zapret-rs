@@ -13,6 +13,7 @@ libc = "0.2.191"
 mlua = { version = "0.12.3", features = ["luajit", "vendored"] }
 nfq = "0.2.6"
 rand = "0.9.5"
+ring = "0.17.14"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 toml = "1.2.2"

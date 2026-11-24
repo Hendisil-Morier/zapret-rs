@@ -12,6 +12,8 @@ pub mod intercepter;
 pub mod lua;
 /// Wire packet dissection, checksums, constants, and reconstruction engine.
 pub mod packet;
+/// L7 protocol classifiers, QUIC Initial decryption, TLS modification, and position markers.
+pub mod protocol;
 /// Linux raw socket packet injection and kernel network topology helpers.
 pub mod rawsend;
 /// Daemon process lifecycle, privilege drop, Linux capability retention, and signal handlers.
