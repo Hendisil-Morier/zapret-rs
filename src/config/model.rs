@@ -210,6 +210,7 @@ impl AppConfig {
             bind_fix6: self.bind_fix6,
             debug: self.debug,
             daemon: self.daemon,
+            lua_gc_sec: self.lua_gc,
             ..LuaConfig::default()
         }
     }

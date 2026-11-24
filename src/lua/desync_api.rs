@@ -1,4 +1,4 @@
-//! Desync execution context userdata and `zapret2` C-API callback bindings.
+//! Desync execution context userdata and `zapret2` Rust host execution callbacks.
 
 /// Interior mutability for sharing [`DesyncContextState`] across `DesyncEngine` and Lua closures.
 use std::cell::RefCell;

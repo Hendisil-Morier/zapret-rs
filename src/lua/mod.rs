@@ -1,4 +1,4 @@
-//! LuaJIT runtime, security hardening, and `zapret2`-compatible C-API bindings.
+//! LuaJIT runtime, security hardening, and `zapret2`-compatible Rust host bindings.
 
 /// Bitwise logic, shift, and field-slice primitives.
 pub mod bitwise;
@@ -6,7 +6,7 @@ pub mod bitwise;
 pub mod bytes;
 /// Global constant registration and security hardening.
 pub mod constants;
-/// Desync execution context userdata and `zapret2` C-API callbacks.
+/// Desync execution context userdata and `zapret2` Rust host execution callbacks.
 pub mod desync_api;
 /// Serializers building `zapret2`-compatible Lua `desync`, `arg`, `range`, and `payload` tables.
 pub mod desync_encode;
@@ -26,6 +26,8 @@ pub mod rawsend_api;
 pub mod runtime;
 /// Logging, OS metadata, clock, and network topology Lua bindings.
 pub mod system;
+/// Scheduled timer pool and host bindings (`timer_set`, `timer_del`, `timer_info`, `timer_enum`).
+pub mod timer_api;
 
 /// Re-exported Lua runtime configuration.
 pub use constants::LuaConfig;

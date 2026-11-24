@@ -55,6 +55,8 @@ pub struct LuaConfig {
     pub cache_hostname: bool,
     /// Conntrack disabled flag (`b_ctrack_disable`).
     pub ctrack_disable: bool,
+    /// Forced garbage collection interval in seconds (0 = disabled).
+    pub lua_gc_sec: u64,
 }
 
 impl Default for LuaConfig {
@@ -71,6 +73,7 @@ impl Default for LuaConfig {
             server: false,
             cache_hostname: false,
             ctrack_disable: false,
+            lua_gc_sec: 60,
         }
     }
 }

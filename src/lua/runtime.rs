@@ -1,7 +1,7 @@
 //! Top-level [`LuaRuntime`] wrapper orchestrating LuaJIT creation, hardening, and script loading.
 
-/// Interior mutability and single-thread sharing for injected packet senders.
-use std::cell::RefCell;
+/// Interior mutability and single-thread sharing for injected packet senders and timestamps.
+use std::cell::{Cell, RefCell};
 /// Filesystem path handling for loading external Lua files.
 use std::path::Path;
 /// Single-thread reference counting for passing [`PacketSender`] into Lua closures.
@@ -18,7 +18,7 @@ use crate::lua::bitwise::register_bitwise_functions;
 use crate::lua::bytes::register_bytes_functions;
 /// Security hardening and protocol/runtime global constants.
 use crate::lua::constants::{LuaConfig, harden_lua, register_constants};
-/// Desync context userdata and C-API execution helpers (`raw_packet`, `execution_plan`, cutoffs).
+/// Desync context userdata and Rust host execution helpers (`raw_packet`, `execution_plan`, cutoffs).
 use crate::lua::desync_api::{
     DesyncContextState, create_desync_ctx_userdata, register_desync_functions,
 };
@@ -30,8 +30,12 @@ use crate::lua::packet_api::register_packet_functions;
 use crate::lua::rawsend_api::register_rawsend_functions;
 /// Logging, OS metadata, clock, and network inspection Lua bindings.
 use crate::lua::system::register_system_functions;
+/// Scheduled timer pool and host bindings.
+use crate::lua::timer_api::register_timer_functions;
 /// Abstract packet sender trait and Linux raw socket sender implementation.
 use crate::rawsend::{PacketSender, RawSender};
+/// Scheduled timer pool managing active timers and deadlines.
+use crate::timer::pool::TimerPool;
 
 /// Self-contained `zapret2`-compatible LuaJIT execution environment.
 pub struct LuaRuntime {
@@ -43,6 +47,10 @@ pub struct LuaRuntime {
     desync_ctx: Rc<RefCell<DesyncContextState>>,
     /// Lua registry handle preserving the singleton `ctx` userdata across packet calls.
     desync_ctx_key: RegistryKey,
+    /// Scheduled timer pool accessible from Lua and event loops.
+    timer_pool: Rc<RefCell<TimerPool>>,
+    /// Monotonic timestamp in milliseconds of the last completed garbage collection pass.
+    last_gc_ms: Cell<u64>,
 }
 
 impl LuaRuntime {
@@ -67,13 +75,20 @@ impl LuaRuntime {
         register_system_functions(&lua, &config)?;
         register_rawsend_functions(&lua, &config, sender)?;
         register_desync_functions(&lua, config.debug)?;
+
+        let timer_pool = Rc::new(RefCell::new(TimerPool::new()));
+        register_timer_functions(&lua, Rc::clone(&timer_pool))?;
+
         let desync_ctx = Rc::new(RefCell::new(DesyncContextState::default()));
         let desync_ctx_key = create_desync_ctx_userdata(&lua, Rc::clone(&desync_ctx))?;
+
         Ok(Self {
             lua,
             config,
             desync_ctx,
             desync_ctx_key,
+            timer_pool,
+            last_gc_ms: Cell::new(0),
         })
     }
 
@@ -90,6 +105,23 @@ impl LuaRuntime {
     /// Returns the shared handle controlling the active Lua desync context state.
     pub fn desync_ctx_state(&self) -> &Rc<RefCell<DesyncContextState>> {
         &self.desync_ctx
+    }
+
+    /// Returns the shared handle controlling registered timers.
+    pub fn timer_pool(&self) -> &Rc<RefCell<TimerPool>> {
+        &self.timer_pool
+    }
+
+    /// Performs periodic Lua garbage collection if configured interval has elapsed.
+    pub fn do_gc(&self, now_ms: u64) {
+        if self.config.lua_gc_sec > 0 {
+            let interval_ms = self.config.lua_gc_sec.saturating_mul(1000);
+            let last = self.last_gc_ms.get();
+            if now_ms.saturating_sub(last) >= interval_ms {
+                let _ = self.lua.gc_collect();
+                self.last_gc_ms.set(now_ms);
+            }
+        }
     }
 
     /// Fetches the singleton `desync_ctx` userdata handle stored in Lua's registry.
