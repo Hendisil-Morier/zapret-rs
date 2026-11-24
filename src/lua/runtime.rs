@@ -28,6 +28,8 @@ use crate::lua::desync_api::{
 use crate::lua::error::LuaEngineError;
 /// Packet dissect, reconstruct, checksum, and IP string conversion bindings.
 use crate::lua::packet_api::register_packet_functions;
+/// Protocol split marker resolvers and TLS payload mutator bindings.
+use crate::lua::protocol_api::register_protocol_functions;
 /// Lua `rawsend` and `rawsend_dissect` kernel injection bindings.
 use crate::lua::rawsend_api::register_rawsend_functions;
 /// Logging, OS metadata, clock, and network inspection Lua bindings.
@@ -76,6 +78,7 @@ impl LuaRuntime {
         register_bitwise_functions(&lua)?;
         register_bytes_functions(&lua)?;
         register_packet_functions(&lua)?;
+        register_protocol_functions(&lua)?;
         register_system_functions(&lua, &config)?;
         register_rawsend_functions(&lua, &config, sender)?;
 

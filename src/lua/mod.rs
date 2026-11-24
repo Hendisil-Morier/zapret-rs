@@ -22,6 +22,8 @@ pub mod packet_api;
 pub mod packet_decode;
 /// Encoding Rust `PacketDissect` structures and wire IP addresses into Lua tables.
 pub mod packet_encode;
+/// Lua protocol split marker resolvers (`resolve_pos`, `resolve_range`) and `tls_mod` bindings.
+pub mod protocol_api;
 /// Lua `rawsend` and `rawsend_dissect` kernel packet-injection bindings.
 pub mod rawsend_api;
 /// Top-level [`LuaRuntime`] lifecycle and script execution.

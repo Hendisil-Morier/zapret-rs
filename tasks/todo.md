@@ -210,15 +210,15 @@ Target verification commands used across tasks:
 **Description:** Port `zapret2/nfq2/protocol.c` into `src/protocol` (`http.rs`, `tls.rs`, `tls_mod.rs`, `aes_block.rs`, `quic.rs`, `datagram.rs`, `markers.rs`, `mod.rs`) covering HTTP (`IsHttp`, `HttpExtractHost`, `IsHttpReply`, `HttpReplyLooksLikeDPIRedirect`), TLS (`IsTLS*`, `TLSFindExt*`, `TLSHelloExtractHost*`, `TLSMod` `rnd`/`rndsni`/`sni`/`dupsid`/`padencap`), QUIC Initial validation + offline `ring` HKDF-SHA256/AES-128-GCM/HP decryption (`QUICDecryptInitial`) + `QUICDefragCrypto`, MTProto AES-256 single-block ECB check, XMPP (4), DNS (2), WireGuard (5), DHT, Discord IP discovery, STUN, DTLS (3), BitTorrent, and uTP-BT. Implement position markers (`abs`, `host`, `endhost`, `sld`, `midsld`, `endsld`, `method`, `extlen`, `sniext`) and expose `resolve_pos`, `resolve_multi_pos`, `resolve_range`, and `tls_mod` in `src/lua/protocol_api.rs`.
 
 **Acceptance criteria:**
-- [ ] All L7 probes classify `L7Proto` and `L7Payload` matching `protocol.c`, extract lowercase hostnames from HTTP `Host:` and TLS/QUIC SNI extensions, and detect HTTP `302`/`307` off-SLD/off-IP DPI redirects.
-- [ ] `QUICDecryptInitial` + `QUICDefragCrypto` decrypt QUIC draft/v1/v2 Initial packets via offline `ring` and extract TLS ClientHello handshakes without requiring Milestone 4 Lua crypto bindings.
-- [ ] `tls_mod` supports `rnd`, `rndsni`, `sni=<host>`, `dupsid`, `padencap`, and `none`, adjusting all 6 TLS length headers accurately when SNI or padding grows/shrinks.
-- [ ] `resolve_pos`, `resolve_multi_pos`, and `resolve_range` enforce strict string types, 1-based default indexing (plus optional `zero_based_pos`), and `strict` range semantics cleanly in Lua.
+- [x] All L7 probes classify `L7Proto` and `L7Payload` matching `protocol.c`, extract lowercase hostnames from HTTP `Host:` and TLS/QUIC SNI extensions, and detect HTTP `302`/`307` off-SLD/off-IP DPI redirects.
+- [x] `QUICDecryptInitial` + `QUICDefragCrypto` decrypt QUIC draft/v1/v2 Initial packets via offline `ring` and extract TLS ClientHello handshakes without requiring Milestone 4 Lua crypto bindings.
+- [x] `tls_mod` supports `rnd`, `rndsni`, `sni=<host>`, `dupsid`, `padencap`, and `none`, adjusting all 6 TLS length headers accurately when SNI or padding grows/shrinks.
+- [x] `resolve_pos`, `resolve_multi_pos`, and `resolve_range` enforce strict string types, 1-based default indexing (plus optional `zero_based_pos`), and `strict` range semantics cleanly in Lua.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(protocol_detect) or binary(protocol_markers_lua) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: verify `cargo check --offline` builds with `ring = "0.17.14"` without touching network.
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(protocol_detect) or binary(protocol_markers_lua) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Manual check: verify `cargo check --offline` builds with `ring = "0.17.14"` without touching network.
 
 **Dependencies:** Milestone 2
 
@@ -226,18 +226,18 @@ Target verification commands used across tasks:
 - `Cargo.toml`
 - `Cargo.lock`
 - `src/lib.rs`
-- `src/protocol/{mod.rs,http.rs,tls.rs,tls_mod.rs,aes_block.rs,quic.rs,datagram.rs,markers.rs}`
+- `src/protocol/{mod.rs,http.rs,tls.rs,tls_mod.rs,aes_block.rs,quic.rs,quic_crypto.rs,datagram.rs,markers.rs}`
 - `src/lua/{mod.rs,protocol_api.rs,runtime.rs}`
 - `tests/protocol_detect.rs`
 - `tests/protocol_markers_lua.rs`
 
-**Estimated scope:** Large — Commit 3.2a (`Cargo.toml` `ring` + `src/protocol/{http,tls,tls_mod,aes_block,quic,datagram}.rs`) + Commit 3.2b (`src/protocol/markers.rs`, `src/lua/protocol_api.rs`, `tests/protocol_*.rs`).
+**Estimated scope:** Large — Commit 3.2a (`Cargo.toml` `ring` + `src/protocol/{http,tls,tls_mod,aes_block,quic,quic_crypto,datagram,markers}.rs`) + Commit 3.2b (`src/lua/protocol_api.rs`, `tests/protocol_*.rs`).
 
 ---
 
 ## Checkpoint 3A: After Tasks 3.1-3.2
-- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
-- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all suites including `conntrack_reasm`, `protocol_detect`, `protocol_markers_lua`, and `repo_hygiene`
+- [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [x] `cargo nextest run --offline --show-progress none --no-pager` passes all suites including `conntrack_reasm`, `conntrack_lua`, `protocol_detect`, `protocol_markers_lua`, and `repo_hygiene`
 - [ ] Review with user before proceeding to Tasks 3.3-3.4
 
 ---
