@@ -2,6 +2,8 @@
 
 /// Profile filters, built-in blobs, TOML configuration schema, and CLI overrides.
 pub mod config;
+/// Bidirectional TCP/UDP connection tracking table and continuous stream reassembly.
+pub mod conntrack;
 /// Core DPI desync profile routing and Lua action execution engine.
 pub mod desync;
 /// Linux NFQUEUE packet interception and verdict loop.

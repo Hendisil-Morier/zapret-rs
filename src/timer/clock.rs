@@ -1,36 +1,73 @@
-//! Monotonic boottime clock reading used by timer scheduling and packet timestamps.
+//! Monotonic boottime clock reading used by timer scheduling, conntrack timestamps, and packets.
 
-/// Standard C foreign function interface bindings and time structures.
+/// Standard duration representation for deadline math.
 use std::time::Duration;
 
-/// Reads the system monotonic boottime clock in milliseconds.
+/// Nanosecond-precision monotonic timestamp matching Linux `struct timespec`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MonotonicTime {
+    /// Whole seconds since monotonic clock epoch.
+    pub sec: i64,
+    /// Nanoseconds within the current second (`0..1_000_000_000`).
+    pub nsec: i64,
+}
+
+impl MonotonicTime {
+    /// Converts this monotonic timestamp into floating-point seconds (`tv_sec + tv_nsec / 1e9`).
+    pub fn as_secs_f64(self) -> f64 {
+        (self.sec as f64) + (self.nsec as f64) / 1_000_000_000.0
+    }
+
+    /// Computes elapsed seconds from `start` to `self` in floating-point seconds.
+    pub fn elapsed_secs_f64(self, start: MonotonicTime) -> f64 {
+        ((self.sec - start.sec) as f64) + ((self.nsec - start.nsec) as f64) / 1_000_000_000.0
+    }
+
+    /// Converts this monotonic timestamp into whole milliseconds since the clock epoch.
+    pub fn as_millis(self) -> u64 {
+        let secs = u64::try_from(self.sec).unwrap_or(0);
+        let nsecs = u64::try_from(self.nsec).unwrap_or(0);
+        secs.saturating_mul(1_000).saturating_add(nsecs / 1_000_000)
+    }
+}
+
+/// Reads the system monotonic boottime `timespec`, falling back to `CLOCK_MONOTONIC` if needed.
 ///
-/// Under Linux, this invokes `clock_gettime(CLOCK_BOOTTIME, ...)`, which continues
-/// ticking during kernel system suspend, matching `zapret2`'s `boottime_ms()`.
-/// If `CLOCK_BOOTTIME` is unavailable or fails, it falls back to `CLOCK_MONOTONIC`.
-pub fn boottime_ms() -> u64 {
+/// Under Linux, `clock_gettime(CLOCK_BOOTTIME, ...)` continues advancing while suspended,
+/// matching `zapret2`'s `CLOCK_BOOT_OR_UPTIME`.
+pub fn boottime_now() -> MonotonicTime {
     let mut ts = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
     };
     // SAFETY: `ts` is a valid stack-allocated libc::timespec struct.
-    let rc = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &raw mut ts) };
-    if rc == 0 {
-        return (ts.tv_sec as u64)
-            .saturating_mul(1_000)
-            .saturating_add((ts.tv_nsec as u64) / 1_000_000);
+    if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &raw mut ts) } == 0 {
+        return MonotonicTime {
+            sec: ts.tv_sec,
+            nsec: ts.tv_nsec,
+        };
     }
 
     // Fallback to CLOCK_MONOTONIC if CLOCK_BOOTTIME is unsupported.
     // SAFETY: `ts` is a valid stack-allocated libc::timespec struct.
-    let rc_mono = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut ts) };
-    if rc_mono == 0 {
-        (ts.tv_sec as u64)
-            .saturating_mul(1_000)
-            .saturating_add((ts.tv_nsec as u64) / 1_000_000)
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut ts) } == 0 {
+        MonotonicTime {
+            sec: ts.tv_sec,
+            nsec: ts.tv_nsec,
+        }
     } else {
-        0
+        MonotonicTime::default()
     }
+}
+
+/// Reads the current monotonic boottime in whole seconds (`boottime()` in `zapret2/nfq2/helpers.c`).
+pub fn boottime_secs() -> i64 {
+    boottime_now().sec
+}
+
+/// Reads the system monotonic boottime clock in milliseconds (`boottime_ms()` in `zapret2`).
+pub fn boottime_ms() -> u64 {
+    boottime_now().as_millis()
 }
 
 /// Converts a deadline in boottime milliseconds into an optional wait duration from `now_ms`.

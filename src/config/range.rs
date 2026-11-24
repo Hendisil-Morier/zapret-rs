@@ -2,6 +2,8 @@
 
 /// Typed configuration parsing errors returned when packet range tokens are malformed.
 use crate::config::error::ConfigError;
+/// Conntrack directional position counters and wrapping TCP offsets evaluated by [`PacketRange`].
+use crate::conntrack::CtrackPosition;
 
 /// Position axis selector matching `zapret2`'s `packet_pos.mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,9 +125,78 @@ impl PacketRange {
 
     /// Evaluates whether this range matches without connection tracking (`'a'..'a'` only).
     pub const fn matches_without_conntrack(self) -> bool {
-        // shortcut: without Milestone 3 conntrack positions, only 'a'..'a' matches (identical to check_pos_range(NULL, range) in zapret2/nfq2/desync.c:683-723).
         matches!(self.from.mode, PacketPosMode::Always)
             && matches!(self.to.mode, PacketPosMode::Always)
+    }
+
+    /// Returns `true` when relative TCP sequence tracking overflowed past 2 GiB on `mode` (`'s'` or `'p'`).
+    pub fn pos_overflow(pos: Option<&CtrackPosition>, mode: PacketPosMode) -> bool {
+        matches!(mode, PacketPosMode::RelSeq | PacketPosMode::DataRelSeq)
+            && pos.is_some_and(|p| p.rseq_over_2g)
+    }
+
+    /// Reads the numeric counter corresponding to `mode` from `pos`, returning `0` if untracked or `'a'`/`'x'`.
+    pub fn pos_get(pos: Option<&CtrackPosition>, mode: PacketPosMode) -> u64 {
+        let Some(p) = pos else {
+            return 0;
+        };
+        match mode {
+            PacketPosMode::PacketNum => p.pcounter,
+            PacketPosMode::DataPacketNum => p.pdcounter,
+            PacketPosMode::ByteCount => p.pbcounter,
+            PacketPosMode::RelSeq => u64::from(p.rseq()),
+            PacketPosMode::DataRelSeq => u64::from(p.rel_pos()),
+            PacketPosMode::Always | PacketPosMode::Never => 0,
+        }
+    }
+
+    /// Evaluates whether the lower endpoint `self.from` has been reached (`check_pos_from` in `desync.c`).
+    pub fn check_pos_from(self, pos: Option<&CtrackPosition>) -> bool {
+        if self.from.mode == PacketPosMode::Never || Self::pos_overflow(pos, self.from.mode) {
+            return false;
+        }
+        if self.from.mode == PacketPosMode::Always {
+            return true;
+        }
+        match pos {
+            Some(p) => Self::pos_get(Some(p), self.from.mode) >= u64::from(self.from.pos),
+            None => false,
+        }
+    }
+
+    /// Evaluates whether the upper endpoint `self.to` has not yet been passed (`check_pos_to` in `desync.c`).
+    pub fn check_pos_to(self, pos: Option<&CtrackPosition>) -> bool {
+        if self.to.mode == PacketPosMode::Never || Self::pos_overflow(pos, self.to.mode) {
+            return false;
+        }
+        if self.to.mode == PacketPosMode::Always {
+            return true;
+        }
+        match pos {
+            Some(p) => {
+                let ps = Self::pos_get(Some(p), self.to.mode);
+                ps < u64::from(self.to.pos) || (!self.upper_cutoff && ps == u64::from(self.to.pos))
+            }
+            None => false,
+        }
+    }
+
+    /// Returns `true` when `pos` falls within `[self.from, self.to]` (or `< self.to` for `upper_cutoff`).
+    pub fn check_pos_range(self, pos: Option<&CtrackPosition>) -> bool {
+        self.check_pos_from(pos) && self.check_pos_to(pos)
+    }
+
+    /// Returns `true` when `pos` has permanently passed this range (`check_pos_cutoff` in `desync.c`).
+    ///
+    /// With active conntrack (`pos.is_some()`), triggers only once the upper bound is exceeded;
+    /// without conntrack, triggers for any range other than `'a'..'a'`.
+    pub fn check_pos_cutoff(self, pos: Option<&CtrackPosition>) -> bool {
+        let b_to = self.check_pos_to(pos);
+        if pos.is_some() {
+            !b_to
+        } else {
+            !b_to || !self.check_pos_from(pos)
+        }
     }
 
     /// Parses `<pos>(-|<)<pos>`, `-<pos>`, `<pos>-`, `x`, or `a` into a [`PacketRange`].
