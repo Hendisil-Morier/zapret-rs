@@ -12,3 +12,5 @@ pub mod lua;
 pub mod packet;
 /// Linux raw socket packet injection and kernel network topology helpers.
 pub mod rawsend;
+/// Monotonic boottime clock, scheduled timer pool, and non-intercepting timer loop.
+pub mod timer;
