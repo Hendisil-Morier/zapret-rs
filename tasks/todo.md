@@ -238,7 +238,7 @@ Target verification commands used across tasks:
 ## Checkpoint 3A: After Tasks 3.1-3.2
 - [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
 - [x] `cargo nextest run --offline --show-progress none --no-pager` passes all suites including `conntrack_reasm`, `conntrack_lua`, `protocol_detect`, `protocol_markers_lua`, and `repo_hygiene`
-- [ ] Review with user before proceeding to Tasks 3.3-3.4
+- [x] Review with user before proceeding to Tasks 3.3-3.4
 
 ---
 
@@ -247,15 +247,15 @@ Target verification commands used across tasks:
 **Description:** Add `flate2` (pure-Rust `rust_backend`, offline-cached) to `Cargo.toml` and port `zapret2/nfq2/{hostlist.c,ipset.c,pools.c}` into `src/lists` (`file_loader.rs`, `hostlist.rs`, `autohostlist.rs`, `ipset.rs`, `ipcache.rs`, `mod.rs`). Implement gzip/plain streaming readers with `(mtime_sec, mtime_nsec, size)` signature reload resilience, subdomain suffix matching (`^` strict, `!` exempt, `no_match_subdomains`, exclude-before-include, `"@&()"` empty-autolist sentinel), autohostlist `HostFailPool` non-refreshed failure windows (TCP retransmissions, incoming RST / HTTP 302/307 redirect, UDP in/out heuristic, file self-append + debug log), disjoint IPv4/IPv6 CIDR prefix trees (`parse_cidr4`/`parse_cidr6` with non-fatal bad lines), and rate-limited TTL-based `IpCache` (empty-iface hostnames + iface-keyed client TTLs).
 
 **Acceptance criteria:**
-- [ ] Plain and `.gz` (`0x1F 0x8B`) hostlists and IPsets parse comments/prefixes/CIDRs cleanly, tolerate transient unreadable reloads by keeping cached sets, and enforce exclude-before-include semantics.
-- [ ] `HostFailPool` tracks `fail_threshold` hits inside non-refreshed `fail_time` windows from first failure, appends new domains safely without triggering spurious self-reloads, and honors `!` auto-exemptions.
-- [ ] `IpSet` maintains minimal non-overlapping IPv4 and IPv6 CIDR prefixes and supports dual-IP (`dst` / `src`) checks in O(log N).
-- [ ] `IpCache` expires entries past `lifetime_sec`, keys hostname entries globally while keying TTL entries per `(ip, iface)` in client mode, and purges rate-limited at <= 1 Hz.
+- [x] Plain and `.gz` (`0x1F 0x8B`) hostlists and IPsets parse comments/prefixes/CIDRs cleanly, tolerate transient unreadable reloads by keeping cached sets, and enforce exclude-before-include semantics.
+- [x] `HostFailPool` tracks `fail_threshold` hits inside non-refreshed `fail_time` windows from first failure, appends new domains safely without triggering spurious self-reloads, and honors `!` auto-exemptions.
+- [x] `IpSet` maintains minimal non-overlapping IPv4 and IPv6 CIDR prefixes and supports dual-IP (`dst` / `src`) checks in O(log N).
+- [x] `IpCache` expires entries past `lifetime_sec`, keys hostname entries globally while keying TTL entries per `(ip, iface)` in client mode, and purges rate-limited at <= 1 Hz.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(lists_and_ipcache) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: confirm `.gz` hostlist/ipset decompression works offline with `flate2` `rust_backend` and all files stay <= 400 lines.
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(lists_and_ipcache) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Manual check: confirm `.gz` hostlist/ipset decompression works offline with `flate2` `rust_backend` and all files stay <= 400 lines.
 
 **Dependencies:** Task 3.2 (uses `IpAddr` parsing helpers / DPI redirect detection patterns)
 
