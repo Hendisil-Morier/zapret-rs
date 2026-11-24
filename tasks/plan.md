@@ -1,87 +1,87 @@
-# Implementation Plan: zapret-rs (Milestone 2 and Roadmap)
+# Implementation Plan: zapret-rs (Milestone 3 and Roadmap)
 
 ## Overview
 
-Milestone 1 delivered the core packet engine (`src/packet`), Linux `SOCK_RAW` packet injector and topology queries (`src/rawsend`), and hardened LuaJIT runtime with `zapret2`-compatible packet and system bindings (`src/lua`). Milestone 2 turns those foundations into a working Linux `nfqws2` daemon in five vertical slices: hardened NFQUEUE packet interception, `clap` CLI with TOML config files and profile filters, the core desync pipeline and Lua desync context, timer scheduling, and the `nfqws2` process entry point. Subsequent milestones add conntrack and L7 protocol detection (Milestone 3), remaining Lua crypto/gzip/stat parity (Milestone 4), and the `ip2net` and `mdig` companion binaries (Milestone 5).
+Milestone 1 delivered the core packet engine (`src/packet`), Linux `SOCK_RAW` packet injector and topology queries (`src/rawsend`), and hardened LuaJIT runtime with `zapret2`-compatible packet and system bindings (`src/lua`). Milestone 2 completed the working `nfqws2` Linux daemon with hardened NFQUEUE interception (`src/intercepter`), TOML + `clap` configuration (`src/config`), core profile dispatch (`src/desync`), `CLOCK_BOOTTIME` Lua timers (`src/timer`), and daemon/privilege-drop/signal lifecycle (`src/runtime`, `src/bin/nfqws2.rs`).
+
+Milestone 3 turns `nfqws2` into a full stateful DPI desync engine in four vertical slices: bidirectional conntrack and continuous TCP/QUIC stream reassembly (`Task 3.1`), full L7 protocol detectors, QUIC Initial decryption, `tls_mod`, and position markers (`Task 3.2`), domain hostlists, autohostlists, CIDR IPsets, and `ipcache` (`Task 3.3`), and config/CLI/pipeline/SIGHUP integration (`Task 3.4`). Subsequent milestones cover remaining Lua crypto/gzip/stat/time parity (`Milestone 4`) and the `ip2net` and `mdig` companion binaries (`Milestone 5`).
 
 ## Architecture Decisions
 
 - **Synchronous `poll()` loop over `nfq::Queue` (no async runtime):** `nfq` 0.2.6 implements `AsRawFd` and `AsFd` on `Queue` and already disables `NETLINK_NO_ENOBUFS`. Pairing `nfq::Queue` with `libc::poll` and a single persistent `AF_INET` `SOCK_DGRAM` `OwnedFd` for `SIOCGIFNAME` matches `zapret2/nfq2/nfqws.c` without adding `tokio` or `mio`.
-- **`clap` CLI with TOML configuration (`serde` + `toml`):** Keep `clap = { version = "4.6.9", features = ["derive"] }` for clean top-level flags (`--config`, `--qnum`, `--fwmark`, `--debug`, `--dry-run`, `--intercept`, `--version`, `--pidfile`, `--daemon`, `--user`/`--uid`, `--chdir`) and define blobs, profiles, filters, and Lua desync actions in readable TOML files using offline-cached `serde` and `toml`. Using `clap` in Task 2.2 also clears the unused-dependency warning so `cargo clippy --all-targets --offline -- -D warnings` passes cleanly.
-- **Minimal Milestone 2 `desync` slice before conntrack/L7 (Ponytail scope):** Milestone 2 executes profile matching (L3, TCP/UDP port, ICMP, IP protocol, fwmark) and Lua desync actions with `ctrack = nil` and baseline L7 payload tags (`empty`, `unknown`, `ipv4`, `ipv6`, `icmp`). Conntrack state, TCP stream reassembly, full L7 protocol detectors, hostlists, and ipsets land cleanly in Milestone 3.
-- **Multi-binary crate layout:** Place the `nfqws2` executable at `src/bin/nfqws2.rs` (replacing the `Hello, world!` placeholder in `src/main.rs`) so Milestone 5 can add `src/bin/ip2net.rs` and `src/bin/mdig.rs` alongside shared library modules in `src/`.
-- **Rust and project hygiene gates:** Every task must satisfy `cargo clippy --all-targets --offline -- -D warnings`, `cargo nextest run --offline --show-progress none --no-pager` (including `tests/repo_hygiene.rs` enforcing `<= 400` lines in `src/`, `<= 450` lines in `tests/`, pure `src/**/mod.rs` facades, zero `#[cfg(test)]`/`#[test]` inside `src/`, and no `.unwrap()`/`.expect()` in production code), `thiserror` for library errors, and one atomic commit per verified slice.
+- **Offline-cached crypto & gzip crates for Milestone 3 (`ring` + `flate2`, plus pure-Rust AES-256 block):** Add `ring = "0.17.14"` (for QUIC Initial HKDF-SHA256, AES-128-GCM, and header protection) and `flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }` (for transparent `0x1F 0x8B` gzipped hostlists/ipsets and later Milestone 4 Lua gzip/gunzip reuse), alongside a small pure-Rust FIPS-197 AES-256 single-block ECB module (`src/protocol/aes_block.rs`) for `IsMTProto` and Milestone 4 reuse. Every crate and transitive dependency is verified present in the local Cargo cache.
+- **Strict single-responsibility module split (`<= 400` lines in `src/`, `<= 450` in `tests/`):**
+  - `src/conntrack/`: `types.rs`, `reasm.rs`, `pool.rs`, and pure facade `mod.rs`.
+  - `src/protocol/`: `http.rs`, `tls.rs`, `tls_mod.rs`, `aes_block.rs`, `quic.rs`, `datagram.rs`, `markers.rs`, and pure facade `mod.rs`.
+  - `src/lists/`: `file_loader.rs`, `hostlist.rs`, `autohostlist.rs`, `ipset.rs`, `ipcache.rs`, and pure facade `mod.rs`.
+  - `src/lua/`: add `ctrack_encode.rs` and `protocol_api.rs` while keeping `desync_api.rs` and `desync_encode.rs` concise.
+  - `src/config/`: split `schema.rs` by moving profile/autohostlist TOML schemas into `profile_schema.rs` and extracting `ConntrackConfig`/`IpCacheConfig`/`AutoHostlistConfig` into `runtime_cfg.rs`.
+  - `src/desync/`: split `engine.rs` by delegating TCP/UDP stateful probing, reassembly, and replay into `tcp_udp.rs` and ICMP/raw-IP into `icmp_ip.rs`.
+- **Surgical implementation discipline:** Persist symbol coordinates and ABI invariants in `scratch/m3_context.md`, locate targets via search, and use bounded `StartLine`/`EndLine` reads immediately before edits.
+- **Multi-binary crate layout & repository hygiene gates:** Keep `src/bin/nfqws2.rs` alongside shared library modules so Milestone 5 can add `src/bin/ip2net.rs` and `src/bin/mdig.rs`. Every task must pass `cargo clippy --all-targets --offline -- -D warnings` and `cargo nextest run --offline --show-progress none --no-pager` (including `tests/repo_hygiene.rs` checks), using `thiserror` and atomic commits.
 
 ## Dependency Graph
 
 ```text
 Milestone 1 (Complete): packet + rawsend + lua core
     |
-    +--> Task 2.1: NFQUEUE intercepter (maxlen, rcvbuf, SIOCGIFNAME, fwmark guard, poll/signals)
-    |        |
-    +--> Task 2.2: Profile filter primitives + clap CLI and TOML config/blob loader
-    |        |
-    |        v
-    +--> Task 2.3: Desync engine + Lua desync context (`ctx`, `desync`, cutoff, execution_plan)
-             |
-         [Checkpoint 2A: Packet -> filter -> Lua desync -> verdict end-to-end]
-             |
-             v
-         Task 2.4: Timer pool + Lua timer bindings + poll timeout integration
-             |
-             v
-         Task 2.5: `nfqws2` binary entry point, daemon/pidfile/droproot/caps, live smoke test
-             |
-         [Checkpoint 2B: Working `nfqws2` daemon for dry-run, `--intercept=0`, and NFQUEUE]
-             |
-             v
-Milestone 3: Conntrack, TCP reassembly, L7 protocol/payload detectors, hostlists, ipsets, ipcache
-             |
-             v
+    v
+Milestone 2 (Complete): intercepter + config/CLI + baseline desync + timers + nfqws2 binary
+    |
+    v
+Task 3.1: Conntrack, TCP reassembly, PacketRange, `desync.track`, `conntrack_feed`, cutoffs
+    |
+    v
+Task 3.2: L7 probes, QUIC Initial decrypt/defrag, `tls_mod`, position markers & Lua bindings
+    |
+[Checkpoint 3A: Stateful conntrack + L7 + markers verified offline]
+    |
+    v
+Task 3.3: Hostlists, autohostlist failure detector, CIDR IPsets, gzip loader, IPCache
+    |
+    v
+Task 3.4: Config split & CLI flags, full DesyncEngine wiring, SIGHUP reload, M3 E2E tests
+    |
+[Checkpoint 3B: Milestone 3 complete — full offline nextest + unshare -r -n live tests]
+    |
+    v
 Milestone 4: Lua crypto/gzip/time/stat parity + full `zapret2/lua/*.lua` test coverage
-             |
-             v
+    |
+    v
 Milestone 5: `ip2net` and `mdig` binaries + `CHANGELOG.md` and release tagging
 ```
 
 ## Task List
 
-Tasks and detailed acceptance criteria are tracked in `tasks/todo.md`.
+Tasks and detailed acceptance criteria are tracked in [todo.md](file:///home/morier/Documents/projects/zapret-rs/tasks/todo.md).
 
-### Milestone 2, Phase 1: Interception, CLI, and Desync Core
+### Milestone 2 (Complete)
 - [x] Task 2.1: Upgrade `intercepter` with NFQUEUE tuning, persistent `SIOCGIFNAME`, fwmark loop guard, and `poll()` wakeup
 - [x] Task 2.2: Implement profile filters, blobs, TOML config schema, and `clap` CLI
 - [x] Task 2.3: Implement core `desync` pipeline and Lua desync-context bindings
+- [x] Checkpoint 2A: Synthetic End-to-End Pipeline
+- [x] Task 2.4: Implement timer pool, Lua `timer_*` bindings, and `poll()` timeout / `--intercept=0` loop
+- [x] Task 2.5: Wire `src/bin/nfqws2.rs` with daemonize, pidfile, privilege drop, signal handling, and live namespace smoke test
+- [x] Checkpoint 2B: Milestone 2 Complete
 
-### Checkpoint 2A: Synthetic End-to-End Pipeline
-- [x] All unit, integration, and `repo_hygiene` tests pass (`cargo nextest run --offline --show-progress none --no-pager`)
-- [x] Clippy passes cleanly (`cargo clippy --all-targets --offline -- -D warnings`)
-- [x] Synthetic packets traverse fwmark guard, profile matching, Lua desync action, and Pass/Drop/Modify verdicts
-- [ ] Review with user before proceeding to Phase 2
-
-### Milestone 2, Phase 2: Timers and `nfqws2` Process Lifecycle
-- [ ] Task 2.4: Implement timer pool, Lua `timer_*` bindings, and `poll()` timeout / `--intercept=0` loop
-- [ ] Task 2.5: Wire `src/bin/nfqws2.rs` with daemonize, pidfile, privilege drop, signal handling, and live namespace smoke test
-
-### Checkpoint 2B: Milestone 2 Complete
-- [ ] All acceptance criteria in `tasks/todo.md` met
-- [ ] Full offline `nextest` suite (including `repo_hygiene`) and live `unshare -r -n` tests pass
-- [ ] Ready for Milestone 3 planning
+### Milestone 3: Conntrack, L7 Detectors, Hostlists, IPsets, and IPCache
+- [ ] Task 3.1: Conntrack, continuous TCP stream reassembly, `PacketRange`, `desync.track`, `conntrack_feed`, and cutoffs
+- [ ] Task 3.2: L7 protocol/payload detectors, QUIC Initial decryption, `tls_mod`, and position markers
+- [ ] Checkpoint 3A: Conntrack + L7 + Markers Verified
+- [ ] Task 3.3: Hostlists, autohostlist failure detection, disjoint CIDR IPsets, gzip loader, and `ipcache`
+- [ ] Task 3.4: Config split, CLI options, full `DesyncEngine` wiring, `SIGHUP` reload, and E2E tests
+- [ ] Checkpoint 3B: Milestone 3 Complete
 
 ### Future Milestones (High-Level Roadmap)
-- **Milestone 3 (Conntrack, L7, Hostlists, IPsets):** Bidirectional TCP/UDP conntrack (`conntrack.c`), stream reassembly, L7 protocol probes (`protocol.c`: HTTP, TLS + `tls_mod`, QUIC, DTLS, WireGuard, STUN, DNS, XMPP, DHT, Discord, MTProto, BitTorrent), `resolve_pos`/`resolve_multi_pos`/`resolve_range`, hostlist + autohostlist with SIGHUP reload, and CIDR ipset trie + `ipcache`.
-- **Milestone 4 (Full Lua API Parity):** Crypto bindings (`hash`, `aes`, `aes_gcm`, `aes_ctr`, `hkdf`, `bcryptorandom`) + QUIC Initial decryption, streaming gzip/gunzip via cached `flate2`/`miniz_oxide`, `stat`/time helpers, `--writable`, and full verification against `zapret-antidpi.lua`, `zapret-auto.lua`, and `zapret-obfs.lua`.
+- **Milestone 4 (Full Lua API Parity):** Lua bindings for crypto (`hash`, `aes`, `aes_gcm`, `aes_ctr`, `hkdf`, `bcryptorandom`), streaming gzip/gunzip via `flate2`, `stat`/time helpers (`localtime`, `gmtime`, `timelocal`, `timegm`), `--writable`, and full verification against `zapret-antidpi.lua`, `zapret-auto.lua`, and `zapret-obfs.lua`.
 - **Milestone 5 (Companion Binaries & Release):** Port `src/bin/ip2net.rs` and `src/bin/mdig.rs`, add `CHANGELOG.md`, and prepare semantic version release tags.
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| `nfq` netlink socket requires `CAP_NET_ADMIN` and kernel `nfnetlink_queue` module for live NFQUEUE testing | Med | Keep unit/integration packet dispatch testable via a `PacketSource` or handler callback without root, and gate live NFQUEUE tests with `#[ignore]` in `unshare -r -n` just like `tests/rawsend_live.rs`. |
-| TOML profile/action schema diverges from `zapret2` filter or Lua `arg` semantics | Med | Reuse exact filter parsers (`port_filter`, `icmp_filter`, `ipp_filter`, `packet_range`, `filter_mark`) and verify TOML deserialization + Lua `desync.arg` tables with comprehensive tests. |
-| `nfq::Queue::recv` blocks without timeout when timers or signals arrive | High | Set `queue.set_nonblocking(true)` (or poll `queue.as_raw_fd()` via `libc::poll` with next timer delta) and inspect atomic signal flags after `EINTR` or timeout. |
-| Lua `desync` callbacks mutate `dissect` and invoke `rawsend_dissect` re-entrantly | Med | Keep `desync` context borrow scopes short, avoid holding `RefCell` borrows across Lua calls, and cover re-entrant `rawsend_dissect` + `VERDICT_MODIFY` in `tests/desync_pipeline.rs`. |
-
-## Open Questions
-
-1. **Replace placeholder `src/main.rs` with `src/bin/nfqws2.rs`?** Moving to `src/bin/nfqws2.rs` aligns the output binary name directly with `zapret2`'s `nfqws2` and prepares the layout for `src/bin/ip2net.rs` and `src/bin/mdig.rs`. Confirm this layout before Task 2.5.
+| Lua `RegistryKey` cycles or stale registry entries leak across `ConntrackReInitTrack` / teardown | Med | Store per-connection `lua_state` and `lua_instance_cutoff` as `mlua::RegistryKey` fields on `CtrackEntry`, replace cleanly on TCP SYN re-init, and clear the conntrack pool inside `LuaRuntime` before shutdown. |
+| Overlapping/retransmitted TCP segments corrupt TLS ClientHello reassembly or deadlock `delayed` replay | High | Match `zapret2`'s exact `ReasmFeed` signed-delta bounds (`0x100000`), server window check (`winsize_calc >= sz`), max 64 queued packets, and automatic `send_delayed` + `reasm_cancel_rediscover` fallback. |
+| Offline builds fail if a new dependency pulls uncached crates | High | Verified `ring = "0.17.14"` and `flate2 = "1.1.11"` (rust backend) plus all transitive crates exist in local `~/.cargo/registry/src`; verify `cargo check --offline` immediately after adding each dependency. |
+| Large subsystems push `schema.rs`, `model.rs`, `l7.rs`, or `engine.rs` over `repo_hygiene`'s 400-line ceiling | Med | Pre-split `profile_schema.rs`, `runtime_cfg.rs`, `desync/tcp_udp.rs`, and `desync/icmp_ip.rs` ahead of Milestone 3 feature additions, running `repo_hygiene` on every slice. |
+| Live QUIC Initial or MTProto test vectors regress silently on subtle bit/endian offsets | Med | Add self-contained Rust unit/integration test vectors verified directly against `zapret2`'s byte layouts, HKDF labels, and synthetic TCP/UDP packet streams. |

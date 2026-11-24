@@ -166,4 +166,141 @@ Target verification commands used across tasks:
 - [x] All tasks 2.1 through 2.5 checked off with individual atomic commits
 - [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
 - [x] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and all 3 live tests (`rawsend_live` + `live_nfqueue_daemon_starts_and_exits_on_sigterm`) pass in `unshare -r -n`
-- [ ] Review with user and plan Milestone 3
+- [x] Review with user and plan Milestone 3
+
+---
+
+# Task Breakdown: Milestone 3 (Conntrack, L7 Detectors, Hostlists, IPsets, and IPCache)
+
+## Task 3.1: Conntrack, TCP stream reassembly, `PacketRange`, `desync.track`, `conntrack_feed`, and cutoffs
+
+**Description:** Port `zapret2/nfq2/conntrack.c` into `src/conntrack` (`types.rs`, `reasm.rs`, `pool.rs`, `mod.rs`) with 5-tuple IPv4/IPv6 TCP and UDP tracking, SYN/SYN-ACK/ESTABLISHED/FIN transitions, `scale <= 14` window shifting, wrapping sequence positions, `rseq_over_2g`, `bReverse`/`bReverseFixed` direction resolution, timeout purging via monotonic `CLOCK_BOOTTIME` seconds, FIFO delayed-packet replay snapshots, and continuous `ReasmFeed` reassembly. Implement `check_pos_from`, `check_pos_to`, `check_pos_range`, and `check_pos_cutoff` in `src/config/range.rs`, encode `desync.track` (with persistent `lua_state` table, `pos.direct`/`pos.reverse` aliases, relative TCP fields, and `replay*`/`reasm_offset`/`reasm_data` fields) in `src/lua/ctrack_encode.rs` + `src/lua/desync_encode.rs`, and wire `conntrack_feed`, `instance_cutoff`, and `lua_cutoff` in `src/lua/desync_api.rs` + `src/lua/runtime.rs`.
+
+**Acceptance criteria:**
+- [ ] `ConntrackPool::feed` tracks client/server bidirectional TCP and UDP flows (`SYN-ACK` creates swapped key preserving client/server orientation), updates `pcounter`/`pdcounter`/`pbcounter`/`pos`/`uppos`/`uppos_prev`/`winsize_calc`/`mss`, latches `rseq_over_2g`, and evicts expired entries at rate-limited intervals.
+- [ ] `ReasmState` rejects forward gaps and overflow (`0x100000` window), overwrites overlapping retransmissions consistently, and buffers up to 64 delayed packets for replay on completion.
+- [ ] `PacketRange` enforces `n`/`d`/`b`/`s`/`p`/`a`/`x` bounds and cutoff semantics cleanly on both tracked and untracked flows.
+- [ ] Lua `desync.track` preserves `lua_state` across packets of the same flow, `conntrack_feed` injects synthetic/dissected packets and propagates `ctx.ctrack` to subsequent actions, and `instance_cutoff` / `lua_cutoff` suppress further execution on matching directions.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(conntrack_reasm) or binary(config_filters) or binary(desync_lua_bridge) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [ ] Manual check: verify `LuaRuntime` drops `ConntrackPool` registry keys cleanly before shutdown and `tests/repo_hygiene.rs` passes (`src/` <= 400 lines, `tests/` <= 450 lines).
+
+**Dependencies:** Milestone 2
+
+**Files likely touched:**
+- `src/lib.rs`
+- `src/timer/clock.rs` & `src/timer/mod.rs`
+- `src/conntrack/{mod.rs,types.rs,reasm.rs,pool.rs}`
+- `src/config/range.rs`
+- `src/lua/{mod.rs,ctrack_encode.rs,desync_encode.rs,desync_api.rs,runtime.rs}`
+- `src/desync/engine.rs`
+- `tests/conntrack_reasm.rs`
+- `tests/config_filters.rs`
+- `tests/desync_lua_bridge.rs`
+
+**Estimated scope:** Large — Commit 3.1a (`src/timer/clock.rs`, `src/conntrack/`, `src/config/range.rs`) + Commit 3.1b (`src/lua/ctrack_encode.rs`, `desync_api.rs`, `desync_encode.rs`, `runtime.rs`, tests).
+
+---
+
+## Task 3.2: L7 protocol/payload detectors, QUIC Initial decryption, `tls_mod`, and position markers
+
+**Description:** Port `zapret2/nfq2/protocol.c` into `src/protocol` (`http.rs`, `tls.rs`, `tls_mod.rs`, `aes_block.rs`, `quic.rs`, `datagram.rs`, `markers.rs`, `mod.rs`) covering HTTP (`IsHttp`, `HttpExtractHost`, `IsHttpReply`, `HttpReplyLooksLikeDPIRedirect`), TLS (`IsTLS*`, `TLSFindExt*`, `TLSHelloExtractHost*`, `TLSMod` `rnd`/`rndsni`/`sni`/`dupsid`/`padencap`), QUIC Initial validation + offline `ring` HKDF-SHA256/AES-128-GCM/HP decryption (`QUICDecryptInitial`) + `QUICDefragCrypto`, MTProto AES-256 single-block ECB check, XMPP (4), DNS (2), WireGuard (5), DHT, Discord IP discovery, STUN, DTLS (3), BitTorrent, and uTP-BT. Implement position markers (`abs`, `host`, `endhost`, `sld`, `midsld`, `endsld`, `method`, `extlen`, `sniext`) and expose `resolve_pos`, `resolve_multi_pos`, `resolve_range`, and `tls_mod` in `src/lua/protocol_api.rs`.
+
+**Acceptance criteria:**
+- [ ] All L7 probes classify `L7Proto` and `L7Payload` matching `protocol.c`, extract lowercase hostnames from HTTP `Host:` and TLS/QUIC SNI extensions, and detect HTTP `302`/`307` off-SLD/off-IP DPI redirects.
+- [ ] `QUICDecryptInitial` + `QUICDefragCrypto` decrypt QUIC draft/v1/v2 Initial packets via offline `ring` and extract TLS ClientHello handshakes without requiring Milestone 4 Lua crypto bindings.
+- [ ] `tls_mod` supports `rnd`, `rndsni`, `sni=<host>`, `dupsid`, `padencap`, and `none`, adjusting all 6 TLS length headers accurately when SNI or padding grows/shrinks.
+- [ ] `resolve_pos`, `resolve_multi_pos`, and `resolve_range` enforce strict string types, 1-based default indexing (plus optional `zero_based_pos`), and `strict` range semantics cleanly in Lua.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(protocol_detect) or binary(protocol_markers_lua) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [ ] Manual check: verify `cargo check --offline` builds with `ring = "0.17.14"` without touching network.
+
+**Dependencies:** Milestone 2
+
+**Files likely touched:**
+- `Cargo.toml`
+- `Cargo.lock`
+- `src/lib.rs`
+- `src/protocol/{mod.rs,http.rs,tls.rs,tls_mod.rs,aes_block.rs,quic.rs,datagram.rs,markers.rs}`
+- `src/lua/{mod.rs,protocol_api.rs,runtime.rs}`
+- `tests/protocol_detect.rs`
+- `tests/protocol_markers_lua.rs`
+
+**Estimated scope:** Large — Commit 3.2a (`Cargo.toml` `ring` + `src/protocol/{http,tls,tls_mod,aes_block,quic,datagram}.rs`) + Commit 3.2b (`src/protocol/markers.rs`, `src/lua/protocol_api.rs`, `tests/protocol_*.rs`).
+
+---
+
+## Checkpoint 3A: After Tasks 3.1-3.2
+- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all suites including `conntrack_reasm`, `protocol_detect`, `protocol_markers_lua`, and `repo_hygiene`
+- [ ] Review with user before proceeding to Tasks 3.3-3.4
+
+---
+
+## Task 3.3: Hostlists, autohostlist failure detector, disjoint CIDR IPsets, gzip loader, and IPCache
+
+**Description:** Add `flate2` (pure-Rust `rust_backend`, offline-cached) to `Cargo.toml` and port `zapret2/nfq2/{hostlist.c,ipset.c,pools.c}` into `src/lists` (`file_loader.rs`, `hostlist.rs`, `autohostlist.rs`, `ipset.rs`, `ipcache.rs`, `mod.rs`). Implement gzip/plain streaming readers with `(mtime_sec, mtime_nsec, size)` signature reload resilience, subdomain suffix matching (`^` strict, `!` exempt, `no_match_subdomains`, exclude-before-include, `"@&()"` empty-autolist sentinel), autohostlist `HostFailPool` non-refreshed failure windows (TCP retransmissions, incoming RST / HTTP 302/307 redirect, UDP in/out heuristic, file self-append + debug log), disjoint IPv4/IPv6 CIDR prefix trees (`parse_cidr4`/`parse_cidr6` with non-fatal bad lines), and rate-limited TTL-based `IpCache` (empty-iface hostnames + iface-keyed client TTLs).
+
+**Acceptance criteria:**
+- [ ] Plain and `.gz` (`0x1F 0x8B`) hostlists and IPsets parse comments/prefixes/CIDRs cleanly, tolerate transient unreadable reloads by keeping cached sets, and enforce exclude-before-include semantics.
+- [ ] `HostFailPool` tracks `fail_threshold` hits inside non-refreshed `fail_time` windows from first failure, appends new domains safely without triggering spurious self-reloads, and honors `!` auto-exemptions.
+- [ ] `IpSet` maintains minimal non-overlapping IPv4 and IPv6 CIDR prefixes and supports dual-IP (`dst` / `src`) checks in O(log N).
+- [ ] `IpCache` expires entries past `lifetime_sec`, keys hostname entries globally while keying TTL entries per `(ip, iface)` in client mode, and purges rate-limited at <= 1 Hz.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(lists_and_ipcache) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [ ] Manual check: confirm `.gz` hostlist/ipset decompression works offline with `flate2` `rust_backend` and all files stay <= 400 lines.
+
+**Dependencies:** Task 3.2 (uses `IpAddr` parsing helpers / DPI redirect detection patterns)
+
+**Files likely touched:**
+- `Cargo.toml`
+- `Cargo.lock`
+- `src/lib.rs`
+- `src/lists/{mod.rs,file_loader.rs,hostlist.rs,autohostlist.rs,ipset.rs,ipcache.rs}`
+- `tests/lists_and_ipcache.rs`
+
+**Estimated scope:** Large — Commit 3.3a (`Cargo.toml` `flate2`, `file_loader.rs`, `hostlist.rs`, `ipset.rs`, `ipcache.rs`) + Commit 3.3b (`autohostlist.rs`, `tests/lists_and_ipcache.rs`).
+
+---
+
+## Task 3.4: Config split, CLI flags, full `DesyncEngine` stateful wiring, `SIGHUP` reload, and E2E tests
+
+**Description:** Split `src/config/schema.rs` (`391` lines -> `schema.rs` + `profile_schema.rs`) and extract `src/config/runtime_cfg.rs` (`ConntrackConfig`, `IpCacheConfig`, `AutoHostlistConfig`) before adding Milestone 3 TOML tables and CLI options (`--server`, `--ctrack-timeouts`, `--ctrack-disable`, `--ipcache-lifetime`, `--ipcache-hostname`, `--payload-disable`, `--reasm-disable`, `--hostlist-auto-debug`). Add `L7_PAYLOAD_NONE_MASK` (`1u64 << 31`) disable masks in `src/config/l7.rs`. Refactor `src/desync/` (`engine.rs`, `tcp_udp.rs`, `icmp_ip.rs`) to wire `ConntrackPool`, `IpCache`, L7 probes, DNS A/AAAA hostname learning, TLS/QUIC client-side reassembly + `replay_queue` + `dp_rediscovery`, hostlist/autohostlist/ipset `dp_match`, synthetic TCP RST on retrans fail, and `ct_new_postnat_fix`. Wire `test_list_files` validation and `SIGHUP` reload into `src/bin/nfqws2.rs` and `src/timer/runner.rs`, and add end-to-end tests.
+
+**Acceptance criteria:**
+- [ ] Every TOML field and CLI override resolves deterministically, rejects `hostlist_auto` when `--server` or `--ctrack-disable` is set, and keeps all `src/` files strictly `<= 400` lines.
+- [ ] Outgoing multi-segment TLS ClientHello triggers reassembly, buffers packets, replays all pieces with populated `desync.reasm_data`/`desync.reasm_offset`/`desync.replay*`, and preserves `desync.track.lua_state` across packets.
+- [ ] QUIC Initial packets decrypt cleanly for SNI matching/hostlists and populate `desync.decrypt_data`, while `SIGHUP` reloads modified hostlist/ipset files inside `nfqws2`.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [ ] Live check: `unshare -r -n bash -c 'ip link set lo up && cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --run-ignored only --show-progress none --no-pager'` passes all ignored kernel tests.
+
+**Dependencies:** Task 3.1, Task 3.2, Task 3.3
+
+**Files likely touched:**
+- `src/config/{mod.rs,l7.rs,runtime_cfg.rs,model.rs,schema.rs,profile_schema.rs,cli.rs}`
+- `src/desync/{mod.rs,engine.rs,tcp_udp.rs,icmp_ip.rs,verdict.rs}`
+- `src/timer/runner.rs`
+- `src/bin/nfqws2.rs`
+- `tests/config_toml.rs`
+- `tests/desync_pipeline.rs`
+- `tests/desync_m3_e2e.rs`
+- `tests/nfqws2_cli.rs`
+
+**Estimated scope:** Large — Commit 3.4a (`src/config/*` split & M3 schema/CLI) + Commit 3.4b (`src/desync/{engine,tcp_udp,icmp_ip}.rs`, `src/timer/runner.rs`, `src/bin/nfqws2.rs`) + Commit 3.4c (E2E integration & reload tests).
+
+---
+
+## Checkpoint 3B: Milestone 3 Complete
+- [ ] All tasks 3.1 through 3.4 checked off with individual atomic commits
+- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
+- [ ] Review with user and plan Milestone 4
