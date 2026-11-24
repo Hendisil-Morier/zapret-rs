@@ -1,19 +1,19 @@
 # Task Breakdown: Milestone 2 (`nfqws2` Interception, CLI, Desync Loop, and Timers)
 
 Target verification commands used across tasks:
-- Lint: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline` (add `-- -D warnings` once unused `clap` is resolved in Task 2.2)
+- Lint: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline` (add `-- -D warnings` once `clap` is wired in Task 2.2)
 - Tests: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline`
 
 ---
 
 ## Task 2.1: Upgrade NFQUEUE intercepter with queue tuning, persistent `SIOCGIFNAME`, fwmark guard, and `poll()` loop
 
-**Description:** Harden `src/intercepter` to match `zapret2/nfq2/nfqws.c` Linux NFQUEUE setup: configure queue max length (`4096`), socket receive buffer (`1 MiB`), best-effort fail-open, persistent `AF_INET` `SOCK_DGRAM` FD for `SIOCGIFNAME` index-to-name resolution, `desync_fwmark` loop-prevention guard, `nfmark` propagation on verdicts, and `libc::poll` wakeup with clean shutdown flag support.
+**Description:** Harden `src/intercepter` to match `zapret2/nfq2/nfqws.c` Linux NFQUEUE setup: configure queue max length (`4096`), socket receive buffer (`1 MiB`), best-effort fail-open, persistent `AF_INET` `SOCK_DGRAM` FD for `SIOCGIFNAME` index-to-name resolution, `desync_fwmark` loop-prevention guard, and `libc::poll` wakeup with clean shutdown flag support.
 
 **Acceptance criteria:**
 - [ ] `QueueCatcher` configures `set_queue_max_len(qnum, 4096)`, `SO_RCVBUF = 1 MiB` (best-effort), `set_fail_open(qnum, true)` (best-effort), and unbinds on drop/exit.
 - [ ] Interface indices resolve via a single persistent `SOCK_DGRAM` `OwnedFd` using `SIOCGIFNAME`, and packets matching `(mark & desync_fwmark) != 0` return `Decision::Pass` without invoking the desync handler.
-- [ ] Dispatch helper and verdict mapping (`Pass`, `Drop`, `Replace(Vec<u8>)`, optional updated `nfmark`) are unit-tested without requiring root privileges.
+- [ ] Dispatch helper, verdict mapping (`Pass`, `Drop`, `Replace(Vec<u8>)`), and poll timeout clamping are unit-tested without requiring root privileges.
 
 **Verification:**
 - [ ] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test intercepter_dispatch --offline`
@@ -25,40 +25,43 @@ Target verification commands used across tasks:
 **Files likely touched:**
 - `src/intercepter/mod.rs`
 - `src/intercepter/error.rs`
+- `src/intercepter/ifname.rs`
 - `src/intercepter/types.rs`
 - `src/intercepter/nfqueue.rs`
 - `tests/intercepter_dispatch.rs`
 
-**Estimated scope:** Medium (5 files)
+**Estimated scope:** Medium (6 files)
 
 ---
 
-## Task 2.2: Implement profile filters, blobs, and sequential `nfqws2` CLI parser
+## Task 2.2: Implement profile filters, blobs, TOML config schema, and `clap` CLI
 
-**Description:** Add a `src/config` module implementing `zapret2` filter primitives (`port_filter`, `icmp_filter`, `ipp_filter`, `packet_range`, `filter_mark`), built-in default blobs (`fake_default_tls`, `fake_default_http`, `fake_default_quic`) plus `--blob` file/hex loading, and a sequential GNU-style CLI parser supporting Milestone 2 global flags, `@<file>`/`$<file>` config files, `--new`/`--template`/`--import`/`--skip`/`--name`/`--cookie`, and stateful `--payload`/`--out-range`/`--in-range`/`--lua-desync` lists. Remove unused `clap` from `Cargo.toml` if approved.
+**Description:** Add `src/config` implementing `zapret2` filter primitives (`port_filter`, `icmp_filter`, `ipp_filter`, `packet_range`, `filter_mark`), built-in default blobs (`fake_default_tls`, `fake_default_http`, `fake_default_quic`) plus file/hex blobs, a `serde` + `toml` configuration file schema (`qnum`, `fwmark`, `bind_fix4`, `bind_fix6`, `debug`, `lua_init`, `[blobs]`, `[[profiles]]`, `[[profiles.actions]]`), and a `clap` derive CLI (`--config`, `--qnum`, `--fwmark`, `--debug`, `--dry-run`, `--intercept`, `--version`, `--pidfile`, `--daemon`, `--user`/`--uid`, `--chdir`) with CLI-over-config overrides.
 
 **Acceptance criteria:**
 - [ ] Port (`[~]p1[-p2]|*`), ICMP (`type[:code]|*`), IP protocol, fwmark (`mark[/mask]`), and packet-range parsers match `zapret2/nfq2/filter.c` behavior including negation and invalid-input errors.
-- [ ] Multi-profile CLI strings with `--new`, `--template`, `--import`, `--payload`, `--out-range`, `--in-range`, `--lua-desync=fn:k=v`, `--blob`, and `--lua-init` parse into ordered `DesyncProfile` entries with exact argument association.
-- [ ] `Cargo.toml` builds cleanly under `cargo clippy --all-targets --offline -- -D warnings` (subject to Open Question 1).
+- [ ] TOML config files with global settings, blobs, profiles, filters, and actions deserialize cleanly and merge with `clap` CLI overrides.
+- [ ] Workspace compiles with zero warnings under `cargo clippy --all-targets --offline -- -D warnings`.
 
 **Verification:**
-- [ ] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test config_cli --offline`
+- [ ] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test config_toml --offline`
 - [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: confirm `--version`, `--dry-run`, and malformed flags return deterministic typed errors without panicking.
+- [ ] Manual check: confirm `--version`, `--dry-run`, and malformed flags or TOML files return deterministic typed errors without panicking.
 
 **Dependencies:** None (can run immediately after Task 2.1)
 
 **Files likely touched:**
 - `Cargo.toml`
+- `Cargo.lock`
 - `src/lib.rs`
 - `src/config/mod.rs`
 - `src/config/error.rs`
 - `src/config/filter.rs`
+- `src/config/schema.rs`
 - `src/config/cli.rs`
-- `tests/config_cli.rs`
+- `tests/config_toml.rs`
 
-**Estimated scope:** Medium (split Task 2.2 into Commit 2.2a `filter.rs` + Commit 2.2b `cli.rs` to stay <= 4 files per commit)
+**Estimated scope:** Medium (split Task 2.2 into Commit 2.2a `filter.rs` + Commit 2.2b `schema.rs` + `cli.rs` + tests to stay <= 5 files per commit)
 
 ---
 
