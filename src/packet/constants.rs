@@ -22,6 +22,8 @@ pub const VERDICT_MASK: u8 = 3;
 pub const VERDICT_PRESERVE_NEXT: u8 = 4;
 /// Verdict flag: skip transport checksum recalculation (`VERDICT_NOCSUM`).
 pub const VERDICT_NOCSUM: u8 = 8;
+/// Bitmask of valid verdict flags returned from Lua desync callbacks (`VERDICT_MASK_VALID_LUA`).
+pub const VERDICT_MASK_VALID_LUA: u8 = VERDICT_MASK | VERDICT_PRESERVE_NEXT;
 
 /// Minimum IPv4 header length in bytes (`IP_BASE_LEN`).
 pub const IP_BASE_LEN: usize = 20;

@@ -29,8 +29,8 @@ pub use filter::{
 };
 /// Re-exported L7 protocol/payload enums and mask matchers.
 pub use l7::{
-    L7Payload, L7Proto, l7_payload_matches, l7_proto_matches, parse_l7_payload_mask,
-    parse_l7_proto_mask,
+    ALL_L7_PAYLOADS, L7Payload, L7Proto, l7_payload_matches, l7_payload_names,
+    l7_payload_str_list, l7_proto_matches, parse_l7_payload_mask, parse_l7_proto_mask,
 };
 /// Re-exported TOML config structs and validated profile/action types.
 pub use schema::{

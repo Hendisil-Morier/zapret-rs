@@ -398,6 +398,13 @@ impl PacketRange {
         upper_cutoff: false,
     };
 
+    /// Evaluates whether this range matches without connection tracking (`'a'..'a'` only).
+    pub const fn matches_without_conntrack(self) -> bool {
+        // shortcut: without Milestone 3 conntrack positions, only 'a'..'a' matches (identical to check_pos_range(NULL, range) in zapret2/nfq2/desync.c:683-723).
+        matches!(self.from.mode, PacketPosMode::Always)
+            && matches!(self.to.mode, PacketPosMode::Always)
+    }
+
     /// Parses `<pos>(-|<)<pos>`, `-<pos>`, `<pos>-`, `x`, or `a` into a [`PacketRange`].
     pub fn parse(raw: &str) -> Result<Self, ConfigError> {
         let s = raw.trim();

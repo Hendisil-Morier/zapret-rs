@@ -23,4 +23,8 @@ pub enum LuaEngineError {
     /// Raw socket transmission failure triggered from Lua `rawsend`.
     #[error("Raw send failed: {0}")]
     RawSend(#[from] RawSendError),
+
+    /// Configured Lua desync function does not exist in `_G` as a callable function.
+    #[error("desync function '{0}' does not exist")]
+    MissingFunction(String),
 }

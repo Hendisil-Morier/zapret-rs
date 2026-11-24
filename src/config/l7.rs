@@ -297,3 +297,56 @@ pub const fn l7_payload_matches(payload: L7Payload, filter_mask: u64) -> bool {
         || ((filter_mask & L7Payload::Known.bit()) != 0
             && (payload as u8) > (L7Payload::Known as u8))
 }
+
+/// Ordered slice containing every [`L7Payload`] variant in bitmask discriminant order (`0..=30`).
+pub const ALL_L7_PAYLOADS: [L7Payload; 31] = [
+    L7Payload::All,
+    L7Payload::Unknown,
+    L7Payload::Empty,
+    L7Payload::Known,
+    L7Payload::Ipv4,
+    L7Payload::Ipv6,
+    L7Payload::Icmp,
+    L7Payload::HttpReq,
+    L7Payload::HttpReply,
+    L7Payload::TlsClientHello,
+    L7Payload::TlsServerHello,
+    L7Payload::DtlsClientHello,
+    L7Payload::DtlsServerHello,
+    L7Payload::QuicInitial,
+    L7Payload::WireguardInitiation,
+    L7Payload::WireguardResponse,
+    L7Payload::WireguardCookie,
+    L7Payload::WireguardKeepalive,
+    L7Payload::WireguardData,
+    L7Payload::Dht,
+    L7Payload::DiscordIpDiscovery,
+    L7Payload::Stun,
+    L7Payload::XmppStream,
+    L7Payload::XmppStarttls,
+    L7Payload::XmppProceed,
+    L7Payload::XmppFeatures,
+    L7Payload::DnsQuery,
+    L7Payload::DnsResponse,
+    L7Payload::MtprotoInitial,
+    L7Payload::BtHandshake,
+    L7Payload::UtpBtHandshake,
+];
+
+/// Returns canonical payload names enabled in `mask` (`"all"` when `mask == 0`).
+pub fn l7_payload_names(mask: u64) -> Vec<&'static str> {
+    if mask == 0 {
+        return vec!["all"];
+    }
+    ALL_L7_PAYLOADS
+        .iter()
+        .copied()
+        .filter(|pl| (mask & pl.bit()) != 0)
+        .map(L7Payload::as_str)
+        .collect()
+}
+
+/// Formats a payload bitmask as a comma-separated string (`"all"` when `mask == 0`).
+pub fn l7_payload_str_list(mask: u64) -> String {
+    l7_payload_names(mask).join(",")
+}
