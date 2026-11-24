@@ -39,14 +39,14 @@ Target verification commands used across tasks:
 **Description:** Add `src/config` implementing `zapret2` filter primitives (`port_filter`, `icmp_filter`, `ipp_filter`, `packet_range`, `filter_mark`), built-in default blobs (`fake_default_tls`, `fake_default_http`, `fake_default_quic`) plus file/hex blobs, a `serde` + `toml` configuration file schema (`qnum`, `fwmark`, `bind_fix4`, `bind_fix6`, `debug`, `lua_init`, `[blobs]`, `[[profiles]]`, `[[profiles.actions]]`), and a `clap` derive CLI (`--config`, `--qnum`, `--fwmark`, `--debug`, `--dry-run`, `--intercept`, `--version`, `--pidfile`, `--daemon`, `--user`/`--uid`, `--chdir`) with CLI-over-config overrides.
 
 **Acceptance criteria:**
-- [ ] Port (`[~]p1[-p2]|*`), ICMP (`type[:code]|*`), IP protocol, fwmark (`mark[/mask]`), and packet-range parsers match `zapret2/nfq2/filter.c` behavior including negation and invalid-input errors.
-- [ ] TOML config files with global settings, blobs, profiles, filters, and actions deserialize cleanly and merge with `clap` CLI overrides.
-- [ ] Workspace compiles with zero warnings under `cargo clippy --all-targets --offline -- -D warnings`.
+- [x] Port (`[~]p1[-p2]|*`), ICMP (`type[:code]|*`), IP protocol, fwmark (`mark[/mask]`), and packet-range parsers match `zapret2/nfq2/filter.c` behavior including negation and invalid-input errors.
+- [x] TOML config files with global settings, blobs, profiles, filters, and actions deserialize cleanly and merge with `clap` CLI overrides.
+- [x] Workspace compiles with zero warnings under `cargo clippy --all-targets --offline -- -D warnings`.
 
 **Verification:**
-- [ ] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test config_toml --offline`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: confirm `--version`, `--dry-run`, and malformed flags or TOML files return deterministic typed errors without panicking.
+- [x] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test config_toml --offline`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Manual check: confirm `--version`, `--dry-run`, and malformed flags or TOML files return deterministic typed errors without panicking.
 
 **Dependencies:** None (can run immediately after Task 2.1)
 
@@ -57,8 +57,11 @@ Target verification commands used across tasks:
 - `src/config/mod.rs`
 - `src/config/error.rs`
 - `src/config/filter.rs`
+- `src/config/l7.rs`
+- `src/config/blobs.rs`
 - `src/config/schema.rs`
 - `src/config/cli.rs`
+- `tests/config_filters.rs`
 - `tests/config_toml.rs`
 
 **Estimated scope:** Medium (split Task 2.2 into Commit 2.2a `filter.rs` + Commit 2.2b `schema.rs` + `cli.rs` + tests to stay <= 5 files per commit)
