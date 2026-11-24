@@ -110,14 +110,14 @@ Target verification commands used across tasks:
 **Description:** Port `zapret2/nfq2/timer.c` into `src/timer` using `CLOCK_BOOTTIME` monotonic milliseconds, expose `timer_set`, `timer_del`, `timer_info`, and `timer_enum` in `src/lua/timer_api.rs`, integrate next-deadline calculation into the NFQUEUE `poll()` loop and periodic `lua_gc`, and implement the `--intercept=0` timer-only loop (`NoInterceptLoop`).
 
 **Acceptance criteria:**
-- [ ] Repeating and oneshot timers fire on schedule, honor deletion during callback (`dirty` flag), and return accurate `timer_info` / `timer_enum` metadata to Lua.
-- [ ] `--intercept=0` runs `lua_init` scripts, executes scheduled timers until none remain or shutdown is signaled, and exits with code 0.
-- [ ] NFQUEUE `poll()` sleeps until the earliest timer deadline without busy-looping.
+- [x] Repeating and oneshot timers fire on schedule, honor deletion during callback (`dirty` flag), and return accurate `timer_info` / `timer_enum` metadata to Lua.
+- [x] `--intercept=0` runs `lua_init` scripts, executes scheduled timers until none remain or shutdown is signaled, and exits with code 0.
+- [x] NFQUEUE `poll()` sleeps until the earliest timer deadline without busy-looping.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'test(timer_lua) or test(repo_hygiene)' --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: verify bounded test completes in < 1s with zero busy-wait CPU spin.
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml -E 'binary(timer_lua) or binary(repo_hygiene)' --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Manual check: verify bounded test completes in < 1s with zero busy-wait CPU spin.
 
 **Dependencies:** Task 2.1, Task 2.3
 
