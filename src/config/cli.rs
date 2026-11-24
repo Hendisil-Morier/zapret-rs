@@ -11,7 +11,7 @@ use crate::config::error::ConfigError;
 /// Decimal and `0x`-hex parser shared with fwmark filter syntax.
 use crate::config::filter::parse_u32_radix;
 /// Validated application configuration loaded from TOML and overridden by CLI flags.
-use crate::config::schema::AppConfig;
+use crate::config::model::AppConfig;
 
 /// Parses `--fwmark` from decimal or `0x` hex notation for `clap`.
 fn parse_fwmark_arg(raw: &str) -> Result<u32, String> {

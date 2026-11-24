@@ -6,11 +6,15 @@ pub mod blobs;
 pub mod cli;
 /// Typed configuration and filter parsing errors.
 pub mod error;
-/// Port, ICMP, IP protocol, firewall mark, and packet range filters.
+/// Port, ICMP, IP protocol, and firewall mark filters.
 pub mod filter;
 /// L7 protocol and payload bitmask classifications.
 pub mod l7;
-/// TOML configuration deserialization, profile matching, and runtime conversion.
+/// Validated runtime application, profile, and action models.
+pub mod model;
+/// Packet position counter and range expression filters.
+pub mod range;
+/// TOML configuration file deserialization.
 pub mod schema;
 
 /// Re-exported default and custom blob helpers.
@@ -24,16 +28,18 @@ pub use cli::{CliArgs, resolve_config};
 pub use error::ConfigError;
 /// Re-exported packet and profile filter primitives.
 pub use filter::{
-    FilterMode, IcmpFilter, IppFilter, MarkFilter, PacketPos, PacketPosMode, PacketRange,
-    PortFilter, icmp_filters_match, ipp_filters_match, parse_u32_radix, port_filters_match,
+    FilterMode, IcmpFilter, IppFilter, MarkFilter, PortFilter, icmp_filters_match,
+    ipp_filters_match, parse_u32_radix, port_filters_match,
 };
 /// Re-exported L7 protocol/payload enums and mask matchers.
 pub use l7::{
     ALL_L7_PAYLOADS, L7Payload, L7Proto, l7_payload_matches, l7_payload_names,
     l7_payload_str_list, l7_proto_matches, parse_l7_payload_mask, parse_l7_proto_mask,
 };
-/// Re-exported TOML config structs and validated profile/action types.
-pub use schema::{
+/// Re-exported validated runtime configuration and profile/action structs.
+pub use model::{
     AppConfig, DEFAULT_LUA_GC_INTERVAL, DesyncAction, DesyncProfile, LuaInitEntry,
     ProfileMatchInput,
 };
+/// Re-exported packet position and range filter primitives.
+pub use range::{PacketPos, PacketPosMode, PacketRange};
