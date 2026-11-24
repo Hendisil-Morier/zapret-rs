@@ -10,12 +10,21 @@ use clap::Parser;
 use crate::config::error::ConfigError;
 /// Decimal and `0x`-hex parser shared with fwmark filter syntax.
 use crate::config::filter::parse_u32_radix;
-/// Validated application configuration loaded from TOML and overridden by CLI flags.
-use crate::config::model::AppConfig;
+/// Validated application configuration and Lua init source variants loaded from TOML/CLI.
+use crate::config::model::{AppConfig, LuaInitEntry};
 
 /// Parses `--fwmark` from decimal or `0x` hex notation for `clap`.
 fn parse_fwmark_arg(raw: &str) -> Result<u32, String> {
     parse_u32_radix(raw).ok_or_else(|| format!("invalid fwmark '{raw}' (expected u32 or 0xHEX)"))
+}
+
+/// Parses boolean flags supporting both `true`/`false` and `zapret2`-compatible `1`/`0` syntax.
+fn parse_bool_arg(raw: &str) -> Result<bool, String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(format!("invalid boolean '{raw}' (expected 0/1 or true/false)")),
+    }
 }
 
 /// Top-level command-line flags accepted by `nfqws2`.
@@ -36,22 +45,22 @@ pub struct CliArgs {
     #[arg(long = "fwmark", value_parser = parse_fwmark_arg)]
     pub fwmark: Option<u32>,
     /// Override IPv4 `SO_BINDTODEVICE` routing fixup.
-    #[arg(long = "bind-fix4", num_args = 0..=1, default_missing_value = "true")]
+    #[arg(long = "bind-fix4", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
     pub bind_fix4: Option<bool>,
     /// Override IPv6 `SO_BINDTODEVICE` routing fixup.
-    #[arg(long = "bind-fix6", num_args = 0..=1, default_missing_value = "true")]
+    #[arg(long = "bind-fix6", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
     pub bind_fix6: Option<bool>,
     /// Enable or disable debug output.
-    #[arg(long = "debug", num_args = 0..=1, default_missing_value = "true")]
+    #[arg(long = "debug", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
     pub debug: Option<bool>,
     /// Validate configuration and exit with code 0 without intercepting packets.
     #[arg(long = "dry-run")]
     pub dry_run: bool,
     /// Enable or disable packet interception (when false, runs startup Lua/timers and exits).
-    #[arg(long = "intercept", num_args = 0..=1, default_missing_value = "true")]
+    #[arg(long = "intercept", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
     pub intercept: Option<bool>,
     /// Fork into background daemon mode.
-    #[arg(long = "daemon", num_args = 0..=1, default_missing_value = "true")]
+    #[arg(long = "daemon", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
     pub daemon: Option<bool>,
     /// Override PID file path.
     #[arg(long = "pidfile")]
@@ -68,6 +77,9 @@ pub struct CliArgs {
     /// Override forced Lua garbage collection interval in seconds (`0` disables periodic GC).
     #[arg(long = "lua-gc")]
     pub lua_gc: Option<u64>,
+    /// Append Lua startup script (`@path` for file, otherwise inline Lua source).
+    #[arg(long = "lua-init")]
+    pub lua_init: Vec<String>,
 }
 
 /// Loads TOML config (when specified) and merges any explicit CLI overrides.
@@ -111,6 +123,18 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError> {
     }
     if let Some(lua_gc) = cli.lua_gc {
         cfg.lua_gc = lua_gc;
+    }
+    for entry in &cli.lua_init {
+        if let Some(path) = entry.strip_prefix('@') {
+            if path.trim().is_empty() {
+                return Err(ConfigError::Validation(
+                    "empty --lua-init @path".to_owned(),
+                ));
+            }
+            cfg.lua_init.push(LuaInitEntry::File(PathBuf::from(path)));
+        } else {
+            cfg.lua_init.push(LuaInitEntry::Inline(entry.clone()));
+        }
     }
 
     cfg.validate()?;

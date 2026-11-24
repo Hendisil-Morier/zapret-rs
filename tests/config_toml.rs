@@ -217,3 +217,34 @@ fn clap_cli_parses_overrides_version_and_validates_conflicts() {
     let ver_err = CliArgs::try_parse_from(["nfqws2", "--version"]).expect_err("version displays");
     assert_eq!(ver_err.kind(), ErrorKind::DisplayVersion);
 }
+
+/// Verifies numeric `0`/`1` CLI bool flags and repeatable `--lua-init` `@file`/inline handling.
+#[test]
+fn clap_cli_parses_numeric_bools_and_lua_init_entries() {
+    let cli = CliArgs::try_parse_from([
+        "nfqws2",
+        "--intercept=0",
+        "--debug=1",
+        "--lua-init=@script.lua",
+        "--lua-init=DLOG(\"ok\")",
+    ])
+    .expect("CLI numeric bool and lua-init syntax should parse");
+
+    let resolved = resolve_config(&cli).expect("resolved config should succeed");
+    assert!(!resolved.intercept);
+    assert!(resolved.debug);
+    assert_eq!(
+        resolved.lua_init,
+        vec![
+            LuaInitEntry::File(PathBuf::from("script.lua")),
+            LuaInitEntry::Inline("DLOG(\"ok\")".to_owned()),
+        ]
+    );
+
+    let empty_file = CliArgs::try_parse_from(["nfqws2", "--lua-init=@"])
+        .expect("clap syntax accepts string before validation");
+    assert!(matches!(
+        resolve_config(&empty_file),
+        Err(ConfigError::Validation(_))
+    ));
+}
