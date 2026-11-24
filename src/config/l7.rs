@@ -1,0 +1,299 @@
+//! L7 protocol and payload classification enums, bitmask parsers, and matchers matching `protocol.h`.
+
+/// Typed configuration parsing errors.
+use crate::config::error::ConfigError;
+
+/// Canonical L7 protocol identifiers ordered identically to `t_l7proto` in `zapret2/nfq2/protocol.h`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum L7Proto {
+    /// Wildcard matching any protocol (`"all"`).
+    All = 0,
+    /// Unidentified application protocol (`"unknown"`).
+    Unknown = 1,
+    /// Wildcard matching any identified protocol > `Unknown` (`"known"`).
+    Known = 2,
+    /// Plaintext HTTP (`"http"`).
+    Http = 3,
+    /// TLS over TCP (`"tls"`).
+    Tls = 4,
+    /// DTLS over UDP (`"dtls"`).
+    Dtls = 5,
+    /// QUIC over UDP (`"quic"`).
+    Quic = 6,
+    /// WireGuard VPN (`"wireguard"`).
+    Wireguard = 7,
+    /// BitTorrent DHT (`"dht"`).
+    Dht = 8,
+    /// Discord voice discovery (`"discord"`).
+    Discord = 9,
+    /// STUN (`"stun"`).
+    Stun = 10,
+    /// XMPP / Jabber (`"xmpp"`).
+    Xmpp = 11,
+    /// DNS (`"dns"`).
+    Dns = 12,
+    /// Telegram MTProto (`"mtproto"`).
+    Mtproto = 13,
+    /// BitTorrent TCP handshake (`"bt"`).
+    Bt = 14,
+    /// BitTorrent uTP handshake (`"utp_bt"`).
+    UtpBt = 15,
+}
+
+impl L7Proto {
+    /// Parses a `zapret2` L7 protocol name into an [`L7Proto`] variant.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim() {
+            "all" => Some(Self::All),
+            "unknown" => Some(Self::Unknown),
+            "known" => Some(Self::Known),
+            "http" => Some(Self::Http),
+            "tls" => Some(Self::Tls),
+            "dtls" => Some(Self::Dtls),
+            "quic" => Some(Self::Quic),
+            "wireguard" => Some(Self::Wireguard),
+            "dht" => Some(Self::Dht),
+            "discord" => Some(Self::Discord),
+            "stun" => Some(Self::Stun),
+            "xmpp" => Some(Self::Xmpp),
+            "dns" => Some(Self::Dns),
+            "mtproto" => Some(Self::Mtproto),
+            "bt" => Some(Self::Bt),
+            "utp_bt" => Some(Self::UtpBt),
+            _ => None,
+        }
+    }
+
+    /// Returns the canonical `zapret2` Lua/CLI name for this L7 protocol.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Unknown => "unknown",
+            Self::Known => "known",
+            Self::Http => "http",
+            Self::Tls => "tls",
+            Self::Dtls => "dtls",
+            Self::Quic => "quic",
+            Self::Wireguard => "wireguard",
+            Self::Dht => "dht",
+            Self::Discord => "discord",
+            Self::Stun => "stun",
+            Self::Xmpp => "xmpp",
+            Self::Dns => "dns",
+            Self::Mtproto => "mtproto",
+            Self::Bt => "bt",
+            Self::UtpBt => "utp_bt",
+        }
+    }
+
+    /// Returns the single-bit flag representing `self` inside a 64-bit `filter_l7` mask.
+    pub const fn bit(self) -> u64 {
+        1u64 << (self as u8)
+    }
+}
+
+/// Parses comma-separated or list-separated L7 protocol names into a `filter_l7` bitmask (`0` = all).
+pub fn parse_l7_proto_mask(items: &[String]) -> Result<u64, ConfigError> {
+    let mut mask = 0u64;
+    for entry in items {
+        for token in entry.split(',') {
+            let trimmed = token.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let proto = L7Proto::from_name(trimmed)
+                .ok_or_else(|| ConfigError::InvalidL7Proto(trimmed.to_owned()))?;
+            if proto == L7Proto::All {
+                return Ok(0);
+            }
+            mask |= proto.bit();
+        }
+    }
+    Ok(mask)
+}
+
+/// Returns `true` if `proto` satisfies `filter_mask` (`0` or `L7Proto::Known` handled identically to `l7_proto_match`).
+pub const fn l7_proto_matches(proto: L7Proto, filter_mask: u64) -> bool {
+    filter_mask == 0
+        || (filter_mask & proto.bit()) != 0
+        || ((filter_mask & L7Proto::Known.bit()) != 0 && (proto as u8) > (L7Proto::Known as u8))
+}
+
+/// Canonical L7 payload identifiers ordered identically to `t_l7payload` in `zapret2/nfq2/protocol.h`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum L7Payload {
+    /// Wildcard matching any payload (`"all"`).
+    All = 0,
+    /// Unclassified non-empty payload (`"unknown"`).
+    Unknown = 1,
+    /// Zero-byte L4 payload (`"empty"`).
+    Empty = 2,
+    /// Wildcard matching any known payload > `Known` (`"known"`).
+    Known = 3,
+    /// IPv4 packet payload / encapsulation (`"ipv4"`).
+    Ipv4 = 4,
+    /// IPv6 packet payload / encapsulation (`"ipv6"`).
+    Ipv6 = 5,
+    /// ICMP/ICMPv6 packet (`"icmp"`).
+    Icmp = 6,
+    /// HTTP request message (`"http_req"`).
+    HttpReq = 7,
+    /// HTTP response message (`"http_reply"`).
+    HttpReply = 8,
+    /// TLS ClientHello (`"tls_client_hello"`).
+    TlsClientHello = 9,
+    /// TLS ServerHello (`"tls_server_hello"`).
+    TlsServerHello = 10,
+    /// DTLS ClientHello (`"dtls_client_hello"`).
+    DtlsClientHello = 11,
+    /// DTLS ServerHello (`"dtls_server_hello"`).
+    DtlsServerHello = 12,
+    /// QUIC Initial packet (`"quic_initial"`).
+    QuicInitial = 13,
+    /// WireGuard handshake initiation (`"wireguard_initiation"`).
+    WireguardInitiation = 14,
+    /// WireGuard handshake response (`"wireguard_response"`).
+    WireguardResponse = 15,
+    /// WireGuard cookie reply (`"wireguard_cookie"`).
+    WireguardCookie = 16,
+    /// WireGuard keepalive (`"wireguard_keepalive"`).
+    WireguardKeepalive = 17,
+    /// WireGuard encrypted transport data (`"wireguard_data"`).
+    WireguardData = 18,
+    /// BitTorrent DHT packet (`"dht"`).
+    Dht = 19,
+    /// Discord IP discovery packet (`"discord_ip_discovery"`).
+    DiscordIpDiscovery = 20,
+    /// STUN message (`"stun"`).
+    Stun = 21,
+    /// XMPP stream header (`"xmpp_stream"`).
+    XmppStream = 22,
+    /// XMPP STARTTLS frame (`"xmpp_starttls"`).
+    XmppStarttls = 23,
+    /// XMPP STARTTLS proceed frame (`"xmpp_proceed"`).
+    XmppProceed = 24,
+    /// XMPP stream features frame (`"xmpp_features"`).
+    XmppFeatures = 25,
+    /// DNS query message (`"dns_query"`).
+    DnsQuery = 26,
+    /// DNS response message (`"dns_response"`).
+    DnsResponse = 27,
+    /// Telegram MTProto initial packet (`"mtproto_initial"`).
+    MtprotoInitial = 28,
+    /// BitTorrent TCP peer handshake (`"bt_handshake"`).
+    BtHandshake = 29,
+    /// BitTorrent uTP peer handshake (`"utp_bt_handshake"`).
+    UtpBtHandshake = 30,
+}
+
+impl L7Payload {
+    /// Parses a `zapret2` L7 payload name into an [`L7Payload`] variant.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim() {
+            "all" => Some(Self::All),
+            "unknown" => Some(Self::Unknown),
+            "empty" => Some(Self::Empty),
+            "known" => Some(Self::Known),
+            "ipv4" => Some(Self::Ipv4),
+            "ipv6" => Some(Self::Ipv6),
+            "icmp" => Some(Self::Icmp),
+            "http_req" => Some(Self::HttpReq),
+            "http_reply" => Some(Self::HttpReply),
+            "tls_client_hello" => Some(Self::TlsClientHello),
+            "tls_server_hello" => Some(Self::TlsServerHello),
+            "dtls_client_hello" => Some(Self::DtlsClientHello),
+            "dtls_server_hello" => Some(Self::DtlsServerHello),
+            "quic_initial" => Some(Self::QuicInitial),
+            "wireguard_initiation" => Some(Self::WireguardInitiation),
+            "wireguard_response" => Some(Self::WireguardResponse),
+            "wireguard_cookie" => Some(Self::WireguardCookie),
+            "wireguard_keepalive" => Some(Self::WireguardKeepalive),
+            "wireguard_data" => Some(Self::WireguardData),
+            "dht" => Some(Self::Dht),
+            "discord_ip_discovery" => Some(Self::DiscordIpDiscovery),
+            "stun" => Some(Self::Stun),
+            "xmpp_stream" => Some(Self::XmppStream),
+            "xmpp_starttls" => Some(Self::XmppStarttls),
+            "xmpp_proceed" => Some(Self::XmppProceed),
+            "xmpp_features" => Some(Self::XmppFeatures),
+            "dns_query" => Some(Self::DnsQuery),
+            "dns_response" => Some(Self::DnsResponse),
+            "mtproto_initial" => Some(Self::MtprotoInitial),
+            "bt_handshake" => Some(Self::BtHandshake),
+            "utp_bt_handshake" => Some(Self::UtpBtHandshake),
+            _ => None,
+        }
+    }
+
+    /// Returns the canonical `zapret2` Lua/CLI name for this payload type.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Unknown => "unknown",
+            Self::Empty => "empty",
+            Self::Known => "known",
+            Self::Ipv4 => "ipv4",
+            Self::Ipv6 => "ipv6",
+            Self::Icmp => "icmp",
+            Self::HttpReq => "http_req",
+            Self::HttpReply => "http_reply",
+            Self::TlsClientHello => "tls_client_hello",
+            Self::TlsServerHello => "tls_server_hello",
+            Self::DtlsClientHello => "dtls_client_hello",
+            Self::DtlsServerHello => "dtls_server_hello",
+            Self::QuicInitial => "quic_initial",
+            Self::WireguardInitiation => "wireguard_initiation",
+            Self::WireguardResponse => "wireguard_response",
+            Self::WireguardCookie => "wireguard_cookie",
+            Self::WireguardKeepalive => "wireguard_keepalive",
+            Self::WireguardData => "wireguard_data",
+            Self::Dht => "dht",
+            Self::DiscordIpDiscovery => "discord_ip_discovery",
+            Self::Stun => "stun",
+            Self::XmppStream => "xmpp_stream",
+            Self::XmppStarttls => "xmpp_starttls",
+            Self::XmppProceed => "xmpp_proceed",
+            Self::XmppFeatures => "xmpp_features",
+            Self::DnsQuery => "dns_query",
+            Self::DnsResponse => "dns_response",
+            Self::MtprotoInitial => "mtproto_initial",
+            Self::BtHandshake => "bt_handshake",
+            Self::UtpBtHandshake => "utp_bt_handshake",
+        }
+    }
+
+    /// Returns the single-bit flag representing `self` inside a 64-bit `payload` mask.
+    pub const fn bit(self) -> u64 {
+        1u64 << (self as u8)
+    }
+}
+
+/// Parses comma-separated or list-separated L7 payload names into a 64-bit mask (`0` = all).
+pub fn parse_l7_payload_mask(items: &[String]) -> Result<u64, ConfigError> {
+    let mut mask = 0u64;
+    for entry in items {
+        for token in entry.split(',') {
+            let trimmed = token.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let payload = L7Payload::from_name(trimmed)
+                .ok_or_else(|| ConfigError::InvalidL7Payload(trimmed.to_owned()))?;
+            if payload == L7Payload::All {
+                return Ok(0);
+            }
+            mask |= payload.bit();
+        }
+    }
+    Ok(mask)
+}
+
+/// Returns `true` if `payload` satisfies `filter_mask` (`0` or `L7Payload::Known` handled identically to `l7_payload_match`).
+pub const fn l7_payload_matches(payload: L7Payload, filter_mask: u64) -> bool {
+    filter_mask == 0
+        || (filter_mask & payload.bit()) != 0
+        || ((filter_mask & L7Payload::Known.bit()) != 0
+            && (payload as u8) > (L7Payload::Known as u8))
+}
