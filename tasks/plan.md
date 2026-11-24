@@ -49,7 +49,7 @@ Milestone 5: `ip2net` and `mdig` binaries + `CHANGELOG.md` and release tagging
 Tasks and detailed acceptance criteria are tracked in `tasks/todo.md`.
 
 ### Milestone 2, Phase 1: Interception, CLI, and Desync Core
-- [ ] Task 2.1: Upgrade `intercepter` with NFQUEUE tuning, persistent `SIOCGIFNAME`, fwmark loop guard, and `poll()` wakeup
+- [x] Task 2.1: Upgrade `intercepter` with NFQUEUE tuning, persistent `SIOCGIFNAME`, fwmark loop guard, and `poll()` wakeup
 - [ ] Task 2.2: Implement profile filters, blobs, TOML config schema, and `clap` CLI
 - [ ] Task 2.3: Implement core `desync` pipeline and Lua desync-context bindings
 

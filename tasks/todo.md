@@ -11,14 +11,14 @@ Target verification commands used across tasks:
 **Description:** Harden `src/intercepter` to match `zapret2/nfq2/nfqws.c` Linux NFQUEUE setup: configure queue max length (`4096`), socket receive buffer (`1 MiB`), best-effort fail-open, persistent `AF_INET` `SOCK_DGRAM` FD for `SIOCGIFNAME` index-to-name resolution, `desync_fwmark` loop-prevention guard, and `libc::poll` wakeup with clean shutdown flag support.
 
 **Acceptance criteria:**
-- [ ] `QueueCatcher` configures `set_queue_max_len(qnum, 4096)`, `SO_RCVBUF = 1 MiB` (best-effort), `set_fail_open(qnum, true)` (best-effort), and unbinds on drop/exit.
-- [ ] Interface indices resolve via a single persistent `SOCK_DGRAM` `OwnedFd` using `SIOCGIFNAME`, and packets matching `(mark & desync_fwmark) != 0` return `Decision::Pass` without invoking the desync handler.
-- [ ] Dispatch helper, verdict mapping (`Pass`, `Drop`, `Replace(Vec<u8>)`), and poll timeout clamping are unit-tested without requiring root privileges.
+- [x] `QueueCatcher` configures `set_queue_max_len(qnum, 4096)`, `SO_RCVBUF = 1 MiB` (best-effort), `set_fail_open(qnum, true)` (best-effort), and unbinds on drop/exit.
+- [x] Interface indices resolve via a single persistent `SOCK_DGRAM` `OwnedFd` using `SIOCGIFNAME`, and packets matching `(mark & desync_fwmark) != 0` return `Decision::Pass` without invoking the desync handler.
+- [x] Dispatch helper, verdict mapping (`Pass`, `Drop`, `Replace(Vec<u8>)`), and poll timeout clamping are unit-tested without requiring root privileges.
 
 **Verification:**
-- [ ] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test intercepter_dispatch --offline`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline`
-- [ ] Manual check: confirm `src/intercepter/mod.rs` contains only `pub mod` and `pub use`, and `src/intercepter/` has zero `unwrap()`/`expect()` or `#[test]`.
+- [x] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test intercepter_dispatch --offline`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline`
+- [x] Manual check: confirm `src/intercepter/mod.rs` contains only `pub mod` and `pub use`, and `src/intercepter/` has zero `unwrap()`/`expect()` or `#[test]`.
 
 **Dependencies:** None
 
