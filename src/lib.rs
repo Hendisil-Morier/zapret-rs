@@ -12,5 +12,7 @@ pub mod lua;
 pub mod packet;
 /// Linux raw socket packet injection and kernel network topology helpers.
 pub mod rawsend;
+/// Daemon process lifecycle, privilege drop, Linux capability retention, and signal handlers.
+pub mod runtime;
 /// Monotonic boottime clock, scheduled timer pool, and non-intercepting timer loop.
 pub mod timer;
