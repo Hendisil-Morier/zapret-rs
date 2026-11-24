@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 clap = "4.6.9"
+libc = "0.2.191"
 mlua = { version = "0.12.3", features = ["luajit", "vendored"] }
 nfq = "0.2.6"
+rand = "0.9.5"
 thiserror = "2.0.21"
