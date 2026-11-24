@@ -10,7 +10,7 @@ Milestone 1 delivered the core packet engine (`src/packet`), Linux `SOCK_RAW` pa
 - **`clap` CLI with TOML configuration (`serde` + `toml`):** Keep `clap = { version = "4.6.9", features = ["derive"] }` for clean top-level flags (`--config`, `--qnum`, `--fwmark`, `--debug`, `--dry-run`, `--intercept`, `--version`, `--pidfile`, `--daemon`, `--user`/`--uid`, `--chdir`) and define blobs, profiles, filters, and Lua desync actions in readable TOML files using offline-cached `serde` and `toml`. Using `clap` in Task 2.2 also clears the unused-dependency warning so `cargo clippy --all-targets --offline -- -D warnings` passes cleanly.
 - **Minimal Milestone 2 `desync` slice before conntrack/L7 (Ponytail scope):** Milestone 2 executes profile matching (L3, TCP/UDP port, ICMP, IP protocol, fwmark) and Lua desync actions with `ctrack = nil` and baseline L7 payload tags (`empty`, `unknown`, `ipv4`, `ipv6`, `icmp`). Conntrack state, TCP stream reassembly, full L7 protocol detectors, hostlists, and ipsets land cleanly in Milestone 3.
 - **Multi-binary crate layout:** Place the `nfqws2` executable at `src/bin/nfqws2.rs` (replacing the `Hello, world!` placeholder in `src/main.rs`) so Milestone 5 can add `src/bin/ip2net.rs` and `src/bin/mdig.rs` alongside shared library modules in `src/`.
-- **Rust and project hygiene gates:** Every task must satisfy `cargo clippy --all-targets --offline -- -D warnings` (once `clap` is wired in Task 2.2), `cargo test --offline`, strict single-responsibility modules (`mod.rs` limited to `pub mod` and `pub use`), zero `#[cfg(test)]`/`#[test]` inside `src/`, no `unwrap()`/`expect()` in production code, `thiserror` for library errors, and one atomic commit per verified slice.
+- **Rust and project hygiene gates:** Every task must satisfy `cargo clippy --all-targets --offline -- -D warnings`, `cargo nextest run --offline --show-progress none --no-pager` (including `tests/repo_hygiene.rs` enforcing `<= 400` lines in `src/`, `<= 450` lines in `tests/`, pure `src/**/mod.rs` facades, zero `#[cfg(test)]`/`#[test]` inside `src/`, and no `.unwrap()`/`.expect()` in production code), `thiserror` for library errors, and one atomic commit per verified slice.
 
 ## Dependency Graph
 
@@ -54,7 +54,7 @@ Tasks and detailed acceptance criteria are tracked in `tasks/todo.md`.
 - [x] Task 2.3: Implement core `desync` pipeline and Lua desync-context bindings
 
 ### Checkpoint 2A: Synthetic End-to-End Pipeline
-- [x] All unit and integration tests pass (`cargo test --offline`)
+- [x] All unit, integration, and `repo_hygiene` tests pass (`cargo nextest run --offline --show-progress none --no-pager`)
 - [x] Clippy passes cleanly (`cargo clippy --all-targets --offline -- -D warnings`)
 - [x] Synthetic packets traverse fwmark guard, profile matching, Lua desync action, and Pass/Drop/Modify verdicts
 - [ ] Review with user before proceeding to Phase 2
@@ -65,7 +65,7 @@ Tasks and detailed acceptance criteria are tracked in `tasks/todo.md`.
 
 ### Checkpoint 2B: Milestone 2 Complete
 - [ ] All acceptance criteria in `tasks/todo.md` met
-- [ ] Full offline test suite and live `unshare -r -n` tests pass
+- [ ] Full offline `nextest` suite (including `repo_hygiene`) and live `unshare -r -n` tests pass
 - [ ] Ready for Milestone 3 planning
 
 ### Future Milestones (High-Level Roadmap)
