@@ -2,6 +2,8 @@
 
 /// Profile filters, built-in blobs, TOML configuration schema, and CLI overrides.
 pub mod config;
+/// Core DPI desync profile routing and Lua action execution engine.
+pub mod desync;
 /// Linux NFQUEUE packet interception and verdict loop.
 pub mod intercepter;
 /// Embedded `zapret2`-compatible LuaJIT runtime and script bindings.
