@@ -46,6 +46,9 @@ pub enum ConfigError {
         /// Underlying OS I/O error.
         source: std::io::Error,
     },
+    /// TOML syntax, type, or unknown-field deserialization failure.
+    #[error("invalid TOML configuration: {0}")]
+    TomlParse(#[from] toml::de::Error),
     /// Semantic configuration validation error across CLI flags or TOML fields.
     #[error("configuration validation error: {0}")]
     Validation(String),

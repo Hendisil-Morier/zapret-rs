@@ -2,18 +2,24 @@
 
 /// Default `zapret2` fake blobs and bounded hex/file blob loaders.
 pub mod blobs;
+/// Top-level `clap` CLI definition and override resolution.
+pub mod cli;
 /// Typed configuration and filter parsing errors.
 pub mod error;
 /// Port, ICMP, IP protocol, firewall mark, and packet range filters.
 pub mod filter;
 /// L7 protocol and payload bitmask classifications.
 pub mod l7;
+/// TOML configuration deserialization, profile matching, and runtime conversion.
+pub mod schema;
 
 /// Re-exported default and custom blob helpers.
 pub use blobs::{
     FAKE_HTTP_REQUEST_DEFAULT, FAKE_QUIC_DEFAULT_LEN, FAKE_TLS_CLIENTHELLO_DEFAULT, MAX_BLOB_SIZE,
     default_blobs, load_file_blob, parse_hex_blob,
 };
+/// Re-exported CLI argument parser and config override resolver.
+pub use cli::{CliArgs, resolve_config};
 /// Re-exported configuration error enum.
 pub use error::ConfigError;
 /// Re-exported packet and profile filter primitives.
@@ -25,4 +31,9 @@ pub use filter::{
 pub use l7::{
     L7Payload, L7Proto, l7_payload_matches, l7_proto_matches, parse_l7_payload_mask,
     parse_l7_proto_mask,
+};
+/// Re-exported TOML config structs and validated profile/action types.
+pub use schema::{
+    AppConfig, DEFAULT_LUA_GC_INTERVAL, DesyncAction, DesyncProfile, LuaInitEntry,
+    ProfileMatchInput,
 };
