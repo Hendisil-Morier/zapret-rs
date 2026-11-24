@@ -6,8 +6,10 @@ pub mod bitwise;
 pub mod bytes;
 /// Global constant registration and security hardening.
 pub mod constants;
-/// Desync execution context userdata, `zapret2` C-API callbacks, and `desync` / `arg` table builders.
+/// Desync execution context userdata and `zapret2` C-API callbacks.
 pub mod desync_api;
+/// Serializers building `zapret2`-compatible Lua `desync`, `arg`, `range`, and `payload` tables.
+pub mod desync_encode;
 /// Lua runtime error definitions.
 pub mod error;
 /// Argument validation and strict/coercing value extractors.
