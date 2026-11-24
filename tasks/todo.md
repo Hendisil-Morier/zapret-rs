@@ -73,14 +73,14 @@ Target verification commands used across tasks:
 **Description:** Build `src/desync` and `src/lua/desync_api.rs` to route dissected packets through matching `DesyncProfile` rules and execute configured Lua `--lua-desync` functions with the `zapret2` `(ctx, desync)` contract (`desync.dis`, `desync.arg`, `desync.func`, `desync.func_n`, `desync.func_instance`, `desync.profile_n`, `desync.profile_name`, `desync.cookie`, `desync.outgoing`, `desync.ifin`, `desync.ifout`, `desync.l7payload`, `desync.raw_packet`), plus C-API helpers `raw_packet`, `execution_plan`, `execution_plan_cancel`, `instance_cutoff`, and `lua_cutoff`.
 
 **Acceptance criteria:**
-- [ ] Packets dissect once, match the first eligible `DesyncProfile` (L3, TCP/UDP port, ICMP, IPP, mark), and invoke each matching `lua_desync` action in order.
-- [ ] Lua actions returning `VERDICT_PASS`, `VERDICT_DROP`, or `VERDICT_MODIFY` (with optional `VERDICT_PRESERVE_NEXT` and modified `desync.dis`) produce the exact `Decision` and reconstructed wire bytes, and can invoke `rawsend` / `rawsend_dissect` safely during execution.
-- [ ] `execution_plan` / `execution_plan_cancel` and `raw_packet` work with `zapret2/lua/zapret-lib.lua` helpers.
+- [x] Packets dissect once, match the first eligible `DesyncProfile` (L3, TCP/UDP port, ICMP, IPP, mark), and invoke each matching `lua_desync` action in order.
+- [x] Lua actions returning `VERDICT_PASS`, `VERDICT_DROP`, or `VERDICT_MODIFY` (with optional `VERDICT_PRESERVE_NEXT` and modified `desync.dis`) produce the exact `Decision` and reconstructed wire bytes, and can invoke `rawsend` / `rawsend_dissect` safely during execution.
+- [x] `execution_plan` / `execution_plan_cancel` and `raw_packet` work with `zapret2/lua/zapret-lib.lua` helpers.
 
 **Verification:**
-- [ ] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test desync_pipeline --offline`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: verify `VERDICT_MODIFY` updates IP/L4 checksums accurately and bad Lua return values fail gracefully to `Pass` with error logging.
+- [x] Tests pass: `cargo test --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --test desync_pipeline --offline`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Manual check: verify `VERDICT_MODIFY` updates IP/L4 checksums accurately and bad Lua return values fail gracefully to `Pass` with error logging.
 
 **Dependencies:** Task 2.1, Task 2.2
 
@@ -98,9 +98,9 @@ Target verification commands used across tasks:
 ---
 
 ## Checkpoint 2A: After Tasks 2.1-2.3
-- [ ] All tests pass (`cargo test --offline`)
-- [ ] Clippy passes cleanly with `-D warnings`
-- [ ] Synthetic packet -> profile filter -> Lua desync -> `Pass`/`Drop`/`Replace` + `rawsend_dissect` flow works end-to-end
+- [x] All tests pass (`cargo test --offline`)
+- [x] Clippy passes cleanly with `-D warnings`
+- [x] Synthetic packet -> profile filter -> Lua desync -> `Pass`/`Drop`/`Replace` + `rawsend_dissect` flow works end-to-end
 - [ ] Review with user before proceeding to Tasks 2.4-2.5
 
 ---
