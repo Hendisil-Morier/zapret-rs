@@ -2,6 +2,8 @@
 
 /// Interior mutability for clearing shared context and reading conntrack snapshots.
 use std::cell::RefCell;
+/// Standard IP address representation for target/destination endpoint extraction.
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 /// Reference counting for shared conntrack entries and context state handles.
 use std::rc::Rc;
 
@@ -10,19 +12,20 @@ use mlua::{AnyUserData, Function, Lua, MultiValue, Table, Value};
 
 /// Profile, action, range, L7 payload, and payload mask evaluation helpers.
 use crate::config::{DesyncAction, DesyncProfile, L7Payload, l7_payload_matches};
-/// Connection tracking entry and directional position snapshot types.
-use crate::conntrack::{CtrackEntry, CtrackPosition};
+/// Connection tracking entry, directional position snapshot, and TCP SYN/SYN-ACK helpers.
+use crate::conntrack::{CtrackEntry, CtrackPosition, is_tcp_syn, is_tcp_synack};
 /// Intercepted verdict decision enum returned to NFQUEUE.
 use crate::intercepter::Decision;
 /// Active Lua desync context state, table dissector, and instance naming helpers.
 use crate::lua::{
     desync_api::DesyncContextState, desync_encode::desync_instance_name, packet_decode::lua_to_dissect,
 };
-/// ICMP error type constants and verdict action/flag bitmasks.
+/// ICMP error type constants, header lengths, and verdict action/flag bitmasks.
 use crate::packet::constants::{
     ICMP_DEST_UNREACH, ICMP_PARAMETERPROB, ICMP_REDIRECT, ICMP_TIME_EXCEEDED, ICMP6_DST_UNREACH,
-    ICMP6_PACKET_TOO_BIG, ICMP6_PARAM_PROB, ICMP6_TIME_EXCEEDED, VERDICT_DROP, VERDICT_MASK,
-    VERDICT_MASK_VALID_LUA, VERDICT_MODIFY, VERDICT_PASS, VERDICT_PRESERVE_NEXT,
+    ICMP6_PACKET_TOO_BIG, ICMP6_PARAM_PROB, ICMP6_TIME_EXCEEDED, IP_BASE_LEN, IP6_BASE_LEN,
+    VERDICT_DROP, VERDICT_MASK, VERDICT_MASK_VALID_LUA, VERDICT_MODIFY, VERDICT_PASS,
+    VERDICT_PRESERVE_NEXT,
 };
 /// Wire packet dissection, reconstruction options, and wire serializer.
 use crate::packet::{DissectedPacket, ReconstructOptions, dissect_packet, reconstruct_packet};
@@ -45,7 +48,7 @@ pub const fn aggregate_verdict(v1: u8, v2: u8) -> u8 {
 }
 
 /// Returns `true` if `icmp_type` is an ICMPv4 or ICMPv6 error carrying an embedded IP packet.
-fn is_icmp_error_with_attached_ip(dis: &DissectedPacket, icmp_type: u8) -> bool {
+pub(crate) fn is_icmp_error_with_attached_ip(dis: &DissectedPacket, icmp_type: u8) -> bool {
     if dis.ip.is_some() {
         matches!(
             icmp_type,
@@ -170,6 +173,69 @@ pub(crate) fn extract_pos_for_side(
     } else {
         entry.pos.client
     })
+}
+
+/// Extracts either source (`from_src = true`) or destination (`from_src = false`) IP from `dis`.
+pub(crate) fn extract_endpoint_ip(dis: &DissectedPacket, from_src: bool) -> Option<IpAddr> {
+    if let Some(ip) = &dis.ip {
+        Some(IpAddr::V4(Ipv4Addr::from(if from_src {
+            ip.src
+        } else {
+            ip.dst
+        })))
+    } else {
+        dis.ip6.as_ref().map(|ip6| {
+            IpAddr::V6(Ipv6Addr::from(if from_src {
+                ip6.src
+            } else {
+                ip6.dst
+            }))
+        })
+    }
+}
+
+/// Applies `zapret2`'s Linux postnat conntrack teardown workaround on initial outgoing `VERDICT_DROP`.
+///
+/// Matches `ct_new_postnat_fix` in `zapret2/nfq2/desync.c:629-662`: rather than returning `NF_DROP`
+/// on packet 1 of a flow or a stateless `SYN`/`SYN-ACK` (which causes Linux conntrack in postnat
+/// chains to destroy the tuple), rewrites protocol to `255` and TTL/Hop Limit to `1` (`VERDICT_NOCSUM`).
+pub(crate) fn ct_new_postnat_fix(
+    ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
+    server: bool,
+    dis: &DissectedPacket,
+    raw_pkt: &[u8],
+) -> Decision {
+    let first_tracked = ctrack.is_some_and(|rc| {
+        let entry = rc.borrow();
+        let pcounter = if server {
+            entry.pos.server.pcounter
+        } else {
+            entry.pos.client.pcounter
+        };
+        pcounter == 1
+    });
+    let stateless_syn = ctrack.is_none()
+        && dis
+            .tcp
+            .as_ref()
+            .is_some_and(|tcp| is_tcp_syn(tcp.flags) || is_tcp_synack(tcp.flags));
+
+    if !(first_tracked || stateless_syn) {
+        return Decision::Drop;
+    }
+
+    let mut mod_pkt = raw_pkt.to_vec();
+    if dis.ip.is_some() && mod_pkt.len() >= IP_BASE_LEN {
+        mod_pkt[8] = 1;
+        mod_pkt[9] = 255;
+        return Decision::Replace(mod_pkt);
+    }
+    if dis.ip6.is_some() && mod_pkt.len() >= IP6_BASE_LEN {
+        mod_pkt[6] = 255;
+        mod_pkt[7] = 1;
+        return Decision::Replace(mod_pkt);
+    }
+    Decision::Drop
 }
 
 /// Reads IPv4 `ttl` or IPv6 `hop_limit` from a dissected packet (`ttl46` in `darkmagic.c`).

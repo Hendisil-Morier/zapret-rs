@@ -21,9 +21,9 @@ use clap::Parser;
 use thiserror::Error;
 
 /// CLI arguments, config resolution, error wrapper, and Lua startup entry variants.
-use zapret_rs::config::{CliArgs, ConfigError, LuaInitEntry, resolve_config};
-/// Core DPI desync profile matcher and Lua action execution engine.
-use zapret_rs::desync::DesyncEngine;
+use zapret_rs::config::{AppConfig, CliArgs, ConfigError, LuaInitEntry, resolve_config};
+/// Core stateful DPI desync engine and list-file startup validation helper.
+use zapret_rs::desync::{DesyncEngine, verify_config_list_files};
 /// Linux NFQUEUE interception listener and poll error type.
 use zapret_rs::intercepter::{IntercepterError, QueueCatcher};
 /// LuaJIT runtime initialization and execution error type.
@@ -36,7 +36,7 @@ use zapret_rs::runtime::{
     quit_flag, resolve_identity, retain_net_capabilities, take_reload_requested,
 };
 /// Monotonic boottime clock, scheduled timer pool, and `--intercept=0` execution loop.
-use zapret_rs::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept};
+use zapret_rs::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_with_tick};
 
 /// Unified error type surfaced cleanly from `main()` with contextual diagnostics.
 #[derive(Debug, Error)]
@@ -65,6 +65,15 @@ enum DaemonError {
         #[source]
         source: std::io::Error,
     },
+    /// Referenced hostlist, ipset, autohostlist, or debug log file failed validation.
+    #[error("cannot load list file '{}': {source}", path.display())]
+    ListIo {
+        /// Filesystem path of the invalid or inaccessible list file.
+        path: PathBuf,
+        /// Underlying OS or gzip decoding error.
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// Checks that every `LuaInitEntry::File` script can be opened before `--dry-run` exits or loops begin.
@@ -80,11 +89,24 @@ fn verify_lua_init_files(entries: &[LuaInitEntry]) -> Result<(), DaemonError> {
     Ok(())
 }
 
+/// Validates all hostlists, ipsets, autohostlists, and autohostlist debug log paths (`test_list_files`).
+fn verify_list_files(config: &AppConfig) -> Result<(), DaemonError> {
+    verify_config_list_files(config).map_err(|(path, source)| DaemonError::ListIo { path, source })
+}
+
+/// Handles pending `SIGHUP` requests by resetting modification signatures and reloading lists.
+fn check_sighup_reload(engine: &DesyncEngine, debug: bool) {
+    if take_reload_requested() {
+        if debug {
+            eprintln!("nfqws2: SIGHUP received, reloading lists");
+        }
+        engine.reload_lists();
+    }
+}
+
 /// Runs SIGHUP inspection, periodic Lua GC, and expired timer callbacks, returning the next `poll()` wait.
 fn next_loop_timeout(engine: &DesyncEngine, debug: bool) -> Option<Duration> {
-    if take_reload_requested() && debug {
-        eprintln!("nfqws2: SIGHUP received");
-    }
+    check_sighup_reload(engine, debug);
     let now = boottime_ms();
     engine.runtime().do_gc(now);
     let deadline = TimerPool::run_expired(
@@ -106,11 +128,13 @@ fn run() -> Result<(), DaemonError> {
 
     let identity = resolve_identity(config.user.as_deref(), config.uid.as_deref())?;
     verify_lua_init_files(&config.lua_init)?;
+    verify_list_files(&config)?;
 
     if cli.dry_run {
         if let Some(id) = &identity {
             drop_privileges(id, config.intercept)?;
             verify_lua_init_files(&config.lua_init)?;
+            verify_list_files(&config)?;
         }
         println!("configuration verified");
         return Ok(());
@@ -155,7 +179,10 @@ fn run() -> Result<(), DaemonError> {
             guard.write_current_pid()?;
         }
         let engine = DesyncEngine::with_sender(&config, sender)?;
-        run_no_intercept(engine.runtime().timer_pool(), engine.runtime(), quit_flag());
+        let debug = config.debug;
+        run_no_intercept_with_tick(engine.runtime().timer_pool(), engine.runtime(), quit_flag(), || {
+            check_sighup_reload(&engine, debug);
+        });
         return Ok(());
     }
 

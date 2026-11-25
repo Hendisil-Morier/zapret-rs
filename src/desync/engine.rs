@@ -1,25 +1,37 @@
-//! Core DPI desync engine dispatching intercepted packets through profile filters and Lua actions.
+//! Core stateful DPI desync engine dispatching intercepted packets through profiles and Lua actions.
 
-/// Interior mutability for sharing caller-supplied [`PacketSender`] and context state.
+/// Interior mutability for sharing [`PacketSender`] and rate-limited `IpCache`.
 use std::cell::RefCell;
+/// Optional autohostlist debug log path stored on the engine.
+use std::path::PathBuf;
 /// Single-thread reference counting for profile snapshots and packet senders.
 use std::rc::Rc;
 
 /// Dynamic Lua value variant matched against resolved desync callback functions.
 use mlua::Value;
 
-/// Profile, match input, L7 protocol/payload types evaluated per packet.
-use crate::config::{AppConfig, DesyncProfile, L7Payload, L7Proto, ProfileMatchInput};
-/// Tracked flow entry and per-direction position snapshot types.
-use crate::conntrack::{CtrackEntry, CtrackPosition};
-/// Verdict aggregation, gate evaluation, Lua verdict decoding, context guards, and conntrack helpers.
+/// Profile definitions loaded into runtime structures and Lua validation.
+use crate::config::{AppConfig, DesyncProfile};
+/// ICMP and non-TCP/UDP/ICMP raw IP packet processors.
+use crate::desync::icmp_ip::{process_icmp_packet, process_raw_ip_packet};
+/// Shared prolog state, replay metadata, and borrowed runtime service references.
+use crate::desync::play::{EngineServices, PlayState, ReplayContext};
+/// Deduplicated file registry and per-profile runtime hostlist/ipset state.
+use crate::desync::profile_state::{ListRegistry, ProfileRuntime};
+/// Stateful TCP DPI desync processor (`process_tcp_packet`).
+use crate::desync::tcp::process_tcp_packet;
+/// Stateful UDP DPI desync processor (`process_udp_packet`).
+use crate::desync::udp::process_udp_packet;
+/// Verdict aggregation, gate evaluation, Lua verdict decoding, context guards, and cutoff checks.
 use crate::desync::verdict::{
     SessionCtxGuard, action_is_runnable, aggregate_verdict, all_actions_cut_off,
-    any_action_runnable, classify_baseline_payload, extract_l3_ttl, extract_pos_for_side,
-    finalize_decision, invoke_action_callback, parse_lua_verdict,
+    any_action_runnable, extract_pos_for_side, finalize_decision, invoke_action_callback,
+    parse_lua_verdict,
 };
 /// Intercepted packet metadata and kernel verdict decision enum.
 use crate::intercepter::{Decision, QueuedPacket};
+/// Global IP-to-hostname and incoming-TTL cache (`ip_cache`).
+use crate::lists::IpCache;
 /// Lua runtime, error enum, and desync table/argument builders.
 use crate::lua::{
     LuaEngineError, LuaRuntime,
@@ -31,60 +43,45 @@ use crate::lua::{
 use crate::packet::constants::VERDICT_PASS;
 /// Dissected packet view and L3/L4 wire parser.
 use crate::packet::{DissectedPacket, dissect_packet};
-/// Abstract packet sender trait for injectable/testable raw packet transmission.
-use crate::rawsend::PacketSender;
-/// Monotonic boottime `timespec` helper for conntrack feeding and idle sweeps.
-use crate::timer::boottime_now;
+/// Abstract packet sender trait and real Linux raw socket implementation.
+use crate::rawsend::{PacketSender, RawSender};
+/// Monotonic boottime seconds clock used for IPCache sweeps.
+use crate::timer::boottime_secs;
 
-/// Borrowed packet, direction, target, and conntrack metadata passed into profile execution.
-struct DispatchMeta<'a> {
-    /// Dissected L3/L4 view of the intercepted packet.
-    dis: &'a DissectedPacket,
-    /// Raw L3 wire bytes of the intercepted packet.
-    raw_pkt: &'a [u8],
-    /// Incoming interface name, if present.
-    ifin: Option<&'a str>,
-    /// Outgoing interface name, if present.
-    ifout: Option<&'a str>,
-    /// Kernel netfilter mark attached to the packet.
-    fwmark: u32,
-    /// Local host direction (`true` = incoming, `false` = outgoing).
-    incoming: bool,
-    /// Logical connection direction (`true` = server -> client, `false` = client -> server).
-    b_reverse: bool,
-    /// Resolved remote IPv4 address (`desync.target.ip`).
-    target_ip4: Option<[u8; 4]>,
-    /// Resolved remote IPv6 address (`desync.target.ip6`).
-    target_ip6: Option<[u8; 16]>,
-    /// Resolved remote transport port (`desync.target.port`).
-    target_port: u16,
-    /// Classified L7 payload tag.
-    l7payload: L7Payload,
-    /// Classified L7 protocol tag.
-    l7proto: L7Proto,
-    /// Active conntrack entry associated with this flow, if any.
-    ctrack: Option<Rc<RefCell<CtrackEntry>>>,
-    /// Copied position snapshot for range checks on the sender side.
-    pos_opt: Option<CtrackPosition>,
-}
-
-/// Orchestrates packet dissection, profile filter selection, and `zapret2` Lua desync execution.
+/// Orchestrates packet dissection, stateful conntrack, L7 probes, list matching, and Lua desync.
 pub struct DesyncEngine {
     /// Embedded LuaJIT runtime preloaded with blobs, startup scripts, and bindings.
     runtime: LuaRuntime,
+    /// Shared raw packet transmitter used by Lua callbacks, delayed flushes, replay, and RSTs.
+    pub(crate) sender: Rc<RefCell<dyn PacketSender>>,
     /// Ordered active profiles copied from [`AppConfig`] and wrapped in `Rc` for `execution_plan`.
-    profiles: Vec<Rc<DesyncProfile>>,
-    /// Server-mode direction flag affecting target port extraction.
-    server: bool,
+    pub(crate) profiles: Vec<Rc<DesyncProfile>>,
+    /// Per-profile instantiated hostlists, autohostlists, ipsets, and failure counters.
+    pub(crate) profile_runtimes: Vec<ProfileRuntime>,
+    /// Deduplicated filesystem list handles supporting `SIGHUP` `reload_lists()`.
+    list_registry: ListRegistry,
+    /// Global time-expiring IP-to-hostname and incoming-TTL cache.
+    pub(crate) ipcache: RefCell<IpCache>,
+    /// Server-mode direction flag (`--server`).
+    pub(crate) server: bool,
     /// Enable diagnostic debug output to standard error.
-    debug: bool,
+    pub(crate) debug: bool,
+    /// Desync firewall mark OR'd onto delayed/replayed outgoing sends (`params.desync_fwmark`).
+    pub(crate) desync_fwmark: u32,
+    /// Bitmask of L7 payloads excluded from discovery (`--payload-disable`).
+    pub(crate) payload_disable: u64,
+    /// Bitmask of L7 payloads excluded from client-side reassembly (`--reasm-disable`).
+    pub(crate) reasm_disable: u64,
+    /// Optional debug log file appended on autohostlist failure events.
+    pub(crate) hostlist_auto_debug: Option<PathBuf>,
 }
 
 impl DesyncEngine {
-    /// Constructs a [`DesyncEngine`] using a real Linux [`crate::rawsend::RawSender`].
+    /// Constructs a [`DesyncEngine`] using a real Linux [`RawSender`].
     pub fn new(config: &AppConfig) -> Result<Self, LuaEngineError> {
-        let runtime = LuaRuntime::new(config.to_lua_config())?;
-        Self::from_runtime(runtime, config)
+        let sender: Rc<RefCell<dyn PacketSender>> =
+            Rc::new(RefCell::new(RawSender::new(config.bind_fix4, config.bind_fix6)));
+        Self::with_sender(config, sender)
     }
 
     /// Constructs a [`DesyncEngine`] using a caller-supplied [`PacketSender`] (e.g., mock sender in tests).
@@ -92,21 +89,37 @@ impl DesyncEngine {
         config: &AppConfig,
         sender: Rc<RefCell<dyn PacketSender>>,
     ) -> Result<Self, LuaEngineError> {
-        let runtime = LuaRuntime::with_sender(config.to_lua_config(), sender)?;
-        Self::from_runtime(runtime, config)
+        let runtime = LuaRuntime::with_sender(config.to_lua_config(), Rc::clone(&sender))?;
+        Self::from_runtime(runtime, sender, config)
     }
 
-    /// Shared initialization helper loading blobs, scripts, and validating all profile actions.
-    fn from_runtime(runtime: LuaRuntime, config: &AppConfig) -> Result<Self, LuaEngineError> {
+    /// Shared initialization helper loading blobs, scripts, lists, and validating all profile actions.
+    fn from_runtime(
+        runtime: LuaRuntime,
+        sender: Rc<RefCell<dyn PacketSender>>,
+        config: &AppConfig,
+    ) -> Result<Self, LuaEngineError> {
         runtime.apply_app_config(config)?;
-        let server = runtime.config().server;
-        let debug = runtime.config().debug;
+        let (list_registry, profile_runtimes) =
+            ListRegistry::load_from_config(config).map_err(|(_, err)| LuaEngineError::Io(err))?;
         let profiles = config.profiles.iter().cloned().map(Rc::new).collect();
+        let ipcache = RefCell::new(IpCache::new(
+            i64::from(config.ipcache.lifetime_sec),
+            config.ipcache.hostname,
+        ));
         Ok(Self {
             runtime,
+            sender,
             profiles,
-            server,
-            debug,
+            profile_runtimes,
+            list_registry,
+            ipcache,
+            server: config.server,
+            debug: config.debug,
+            desync_fwmark: config.fwmark,
+            payload_disable: config.payload_disable,
+            reasm_disable: config.reasm_disable,
+            hostlist_auto_debug: config.hostlist_auto_debug.clone(),
         })
     }
 
@@ -115,98 +128,98 @@ impl DesyncEngine {
         &self.runtime
     }
 
+    /// Returns a shared reference to the engine's [`IpCache`] (protected by [`RefCell`]).
+    pub fn ipcache(&self) -> &RefCell<IpCache> {
+        &self.ipcache
+    }
+
     /// Returns the loaded, active desync profiles evaluated for each packet.
     pub fn profiles(&self) -> &[Rc<DesyncProfile>] {
         &self.profiles
     }
 
-    /// Processes one intercepted packet and returns the kernel NFQUEUE [`Decision`].
+    /// Resets modification signatures and reloads all hostlists and ipsets from disk (`SIGHUP`).
+    pub fn reload_lists(&self) {
+        self.list_registry.reload_all(&self.profile_runtimes);
+    }
+
+    /// Returns a borrowed [`EngineServices`] view shared with `play_prolog` and `dp_rediscovery`.
+    pub(crate) fn services(&self) -> EngineServices<'_> {
+        EngineServices {
+            profiles: &self.profiles,
+            profile_runtimes: &self.profile_runtimes,
+            conntrack: self.runtime.conntrack(),
+            ipcache: &self.ipcache,
+            lua: self.runtime.lua(),
+            ctrack_disable: self.runtime.config().ctrack_disable,
+            server: self.server,
+            hostlist_auto_debug: self.hostlist_auto_debug.as_deref(),
+        }
+    }
+
+    /// Processes one intercepted live packet and returns the kernel NFQUEUE [`Decision`].
     pub fn process_packet(&self, pkt: &QueuedPacket<'_>) -> Decision {
+        self.ipcache.borrow_mut().purge_rate_limited(boottime_secs());
+        self.process_packet_play(&ReplayContext::live(), pkt)
+    }
+
+    /// Dispatches one live or replayed packet through TCP, UDP, ICMP, or raw IP pipelines.
+    pub(crate) fn process_packet_play(
+        &self,
+        replay: &ReplayContext<'_>,
+        pkt: &QueuedPacket<'_>,
+    ) -> Decision {
         let dis = dissect_packet(pkt.payload, false);
         if dis.ip.is_some() == dis.ip6.is_some() {
             return Decision::Pass;
         }
-
-        let ctrack_hit = if !self.runtime.config().ctrack_disable {
-            let now = boottime_now();
-            let feed_res = {
-                let mut pool = self.runtime.conntrack().borrow_mut();
-                pool.purge_rate_limited(now.sec);
-                pool.feed(Some(self.runtime.lua()), &dis, now)
-            };
-            match feed_res {
-                Ok(hit) => hit,
-                Err(err) => {
-                    eprintln!("conntrack ERROR: {err}. passing packet unmodified.");
-                    return Decision::Pass;
-                }
-            }
+        if dis.tcp.is_some() {
+            process_tcp_packet(self, replay, pkt, &dis)
+        } else if dis.udp.is_some() {
+            process_udp_packet(self, replay, pkt, &dis)
+        } else if dis.icmp.is_some() {
+            process_icmp_packet(self, pkt, &dis)
         } else {
-            None
-        };
-
-        let (ctrack_rc, b_reverse, incoming) = match ctrack_hit {
-            Some((entry_rc, rev)) => (Some(entry_rc), rev, rev ^ self.server),
-            None => {
-                let inc = pkt.ifin.is_some_and(|s| !s.is_empty())
-                    && !pkt.ifout.is_some_and(|s| !s.is_empty());
-                (None, inc, inc)
-            }
-        };
-
-        let mut pos_opt = None;
-        if let Some(entry_rc) = &ctrack_rc {
-            let mut entry = entry_rc.borrow_mut();
-            if incoming && entry.incoming_ttl == 0 {
-                entry.incoming_ttl = extract_l3_ttl(&dis);
-            }
-            if (incoming && entry.lua_in_cutoff) || (!incoming && entry.lua_out_cutoff) {
-                return Decision::Pass;
-            }
-            pos_opt = Some(if b_reverse {
-                entry.pos.server
-            } else {
-                entry.pos.client
-            });
+            process_raw_ip_packet(self, pkt, &dis)
         }
+    }
 
-        let target_ip4 = dis.ip.as_ref().map(|ip| if incoming { ip.src } else { ip.dst });
-        let target_ip6 = dis
-            .ip6
-            .as_ref()
-            .map(|ip6| if incoming { ip6.src } else { ip6.dst });
-        let port_from_src = incoming ^ self.server;
-        let target_port = if let Some(tcp) = &dis.tcp {
-            if port_from_src { tcp.s_port } else { tcp.d_port }
-        } else if let Some(udp) = &dis.udp {
-            if port_from_src { udp.s_port } else { udp.d_port }
-        } else {
-            0
-        };
-
-        let l7payload = classify_baseline_payload(&dis);
-        let l7proto = L7Proto::Unknown;
-        let match_input = ProfileMatchInput {
-            is_v6: dis.ip6.is_some(),
-            l4proto: dis.l4proto,
-            port: target_port,
-            icmp_type: dis.icmp.as_ref().map_or(0xFF, |h| h.icmp_type),
-            icmp_code: dis.icmp.as_ref().map_or(0xFF, |h| h.icmp_code),
-            fwmark: pkt.mark,
-            l7proto,
-        };
-
-        let Some(profile) = self.profiles.iter().find(|p| p.matches(&match_input)) else {
+    /// Checks cutoffs/gates and invokes the matched profile's Lua desync actions (`desync` in `desync.c`).
+    pub(crate) fn dispatch_state(
+        &self,
+        replay: &ReplayContext<'_>,
+        pkt: &QueuedPacket<'_>,
+        dis: &DissectedPacket,
+        ps: &PlayState,
+        reasm_data: Option<&[u8]>,
+        decrypt_data: Option<&[u8]>,
+    ) -> Decision {
+        let Some(idx) = ps.profile_idx else {
             return Decision::Pass;
         };
+        let profile = &self.profiles[idx];
         if profile.actions.is_empty() {
             return Decision::Pass;
         }
 
-        if all_actions_cut_off(profile, ctrack_rc.as_ref(), pos_opt.as_ref(), incoming) {
-            if let Some(entry_rc) = &ctrack_rc {
+        let track_rc = ps.ctrack_replay.as_ref();
+        if let Some(entry_rc) = track_rc {
+            let entry = entry_rc.borrow();
+            if (ps.incoming && entry.lua_in_cutoff) || (!ps.incoming && entry.lua_out_cutoff) {
+                return Decision::Pass;
+            }
+        }
+
+        let pos_opt = if let Some(tp) = replay.tpos {
+            Some(if ps.b_reverse { tp.server } else { tp.client })
+        } else {
+            extract_pos_for_side(track_rc, ps.b_reverse)
+        };
+
+        if all_actions_cut_off(profile, track_rc, pos_opt.as_ref(), ps.incoming) {
+            if let Some(entry_rc) = track_rc {
                 let mut entry = entry_rc.borrow_mut();
-                if incoming {
+                if ps.incoming {
                     entry.lua_in_cutoff = true;
                 } else {
                     entry.lua_out_cutoff = true;
@@ -217,32 +230,24 @@ impl DesyncEngine {
 
         if !any_action_runnable(
             profile,
-            ctrack_rc.as_ref(),
+            track_rc,
             pos_opt.as_ref(),
-            incoming,
-            l7payload,
+            ps.incoming,
+            ps.l7payload,
         ) {
             return Decision::Pass;
         }
 
-        let meta = DispatchMeta {
-            dis: &dis,
-            raw_pkt: pkt.payload,
-            ifin: pkt.ifin,
-            ifout: pkt.ifout,
-            fwmark: pkt.mark,
-            incoming,
-            b_reverse,
-            target_ip4,
-            target_ip6,
-            target_port,
-            l7payload,
-            l7proto,
-            ctrack: ctrack_rc,
+        match self.try_run_profile(
+            profile,
+            replay,
+            pkt,
+            dis,
+            ps,
             pos_opt,
-        };
-
-        match self.try_run_profile(profile, meta) {
+            reasm_data,
+            decrypt_data,
+        ) {
             Ok(decision) => decision,
             Err(err) => {
                 eprintln!("desync ERROR: {err}. passing packet unmodified.");
@@ -251,18 +256,24 @@ impl DesyncEngine {
         }
     }
 
-    /// Runs matching actions on `profile` and resolves the combined verdict to a [`Decision`].
+    /// Executes matching profile actions in Lua and translates the combined verdict to [`Decision`].
+    #[allow(clippy::too_many_arguments)]
     fn try_run_profile(
         &self,
         profile: &Rc<DesyncProfile>,
-        meta: DispatchMeta<'_>,
+        replay: &ReplayContext<'_>,
+        pkt: &QueuedPacket<'_>,
+        dis: &DissectedPacket,
+        ps: &PlayState,
+        mut pos_opt: Option<crate::conntrack::CtrackPosition>,
+        reasm_data: Option<&[u8]>,
+        decrypt_data: Option<&[u8]>,
     ) -> Result<Decision, String> {
         let lua = self.runtime.lua();
         let ctx_state = self.runtime.desync_ctx_state();
-        let mut active_ctrack = meta.ctrack;
-        let mut active_incoming = meta.incoming;
-        let mut active_b_reverse = meta.b_reverse;
-        let mut pos_opt = meta.pos_opt;
+        let mut active_ctrack = ps.ctrack_replay.clone();
+        let mut active_incoming = ps.incoming;
+        let mut active_b_reverse = ps.b_reverse;
 
         {
             let mut state = ctx_state.borrow_mut();
@@ -273,37 +284,32 @@ impl DesyncEngine {
             state.cancel = false;
             state.valid = false;
             state.raw_packet.clear();
-            state.raw_packet.extend_from_slice(meta.raw_pkt);
+            state.raw_packet.extend_from_slice(pkt.payload);
         }
         let _session_guard = SessionCtxGuard(ctx_state);
 
-        // Drop `track_ref` before any Lua callback executes so `instance_cutoff`/`lua_cutoff` can borrow mutably.
         let desync_tbl = {
             let track_ref = active_ctrack.as_ref().map(|rc| rc.borrow());
             let table_input = DesyncTableInput {
-                dis: meta.dis,
+                dis,
                 profile,
                 incoming: active_incoming,
-                ifin: meta.ifin,
-                ifout: meta.ifout,
-                fwmark: meta.fwmark,
-                target_ip4: meta.target_ip4,
-                target_ip6: meta.target_ip6,
-                target_port: meta.target_port,
-                l7payload: meta.l7payload,
-                l7proto: meta.l7proto,
+                ifin: pkt.ifin,
+                ifout: pkt.ifout,
+                fwmark: pkt.mark,
+                target_ip4: ps.target_ip4,
+                target_ip6: ps.target_ip6,
+                target_port: ps.target_port,
+                l7payload: ps.l7payload,
+                l7proto: ps.l7proto,
                 track: track_ref.as_deref(),
-                tpos: None,
+                tpos: replay.tpos,
                 b_reverse: active_b_reverse,
-                replay_piece: 0,
-                replay_piece_count: 0,
-                reasm_offset: 0,
-                reasm_data: if meta.dis.tcp.is_some() {
-                    meta.dis.payload.as_deref()
-                } else {
-                    None
-                },
-                decrypt_data: None,
+                replay_piece: replay.replay_piece,
+                replay_piece_count: replay.replay_piece_count,
+                reasm_offset: replay.reasm_offset,
+                reasm_data,
+                decrypt_data,
             };
             build_desync_table(lua, &table_input)
                 .map_err(|e| format!("failed to build desync table: {e}"))?
@@ -325,7 +331,7 @@ impl DesyncEngine {
                 active_ctrack.as_ref(),
                 pos_opt.as_ref(),
                 active_incoming,
-                meta.l7payload,
+                ps.l7payload,
             ) {
                 continue;
             }
@@ -381,6 +387,6 @@ impl DesyncEngine {
             }
         }
 
-        finalize_decision(lua, &desync_tbl, verdict, meta.raw_pkt.len(), self.debug)
+        finalize_decision(lua, &desync_tbl, verdict, pkt.payload.len(), self.debug)
     }
 }

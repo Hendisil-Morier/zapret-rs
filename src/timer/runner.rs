@@ -28,6 +28,17 @@ pub fn run_no_intercept(
     runtime: &LuaRuntime,
     stop: &AtomicBool,
 ) {
+    run_no_intercept_with_tick(pool_rc, runtime, stop, || {});
+}
+
+/// Executes active timers while invoking `on_tick` periodically to handle signal events like `SIGHUP`.
+pub fn run_no_intercept_with_tick(
+    pool_rc: &Rc<RefCell<TimerPool>>,
+    runtime: &LuaRuntime,
+    stop: &AtomicBool,
+    mut on_tick: impl FnMut(),
+) {
+    on_tick();
     if pool_rc.borrow().is_empty() {
         return;
     }
@@ -35,6 +46,7 @@ pub fn run_no_intercept(
     let mut next_deadline = pool_rc.borrow_mut().next_deadline_ms();
 
     while !stop.load(Ordering::Relaxed) && !pool_rc.borrow().is_empty() {
+        on_tick();
         let now = boottime_ms();
 
         if let Some(deadline) = next_deadline
@@ -44,6 +56,7 @@ pub fn run_no_intercept(
             while remaining_ms > 0 && !stop.load(Ordering::Relaxed) {
                 let slice = remaining_ms.min(MAX_SLEEP_SLICE_MS);
                 std::thread::sleep(Duration::from_millis(slice));
+                on_tick();
                 remaining_ms = remaining_ms.saturating_sub(slice);
             }
         }
