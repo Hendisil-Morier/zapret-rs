@@ -78,6 +78,8 @@ pub struct CtrackEntry {
     pub pos: CtrackPositions,
     /// Matched 1-based [`crate::config::DesyncProfile`] index cached on the flow.
     pub profile_index: Option<u32>,
+    /// `true` once profile selection has run for the current flow/discovery state (`profile_index == None` cached miss).
+    pub profile_searched: bool,
     /// Retransmission failure counter (`RETRANS_COUNTER_STOP` disables further increments).
     pub req_retrans_counter: u8,
     /// True once autohostlist failure detection has finalized for this connection.
@@ -126,6 +128,7 @@ impl CtrackEntry {
             t_start: MonotonicTime::default(),
             pos: CtrackPositions::default(),
             profile_index: None,
+            profile_searched: false,
             req_retrans_counter: 0,
             failure_detect_finalized: false,
             incoming_ttl: 0,

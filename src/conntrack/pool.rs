@@ -95,6 +95,16 @@ impl ConntrackPool {
         self.entries.clear();
     }
 
+    /// Clears cached unmatched-profile flags across live flows so updated lists (`SIGHUP`) re-evaluate.
+    pub fn reset_unmatched_profiles(&mut self) {
+        for entry_rc in self.entries.values() {
+            let mut entry = entry_rc.borrow_mut();
+            if entry.profile_index.is_none() {
+                entry.profile_searched = false;
+            }
+        }
+    }
+
     /// Returns the currently configured timeouts and purge cadence.
     pub const fn timeouts(&self) -> ConntrackTimeouts {
         self.timeouts

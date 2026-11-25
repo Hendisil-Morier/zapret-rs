@@ -2,8 +2,66 @@
 
 /// Hash map storing per-endpoint cached hostnames and observed hop limits.
 use std::collections::HashMap;
+/// Fast slice hashing and equality for stack-inlined interface names.
+use std::hash::{Hash, Hasher};
 /// Unified IPv4/IPv6 key component (`ip4if` / `ip6if` in `pools.h`).
 use std::net::IpAddr;
+
+/// Inline interface-name buffer capacity matching Linux `IFNAMSIZ` (`16` bytes).
+const INLINE_IFACE_CAP: usize = 16;
+
+/// Interface name map key stored inline on the stack up to `16` bytes, avoiding per-packet heap allocations.
+#[derive(Debug, Clone)]
+enum IfaceKey {
+    /// Stack-resident interface name (`0..=16` bytes, covering all real Linux interfaces and `""`).
+    Inline {
+        /// Valid prefix length inside `buf`.
+        len: u8,
+        /// Zero-padded byte array storing the interface name.
+        buf: [u8; INLINE_IFACE_CAP],
+    },
+    /// Heap-allocated fallback for synthetic interface names longer than `16` bytes.
+    Heap(Box<str>),
+}
+
+impl IfaceKey {
+    /// Builds an [`IfaceKey`] without allocating whenever `iface.len() <= 16`.
+    fn new(iface: &str) -> Self {
+        let bytes = iface.as_bytes();
+        if bytes.len() <= INLINE_IFACE_CAP {
+            let mut buf = [0u8; INLINE_IFACE_CAP];
+            buf[..bytes.len()].copy_from_slice(bytes);
+            Self::Inline {
+                len: bytes.len() as u8,
+                buf,
+            }
+        } else {
+            Self::Heap(iface.into())
+        }
+    }
+
+    /// Returns the stored interface name bytes.
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Inline { len, buf } => &buf[..usize::from(*len)],
+            Self::Heap(s) => s.as_bytes(),
+        }
+    }
+}
+
+impl PartialEq for IfaceKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for IfaceKey {}
+
+impl Hash for IfaceKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_bytes().hash(state);
+    }
+}
 
 /// Default IPCache entry lifetime in seconds (`DEFAULT_IPCACHE_LIFETIME` = `7200`).
 pub const DEFAULT_IPCACHE_LIFETIME_SEC: i64 = 7200;
@@ -27,7 +85,7 @@ pub struct IpCacheEntry {
 #[derive(Debug)]
 pub struct IpCache {
     /// Stored entries keyed by remote IP address and interface name (`""` for global hostname keys).
-    entries: HashMap<(IpAddr, String), IpCacheEntry>,
+    entries: HashMap<(IpAddr, IfaceKey), IpCacheEntry>,
     /// Entry expiration lifetime in seconds (`0` disables expiration).
     lifetime_sec: i64,
     /// Maximum cached `(ip, iface)` entries retained concurrently (`0` disables cap).
@@ -93,19 +151,30 @@ impl IpCache {
 
     /// Looks up an entry by `(addr, iface)` without refreshing its timestamp (`ipcacheFind`).
     pub fn find(&self, addr: IpAddr, iface: &str) -> Option<&IpCacheEntry> {
-        self.entries.get(&(addr, iface.to_owned()))
+        self.entries.get(&(addr, IfaceKey::new(iface)))
     }
 
-    /// Refreshes or inserts an entry for `(addr, iface)`, returning `None` if at capacity after expiry sweep.
-    pub fn try_touch(&mut self, addr: IpAddr, iface: &str, now_sec: i64) -> Option<&mut IpCacheEntry> {
-        let key = (addr, iface.to_owned());
-        if !self.entries.contains_key(&key)
-            && self.max_entries > 0
+    /// Inserts or refreshes `(addr, iface)`, purging and optionally evicting when at `max_entries`.
+    fn touch_inner(
+        &mut self,
+        addr: IpAddr,
+        iface: &str,
+        now_sec: i64,
+        evict_on_full: bool,
+    ) -> Option<&mut IpCacheEntry> {
+        let key = (addr, IfaceKey::new(iface));
+        if self.max_entries > 0
             && self.entries.len() >= self.max_entries
+            && !self.entries.contains_key(&key)
         {
             self.purge_rate_limited(now_sec);
             if self.entries.len() >= self.max_entries {
-                return None;
+                if !evict_on_full {
+                    return None;
+                }
+                if let Some(evict_key) = self.entries.keys().next().cloned() {
+                    self.entries.remove(&evict_key);
+                }
             }
         }
         let entry = self.entries.entry(key).or_insert_with(|| IpCacheEntry {
@@ -118,30 +187,18 @@ impl IpCache {
         Some(entry)
     }
 
+    /// Refreshes or inserts an entry for `(addr, iface)`, returning `None` if at capacity after expiry sweep.
+    pub fn try_touch(&mut self, addr: IpAddr, iface: &str, now_sec: i64) -> Option<&mut IpCacheEntry> {
+        self.touch_inner(addr, iface, now_sec, false)
+    }
+
     /// Returns the entry for `(addr, iface)` after inserting/refreshing `last_sec` (`ipcacheTouch`).
     ///
     /// Evicts expired entries (or one existing entry when full) to uphold `max_entries`.
     pub fn touch(&mut self, addr: IpAddr, iface: &str, now_sec: i64) -> &mut IpCacheEntry {
-        let key = (addr, iface.to_owned());
-        if !self.entries.contains_key(&key)
-            && self.max_entries > 0
-            && self.entries.len() >= self.max_entries
-        {
-            self.purge_rate_limited(now_sec);
-            if self.entries.len() >= self.max_entries
-                && let Some(evict_key) = self.entries.keys().next().cloned()
-            {
-                self.entries.remove(&evict_key);
-            }
-        }
-        let entry = self.entries.entry(key).or_insert_with(|| IpCacheEntry {
-            last_sec: now_sec,
-            hostname: None,
-            hostname_is_ip: false,
-            ttl: 0,
-        });
-        entry.last_sec = now_sec;
-        entry
+        // SAFETY invariant: `evict_on_full = true` guarantees an evicted slot before `entry()`, unless `max_entries == 0` which skips the cap branch.
+        self.touch_inner(addr, iface, now_sec, true)
+            .unwrap_or_else(|| unreachable!("evict_on_full ensures capacity for insert"))
     }
 
     /// Caches `hostname` under global key `(addr, "")` when `cache_hostname` is enabled (`ipcache_put_hostname`).

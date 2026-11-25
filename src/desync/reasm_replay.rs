@@ -25,6 +25,8 @@ use crate::packet::constants::IPPROTO_TCP;
 use crate::packet::dissect_packet;
 /// Abstract raw socket transmitter used for both delayed flushes and modified replays.
 use crate::rawsend::PacketSender;
+/// Monotonic boottime clock stamped once per replayed packet batch.
+use crate::timer::boottime_now;
 
 /// Flushes a drained FIFO queue of delayed packets unmodified via `sender` (`send_delayed`).
 pub(crate) fn send_delayed_queue(
@@ -224,6 +226,7 @@ pub(crate) fn replay_and_finish(
     ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
     delayed: VecDeque<DelayedPacket>,
 ) {
+    let replay_now = boottime_now();
     replay_delayed_queue(
         delayed,
         engine.desync_fwmark,
@@ -242,7 +245,7 @@ pub(crate) fn replay_and_finish(
                 ifout: dpkt.ifout.as_deref(),
                 payload: &dpkt.raw,
             };
-            engine.process_packet_play(&rctx, &qpkt)
+            engine.process_packet_play(&rctx, &qpkt, replay_now)
         },
     );
     reasm_client_stop(ctrack, engine.desync_fwmark, &engine.sender);

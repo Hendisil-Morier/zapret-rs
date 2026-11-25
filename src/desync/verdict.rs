@@ -16,10 +16,8 @@ use crate::config::{DesyncAction, DesyncProfile, L7Payload, l7_payload_matches};
 use crate::conntrack::{CtrackEntry, CtrackPosition, is_tcp_syn, is_tcp_synack};
 /// Intercepted verdict decision enum returned to NFQUEUE.
 use crate::intercepter::Decision;
-/// Active Lua desync context state, table dissector, and instance naming helpers.
-use crate::lua::{
-    desync_api::DesyncContextState, desync_encode::desync_instance_name, packet_decode::lua_to_dissect,
-};
+/// Active Lua desync context state and table dissector helpers.
+use crate::lua::{desync_api::DesyncContextState, packet_decode::lua_to_dissect};
 /// ICMP error type constants, header lengths, and verdict action/flag bitmasks.
 use crate::packet::constants::{
     ICMP_DEST_UNREACH, ICMP_PARAMETERPROB, ICMP_REDIRECT, ICMP_TIME_EXCEEDED, ICMP6_DST_UNREACH,
@@ -282,44 +280,50 @@ pub(crate) fn action_is_runnable(
 /// Returns `true` when every action in `profile` is cut off by instance flags or packet range bounds.
 pub(crate) fn all_actions_cut_off(
     profile: &DesyncProfile,
+    instances: &[String],
     ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
     pos_opt: Option<&CtrackPosition>,
     incoming: bool,
 ) -> bool {
-    profile.actions.iter().enumerate().all(|(idx, action)| {
-        let func_n = (idx as u32) + 1;
-        let instance = desync_instance_name(&action.func, profile.index, func_n);
-        let inst_cut = is_instance_cut_off(ctrack, &instance, profile.index, incoming);
-        let range = if incoming {
-            action.in_range
-        } else {
-            action.out_range
-        };
-        inst_cut || range.check_pos_cutoff(pos_opt)
-    })
+    profile
+        .actions
+        .iter()
+        .zip(instances.iter())
+        .all(|(action, instance)| {
+            let inst_cut = is_instance_cut_off(ctrack, instance, profile.index, incoming);
+            let range = if incoming {
+                action.in_range
+            } else {
+                action.out_range
+            };
+            inst_cut || range.check_pos_cutoff(pos_opt)
+        })
 }
 
 /// Returns `true` when at least one profile action passes instance cutoff, range, and payload checks.
 pub(crate) fn any_action_runnable(
     profile: &DesyncProfile,
+    instances: &[String],
     ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
     pos_opt: Option<&CtrackPosition>,
     incoming: bool,
     l7payload: L7Payload,
 ) -> bool {
-    profile.actions.iter().enumerate().any(|(idx, action)| {
-        let func_n = (idx as u32) + 1;
-        let instance = desync_instance_name(&action.func, profile.index, func_n);
-        action_is_runnable(
-            action,
-            profile.index,
-            &instance,
-            ctrack,
-            pos_opt,
-            incoming,
-            l7payload,
-        )
-    })
+    profile
+        .actions
+        .iter()
+        .zip(instances.iter())
+        .any(|(action, instance)| {
+            action_is_runnable(
+                action,
+                profile.index,
+                instance,
+                ctrack,
+                pos_opt,
+                incoming,
+                l7payload,
+            )
+        })
 }
 
 /// Arms `ctx.valid`, invokes a single Lua action callback, and clears `ctx.valid` before returning.

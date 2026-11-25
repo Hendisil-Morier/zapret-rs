@@ -33,8 +33,8 @@ use crate::packet::DissectedPacket;
 use crate::protocol::{
     http_extract_host, is_tls_record_full, tls_hello_extract_host, tls_record_len,
 };
-/// Monotonic boottime seconds clock for profile rediscovery updates.
-use crate::timer::boottime_secs;
+/// Monotonic boottime timestamp forwarded from the outer packet dispatch loop.
+use crate::timer::MonotonicTime;
 
 /// Evaluates live multi-segment TLS ClientHello reassembly, queueing, and delayed replay.
 fn try_tcp_tls_reassembly(
@@ -94,9 +94,10 @@ pub(crate) fn process_tcp_packet(
     replay: &ReplayContext<'_>,
     pkt: &QueuedPacket<'_>,
     dis: &DissectedPacket,
+    now: MonotonicTime,
 ) -> Decision {
     let svc = engine.services();
-    let Some(mut ps) = play_prolog(&svc, replay, dis, pkt.ifin, pkt.ifout, pkt.mark) else {
+    let Some(mut ps) = play_prolog(&svc, replay, dis, pkt.ifin, pkt.ifout, pkt.mark, now) else {
         return Decision::Pass;
     };
     let Some(tcp) = &dis.tcp else {
@@ -205,7 +206,7 @@ pub(crate) fn process_tcp_packet(
         }
     }
 
-    if !dp_rediscovery(&svc, &mut ps, dis, replay.tpos, boottime_secs()) {
+    if !dp_rediscovery(&svc, &mut ps, dis, replay.tpos, now.sec) {
         reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
         return Decision::Pass;
     }

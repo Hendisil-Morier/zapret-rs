@@ -150,7 +150,7 @@ pub(crate) fn handle_tcp_retrans_fail(
         let client_ip = extract_endpoint_ip(dis, true);
         (
             trigger,
-            entry.hostname.clone(),
+            trigger.is_some().then(|| entry.hostname.clone()).flatten(),
             entry.hostname_is_ip,
             entry.l7proto,
             entry.pos.server.winsize,
@@ -198,7 +198,7 @@ pub(crate) fn handle_tcp_incoming_fail(
         );
         (
             trigger,
-            entry.hostname.clone(),
+            trigger.is_some().then(|| entry.hostname.clone()).flatten(),
             entry.hostname_is_ip,
             entry.l7proto,
         )
@@ -230,7 +230,7 @@ pub(crate) fn handle_udp_fail(
         );
         (
             trigger,
-            entry.hostname.clone(),
+            trigger.is_some().then(|| entry.hostname.clone()).flatten(),
             entry.hostname_is_ip,
             entry.l7proto,
         )

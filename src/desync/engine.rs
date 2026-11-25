@@ -35,9 +35,7 @@ use crate::lists::IpCache;
 /// Lua runtime, error enum, and desync table/argument builders.
 use crate::lua::{
     LuaEngineError, LuaRuntime,
-    desync_encode::{
-        DesyncTableInput, build_action_args_table, build_desync_table, desync_instance_name,
-    },
+    desync_encode::{DesyncTableInput, build_action_args_table, build_desync_table},
 };
 /// Default pass verdict bitmask initialized before profile actions execute.
 use crate::packet::constants::VERDICT_PASS;
@@ -45,8 +43,8 @@ use crate::packet::constants::VERDICT_PASS;
 use crate::packet::{DissectedPacket, dissect_packet};
 /// Abstract packet sender trait and real Linux raw socket implementation.
 use crate::rawsend::{PacketSender, RawSender};
-/// Monotonic boottime seconds clock used for IPCache sweeps.
-use crate::timer::boottime_secs;
+/// Monotonic boottime clock queried once per dispatched packet.
+use crate::timer::{MonotonicTime, boottime_now};
 
 /// Orchestrates packet dissection, stateful conntrack, L7 probes, list matching, and Lua desync.
 pub struct DesyncEngine {
@@ -141,6 +139,7 @@ impl DesyncEngine {
     /// Resets modification signatures and reloads all hostlists and ipsets from disk (`SIGHUP`).
     pub fn reload_lists(&self) {
         self.list_registry.reload_all(&self.profile_runtimes);
+        self.runtime.conntrack().borrow_mut().reset_unmatched_profiles();
     }
 
     /// Returns a borrowed [`EngineServices`] view shared with `play_prolog` and `dp_rediscovery`.
@@ -159,8 +158,9 @@ impl DesyncEngine {
 
     /// Processes one intercepted live packet and returns the kernel NFQUEUE [`Decision`].
     pub fn process_packet(&self, pkt: &QueuedPacket<'_>) -> Decision {
-        self.ipcache.borrow_mut().purge_rate_limited(boottime_secs());
-        self.process_packet_play(&ReplayContext::live(), pkt)
+        let now = boottime_now();
+        self.ipcache.borrow_mut().purge_rate_limited(now.sec);
+        self.process_packet_play(&ReplayContext::live(), pkt, now)
     }
 
     /// Dispatches one live or replayed packet through TCP, UDP, ICMP, or raw IP pipelines.
@@ -168,15 +168,16 @@ impl DesyncEngine {
         &self,
         replay: &ReplayContext<'_>,
         pkt: &QueuedPacket<'_>,
+        now: MonotonicTime,
     ) -> Decision {
         let dis = dissect_packet(pkt.payload, false);
         if dis.ip.is_some() == dis.ip6.is_some() {
             return Decision::Pass;
         }
         if dis.tcp.is_some() {
-            process_tcp_packet(self, replay, pkt, &dis)
+            process_tcp_packet(self, replay, pkt, &dis, now)
         } else if dis.udp.is_some() {
-            process_udp_packet(self, replay, pkt, &dis)
+            process_udp_packet(self, replay, pkt, &dis, now)
         } else if dis.icmp.is_some() {
             process_icmp_packet(self, pkt, &dis)
         } else {
@@ -198,6 +199,7 @@ impl DesyncEngine {
             return Decision::Pass;
         };
         let profile = &self.profiles[idx];
+        let instances = &self.profile_runtimes[idx].action_instances;
         if profile.actions.is_empty() {
             return Decision::Pass;
         }
@@ -216,7 +218,7 @@ impl DesyncEngine {
             extract_pos_for_side(track_rc, ps.b_reverse)
         };
 
-        if all_actions_cut_off(profile, track_rc, pos_opt.as_ref(), ps.incoming) {
+        if all_actions_cut_off(profile, instances, track_rc, pos_opt.as_ref(), ps.incoming) {
             if let Some(entry_rc) = track_rc {
                 let mut entry = entry_rc.borrow_mut();
                 if ps.incoming {
@@ -230,6 +232,7 @@ impl DesyncEngine {
 
         if !any_action_runnable(
             profile,
+            instances,
             track_rc,
             pos_opt.as_ref(),
             ps.incoming,
@@ -240,6 +243,7 @@ impl DesyncEngine {
 
         match self.try_run_profile(
             profile,
+            instances,
             replay,
             pkt,
             dis,
@@ -261,6 +265,7 @@ impl DesyncEngine {
     fn try_run_profile(
         &self,
         profile: &Rc<DesyncProfile>,
+        instances: &[String],
         replay: &ReplayContext<'_>,
         pkt: &QueuedPacket<'_>,
         dis: &DissectedPacket,
@@ -323,11 +328,11 @@ impl DesyncEngine {
         let mut verdict = VERDICT_PASS;
         for (idx, action) in profile.actions.iter().enumerate() {
             let func_n = (idx as u32) + 1;
-            let instance = desync_instance_name(&action.func, profile.index, func_n);
+            let instance = &instances[idx];
             if !action_is_runnable(
                 action,
                 profile.index,
-                &instance,
+                instance,
                 active_ctrack.as_ref(),
                 pos_opt.as_ref(),
                 active_incoming,
@@ -363,7 +368,7 @@ impl DesyncEngine {
                 &desync_tbl,
                 func_n,
                 &action.func,
-                &instance,
+                instance,
             )?;
 
             let action_verdict = parse_lua_verdict(&results)?;

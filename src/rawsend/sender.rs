@@ -50,13 +50,24 @@ pub trait PacketSender {
     }
 }
 
+/// Open raw socket descriptor paired with cached `SO_MARK` and `SO_BINDTODEVICE` state to elide redundant `setsockopt` calls.
+#[derive(Debug)]
+struct RawSocketState {
+    /// Underlying Linux `SOCK_RAW | SOCK_CLOEXEC` file descriptor.
+    fd: OwnedFd,
+    /// Last firewall mark successfully applied via `SO_MARK`.
+    last_fwmark: Option<u32>,
+    /// Last device binding state successfully applied via `SO_BINDTODEVICE` (`Some(None)` = explicitly cleared).
+    last_ifout: Option<Option<Box<str>>>,
+}
+
 /// Linux `AF_INET`/`AF_INET6` `SOCK_RAW` + `IPPROTO_RAW` packet injector matching `zapret2`'s `rawsend`.
 #[derive(Debug, Default)]
 pub struct RawSender {
-    /// Lazily opened IPv4 raw socket descriptor.
-    sock4: Option<OwnedFd>,
-    /// Lazily opened IPv6 raw socket descriptor.
-    sock6: Option<OwnedFd>,
+    /// Lazily opened IPv4 raw socket and cached socket option state.
+    sock4: Option<RawSocketState>,
+    /// Lazily opened IPv6 raw socket and cached socket option state.
+    sock6: Option<RawSocketState>,
     /// Whether `SO_BINDTODEVICE` routing fixup is active for IPv4 sends.
     bind_fix4: bool,
     /// Whether `SO_BINDTODEVICE` routing fixup is active for IPv6 sends.
@@ -88,47 +99,53 @@ impl RawSender {
         }
     }
 
-    /// Returns an existing raw socket FD for the target family or opens and configures a new one.
-    fn ensure_socket(&mut self, is_v6: bool) -> Result<RawFd, RawSendError> {
+    /// Ensures the raw socket for `is_v6` is open and returns `&mut RawSocketState`.
+    fn ensure_socket(&mut self, is_v6: bool) -> Result<&mut RawSocketState, RawSendError> {
         let slot = if is_v6 {
             &mut self.sock6
         } else {
             &mut self.sock4
         };
-        if let Some(fd) = slot.as_ref() {
-            return Ok(fd.as_raw_fd());
+        if slot.is_none() {
+            let domain = if is_v6 { libc::AF_INET6 } else { libc::AF_INET };
+            // SAFETY: `libc::socket` takes integer constants and returns a new FD or `-1` on error.
+            let raw_fd = unsafe {
+                libc::socket(domain, libc::SOCK_RAW | libc::SOCK_CLOEXEC, libc::IPPROTO_RAW)
+            };
+            if raw_fd < 0 {
+                return Err(RawSendError::SocketIo(std::io::Error::last_os_error()));
+            }
+            // SAFETY: `raw_fd` was just returned by `libc::socket` and is exclusively owned here.
+            let owned = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+            let fd = owned.as_raw_fd();
+
+            Self::set_sockopt_int(fd, libc::SOL_SOCKET, libc::SO_RCVBUF, RAW_SOCK_RCVBUF)?;
+            Self::set_sockopt_int(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_SNDBUF,
+                (RAW_SNDBUF / 2) as c_int,
+            )?;
+            Self::set_sockopt_int(fd, libc::SOL_SOCKET, libc::SO_PRIORITY, RAW_SOCK_PRIORITY)?;
+
+            if !is_v6 {
+                // `IP_NODEFRAG` is best-effort on older kernels; ignore errors if unsupported.
+                let _ = Self::set_sockopt_int(fd, libc::IPPROTO_IP, IP_NODEFRAG, 1);
+                Self::set_sockopt_int(fd, libc::IPPROTO_IP, libc::IP_FREEBIND, 1)?;
+            } else {
+                // `IPV6_FREEBIND` requires Linux >= 4.15; ignore errors on older kernels.
+                let _ = Self::set_sockopt_int(fd, libc::SOL_IPV6, IPV6_FREEBIND, 1);
+            }
+
+            *slot = Some(RawSocketState {
+                fd: owned,
+                last_fwmark: None,
+                last_ifout: None,
+            });
         }
-
-        let domain = if is_v6 { libc::AF_INET6 } else { libc::AF_INET };
-        // SAFETY: `libc::socket` takes integer constants and returns a new FD or `-1` on error.
-        let raw_fd = unsafe { libc::socket(domain, libc::SOCK_RAW | libc::SOCK_CLOEXEC, libc::IPPROTO_RAW) };
-        if raw_fd < 0 {
-            return Err(RawSendError::SocketIo(std::io::Error::last_os_error()));
-        }
-        // SAFETY: `raw_fd` was just returned by `libc::socket` and is exclusively owned here.
-        let owned = unsafe { OwnedFd::from_raw_fd(raw_fd) };
-        let fd = owned.as_raw_fd();
-
-        Self::set_sockopt_int(fd, libc::SOL_SOCKET, libc::SO_RCVBUF, RAW_SOCK_RCVBUF)?;
-        Self::set_sockopt_int(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_SNDBUF,
-            (RAW_SNDBUF / 2) as c_int,
-        )?;
-        Self::set_sockopt_int(fd, libc::SOL_SOCKET, libc::SO_PRIORITY, RAW_SOCK_PRIORITY)?;
-
-        if !is_v6 {
-            // `IP_NODEFRAG` is best-effort on older kernels; ignore errors if unsupported.
-            let _ = Self::set_sockopt_int(fd, libc::IPPROTO_IP, IP_NODEFRAG, 1);
-            Self::set_sockopt_int(fd, libc::IPPROTO_IP, libc::IP_FREEBIND, 1)?;
-        } else {
-            // `IPV6_FREEBIND` requires Linux >= 4.15; ignore errors on older kernels.
-            let _ = Self::set_sockopt_int(fd, libc::SOL_IPV6, IPV6_FREEBIND, 1);
-        }
-
-        *slot = Some(owned);
-        Ok(fd)
+        Ok(slot
+            .as_mut()
+            .unwrap_or_else(|| unreachable!("socket slot was initialized above")))
     }
 
     /// Sets an integer socket option on `fd`.
@@ -256,11 +273,25 @@ impl PacketSender for RawSender {
         packet: &[u8],
     ) -> Result<(), RawSendError> {
         let is_v6 = dst.is_ipv6();
-        let fd = self.ensure_socket(is_v6)?;
-        Self::set_fwmark(fd, fwmark)?;
+        let bind_fix = if is_v6 { self.bind_fix6 } else { self.bind_fix4 };
+        let state = self.ensure_socket(is_v6)?;
+        let fd = state.fd.as_raw_fd();
 
-        if (is_v6 && self.bind_fix6) || (!is_v6 && self.bind_fix4) {
-            Self::bind_to_device(fd, ifout)?;
+        if state.last_fwmark != Some(fwmark) {
+            Self::set_fwmark(fd, fwmark)?;
+            state.last_fwmark = Some(fwmark);
+        }
+
+        if bind_fix {
+            let norm_ifout = ifout.filter(|name| !name.is_empty());
+            if state
+                .last_ifout
+                .as_ref()
+                .is_none_or(|cached| cached.as_deref() != norm_ifout)
+            {
+                Self::bind_to_device(fd, norm_ifout)?;
+                state.last_ifout = Some(norm_ifout.map(Box::<str>::from));
+            }
         }
 
         match dst {

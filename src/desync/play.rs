@@ -19,8 +19,8 @@ use crate::desync::verdict::{extract_endpoint_ip, extract_l3_ttl};
 use crate::lists::IpCache;
 /// Dissected packet header fields used for endpoint, port, and TTL extraction.
 use crate::packet::DissectedPacket;
-/// Monotonic boottime clock helper (`timespec` for conntrack creation and IPCache seconds).
-use crate::timer::boottime_now;
+/// Monotonic boottime timestamp passed through from `DesyncEngine::process_packet`.
+use crate::timer::MonotonicTime;
 
 /// Contextual parameters distinguishing live packet handling from delayed-queue replay.
 pub(crate) struct ReplayContext<'a> {
@@ -132,12 +132,12 @@ pub(crate) fn play_prolog(
     ifin: Option<&str>,
     ifout: Option<&str>,
     fwmark: u32,
+    now: MonotonicTime,
 ) -> Option<PlayState> {
     if dis.ip.is_some() == dis.ip6.is_some() {
         return None;
     }
 
-    let now = boottime_now();
     let has_payload = dis.payload.as_deref().is_some_and(|p| !p.is_empty());
     let mut l7proto = L7Proto::Unknown;
     let l7payload = if has_payload {
@@ -195,21 +195,23 @@ pub(crate) fn play_prolog(
     let mut host = None;
     let mut host_is_ip = false;
     let mut cached_prof_id = None;
+    let mut prof_searched = false;
     if let Some(entry_rc) = &ctrack_replay {
         let mut entry = entry_rc.borrow_mut();
         l7proto = entry.l7proto;
         cached_prof_id = entry.profile_index;
-        host = entry.hostname.clone();
-        host_is_ip = entry.hostname_is_ip;
+        prof_searched = entry.profile_searched;
 
-        if !replay.is_replay() && host.is_none() && !b_reverse {
+        if !replay.is_replay() && entry.hostname.is_none() && !b_reverse {
             let cache = svc.ipcache.borrow();
             if let Some((cached, is_ip)) = cache.get_hostname(target_ip) {
                 entry.hostname = Some(cached.to_owned());
                 entry.hostname_is_ip = is_ip;
-                host = entry.hostname.clone();
-                host_is_ip = is_ip;
             }
+        }
+        if cached_prof_id.is_none() && !prof_searched {
+            host = entry.hostname.clone();
+            host_is_ip = entry.hostname_is_ip;
         }
     } else if !b_reverse {
         let cache = svc.ipcache.borrow();
@@ -221,6 +223,7 @@ pub(crate) fn play_prolog(
 
     let profile_idx = match cached_prof_id.and_then(|id| profile_slot_by_id(svc.profiles, id)) {
         Some(idx) => Some(idx),
+        None if prof_searched => None,
         None => {
             let match_input = FullMatchInput {
                 base: ProfileMatchInput {
@@ -238,8 +241,10 @@ pub(crate) fn play_prolog(
                 hostname_is_ip: host_is_ip,
             };
             let found = find_matching_profile(svc.profiles, svc.profile_runtimes, &match_input);
-            if let (Some(idx), Some(entry_rc)) = (found, &ctrack_replay) {
-                entry_rc.borrow_mut().profile_index = Some(svc.profiles[idx].index);
+            if let Some(entry_rc) = &ctrack_replay {
+                let mut entry = entry_rc.borrow_mut();
+                entry.profile_searched = true;
+                entry.profile_index = found.map(|idx| svc.profiles[idx].index);
             }
             found
         }
@@ -291,7 +296,11 @@ pub(crate) fn play_prolog(
         target_ip4,
         target_ip6,
         target_port,
-        client_label: format_client_label(dis, b_reverse),
+        client_label: if svc.hostlist_auto_debug.is_some() {
+            format_client_label(dis, b_reverse)
+        } else {
+            String::new()
+        },
         l7proto,
         l7payload,
         host: None,

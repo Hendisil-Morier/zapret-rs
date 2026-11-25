@@ -32,8 +32,8 @@ use crate::protocol::{
     is_quic_crypto_hello, is_tls_handshake_full, quic_decrypt_initial, quic_defrag_crypto,
     tls_hello_extract_host_from_handshake,
 };
-/// Monotonic boottime seconds clock for DNS IPCache insertion and profile rediscovery.
-use crate::timer::boottime_secs;
+/// Monotonic boottime timestamp forwarded from the outer packet dispatch loop.
+use crate::timer::MonotonicTime;
 
 /// Handles outgoing QUIC Initial decryption, client reassembly/replay, and handshake host extraction.
 fn process_quic_initial_flow(
@@ -163,9 +163,10 @@ pub(crate) fn process_udp_packet(
     replay: &ReplayContext<'_>,
     pkt: &QueuedPacket<'_>,
     dis: &DissectedPacket,
+    now: MonotonicTime,
 ) -> Decision {
     let svc = engine.services();
-    let Some(mut ps) = play_prolog(&svc, replay, dis, pkt.ifin, pkt.ifout, pkt.mark) else {
+    let Some(mut ps) = play_prolog(&svc, replay, dis, pkt.ifin, pkt.ifout, pkt.mark, now) else {
         return Decision::Pass;
     };
     let payload = dis.payload.as_deref().unwrap_or(&[]);
@@ -189,13 +190,13 @@ pub(crate) fn process_udp_packet(
             }
         }
         if ps.l7payload == L7Payload::DnsResponse {
-            let _ = feed_dns_response(payload, &engine.ipcache, boottime_secs());
+            let _ = feed_dns_response(payload, &engine.ipcache, now.sec);
         }
     }
 
     reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
 
-    if !dp_rediscovery(&svc, &mut ps, dis, replay.tpos, boottime_secs()) {
+    if !dp_rediscovery(&svc, &mut ps, dis, replay.tpos, now.sec) {
         return Decision::Pass;
     }
 

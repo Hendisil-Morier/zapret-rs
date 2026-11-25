@@ -149,7 +149,9 @@ pub(crate) fn process_icmp_packet(
             let found =
                 find_matching_profile(&engine.profiles, &engine.profile_runtimes, &match_input);
             if let (Some(idx), Some(rc)) = (found, &ctrack) {
-                rc.borrow_mut().profile_index = Some(engine.profiles[idx].index);
+                let mut e = rc.borrow_mut();
+                e.profile_searched = true;
+                e.profile_index = Some(engine.profiles[idx].index);
             }
             found
         }

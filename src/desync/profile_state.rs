@@ -23,6 +23,8 @@ use crate::conntrack::CtrackEntry;
 use crate::lists::{
     HostFailPool, HostlistCollection, HostlistFile, HostlistRef, IpsetCollection, IpsetFile,
 };
+/// Precomputed `<func>_<profile_n>_<func_n>` action instance name helper (`desync_instance`).
+use crate::lua::desync_encode::desync_instance_name;
 
 /// Gzip header bytes disallowed for append-only writable `--hostlist-auto` files.
 const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
@@ -36,7 +38,7 @@ pub(crate) struct ListRegistry {
     ipsets: Vec<Rc<RefCell<IpsetFile>>>,
 }
 
-/// Per-profile instantiated hostlists, autohostlist handle, CIDR ipsets, and failure pool.
+/// Per-profile instantiated hostlists, autohostlist handle, CIDR ipsets, failure pool, and cached instance names.
 #[derive(Debug)]
 pub(crate) struct ProfileRuntime {
     /// Include and exclude domain lists bound to this profile.
@@ -47,6 +49,8 @@ pub(crate) struct ProfileRuntime {
     pub(crate) ipsets: IpsetCollection,
     /// Fixed-window failure counter pool for autohostlist promotion (`hostfail_pool`).
     pub(crate) fail_pool: RefCell<HostFailPool>,
+    /// Precomputed `<func>_<profile_n>_<func_n>` instance labels aligned 1:1 with `DesyncProfile::actions`.
+    pub(crate) action_instances: Vec<String>,
 }
 
 /// Full packet, IP endpoint, and hostname tuple evaluated during `zapret2` `dp_match` selection.
@@ -207,11 +211,19 @@ fn build_profile_runtime(
         ip_col.exclude.push(Rc::new(RefCell::new(inline)));
     }
 
+    let action_instances = profile
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(idx, action)| desync_instance_name(&action.func, profile.index, (idx as u32) + 1))
+        .collect();
+
     Ok(ProfileRuntime {
         hostlists: hl_col,
         autolist,
         ipsets: ip_col,
         fail_pool: RefCell::new(HostFailPool::new()),
+        action_instances,
     })
 }
 

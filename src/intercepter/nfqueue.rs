@@ -160,21 +160,33 @@ impl QueueCatcher {
         Ok(())
     }
 
-    /// Resolves interface names, dispatches one queued packet, and submits its netfilter verdict.
+    /// Evaluates fwmark suppression before resolving interface names, then dispatches and submits the verdict.
     fn handle_message<F>(&mut self, mut msg: Message, on_packet: &mut F) -> Result<(), IntercepterError>
     where
         F: FnMut(&QueuedPacket<'_>) -> Decision,
     {
-        let ifin = self.ifnames.resolve(msg.get_indev());
-        let ifout = self.ifnames.resolve(msg.get_outdev());
-        let pkt = QueuedPacket {
-            packet_id: msg.get_packet_id(),
-            mark: msg.get_nfmark(),
-            ifin: ifin.as_deref(),
-            ifout: ifout.as_deref(),
-            payload: msg.get_payload(),
-        };
-        let decision = dispatch_packet(&pkt, self.config.desync_fwmark, on_packet);
+        let mark = msg.get_nfmark();
+        let desync_fwmark = self.config.desync_fwmark;
+        if desync_fwmark != 0 && (mark & desync_fwmark) != 0 {
+            apply_decision(&mut msg, Decision::Pass);
+            self.queue.verdict(msg)?;
+            return Ok(());
+        }
+
+        let packet_id = msg.get_packet_id();
+        let indev = msg.get_indev();
+        let outdev = msg.get_outdev();
+        let payload = msg.get_payload();
+        let decision = self.ifnames.resolve_pair(indev, outdev, |ifin, ifout| {
+            let pkt = QueuedPacket {
+                packet_id,
+                mark,
+                ifin,
+                ifout,
+                payload,
+            };
+            dispatch_packet(&pkt, desync_fwmark, on_packet)
+        });
         apply_decision(&mut msg, decision);
         self.queue.verdict(msg)?;
         Ok(())
