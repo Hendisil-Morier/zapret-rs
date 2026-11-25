@@ -88,6 +88,27 @@ pub fn require_strict_str(val: &Value) -> mlua::Result<String> {
         .map_err(|_| mlua::Error::external("invalid UTF-8 string"))
 }
 
+/// Extracts raw bytes from a Lua string or coerces numeric values into ASCII decimal bytes (`luaL_checklstring`).
+pub fn coerce_bytes(lua: &Lua, val: &Value) -> mlua::Result<Vec<u8>> {
+    match val {
+        Value::String(s) => Ok(s.as_bytes().to_vec()),
+        Value::Integer(_) | Value::Number(_) => lua
+            .coerce_string(val.clone())?
+            .map(|s| s.as_bytes().to_vec())
+            .ok_or_else(|| mlua::Error::external("string expected")),
+        other => Err(mlua::Error::external(format!(
+            "string expected, got {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// Coerces a Lua string or numeric value into a UTF-8 `String` (`luaL_checkstring`).
+pub fn coerce_str(lua: &Lua, val: &Value) -> mlua::Result<String> {
+    let bytes = coerce_bytes(lua, val)?;
+    String::from_utf8(bytes).map_err(|_| mlua::Error::external("invalid UTF-8 string"))
+}
+
 /// Extracts an integer strictly from `LUA_TNUMBER` (`Value::Integer` or `Value::Number`), rejecting strings.
 pub fn require_number_i64(val: &Value) -> mlua::Result<i64> {
     match val {

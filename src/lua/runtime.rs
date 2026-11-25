@@ -20,6 +20,8 @@ use crate::lua::bitwise::register_bitwise_functions;
 use crate::lua::bytes::register_bytes_functions;
 /// Security hardening and protocol/runtime global constants.
 use crate::lua::constants::{LuaConfig, harden_lua, register_constants};
+/// Cryptographic Lua bindings (`hash`, `aes`, `aes_gcm`, `aes_ctr`, `hkdf`).
+use crate::lua::crypto_api::register_crypto_functions;
 /// Desync context userdata and Rust host execution helpers (`raw_packet`, `execution_plan`, cutoffs).
 use crate::lua::desync_api::{
     DesyncContextState, create_desync_ctx_userdata, register_desync_functions,
@@ -77,6 +79,7 @@ impl LuaRuntime {
         register_constants(&lua, &config)?;
         register_bitwise_functions(&lua)?;
         register_bytes_functions(&lua)?;
+        register_crypto_functions(&lua)?;
         register_packet_functions(&lua)?;
         register_protocol_functions(&lua)?;
         register_system_functions(&lua, &config)?;

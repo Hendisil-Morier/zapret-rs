@@ -4,6 +4,8 @@
 pub mod config;
 /// Bidirectional TCP/UDP connection tracking table and continuous stream reassembly.
 pub mod conntrack;
+/// Pure-Rust SHA-2, HKDF, AES-128/192/256, and AES-GCM cryptographic primitives.
+pub mod crypto;
 /// Core DPI desync profile routing and Lua action execution engine.
 pub mod desync;
 /// Linux NFQUEUE packet interception and verdict loop.

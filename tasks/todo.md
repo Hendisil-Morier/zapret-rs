@@ -315,14 +315,14 @@ Target verification commands used across tasks:
 **Description:** Create pure-Rust `src/crypto/` (`error.rs`, `sha2.rs`, `aes.rs`, `aes_gcm.rs`, facade `mod.rs`) covering FIPS 180-4 SHA-224/SHA-256, RFC 2104 HMAC, RFC 5869 HKDF, FIPS-197 AES-128/192/256 ECB/CTR with 128-bit big-endian `ctr_add`, and NIST SP 800-38D AES-GCM with arbitrary non-empty IV lengths and unconditional `(out, tag16)` return on decrypt. Deduplicate `src/protocol/aes_block.rs` to delegate to `src/crypto/aes.rs`, add coercing byte/string extractors in `src/lua/helpers.rs`, wire `hash`, `aes`, `aes_gcm`, `aes_ctr`, and `hkdf` in `src/lua/crypto_api.rs`, and verify against unmodified `zapret2/lua/zapret-tests.lua::test_crypto()`, NIST/RFC/FIPS KATs, and `ring` cross-checks.
 
 **Acceptance criteria:**
-- [ ] `src/crypto/` provides SHA-224/256, HMAC, HKDF (`okm_len == 0` or `> 255 * hash_len` returns `nil` without oversized allocation), AES-128/192/256 ECB/CTR, and AES-GCM (arbitrary IV >= 1 byte, returns `(out, tag16)` on decrypt even on tag mismatch) with zero new Cargo dependencies.
-- [ ] `src/protocol/aes_block.rs` delegates to `src/crypto/aes.rs` with zero duplicated AES S-boxes or round logic.
-- [ ] Lua `hash`, `aes`, `aes_gcm`, `aes_ctr`, and `hkdf` pass unmodified `zapret-tests.lua::test_crypto()` alongside NIST SP 800-38D, FIPS-197, FIPS 180-4, and RFC 5869 vectors.
+- [x] `src/crypto/` provides SHA-224/256, HMAC, HKDF (`okm_len == 0` or `> 255 * hash_len` returns `nil` without oversized allocation), AES-128/192/256 ECB/CTR, and AES-GCM (arbitrary IV >= 1 byte, returns `(out, tag16)` on decrypt even on tag mismatch) with zero new Cargo dependencies.
+- [x] `src/protocol/aes_block.rs` delegates to `src/crypto/aes.rs` with zero duplicated AES S-boxes or round logic.
+- [x] Lua `hash`, `aes`, `aes_gcm`, `aes_ctr`, and `hkdf` pass unmodified `zapret-tests.lua::test_crypto()` alongside NIST SP 800-38D, FIPS-197, FIPS 180-4, and RFC 5869 vectors.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Manual check: confirm `src/` files `<= 400` lines, `tests/lua_crypto.rs` `<= 450` lines, pure `mod.rs` facades, and zero `.unwrap(`/`.expect(`/`#[test]` in `src/`.
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Manual check: confirm `src/` files `<= 400` lines, `tests/lua_crypto.rs` `<= 450` lines, pure `mod.rs` facades, and zero `.unwrap(`/`.expect(`/`#[test]` in `src/`.
 
 **Dependencies:** Checkpoint 3B
 

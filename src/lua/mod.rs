@@ -6,6 +6,8 @@ pub mod bitwise;
 pub mod bytes;
 /// Global constant registration and security hardening.
 pub mod constants;
+/// Cryptographic primitives exposed to Lua (`hash`, `aes`, `aes_gcm`, `aes_ctr`, `hkdf`).
+pub mod crypto_api;
 /// Serializers building `zapret2`-compatible Lua `desync.track` and position tables.
 pub mod ctrack_encode;
 /// Desync execution context userdata and `zapret2` Rust host execution callbacks.
