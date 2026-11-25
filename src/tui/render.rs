@@ -6,17 +6,19 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Gauge, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Tabs, Wrap},
 };
 
 /// Live packet inspector table and detail overlay renderers.
 use crate::tui::inspect_ui::{draw_packet_detail_modal, draw_packet_inspector};
-/// Floating capability-grant and `sudo` password modal overlay renderer.
+/// Floating capability-grant, `sudo` password, and confirmation modal overlay renderer.
 use crate::tui::modal::draw_auth_modal;
+/// Tab 1 Strategy Finder rendering helper.
+use crate::tui::render_finder::draw_finder_tab;
 /// Application state rendered into the terminal frame.
 use crate::tui::state::AppState;
-/// Navigation tabs, form field descriptors, and worker statuses.
-use crate::tui::types::{ActiveTab, FinderField, FinderStatus, RunStatus};
+/// Navigation tabs and live daemon/scan lifecycle statuses.
+use crate::tui::types::{ActiveTab, FinderStatus, RunStatus};
 
 /// Primary accent color for borders, titles, and active controls.
 const ACCENT: Color = Color::Cyan;
@@ -47,7 +49,10 @@ pub fn draw_app(frame: &mut Frame, state: &AppState) {
         ActiveTab::Config => draw_config_tab(frame, chunks[1], state),
     }
     draw_footer(frame, chunks[2], state);
-    if state.tab == ActiveTab::Run && state.inspector.detail_open && let Some(rec) = state.inspector.selected_record() {
+    if state.tab == ActiveTab::Run
+        && state.inspector.detail_open
+        && let Some(rec) = state.inspector.selected_record()
+    {
         draw_packet_detail_modal(frame, rec);
     }
     if let Some(modal) = &state.modal {
@@ -61,7 +66,11 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(40), Constraint::Length(36)])
         .split(area);
-    let titles = vec![Line::from(" 1: Strategy Finder "), Line::from(" 2: Run nfqws2 "), Line::from(" 3: Config & Diagnostics ")];
+    let titles = vec![
+        Line::from(" 1: Strategy Finder "),
+        Line::from(" 2: Run nfqws2 "),
+        Line::from(" 3: Config & Diagnostics "),
+    ];
     let tabs = Tabs::new(titles)
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(MUTED)).title(Span::styled(
             format!(" zapret-rs v{} ", env!("CARGO_PKG_VERSION")),
@@ -78,10 +87,12 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
     };
     let (act_txt, act_col) = if state.finder_status == FinderStatus::Scanning {
         ("SCANNING", ACCENT)
-    } else if state.run_status == RunStatus::Running {
-        ("RUNNING", OK_COLOR)
     } else {
-        ("IDLE", MUTED)
+        match state.run_status {
+            RunStatus::Running => ("RUNNING", OK_COLOR),
+            RunStatus::Attached => ("ATTACHED", ACCENT),
+            _ => ("IDLE", MUTED),
+        }
     };
     let badge = Paragraph::new(Line::from(vec![
         Span::styled(format!(" UID:{} ", state.uid), Style::default().fg(Color::White)),
@@ -94,159 +105,52 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(badge, cols[1]);
 }
 
-/// Renders Tab 1: left Setup form and right Progress / Results Table / Live Log stack.
-fn draw_finder_tab(frame: &mut Frame, area: Rect, state: &AppState) {
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
-        .split(area);
-
-    draw_finder_form(frame, cols[0], state);
-
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Percentage(52),
-            Constraint::Min(5),
-        ])
-        .split(cols[1]);
-
-    let ratio = if state.progress_total > 0 {
-        (state.progress_done as f64 / state.progress_total as f64).clamp(0.0, 1.0)
-    } else if state.finder_status == FinderStatus::Done {
-        1.0
-    } else {
-        0.0
-    };
-    let gauge_color = match state.finder_status {
-        FinderStatus::Error(_) => ERR_COLOR,
-        FinderStatus::Done => OK_COLOR,
-        _ => ACCENT,
-    };
-    let gauge = Gauge::default()
-        .block(Block::default().borders(Borders::ALL).title(" Scan Progress "))
-        .gauge_style(Style::default().fg(gauge_color))
-        .ratio(ratio)
-        .label(state.progress_label.as_str());
-    frame.render_widget(gauge, right[0]);
-
-    draw_results_table(frame, right[1], state);
-    draw_log_list(frame, right[2], " Live Scan Log ", &state.finder_logs);
-}
-
-/// Renders one formatted row for [`FinderField`] inside the left Setup card.
-fn format_form_row(state: &AppState, field: FinderField, focused: bool) -> ListItem<'static> {
-    let cursor = if focused && state.editing_text { "_" } else { "" };
-    let chk = |b: bool| if b { "[x]" } else { "[ ]" };
-    let (label, value) = match field {
-        FinderField::Domains => {
-            let v = if state.domains_input.is_empty() && !focused {
-                "<press Enter to type domain(s)>".to_owned()
-            } else {
-                format!("{}{cursor}", state.domains_input)
-            };
-            ("Domains      ", v)
-        }
-        FinderField::ProtoHttp => ("HTTP (80)    ", chk(state.proto_http).to_owned()),
-        FinderField::ProtoTls12 => ("TLS 1.2 (443)", chk(state.proto_tls12).to_owned()),
-        FinderField::ProtoTls13 => ("TLS 1.3 (443)", chk(state.proto_tls13).to_owned()),
-        FinderField::ProtoHttp3 => ("HTTP/3 (UDP) ", chk(state.proto_http3).to_owned()),
-        FinderField::IpMode => ("IP Version   ", state.ip_mode.label().to_owned()),
-        FinderField::Level => ("Scan Level   ", state.level.as_str().to_owned()),
-        FinderField::StopOnFirst => ("Stop On First", chk(state.stop_on_first).to_owned()),
-        FinderField::NoNft => ("Manual nft   ", chk(state.no_nft).to_owned()),
-        FinderField::LuaDir => ("Lua Dir      ", format!("{}{cursor}", state.lua_dir_input)),
-        FinderField::OutputPath => ("Config Path  ", format!("{}{cursor}", state.output_path)),
-    };
-
-    let prefix = if focused { "> " } else { "  " };
-    let style = if focused && state.editing_text {
-        Style::default().fg(Color::Black).bg(WARN_COLOR).add_modifier(Modifier::BOLD)
-    } else if focused {
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::White)
-    };
-    ListItem::new(Line::from(vec![
-        Span::styled(format!("{prefix}{label}: "), style),
-        Span::styled(value, style),
-    ]))
-}
-
-/// Renders the interactive Finder configuration form card.
-fn draw_finder_form(frame: &mut Frame, area: Rect, state: &AppState) {
-    let items: Vec<ListItem<'static>> = FinderField::ALL
-        .iter()
-        .enumerate()
-        .map(|(idx, &field)| format_form_row(state, field, idx == state.focus_idx))
-        .collect();
-    let title = if state.editing_text {
-        " Strategy Setup [EDITING] "
-    } else {
-        " Strategy Setup "
-    };
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(if state.editing_text { WARN_COLOR } else { ACCENT }))
-            .title(title),
-    );
-    frame.render_widget(list, area);
-}
-
-/// Renders the per-domain results table on Tab 1.
-fn draw_results_table(frame: &mut Frame, area: Rect, state: &AppState) {
-    let header = Row::new(["Domain", "Proto", "Baseline", "Hits", "Best Strategy", "RTT"])
-        .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
-
-    let rows: Vec<Row> = state
-        .targets
-        .iter()
-        .map(|t| {
-            let (best, rtt, col) = if t.skipped_unblocked {
-                ("direct OK".to_owned(), "-".to_owned(), OK_COLOR)
-            } else if let Some(m) = t.matches.first() {
-                (m.strategy.id.clone(), format!("{}ms", m.latency_ms), OK_COLOR)
-            } else {
-                ("none".to_owned(), "-".to_owned(), ERR_COLOR)
-            };
-            Row::new([
-                Cell::from(t.domain.clone()),
-                Cell::from(format!("{}/{}", t.proto, t.ipv)),
-                Cell::from(t.baseline.summary()),
-                Cell::from(t.matches.len().to_string()),
-                Cell::from(best).style(Style::default().fg(col)),
-                Cell::from(rtt),
-            ])
-        })
-        .collect();
-
-    let widths = [
-        Constraint::Percentage(22),
-        Constraint::Length(11),
-        Constraint::Percentage(20),
-        Constraint::Length(5),
-        Constraint::Percentage(30),
-        Constraint::Length(7),
-    ];
-    let title = format!(" Results ({} targets, {} cover profiles) ", state.targets.len(), state.cover.len());
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(Block::default().borders(Borders::ALL).title(title));
-    frame.render_widget(table, area);
-}
-
-/// Renders Tab 2: active config summary, live packet telemetry cards, and daemon log.
-fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(6), Constraint::Length(3), Constraint::Min(6), Constraint::Length(4)])
-        .split(area);
+/// Formats controller summary lines for Tab 2 based on local vs remote-attached mode.
+fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
+    if state.run_status == RunStatus::Attached
+        && let Some(meta) = &state.remote_meta
+    {
+        let profs = if meta.profile_names.is_empty() {
+            "none (pass-through)".to_owned()
+        } else {
+            meta.profile_names.join(", ")
+        };
+        let cfg_display = meta
+            .config_path
+            .as_deref()
+            .unwrap_or("(daemon defaults / CLI args)");
+        return vec![
+            Line::from(vec![
+                Span::raw("Engine Status : "),
+                Span::styled(
+                    format!(
+                        "ATTACHED (PID {}, qnum {}, socket {})",
+                        meta.pid,
+                        meta.qnum,
+                        meta.socket_path.display()
+                    ),
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(format!("Config Path   : {cfg_display}")),
+            Line::from(format!("Profiles ({})  : {profs}", meta.profile_names.len())),
+            Line::from(format!(
+                "nftables Mode : daemon-managed (fwmark 0x{:08x})",
+                meta.fwmark
+            )),
+        ];
+    }
 
     let (st_text, st_color) = match &state.run_status {
         RunStatus::Running => ("RUNNING".to_owned(), OK_COLOR),
-        RunStatus::Stopped => ("STOPPED".to_owned(), WARN_COLOR),
+        RunStatus::Attached => ("ATTACHED".to_owned(), ACCENT),
+        RunStatus::Stopped => match &state.detected_socket {
+            Some(sock) => (
+                format!("STOPPED (daemon socket found at {}; press 'r' to attach)", sock.display()),
+                WARN_COLOR,
+            ),
+            None => ("STOPPED".to_owned(), WARN_COLOR),
+        },
         RunStatus::Error(e) => (format!("ERROR: {e}"), ERR_COLOR),
     };
     let profiles_str = if state.parsed_profiles.is_empty() {
@@ -254,25 +158,51 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         state.parsed_profiles.join(", ")
     };
-    let info = Paragraph::new(vec![
+    vec![
         Line::from(vec![
             Span::raw("Engine Status : "),
             Span::styled(st_text, Style::default().fg(st_color).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(format!("Config Path   : {}", state.output_path)),
         Line::from(format!("Profiles ({})  : {}", state.parsed_profiles.len(), profiles_str)),
-        Line::from(format!("nftables Mode : {}", if state.no_nft { "manual (--no-nft)" } else { "managed (auto cleanup on stop)" })),
-    ])
-    .wrap(Wrap { trim: true })
-    .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(ACCENT)).title(" Live nfqws2 Controller "));
+        Line::from(format!(
+            "nftables Mode : {}",
+            if state.no_nft { "manual (--no-nft)" } else { "managed (auto cleanup on stop)" }
+        )),
+    ]
+}
+
+/// Renders Tab 2: active config summary, live packet telemetry cards, and daemon log.
+fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(6),
+            Constraint::Length(3),
+            Constraint::Min(6),
+            Constraint::Length(4),
+        ])
+        .split(area);
+
+    let info = Paragraph::new(run_controller_lines(state))
+        .wrap(Wrap { trim: true })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(ACCENT))
+                .title(" Live nfqws2 Controller "),
+        );
     frame.render_widget(info, rows[0]);
 
     let (total, passed, reasm, modified, desynced) = state.counters.snapshot();
     let metric_cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(20), Constraint::Percentage(20),
-            Constraint::Percentage(20), Constraint::Percentage(20), Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
         ])
         .split(rows[1]);
     for (idx, (title, val, col)) in [
@@ -352,14 +282,14 @@ fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// Renders a bounded scrolling log widget showing the newest entries at the bottom.
-fn draw_log_list(frame: &mut Frame, area: Rect, title: &str, logs: &std::collections::VecDeque<String>) {
+pub(crate) fn draw_log_list(frame: &mut Frame, area: Rect, title: &str, logs: &std::collections::VecDeque<String>) {
     let capacity = usize::from(area.height.saturating_sub(2)).max(1);
     let skip = logs.len().saturating_sub(capacity);
     let items: Vec<ListItem> = logs
         .iter()
         .skip(skip)
         .map(|line| {
-            let color = if line.starts_with("[PASS") {
+            let color = if line.starts_with("[PASS") || line.starts_with("[attach") {
                 OK_COLOR
             } else if line.starts_with("[error") {
                 ERR_COLOR
@@ -379,11 +309,14 @@ fn draw_log_list(frame: &mut Frame, area: Rect, title: &str, logs: &std::collect
 fn draw_footer(frame: &mut Frame, area: Rect, state: &AppState) {
     let hints = if state.editing_text {
         "[Type] Edit  [Enter/Esc] Done"
-    } else if !state.has_net_caps {
+    } else if !state.has_net_caps && state.run_status != RunStatus::Attached {
         "[g] Grant Caps & Restart  [1/2/3] Tabs  [Up/Down] Move  [Enter] Edit  [q] Quit"
     } else {
         match state.tab {
             ActiveTab::Finder => "[Up/Down] Move  [Enter/Space] Edit/Toggle  [r] Start Scan  [x] Stop  [s] Save  [a] Run Tab  [q] Quit",
+            ActiveTab::Run if state.run_status == RunStatus::Attached => {
+                "[x] Detach  [S] Stop Daemon  [l] Reload Lists  [f] Filter  [p] Pause  [d] Detail  [c] Clear  [q] Quit"
+            }
             ActiveTab::Run => "[r] Start/Stop  [f] Filter  [p] Pause  [Up/Down] Select  [d] Detail  [c] Clear  [l] Reload  [q] Quit",
             ActiveTab::Config => "[e/Enter] Edit ($EDITOR)  [Up/Down/PgUp/PgDn] Scroll  [s] Save  [l] Reload  [q] Quit",
         }

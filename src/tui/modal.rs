@@ -28,6 +28,8 @@ pub enum ModalPurpose {
     SudoForScan,
     /// Authenticate `sudo` once so temporary `nftables` rules can be installed for live `nfqws2`.
     SudoForDaemon,
+    /// Confirm stopping the remote `nfqws2` daemon process over the control socket.
+    ConfirmStopDaemon,
 }
 
 /// Outcome produced by [`AuthModal::handle_key`].
@@ -72,6 +74,11 @@ impl AuthModal {
     /// Constructs a floating modal for `purpose`, probing whether `sudo` currently needs a password.
     pub fn open(purpose: ModalPurpose, command_preview: String) -> Self {
         Self::with_password_prompt(purpose, command_preview, sudo_needs_password())
+    }
+
+    /// Constructs a floating confirmation dialog that requires no `sudo` password entry.
+    pub fn confirm(purpose: ModalPurpose, command_preview: String) -> Self {
+        Self::with_password_prompt(purpose, command_preview, false)
     }
 
     /// Deterministic constructor used by offline tests to control `needs_password`.
@@ -194,6 +201,10 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal) {
             " Authenticate sudo for nftables ",
             "Enter sudo password once to install temporary queue rules for live nfqws2.",
         ),
+        ModalPurpose::ConfirmStopDaemon => (
+            " Confirm Stop Daemon ",
+            "Send stop over the control socket? System traffic interception will cease.",
+        ),
     };
 
     let outer = Block::default()
@@ -224,7 +235,14 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal) {
         rows[1],
     );
 
-    if modal.needs_password {
+    if modal.purpose == ModalPurpose::ConfirmStopDaemon {
+        let prompt = Paragraph::new(Line::from(Span::styled(
+            " Press Enter to stop the remote nfqws2 daemon, or Esc to keep it running.",
+            Style::default().fg(Color::Yellow),
+        )))
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Yellow)));
+        frame.render_widget(prompt, rows[2]);
+    } else if modal.needs_password {
         let masked = "*".repeat(modal.password_len());
         let input = Paragraph::new(Line::from(vec![
             Span::raw(masked),
@@ -256,6 +274,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal) {
     let action_hint = match modal.purpose {
         ModalPurpose::GrantCaps => "[Enter] Grant & Restart   [Esc] Dismiss",
         ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => "[Enter] Authenticate & Continue   [Esc] Cancel",
+        ModalPurpose::ConfirmStopDaemon => "[Enter] Stop Remote Daemon   [Esc] Cancel",
     };
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(action_hint, Style::default().fg(Color::Cyan)))),

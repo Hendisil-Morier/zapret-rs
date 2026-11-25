@@ -116,14 +116,16 @@ pub enum FinderStatus {
     Error(String),
 }
 
-/// Lifecycle state of the live `nfqws2` desync engine on Tab 2.
+/// Lifecycle state of the live `nfqws2` desync engine or remote attach session on Tab 2.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunStatus {
-    /// Engine is stopped.
+    /// Engine is stopped and not attached to a daemon socket.
     Stopped,
-    /// Engine is intercepting and desyncing packets.
+    /// In-process engine is intercepting and desyncing packets.
     Running,
-    /// Engine failed to start or stopped with an error.
+    /// Attached to an external `nfqws2` daemon over its local Unix control socket.
+    Attached,
+    /// Engine failed to start, attach, or stopped with an error.
     Error(String),
 }
 
@@ -184,10 +186,16 @@ pub enum AppAction {
     StopScan,
     /// Write `active_toml` to `output_path` via `O_NOFOLLOW`.
     SaveConfig,
-    /// Start the live in-process `nfqws2` engine using `active_toml`.
+    /// Start the live in-process `nfqws2` engine or attach to an existing daemon socket.
     StartDaemon,
     /// Stop the live in-process `nfqws2` engine.
     StopDaemon,
+    /// Detach cleanly from an attached remote daemon while leaving it running.
+    DetachDaemon,
+    /// Request list reload (`hostlist`/`ipset`) on an attached remote daemon.
+    ReloadRemoteLists,
+    /// Request remote daemon shutdown over the control socket after user confirmation.
+    StopRemoteDaemon,
     /// Reload `output_path` from disk into `active_toml`.
     ReloadConfig,
     /// Open `output_path` in `$VISUAL`/`$EDITOR` (seeding a starter file if missing), then reload.

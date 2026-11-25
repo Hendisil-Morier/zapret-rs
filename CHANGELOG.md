@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Added
 
 - **Daemon Control Socket Server (`nfqws2`):** Added local Unix domain socket IPC (`src/control`) authenticated via `0600` permissions and `SO_PEERCRED` same-UID verification, exposing `hello`, `status`, `subscribe`/`unsubscribe`, `reload_lists`, and `stop` over newline-delimited JSON. Added `--control-socket <PATH|off|default>` (`control_socket` in TOML, defaulting to `$XDG_RUNTIME_DIR/zapret-rs/control.sock` or `/run/zapret-rs/control.sock`) and `--control-pass-sample <N>` (`control_pass_sample` in TOML, defaulting to `20`).
+- **TUI Remote Attach Mode (`zapret-rs` Tab 2):** Added automatic control socket discovery and live telemetry streaming in [src/tui/remote.rs](src/tui/remote.rs), showing `ATTACHED` status with remote PID/profiles without managing `nftables`, supporting `--control-socket <PATH>`, `x` to detach, `l` to reload daemon lists, and `S` with a confirmation dialog to stop the daemon.
 
 ## [1.0.1] - 2026-11-25
 

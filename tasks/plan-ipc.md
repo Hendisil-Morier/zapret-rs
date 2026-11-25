@@ -48,7 +48,7 @@ See `tasks/todo-ipc.md` for acceptance criteria and verification steps.
 ### Checkpoint A: Daemon exposes status and stop over a real socket
 
 ### Phase 3: TUI side
-- [ ] Task 7.5: Remote client and TUI attach mode on Tab 2
+- [x] Task 7.5: Remote client and TUI attach mode on Tab 2
 - [ ] Task 7.6: `reload-config` command (hot-swap profiles from TOML)
 
 ### Checkpoint B: TUI attaches to a running `nfqws2`, shows live packets, detaches and stops it

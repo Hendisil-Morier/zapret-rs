@@ -28,6 +28,9 @@ struct ZapretTuiCli {
     /// Start with manual `nftables` mode enabled (skip automatic `nft` calls).
     #[arg(long = "no-nft")]
     no_nft: bool,
+    /// Optional daemon Unix control socket path override for attach mode.
+    #[arg(long = "control-socket")]
+    control_socket: Option<PathBuf>,
 }
 
 /// Parses optional startup flags and launches the interactive `ratatui` TUI.
@@ -37,6 +40,7 @@ fn main() -> ExitCode {
         config: cli.config,
         lua_dir: cli.lua_dir,
         no_nft: cli.no_nft,
+        control_socket: cli.control_socket,
     };
     match run_tui(opts) {
         Ok(()) => ExitCode::SUCCESS,

@@ -79,21 +79,21 @@ Plan: `tasks/plan-ipc.md`. Verification commands used throughout:
 ### Checkpoint A: After Tasks 7.1-7.4
 - [x] All tests pass, lint and both builds clean
 - [x] `nfqws2 --intercept=0 --control-socket <path>` answers status and stops cleanly via a client
-- [ ] Review with human before the TUI work
+- [x] Review with human before the TUI work
 
 ## Task 7.5: Remote client and TUI attach mode on Tab 2
 
 **Description:** A client thread that connects, does the handshake, subscribes, and feeds the existing `Arc<PacketCounters>` and `pkt_rx`/`desync_rx` channels. Tab 2 auto-detects a socket (configured path, then `$XDG_RUNTIME_DIR/zapret-rs/control.sock`, then `/run/zapret-rs/control.sock`) and shows `ATTACHED` status. Keys: `x` detaches, `S` stops the daemon after a confirm popup, `l` asks the daemon to reload lists. In attach mode the TUI never installs nftables rules.
 
 **Acceptance criteria:**
-- [ ] With a daemon socket present, `r` attaches instead of starting an in-process engine
-- [ ] Without one, behavior is identical to today
-- [ ] Connection loss shows an error in the daemon log pane and returns to `STOPPED` without a crash
-- [ ] Version mismatch is shown as a readable message
+- [x] With a daemon socket present, `r` attaches instead of starting an in-process engine
+- [x] Without one, behavior is identical to today
+- [x] Connection loss shows an error in the daemon log pane and returns to `STOPPED` without a crash
+- [x] Version mismatch is shown as a readable message
 
 **Verification:**
-- [ ] `tests/tui_attach.rs` passes against a fake server on a temp socket, including headless render of `ATTACHED`
-- [ ] Existing `tui_app` tests unchanged and green
+- [x] `tests/tui_attach.rs` passes against a fake server on a temp socket, including headless render of `ATTACHED`
+- [x] Existing `tui_app` tests unchanged and green
 - [ ] Manual: run a real daemon, attach, see REASM and DESYNC rows, detach, daemon keeps running
 
 **Dependencies:** 7.3 (7.4 for the manual check)
