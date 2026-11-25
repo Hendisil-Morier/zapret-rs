@@ -17,10 +17,10 @@ use zapret_rs::tools::{
     CoveredProfile, IpFamily, ProbeOutcome, ProbeProtocol, ScanLevel, ScanReport, StrategyMatch,
     TargetScanResult, TomlRenderOptions, build_catalog, render_nfqws2_toml,
 };
-/// TUI state, frame renderer, and action/event enums under test.
+/// TUI state, floating modal, frame renderer, and action/event enums under test.
 use zapret_rs::tui::{
-    ActiveTab, AppAction, AppState, FinderField, FinderStatus, IpMode, RunStatus, ScanUiEvent,
-    draw_app,
+    ActiveTab, AppAction, AppState, AuthModal, FinderField, FinderStatus, IpMode, ModalPurpose,
+    RunStatus, ScanUiEvent, draw_app,
 };
 
 /// Creates a plain unmodified [`KeyEvent`] for `code`.
@@ -145,8 +145,36 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation() {
     assert_eq!(state.counters.snapshot().0, 0);
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StopDaemon);
     state.has_net_caps = false;
-    assert_eq!(state.handle_key(key(KeyCode::Char('g'))), AppAction::GrantCaps);
+    assert_eq!(state.handle_key(key(KeyCode::Char('g'))), AppAction::None);
+    assert!(state.modal.is_some(), "'g' must open the floating capability modal");
+    assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
+    assert!(state.modal.is_none(), "Esc must dismiss the floating modal");
     assert_eq!(state.handle_key(key(KeyCode::Char('q'))), AppAction::Quit);
+}
+
+/// Verifies the floating capability/sudo modal masks passwords, renders cleanly in `TestBackend`,
+/// submits on `Enter`, and zeroizes its password buffer on `take_password`.
+#[test]
+fn tui_floating_auth_modal_masks_password_renders_and_submits() {
+    let mut state = AppState::new(None, None, false);
+    state.modal = Some(AuthModal::with_password_prompt(
+        ModalPurpose::GrantCaps,
+        "sudo setcap cap_net_admin,cap_net_raw+ep ./target/release/zapret-rs".to_owned(),
+        true,
+    ));
+
+    for ch in "s3cr3t".chars() {
+        assert_eq!(state.handle_key(key(KeyCode::Char(ch))), AppAction::None);
+    }
+    let screen = render_to_string(&state, 100, 30);
+    assert!(screen.contains("Grant Network Capabilities"));
+    assert!(screen.contains("******_"), "password must be masked as asterisks");
+    assert!(!screen.contains("s3cr3t"), "plaintext password must never be rendered");
+
+    assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitModal);
+    let modal = state.modal.as_mut().expect("modal still open until runner submits");
+    assert_eq!(modal.take_password(), "s3cr3t");
+    assert_eq!(modal.password_len(), 0, "take_password must clear internal buffer");
 }
 
 /// Verifies all three tabs render cleanly without panicking at standard (`120x36`) and compact (`80x24`) sizes.

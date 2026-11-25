@@ -226,6 +226,6 @@ pub enum AppAction {
     StopDaemon,
     /// Reload `output_path` from disk into `active_toml`.
     ReloadConfig,
-    /// Run `sudo setcap cap_net_admin,cap_net_raw+ep` on the current binary and re-exec cleanly.
-    GrantCaps,
+    /// Execute the active floating [`crate::tui::AuthModal`] action (`Enter` pressed).
+    SubmitModal,
 }

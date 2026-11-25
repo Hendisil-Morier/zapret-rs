@@ -1,4 +1,4 @@
-//! Terminal lifecycle, `sudo`-safe suspend/resume, and top-level `ratatui` event loop.
+//! Terminal lifecycle, floating modal auth handling, and top-level `ratatui` event loop.
 
 /// Filesystem reading when reloading `nfqws2.toml` from disk.
 use std::fs;
@@ -8,7 +8,7 @@ use std::io::{self, Stdout};
 use std::os::unix::process::CommandExt as _;
 /// Path type for optional startup config and Lua directory flags.
 use std::path::PathBuf;
-/// Subprocess execution for one-key `sudo setcap` capability grant.
+/// Subprocess execution for seamless post-`setcap` self-restart.
 use std::process::Command;
 /// Event poll tick interval.
 use std::time::Duration;
@@ -24,11 +24,12 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 /// Privilege checks and automatic `sudo` UID drop at TUI startup.
 use crate::runtime::{CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps};
-/// Symlink-safe TOML writer, `~/` expansion, and non-interactive/interactive `nftables` helpers.
+/// Symlink-safe TOML writer, `~/` expansion, and non-interactive `nftables` helpers.
 use crate::tools::{
-    FirewallBackend, FirewallHandle, NftFirewallBackend, expand_tilde, sudo_needs_password,
-    write_config_nofollow,
+    FirewallHandle, NftFirewallBackend, STRAT_FINDER_NFT_TABLE, expand_tilde, write_config_nofollow,
 };
+/// Floating authentication modal state and silent `sudo -S`/`-n` executor.
+use crate::tui::modal::{AuthModal, ModalPurpose, run_sudo_silent, zeroize_string};
 /// Pure TUI frame renderer.
 use crate::tui::render::draw_app;
 /// Mutable TUI application state.
@@ -74,7 +75,7 @@ impl TerminalSession {
         Ok(Self { terminal })
     }
 
-    /// Temporarily leaves alternate screen + raw mode so external `sudo` prompts render cleanly.
+    /// Temporarily leaves alternate screen + raw mode only if teardown requires a fresh TTY prompt.
     fn suspend_for<T, F: FnOnce() -> T>(&mut self, action: F) -> T {
         let _ = disable_raw_mode();
         let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
@@ -95,25 +96,6 @@ impl Drop for TerminalSession {
     }
 }
 
-/// Installs temporary `nftables` rules without flashing the alternate screen unless `sudo`
-/// genuinely requires an interactive password prompt.
-fn install_nft_tui(
-    session: &mut TerminalSession,
-    qnum: u16,
-    fwmark: u32,
-    tcp_ports: &[u16],
-    udp_ports: &[u16],
-) -> io::Result<Box<dyn FirewallHandle>> {
-    let nft = NftFirewallBackend::default();
-    match nft.install_non_interactive(qnum, fwmark, tcp_ports, udp_ports) {
-        Ok(guard) => Ok(guard),
-        Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
-            session.suspend_for(|| nft.install(qnum, fwmark, tcp_ports, udp_ports))
-        }
-        Err(err) => Err(err),
-    }
-}
-
 /// Tears down a firewall guard silently unless `sudo` requires a fresh interactive password prompt.
 fn drop_fw_tui(session: &mut TerminalSession, guard: Box<dyn FirewallHandle>) {
     if guard.needs_interactive_drop() {
@@ -123,11 +105,113 @@ fn drop_fw_tui(session: &mut TerminalSession, guard: Box<dyn FirewallHandle>) {
     }
 }
 
+/// Attempts to start a strategy scan; opens the floating auth modal if caps or `sudo` auth are missing.
+fn try_start_scan(state: &mut AppState, active_scan: &mut Option<ActiveScan>) {
+    if !state.has_net_caps {
+        state.open_caps_modal();
+        return;
+    }
+    let mut need_sudo = false;
+    let res = start_finder_scan(state, |q, m, tcp, udp| {
+        let r = NftFirewallBackend::default().install_non_interactive(q, m, tcp, udp);
+        if let Err(ref e) = r && e.kind() == io::ErrorKind::PermissionDenied {
+            need_sudo = true;
+        }
+        r
+    });
+    if need_sudo {
+        let preview = format!("sudo nft -f -  (table inet {STRAT_FINDER_NFT_TABLE})");
+        state.modal = Some(AuthModal::open(ModalPurpose::SudoForScan, preview));
+        return;
+    }
+    match res {
+        Ok(scan) => *active_scan = Some(scan),
+        Err(err) => state.apply_scan_event(ScanUiEvent::Failed(err)),
+    }
+}
+
+/// Attempts to start live `nfqws2`; opens the floating auth modal if caps or `sudo` auth are missing.
+fn try_start_daemon(state: &mut AppState, active_daemon: &mut Option<ActiveDaemon>) {
+    if !state.has_net_caps {
+        state.open_caps_modal();
+        return;
+    }
+    let mut need_sudo = false;
+    let res = start_live_daemon(state, |q, m, tcp, udp| {
+        let r = NftFirewallBackend::default().install_non_interactive(q, m, tcp, udp);
+        if let Err(ref e) = r && e.kind() == io::ErrorKind::PermissionDenied {
+            need_sudo = true;
+        }
+        r
+    });
+    if need_sudo {
+        let preview = format!("sudo nft -f -  (table inet {STRAT_FINDER_NFT_TABLE})");
+        state.modal = Some(AuthModal::open(ModalPurpose::SudoForDaemon, preview));
+        return;
+    }
+    match res {
+        Ok(daemon) => *active_daemon = Some(daemon),
+        Err(err) => {
+            state.run_status = RunStatus::Error(err.clone());
+            state.status_banner = format!("Start failed: {err}");
+            state.push_run_log(format!("[error] {err}"));
+        }
+    }
+}
+
+/// Executes the confirmed floating modal action (`setcap` or `sudo -v`) without leaving the TUI.
+///
+/// Returns `true` when `setcap` succeeded and the TUI should re-`exec` cleanly with active caps.
+fn submit_auth_modal(
+    state: &mut AppState,
+    active_scan: &mut Option<ActiveScan>,
+    active_daemon: &mut Option<ActiveDaemon>,
+) -> bool {
+    let Some(modal) = state.modal.as_mut() else {
+        return false;
+    };
+    let purpose = modal.purpose;
+    let mut pw_buf = if modal.needs_password { Some(modal.take_password()) } else { None };
+    let pw_ref = pw_buf.as_deref();
+
+    let result = match purpose {
+        ModalPurpose::GrantCaps => {
+            let exe = state.exe_path.clone();
+            run_sudo_silent(&["--", "setcap", "cap_net_admin,cap_net_raw+ep", &exe], pw_ref)
+        }
+        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => run_sudo_silent(&["-v"], pw_ref),
+    };
+    if let Some(ref mut secret) = pw_buf {
+        zeroize_string(secret);
+    }
+
+    match result {
+        Ok(()) => {
+            state.modal = None;
+            match purpose {
+                ModalPurpose::GrantCaps => return true,
+                ModalPurpose::SudoForScan => try_start_scan(state, active_scan),
+                ModalPurpose::SudoForDaemon => try_start_daemon(state, active_daemon),
+            }
+        }
+        Err(msg) => {
+            if let Some(modal) = state.modal.as_mut() {
+                modal.needs_password = true;
+                modal.error = Some(msg);
+            }
+        }
+    }
+    false
+}
+
 /// Runs the interactive `ratatui` TUI event loop until the user quits cleanly.
 pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let _ = drop_sudo_root_if_needed();
     let mut state = AppState::new(opts.config, opts.lua_dir, opts.no_nft);
     state.has_net_caps = has_effective_caps(CAP_MASK_NET).unwrap_or(false);
+    if !state.has_net_caps {
+        state.open_caps_modal();
+    }
 
     let mut session = TerminalSession::enter()?;
     let mut active_scan: Option<ActiveScan> = None;
@@ -164,12 +248,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                     if active_daemon.is_some() {
                         state.status_banner = "Stop live nfqws2 on Tab 2 before scanning.".to_owned();
                     } else if active_scan.is_none() {
-                        match start_finder_scan(&mut state, |q, m, tcp, udp| {
-                            install_nft_tui(&mut session, q, m, tcp, udp)
-                        }) {
-                            Ok(scan) => active_scan = Some(scan),
-                            Err(err) => state.apply_scan_event(ScanUiEvent::Failed(err)),
-                        }
+                        try_start_scan(&mut state, &mut active_scan);
                     }
                 }
                 AppAction::StopScan => {
@@ -195,11 +274,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                     match fs::read_to_string(&path) {
                         Ok(text) => {
                             state.set_active_toml(text);
-                            state.status_banner = format!(
-                                "Loaded {} ({} profiles)",
-                                path.display(),
-                                state.parsed_profiles.len()
-                            );
+                            state.status_banner = format!("Loaded {} ({} profiles)", path.display(), state.parsed_profiles.len());
                         }
                         Err(err) => state.status_banner = format!("Reload failed ({}): {err}", path.display()),
                     }
@@ -208,16 +283,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                     if active_scan.is_some() {
                         state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
                     } else if active_daemon.is_none() {
-                        match start_live_daemon(&mut state, |q, m, tcp, udp| {
-                            install_nft_tui(&mut session, q, m, tcp, udp)
-                        }) {
-                            Ok(daemon) => active_daemon = Some(daemon),
-                            Err(err) => {
-                                state.run_status = RunStatus::Error(err.clone());
-                                state.status_banner = format!("Start failed: {err}");
-                                state.push_run_log(format!("[error] {err}"));
-                            }
-                        }
+                        try_start_daemon(&mut state, &mut active_daemon);
                     }
                 }
                 AppAction::StopDaemon => {
@@ -228,34 +294,10 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                         state.status_banner = "nfqws2 stopped cleanly.".to_owned();
                     }
                 }
-                AppAction::GrantCaps => {
-                    let exe = state.exe_path.clone();
-                    let status = if sudo_needs_password() {
-                        session.suspend_for(|| {
-                            eprintln!("[caps] granting CAP_NET_ADMIN,CAP_NET_RAW to {exe} via sudo setcap");
-                            Command::new("sudo")
-                                .args(["--", "setcap", "cap_net_admin,cap_net_raw+ep", &exe])
-                                .status()
-                        })
-                    } else {
-                        Command::new("sudo")
-                            .args(["-n", "--", "setcap", "cap_net_admin,cap_net_raw+ep", &exe])
-                            .stdin(std::process::Stdio::null())
-                            .stdout(std::process::Stdio::null())
-                            .stderr(std::process::Stdio::null())
-                            .status()
-                    };
-                    match status {
-                        Ok(s) if s.success() => {
-                            reexec_after_exit = true;
-                            break;
-                        }
-                        Ok(s) => {
-                            state.status_banner = format!("setcap exited with status {s}");
-                        }
-                        Err(err) => {
-                            state.status_banner = format!("failed to run sudo setcap: {err}");
-                        }
+                AppAction::SubmitModal => {
+                    if submit_auth_modal(&mut state, &mut active_scan, &mut active_daemon) {
+                        reexec_after_exit = true;
+                        break;
                     }
                 }
             }

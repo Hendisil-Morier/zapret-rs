@@ -9,6 +9,8 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Gauge, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
 };
 
+/// Floating capability-grant and `sudo` password modal overlay renderer.
+use crate::tui::modal::draw_auth_modal;
 /// Application state rendered into the terminal frame.
 use crate::tui::state::AppState;
 /// Navigation tabs, form field descriptors, and worker statuses.
@@ -43,6 +45,9 @@ pub fn draw_app(frame: &mut Frame, state: &AppState) {
         ActiveTab::Config => draw_config_tab(frame, chunks[1], state),
     }
     draw_footer(frame, chunks[2], state);
+    if let Some(modal) = &state.modal {
+        draw_auth_modal(frame, modal);
+    }
 }
 
 /// Renders the top navigation bar with tab titles and live privilege/activity badges.
@@ -51,22 +56,12 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(40), Constraint::Length(36)])
         .split(area);
-
-    let titles = vec![
-        Line::from(" 1: Strategy Finder "),
-        Line::from(" 2: Run nfqws2 "),
-        Line::from(" 3: Config & Diagnostics "),
-    ];
+    let titles = vec![Line::from(" 1: Strategy Finder "), Line::from(" 2: Run nfqws2 "), Line::from(" 3: Config & Diagnostics ")];
     let tabs = Tabs::new(titles)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(MUTED))
-                .title(Span::styled(
-                    format!(" zapret-rs v{} ", env!("CARGO_PKG_VERSION")),
-                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-                )),
-        )
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(MUTED)).title(Span::styled(
+            format!(" zapret-rs v{} ", env!("CARGO_PKG_VERSION")),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )))
         .select(state.tab.index())
         .highlight_style(Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD));
     frame.render_widget(tabs, cols[0]);

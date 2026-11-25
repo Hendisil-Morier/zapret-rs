@@ -1,5 +1,7 @@
 //! Interactive `ratatui` TUI wrapping `strat_finder`, config preview, and live `nfqws2` execution.
 
+/// Centered floating modal popup for capability grants and `sudo` authentication.
+pub mod modal;
 /// Pure `ratatui` layout and widget renderer for all three tabs.
 pub mod render;
 /// Terminal lifecycle, `sudo`-safe suspend/resume, and background scan/daemon workers.
@@ -11,6 +13,8 @@ pub mod types;
 /// Background strategy scan and live `nfqws2` NFQUEUE worker handles.
 pub mod workers;
 
+/// Re-exported floating authentication and capability-grant modal overlay.
+pub use modal::{AuthModal, ModalKeyResult, ModalPurpose, draw_auth_modal};
 /// Re-exported top-level frame renderer for headless tests and the event loop.
 pub use render::draw_app;
 /// Re-exported TUI runner entry point and startup options.

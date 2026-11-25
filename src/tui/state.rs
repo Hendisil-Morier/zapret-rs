@@ -23,6 +23,8 @@ use crate::tools::{
     CoveredProfile, DEFAULT_STRAT_QNUM, NftFirewallBackend, ProbeProtocol, ScanConfig, ScanLevel,
     TargetScanResult, default_output_config_path, detect_lua_dir, expand_tilde, normalize_domain,
 };
+/// Floating capability-grant and `sudo` password modal state.
+use crate::tui::modal::{AuthModal, ModalKeyResult, ModalPurpose};
 /// Shared TUI enums, telemetry counters, and worker event types.
 use crate::tui::types::{
     ActiveTab, AppAction, FinderField, FinderStatus, IpMode, PacketCounters, RunStatus, ScanUiEvent,
@@ -99,6 +101,8 @@ pub struct AppState {
     pub exe_path: String,
     /// Transient footer notification line.
     pub status_banner: String,
+    /// Active floating capability-grant / `sudo` authentication modal, when visible.
+    pub modal: Option<AuthModal>,
 }
 
 impl AppState {
@@ -133,6 +137,7 @@ impl AppState {
             run_logs: VecDeque::new(), active_toml: String::new(),
             parsed_profiles: Vec::new(), toml_scroll: 0, uid, has_net_caps, exe_path,
             status_banner: "Ready. Use 1/2/3 or Tab to switch views, 'q' to quit.".to_owned(),
+            modal: None,
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
@@ -149,28 +154,20 @@ impl AppState {
 
     /// Appends a bounded line to the Finder log buffer.
     pub fn push_finder_log(&mut self, msg: impl Into<String>) {
-        if self.finder_logs.len() >= MAX_LOG_LINES {
-            self.finder_logs.pop_front();
-        }
+        if self.finder_logs.len() >= MAX_LOG_LINES { self.finder_logs.pop_front(); }
         self.finder_logs.push_back(msg.into());
     }
 
     /// Appends a bounded line to the Run daemon log buffer.
     pub fn push_run_log(&mut self, msg: impl Into<String>) {
-        if self.run_logs.len() >= MAX_LOG_LINES {
-            self.run_logs.pop_front();
-        }
+        if self.run_logs.len() >= MAX_LOG_LINES { self.run_logs.pop_front(); }
         self.run_logs.push_back(msg.into());
     }
 
     /// Updates `active_toml` and refreshes `parsed_profiles` summary if the TOML parses cleanly.
     pub fn set_active_toml(&mut self, toml: String) {
         self.parsed_profiles = match AppConfig::from_toml_str(&toml, None) {
-            Ok(cfg) => cfg
-                .profiles
-                .iter()
-                .map(|p| p.name.clone().unwrap_or_else(|| format!("profile #{}", p.index)))
-                .collect(),
+            Ok(cfg) => cfg.profiles.iter().map(|p| p.name.clone().unwrap_or_else(|| format!("profile #{}", p.index))).collect(),
             Err(_) => Vec::new(),
         };
         self.active_toml = toml;
@@ -189,11 +186,7 @@ impl AppState {
 
     /// Validates Finder form fields and constructs a [`ScanConfig`].
     pub fn build_scan_config(&self) -> Result<ScanConfig, String> {
-        let domains: Vec<String> = self
-            .domains_input
-            .split(|c: char| c.is_whitespace() || c == ',')
-            .filter_map(normalize_domain)
-            .collect();
+        let domains: Vec<String> = self.domains_input.split(|c: char| c.is_whitespace() || c == ',').filter_map(normalize_domain).collect();
         if domains.is_empty() {
             return Err("enter at least one domain first (focus Domains, press Enter)".to_owned());
         }
@@ -202,26 +195,16 @@ impl AppState {
             return Err("enable at least one protocol checkbox".to_owned());
         }
         Ok(ScanConfig {
-            domains,
-            protos,
-            families: self.ip_mode.families(),
-            level: self.level,
-            timeout: Duration::from_secs(3),
-            stop_on_first: self.stop_on_first,
-            force_blocked: false,
+            domains, protos, families: self.ip_mode.families(), level: self.level,
+            timeout: Duration::from_secs(3), stop_on_first: self.stop_on_first, force_blocked: false,
         })
     }
 
     /// Renders the `nftables` ruleset preview matching the current Finder ports and queue settings.
     pub fn nft_preview_script(&self) -> String {
         let cfg = ScanConfig {
-            domains: Vec::new(),
-            protos: self.selected_protos(),
-            families: self.ip_mode.families(),
-            level: self.level,
-            timeout: Duration::from_secs(3),
-            stop_on_first: self.stop_on_first,
-            force_blocked: false,
+            domains: Vec::new(), protos: self.selected_protos(), families: self.ip_mode.families(),
+            level: self.level, timeout: Duration::from_secs(3), stop_on_first: self.stop_on_first, force_blocked: false,
         };
         let (tcp, udp) = cfg.required_ports();
         NftFirewallBackend::build_nft_script(self.finder_qnum, self.fwmark, &tcp, &udp)
@@ -273,8 +256,21 @@ impl AppState {
         }
     }
 
+    /// Opens the centered floating modal for granting `CAP_NET_ADMIN|CAP_NET_RAW`.
+    pub fn open_caps_modal(&mut self) {
+        let cmd = format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", self.exe_path);
+        self.modal = Some(AuthModal::open(ModalPurpose::GrantCaps, cmd));
+    }
+
     /// Processes a terminal key press and returns any side-effect [`AppAction`] for the runner.
     pub fn handle_key(&mut self, key: KeyEvent) -> AppAction {
+        if let Some(modal) = self.modal.as_mut() {
+            return match modal.handle_key(key) {
+                ModalKeyResult::KeepOpen => AppAction::None,
+                ModalKeyResult::Close => { self.modal = None; AppAction::None }
+                ModalKeyResult::Submit => AppAction::SubmitModal,
+            };
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return AppAction::Quit;
         }
@@ -283,7 +279,7 @@ impl AppState {
         }
         match key.code {
             KeyCode::Char('q') => return AppAction::Quit,
-            KeyCode::Char('g') if !self.has_net_caps => return AppAction::GrantCaps,
+            KeyCode::Char('g') if !self.has_net_caps => { self.open_caps_modal(); return AppAction::None; }
             KeyCode::Char('1') => { self.tab = ActiveTab::Finder; return AppAction::None; }
             KeyCode::Char('2') => { self.tab = ActiveTab::Run; return AppAction::None; }
             KeyCode::Char('3') => { self.tab = ActiveTab::Config; return AppAction::None; }
