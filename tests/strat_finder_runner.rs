@@ -122,11 +122,13 @@ fn curl_output_classifier_and_spoof_redirect_detection() {
     assert!(args.contains(&"https://example.com/".to_owned()));
 }
 
-/// Verifies `NftFirewallBackend::build_nft_script` uses multi-line syntax, `bypass`, and `fwmark`.
+/// Verifies `NftFirewallBackend::build_nft_script` uses valid `nft` block syntax, `bypass`, and `fwmark`.
 #[test]
 fn nft_script_renders_multiline_bypass_queue_and_fwmark_guard() {
     let script = NftFirewallBackend::build_nft_script(210, 0x4000_0000, &[80, 443], &[443]);
-    assert!(script.contains(&format!("table inet {STRAT_FINDER_NFT_TABLE}\n{{")));
+    assert!(script.contains(&format!("table inet {STRAT_FINDER_NFT_TABLE} {{")));
+    assert!(script.contains("  chain output {"));
+    assert!(script.contains("  chain input {"));
     assert!(script.contains("meta mark & 0x40000000 != 0 accept"));
     assert!(script.contains("tcp dport { 80, 443 } queue num 210 bypass"));
     assert!(script.contains("udp dport { 443 } queue num 210 bypass"));

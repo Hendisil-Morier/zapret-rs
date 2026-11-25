@@ -128,9 +128,8 @@ impl NftFirewallBackend {
     /// Formats a multi-line `nft -f -` script installing `bypass` NFQUEUE rules and `fwmark` guard.
     pub fn build_nft_script(qnum: u16, fwmark: u32, tcp_ports: &[u16], udp_ports: &[u16]) -> String {
         let mut script = String::new();
-        let _ = writeln!(script, "table inet {STRAT_FINDER_NFT_TABLE}");
-        script.push_str("{\n");
-        script.push_str("  chain output\n  {\n");
+        let _ = writeln!(script, "table inet {STRAT_FINDER_NFT_TABLE} {{");
+        script.push_str("  chain output {\n");
         script.push_str("    type filter hook output priority mangle; policy accept;\n");
         let _ = writeln!(script, "    meta mark & 0x{fwmark:x} != 0 accept");
         if !tcp_ports.is_empty() {
@@ -142,7 +141,7 @@ impl NftFirewallBackend {
             let _ = writeln!(script, "    udp dport {{ {} }} queue num {qnum} bypass", ports.join(", "));
         }
         script.push_str("  }\n");
-        script.push_str("  chain input\n  {\n");
+        script.push_str("  chain input {\n");
         script.push_str("    type filter hook input priority mangle; policy accept;\n");
         if !tcp_ports.is_empty() {
             let ports: Vec<String> = tcp_ports.iter().map(ToString::to_string).collect();

@@ -11,8 +11,11 @@ use std::process::Command;
 
 /// Child privilege stripper under test.
 use zapret_rs::runtime::clear_child_privileges;
-/// Firewall permission classifier and symlink-safe TOML writer under test.
-use zapret_rs::tools::{build_nft_cleanup_cmd, is_nft_perm_denied, write_config_nofollow};
+/// Firewall backend, permission classifier, and symlink-safe TOML writer under test.
+use zapret_rs::tools::{
+    FirewallBackend, NftFirewallBackend, STRAT_FINDER_NFT_TABLE, build_nft_cleanup_cmd,
+    is_nft_perm_denied, write_config_nofollow,
+};
 
 /// Extracts the value for `key` (e.g., `"CapEff:"` or `"NoNewPrivs:"`) from `/proc/self/status`.
 fn status_field<'a>(status: &'a str, key: &str) -> Option<&'a str> {
@@ -55,6 +58,43 @@ fn child_pre_exec_clears_capabilities_and_sets_no_new_privs() {
 #[ignore = "requires unshare -r -n with full namespace capabilities"]
 fn live_child_pre_exec_strips_root_capabilities() {
     assert_child_has_zero_caps_and_no_new_privs();
+}
+
+/// Verifies inside `unshare -r -n` that [`NftFirewallBackend::install`] loads valid `nftables`
+/// rules directly into the kernel and [`Drop`] removes `table inet zapret_strat_finder` cleanly.
+#[test]
+#[ignore = "requires unshare -r -n with CAP_NET_ADMIN and nft binary"]
+fn live_nft_firewall_backend_installs_and_cleans_up_table() {
+    let nft = NftFirewallBackend::default();
+    let guard = nft
+        .install(210, 0x4000_0000, &[80, 443], &[443])
+        .expect("real nft -f - install must succeed");
+
+    let list_active = Command::new("nft")
+        .args(["list", "table", "inet", STRAT_FINDER_NFT_TABLE])
+        .output()
+        .expect("nft list table");
+    assert!(
+        list_active.status.success(),
+        "table should exist while guard is alive: {}",
+        String::from_utf8_lossy(&list_active.stderr)
+    );
+    let active_text = String::from_utf8_lossy(&list_active.stdout);
+    assert!(
+        active_text.contains("bypass") && active_text.contains("210"),
+        "unexpected nft list output:\n{active_text}"
+    );
+
+    drop(guard);
+
+    let list_after = Command::new("nft")
+        .args(["list", "table", "inet", STRAT_FINDER_NFT_TABLE])
+        .output()
+        .expect("nft list table after drop");
+    assert!(
+        !list_after.status.success(),
+        "table must be deleted when NftQueueGuard drops"
+    );
 }
 
 /// Verifies `--print-nft`, `is_nft_perm_denied`, and the non-root `setcap` error guidance.
