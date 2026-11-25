@@ -1,10 +1,10 @@
-# Implementation Plan: zapret-rs (Milestone 4 and Roadmap)
+# Implementation Plan: zapret-rs (Milestone 5 and v1.0.0 Release)
 
 ## Overview
 
-Milestone 1 delivered the core packet engine (`src/packet`), Linux `SOCK_RAW` packet injector and topology queries (`src/rawsend`), and hardened LuaJIT runtime with `zapret2`-compatible packet and system bindings (`src/lua`). Milestone 2 completed the working `nfqws2` Linux daemon with hardened NFQUEUE interception (`src/intercepter`), TOML + `clap` configuration (`src/config`), core profile dispatch (`src/desync`), `CLOCK_BOOTTIME` Lua timers (`src/timer`), and daemon/privilege-drop/signal lifecycle (`src/runtime`, `src/bin/nfqws2.rs`). Milestone 3 completed stateful connection tracking and continuous TCP/UDP/QUIC reassembly (`src/conntrack`), full L7 protocol detectors, QUIC Initial decryption, `tls_mod`, and position markers (`src/protocol`), domain hostlists, autohostlists, CIDR IPsets, and `ipcache` (`src/lists`), and full stateful `DesyncEngine` and `SIGHUP` wiring.
+Milestone 1 delivered the core packet engine (`src/packet`), Linux `SOCK_RAW` packet injector and topology queries (`src/rawsend`), and hardened LuaJIT runtime with `zapret2`-compatible packet and system bindings (`src/lua`). Milestone 2 completed the working `nfqws2` Linux daemon with hardened NFQUEUE interception (`src/intercepter`), TOML + `clap` configuration (`src/config`), core profile dispatch (`src/desync`), `CLOCK_BOOTTIME` Lua timers (`src/timer`), and daemon/privilege-drop/signal lifecycle (`src/runtime`, `src/bin/nfqws2.rs`). Milestone 3 completed stateful connection tracking and continuous TCP/UDP/QUIC reassembly (`src/conntrack`), full L7 protocol detectors, QUIC Initial decryption, `tls_mod`, and position markers (`src/protocol`), domain hostlists, autohostlists, CIDR IPsets, and `ipcache` (`src/lists`), and full stateful `DesyncEngine` and `SIGHUP` wiring. Milestone 4 delivered full `zapret2` Lua API parity (`src/crypto`, streaming gzip/gunzip over `flate2`, POSIX `stat`/calendar-time bindings, and `--writable`) and verified all unmodified `zapret2/lua/*.lua` suites end-to-end.
 
-Milestone 4 delivers full `zapret2` Lua API parity and verifies unmodified `zapret2/lua/*.lua` compatibility in three vertical slices: pure-Rust cryptography (`SHA-224`/`SHA-256`, `HKDF`, `AES-128/192/256` ECB/CTR/GCM) and Lua bindings (`Task 4.1`), streaming gzip/gunzip via `flate2`, POSIX `stat`/calendar-time Lua bindings, and `--writable` support defaulting to `$TMPDIR/zapret-rs` or `/tmp/zapret-rs` (`Task 4.2`), and end-to-end verification across unmodified `zapret2/lua/*.lua` suites (`Task 4.3`). Milestone 5 covers the `ip2net` and `mdig` companion binaries and release preparation.
+Milestone 5 delivers the `ip2net` and `mdig` companion binaries (`src/tools/`, `src/bin/ip2net.rs`, `src/bin/mdig.rs`) along with `CHANGELOG.md`, `README.md`, and `v1.0.0` release packaging.
 
 ## Architecture Decisions
 
@@ -20,7 +20,8 @@ Milestone 4 delivers full `zapret2` Lua API parity and verifies unmodified `zapr
 - **Large subsystems & file limits:** Pre-split `profile_schema.rs`, `runtime_cfg.rs`, `desync/tcp_udp.rs`, and `desync/icmp_ip.rs` ahead of Milestone 3 feature additions, running `repo_hygiene` on every slice.
 - **Milestone 4 pure-Rust crypto & DRY deduplication (`src/crypto/`):** Implement `src/crypto/{error.rs,sha2.rs,aes.rs,aes_gcm.rs,mod.rs}` with FIPS 180-4 SHA-224/SHA-256, RFC 2104 HMAC, RFC 5869 HKDF, FIPS-197 AES-128/192/256 ECB/CTR, and NIST SP 800-38D AES-GCM supporting arbitrary non-empty IV lengths and unconditional `(out, tag16)` return on decrypt (since `ring` lacks AES-192, restricts GCM IVs to 12 bytes, and rejects mismatched decrypt tags), requiring zero new Cargo crates while deduplicating `src/protocol/aes_block.rs` into `src/crypto/aes.rs`.
 - **Milestone 4 streaming compression, `stat`/time, and `--writable`:** Implement `src/lua/{gzip_deflate.rs,gzip_inflate.rs,gzip_api.rs}` over `flate2` `rust_backend` (`Compress`, `Decompress`, `Crc`) with an RFC 1952 streaming header/trailer state machine covering raw deflate (`-15..=-8`), zlib (`8..=15`), gzip (`24..=31`), and auto-detect (`40..=47`). Implement `src/lua/fs_time_api.rs` via `libc::stat`, `localtime_r`, `gmtime_r`, `mktime`, and `timegm`. Implement `--writable[=DIR]` and TOML `writable` in `src/runtime/writable.rs` defaulting to `$TMPDIR/zapret-rs` (falling back to `/tmp/zapret-rs`) and exporting `WRITABLE`.
-- **Multi-binary crate layout & repository hygiene gates:** Keep `src/bin/nfqws2.rs` alongside shared library modules so Milestone 5 can add `src/bin/ip2net.rs` and `src/bin/mdig.rs`. Every task must pass `cargo clippy --all-targets --offline -- -D warnings` and `cargo nextest run --offline --show-progress none --no-pager` (including `tests/repo_hygiene.rs` checks), using `thiserror` and atomic commits.
+- **Milestone 5 companion utilities (`src/tools/`, `src/bin/{ip2net,mdig}.rs`):** House `ip2net` (`ip2net.rs`) and `mdig` (`mdig_dns.rs`, `mdig_resolver.rs`) behind a pure `src/tools/mod.rs` facade using zero new Cargo dependencies (`clap`, `libc`, `thiserror` already in `Cargo.toml`). Use explicit `u64`/`u128` bitmask and fill-ratio arithmetic matching `zapret2/ip2net/ip2net.c` (avoiding 32-bit overflow), share RFC 1035 DNS name-skipping logic with `src/desync/dns_cache.rs`, and inject a `DnsResolver` trait (backed by `libc::getaddrinfo` in production) so multi-threaded `mdig` resolution tests deterministically offline.
+- **Multi-binary crate layout & repository hygiene gates:** Keep `src/bin/nfqws2.rs` alongside shared library modules and add `src/bin/ip2net.rs` and `src/bin/mdig.rs`. Every task must pass `cargo clippy --all-targets --offline -- -D warnings` and `cargo nextest run --offline --show-progress none --no-pager` (including `tests/repo_hygiene.rs` checks), using `thiserror` and atomic commits.
 
 ## Dependency Graph
 
@@ -80,8 +81,11 @@ Tasks and detailed acceptance criteria are tracked in [todo.md](file:///home/mor
 - [x] Task 4.3: Add end-to-end verification across unmodified `zapret2/lua/{zapret-tests,zapret-antidpi,zapret-auto,zapret-obfs,zapret-pcap}.lua` and harden parity edge cases
 - [x] Checkpoint 4: Milestone 4 Complete
 
-### Future Milestones (High-Level Roadmap)
-- **Milestone 5 (Companion Binaries & Release):** Port `src/bin/ip2net.rs` and `src/bin/mdig.rs`, add `CHANGELOG.md`, and prepare semantic version release tags.
+### Milestone 5: Companion Binaries & v1.0.0 Release
+- [ ] Task 5.1: Implement `ip2net` library (`src/tools/ip2net.rs`) and CLI binary (`src/bin/ip2net.rs`) with tests
+- [ ] Task 5.2: Implement `mdig` DNS/resolver library (`src/tools/{mdig_dns.rs,mdig_resolver.rs}`) and CLI binary (`src/bin/mdig.rs`) with offline tests
+- [ ] Task 5.3: Add `CHANGELOG.md` and `README.md`, bump version to `1.0.0`, run full release & live kernel gates, and create `v1.0.0` tag
+- [ ] Checkpoint 5: Milestone 5 & v1.0.0 Release Complete
 
 ## Risks and Mitigations
 

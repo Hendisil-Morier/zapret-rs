@@ -372,4 +372,75 @@ Target verification commands used across tasks:
 - [x] All tasks 4.1 through 4.3 checked off with individual atomic commits
 - [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
 - [x] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
-- [ ] Review with user and plan Milestone 5
+- [x] Review with user and plan Milestone 5
+
+---
+
+# Task Breakdown: Milestone 5 (Companion Binaries & v1.0.0 Release)
+
+## Task 5.1: Implement `ip2net` library (`src/tools/ip2net.rs`) and CLI binary (`src/bin/ip2net.rs`)
+
+**Description:** Create `src/tools/{mod.rs,ip2net.rs}`, expose `pub mod tools` in `src/lib.rs`, and wire `src/bin/ip2net.rs` in `Cargo.toml` with zero new dependencies. Implement full flag parity with `zapret2/ip2net/ip2net.c` (`-4`, `-6`, `--prefix-length=min[-max]`, `--v4-threshold=mul/div`, `--v6-threshold=N`, `-h`/`--help`, `--version`), streaming pass-through of valid CIDRs (`< /32` / `< /128`) and ranges, `/32` and `/128` single-IP folding, `u64`-safe IPv4 threshold pruning, IPv6 `u128` aggregation, and the smallest-subnet anti-carpet-bombing tie-breaker. Verify library and subprocess behavior in `tests/ip2net_cli.rs`.
+
+**Acceptance criteria:**
+- [ ] `-4`, `-6`, `--prefix-length`, `--v4-threshold`, `--v6-threshold`, `--help`, and `--version` parse and validate with last-flag-wins family override and deterministic exit code `1` on invalid parameters.
+- [ ] Streaming pass-through emits valid CIDRs and ranges before sorted/deduplicated single-IP aggregation, folds `/32` and `/128`, ignores invalid/out-of-range/non-UTF-8 lines, and preserves C threshold and smallest-subnet tie-breaker outputs.
+- [ ] `tests/ip2net_cli.rs` verifies IPv4/IPv6 grouping, anti-carpet-bombing, fast-prune boundary, pass-through ordering, parameter errors, and `ip2net` subprocess runs.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+
+**Dependencies:** Checkpoint 4
+
+**Files likely touched:**
+- `Cargo.toml`
+- `src/lib.rs`
+- `src/tools/{mod.rs,ip2net.rs}`
+- `src/bin/ip2net.rs`
+- `tests/ip2net_cli.rs`
+
+---
+
+## Task 5.2: Implement `mdig` DNS/resolver library and CLI binary (`src/bin/mdig.rs`)
+
+**Description:** Create `src/tools/{mdig_dns.rs,mdig_resolver.rs}` and `src/bin/mdig.rs` with a `[[bin]]` entry in `Cargo.toml`, sharing RFC 1035 DNS name-skipping helpers with `src/desync/dns_cache.rs`. Implement full CLI and exit-code parity (`--family`, `--threads`, `--eagain`, `--eagain-delay`, `--verbose`, `--stats`, `--log-resolved`, `--log-failed`, `--dns-make-query`, `--dns-parse-query`) over an injectable `DnsResolver` trait backed by `libc::getaddrinfo` in production. Verify offline in `tests/mdig_cli.rs`.
+
+**Acceptance criteria:**
+- [ ] `--dns-make-query` and `--dns-parse-query` encode/decode RFC 1035 binary DNS packets and compressed answers matching `mdig.c` exit codes (`1`, `10`, `11`).
+- [ ] Multi-threaded resolution supports `--family`, `--threads=1..=100`, `--eagain` retry delays, transparent IP/CIDR filtering, `--stats=N`, `--verbose`, and `--log-resolved` / `--log-failed` (exit `5` on creation error).
+- [ ] `tests/mdig_cli.rs` verifies all modes deterministically offline via `DnsResolver` mocks and subprocess runs.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+
+**Dependencies:** Task 5.1
+
+**Files likely touched:**
+- `Cargo.toml`
+- `src/desync/dns_cache.rs`
+- `src/tools/{mod.rs,mdig_dns.rs,mdig_resolver.rs}`
+- `src/bin/mdig.rs`
+- `tests/mdig_cli.rs`
+
+---
+
+## Task 5.3: Release preparation (`CHANGELOG.md`, `README.md`, `1.0.0` bump, live gates, `v1.0.0` tag)
+
+**Description:** Write `CHANGELOG.md` summarizing Milestones 1 through 5 and a concise `README.md` covering `nfqws2`, `ip2net`, `mdig`, build instructions, and configuration usage. Bump `Cargo.toml` package version to `1.0.0`, run full release builds (`cargo build --release --offline`), offline lint and nextest suites, and `unshare -r -n` live kernel tests, then create an annotated `v1.0.0` git tag.
+
+**Acceptance criteria:**
+- [ ] `CHANGELOG.md` and `README.md` are accurate and complete, and `Cargo.toml` / `Cargo.lock` record `version = "1.0.0"`.
+- [ ] `cargo build --release --offline` builds `nfqws2`, `ip2net`, and `mdig` cleanly, and `clippy`, `nextest`, and `unshare -r -n` live kernel tests pass after final edits.
+- [ ] Annotated git tag `v1.0.0` points to the Checkpoint 5 commit.
+
+**Dependencies:** Task 5.2
+
+---
+
+## Checkpoint 5: Milestone 5 & v1.0.0 Release Complete
+- [ ] All tasks 5.1 through 5.3 checked off with individual atomic commits
+- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
+- [ ] `cargo build --release --offline` builds `nfqws2`, `ip2net`, and `mdig`, and `v1.0.0` tag is created
