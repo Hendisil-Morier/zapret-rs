@@ -92,6 +92,7 @@ pub(crate) fn try_start_or_attach(state: &mut AppState, session_tab2: &mut Optio
                 *session_tab2 = Some(Tab2Session::Remote(attached));
             }
             Err(err) => {
+                state.auto_reattach = false;
                 state.run_status = RunStatus::Error(err.clone());
                 state.status_banner = format!("Attach failed: {err}");
                 state.push_run_log(format!("[error] {err}"));
@@ -139,6 +140,7 @@ pub(crate) fn execute_remote_stop(state: &mut AppState, session_tab2: &mut Optio
         match remote.send_command(&Request::Stop) {
             Ok(()) => {
                 remote.stop_requested = true;
+                state.auto_reattach = false;
                 state.status_banner = "Sent stop request to remote daemon.".to_owned();
             }
             Err(err) => {
@@ -226,9 +228,17 @@ pub(crate) fn poll_active_scan(
     }
 }
 
-/// Drains remote reader notifications and handles clean stop vs unexpected disconnect.
-pub(crate) fn poll_tab2_session(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) {
+/// Drains remote reader notifications, handles disconnect, and refreshes socket presence when idle.
+pub(crate) fn poll_tab2_session(
+    state: &mut AppState,
+    session_tab2: &mut Option<Tab2Session>,
+    probe_tick: &mut u8,
+) {
     let Some(sess) = session_tab2.as_mut() else {
+        *probe_tick = probe_tick.wrapping_add(1);
+        if (*probe_tick).is_multiple_of(8) {
+            refresh_idle_socket(state, session_tab2);
+        }
         return;
     };
     sess.drain_packets(state);
@@ -262,6 +272,7 @@ pub(crate) fn poll_tab2_session(state: &mut AppState, session_tab2: &mut Option<
         }
         state.detected_socket = detect_control_socket(state.control_socket_override.as_deref());
         if was_stop {
+            state.auto_reattach = false;
             state.set_detached(
                 "[stop] remote nfqws2 daemon stopped cleanly.".to_owned(),
                 "Remote daemon stopped.".to_owned(),
@@ -272,6 +283,25 @@ pub(crate) fn poll_tab2_session(state: &mut AppState, session_tab2: &mut Option<
                 format!("[error] control connection lost: {msg}"),
                 format!("Control connection lost: {msg}"),
             );
+        }
+    }
+}
+
+/// Periodically checks control socket presence while Tab 2 is idle and re-attaches when enabled.
+fn refresh_idle_socket(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) {
+    if let Some(existing) = state.detected_socket.as_ref() {
+        if std::fs::symlink_metadata(existing).is_err() {
+            state.detected_socket = None;
+        }
+        return;
+    }
+    if let Some(found) = detect_control_socket(state.control_socket_override.as_deref()) {
+        state.detected_socket = Some(found.clone());
+        if state.auto_reattach {
+            try_start_or_attach(state, session_tab2);
+        } else if state.run_status == crate::tui::types::RunStatus::Stopped {
+            state.status_banner =
+                format!("Daemon socket ready at {}; press 'r' to attach.", found.display());
         }
     }
 }

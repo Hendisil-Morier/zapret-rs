@@ -309,13 +309,19 @@ pub(crate) fn draw_log_list(frame: &mut Frame, area: Rect, title: &str, logs: &s
 fn draw_footer(frame: &mut Frame, area: Rect, state: &AppState) {
     let hints = if state.editing_text {
         "[Type] Edit  [Enter/Esc] Done"
-    } else if !state.has_net_caps && state.run_status != RunStatus::Attached {
+    } else if !state.has_net_caps
+        && state.run_status != RunStatus::Attached
+        && state.detected_socket.is_none()
+    {
         "[g] Grant Caps & Restart  [1/2/3] Tabs  [Up/Down] Move  [Enter] Edit  [q] Quit"
     } else {
         match state.tab {
             ActiveTab::Finder => "[Up/Down] Move  [Enter/Space] Edit/Toggle  [r] Start Scan  [x] Stop  [s] Save  [a] Run Tab  [q] Quit",
             ActiveTab::Run if state.run_status == RunStatus::Attached => {
                 "[x] Detach  [S] Stop Daemon  [l] Reload Lists  [f] Filter  [p] Pause  [d] Detail  [c] Clear  [q] Quit"
+            }
+            ActiveTab::Run if state.run_status != RunStatus::Running && state.detected_socket.is_some() => {
+                "[r] Attach  [f] Filter  [p] Pause  [Up/Down] Select  [d] Detail  [c] Clear  [l] Reload  [q] Quit"
             }
             ActiveTab::Run => "[r] Start/Stop  [f] Filter  [p] Pause  [Up/Down] Select  [d] Detail  [c] Clear  [l] Reload  [q] Quit",
             ActiveTab::Config if state.run_status == RunStatus::Attached => {

@@ -188,6 +188,10 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
         "Control connection lost".to_owned(),
     );
     assert_eq!(state.run_status, RunStatus::Stopped);
+    assert!(state.auto_reattach, "unexpected disconnect keeps auto_reattach enabled");
+    state.detected_socket = Some(sock.clone());
+    let detected_screen = render_to_string(&state, 120, 36);
+    assert!(detected_screen.contains("[r] Attach"));
 
     attached.detach();
     let _ = fs::remove_dir_all(&dir);

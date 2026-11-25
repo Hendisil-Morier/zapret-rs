@@ -73,11 +73,12 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let mut session = TerminalSession::enter()?;
     let mut active_scan: Option<ActiveScan> = None;
     let mut tab2_session: Option<Tab2Session> = None;
+    let mut probe_tick = 0u8;
     let mut reexec_after_exit = false;
 
     loop {
         poll_active_scan(&mut state, &mut active_scan, &mut session);
-        poll_tab2_session(&mut state, &mut tab2_session);
+        poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick);
 
         session
             .terminal
@@ -114,6 +115,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 AppAction::DetachDaemon => {
                     if let Some(Tab2Session::Remote(mut remote)) = tab2_session.take() {
                         remote.detach();
+                        state.auto_reattach = false;
                         state.set_detached(
                             "[detach] detached from remote nfqws2 (daemon still running).".to_owned(),
                             "Detached from remote daemon.".to_owned(),

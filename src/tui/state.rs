@@ -91,6 +91,8 @@ pub struct AppState {
     pub run_status: RunStatus,
     /// Active remote daemon metadata while `run_status == RunStatus::Attached`.
     pub remote_meta: Option<RemoteDaemonMeta>,
+    /// When `true`, automatically re-attaches if a daemon socket reappears after unexpected loss.
+    pub auto_reattach: bool,
     /// Lock-free packet counters shared with local worker or remote subscriber thread.
     pub counters: Arc<PacketCounters>,
     /// Recent live `nfqws2` daemon log lines.
@@ -163,6 +165,7 @@ impl AppState {
             finder_logs: VecDeque::new(),
             run_status: RunStatus::Stopped,
             remote_meta: None,
+            auto_reattach: false,
             counters: Arc::new(PacketCounters::default()),
             run_logs: VecDeque::new(),
             active_toml: String::new(),
@@ -220,6 +223,7 @@ impl AppState {
         self.detected_socket = Some(meta.socket_path.clone());
         self.remote_meta = Some(meta);
         self.run_status = RunStatus::Attached;
+        self.auto_reattach = true;
         self.push_run_log(log_line);
     }
 
