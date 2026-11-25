@@ -2,6 +2,7 @@
 name = "zapret-rs"
 version = "1.0.0"
 edition = "2024"
+default-run = "nfqws2"
 
 [[bin]]
 name = "nfqws2"
@@ -14,6 +15,10 @@ path = "src/bin/ip2net.rs"
 [[bin]]
 name = "mdig"
 path = "src/bin/mdig.rs"
+
+[[bench]]
+name = "hotpath"
+harness = false
 
 [dependencies]
 clap = { version = "4.6.9", features = ["derive"] }

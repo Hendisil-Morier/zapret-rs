@@ -1,7 +1,6 @@
 //! Repeatable `--release` hot-path microbenchmark harness for `zapret-rs` packet processing.
 //!
-//! Run with:
-//! `cargo build --release --example hotpath_bench --offline && target/release/examples/hotpath_bench`
+//! Run with `cargo bench --offline` (or `unshare -r -n sh -c 'ip link set lo up && cargo bench --offline -- --raw'`).
 
 /// Shared interior mutability for mock `PacketSender` injection.
 use std::cell::RefCell;
