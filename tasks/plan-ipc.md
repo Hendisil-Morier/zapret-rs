@@ -39,7 +39,7 @@ See `tasks/todo-ipc.md` for acceptance criteria and verification steps.
 
 ### Phase 1: Foundation
 - [x] Task 7.1: Extract shared telemetry model into `src/telemetry/`
-- [ ] Task 7.2: Control protocol and line codec
+- [x] Task 7.2: Control protocol and line codec
 
 ### Phase 2: Daemon side
 - [ ] Task 7.3: Control server (Unix socket, peer-uid check, subscriptions)

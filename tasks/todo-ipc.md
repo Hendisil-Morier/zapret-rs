@@ -29,13 +29,13 @@ Plan: `tasks/plan-ipc.md`. Verification commands used throughout:
 **Description:** Define `Request` (`hello`, `status`, `subscribe`, `unsubscribe`, `reload_lists`, `stop`) and `Response`/`Event` (`hello_ok`, `status`, `counters`, `packet`, `error`) with a version field, plus a newline-delimited JSON codec that bounds line length.
 
 **Acceptance criteria:**
-- [ ] Round-trip encode/decode for every message
-- [ ] Oversized line (over 64 KiB) and malformed JSON return a typed error, not a panic
-- [ ] Unknown protocol version is reported distinctly
+- [x] Round-trip encode/decode for every message
+- [x] Oversized line (over 64 KiB) and malformed JSON return a typed error, not a panic
+- [x] Unknown protocol version is reported distinctly
 
 **Verification:**
-- [ ] `tests/control_protocol.rs` passes
-- [ ] No-TUI build and lint clean
+- [x] `tests/control_protocol.rs` passes
+- [x] No-TUI build and lint clean
 
 **Dependencies:** 7.1
 **Files likely touched:** `src/control/{mod,protocol,codec}.rs`, `Cargo.toml` (`serde_json`), `tests/control_protocol.rs`
