@@ -46,14 +46,14 @@ Plan: `tasks/plan-ipc.md`. Verification commands used throughout:
 **Description:** A server thread that binds the socket (umask 0177, refuses symlinks, probes and removes stale sockets), accepts clients, rejects any peer whose `SO_PEERCRED` uid differs from the daemon's, and serves `hello`, `status`, `subscribe`. Packet records and counters come from a `TelemetryHub` handed in by the caller; commands go out on a channel.
 
 **Acceptance criteria:**
-- [ ] Socket file is mode 0600 and is removed on shutdown
-- [ ] Stale socket is replaced; a live socket makes startup fail with a clear error
-- [ ] A client with a different uid is closed before any reply (unit-tested through an injectable uid check)
-- [ ] A client that stops reading is disconnected without blocking other clients
+- [x] Socket file is mode 0600 and is removed on shutdown
+- [x] Stale socket is replaced; a live socket makes startup fail with a clear error
+- [x] A client with a different uid is closed before any reply (unit-tested through an injectable uid check)
+- [x] A client that stops reading is disconnected without blocking other clients
 
 **Verification:**
-- [ ] `tests/control_server.rs` passes using a temp-dir socket
-- [ ] Lint clean, no-TUI build clean
+- [x] `tests/control_server.rs` passes using a temp-dir socket
+- [x] Lint clean, no-TUI build clean
 
 **Dependencies:** 7.2
 **Files likely touched:** `src/control/{server,hub,peer}.rs`, `tests/control_server.rs`
