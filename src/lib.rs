@@ -24,5 +24,8 @@ pub mod rawsend;
 pub mod runtime;
 /// Monotonic boottime clock, scheduled timer pool, and non-intercepting timer loop.
 pub mod timer;
-/// Companion CLI utilities (`ip2net` subnet aggregator and `mdig` multi-threaded DNS tool).
+/// Companion CLI utilities (`ip2net`, `mdig`, and `strat_finder`).
 pub mod tools;
+/// Interactive `ratatui` TUI wrapping strategy discovery, config preview, and live `nfqws2`.
+#[cfg(feature = "tui")]
+pub mod tui;

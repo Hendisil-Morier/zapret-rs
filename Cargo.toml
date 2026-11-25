@@ -20,17 +20,28 @@ path = "src/bin/mdig.rs"
 name = "strat_finder"
 path = "src/bin/strat_finder.rs"
 
+[[bin]]
+name = "zapret-rs"
+path = "src/bin/zapret_rs.rs"
+required-features = ["tui"]
+
 [[bench]]
 name = "hotpath"
 harness = false
 
+[features]
+default = ["tui"]
+tui = ["dep:ratatui", "dep:crossterm"]
+
 [dependencies]
 clap = { version = "4.6.9", features = ["derive"] }
+crossterm = { version = "0.29.0", optional = true }
 flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
 libc = "0.2.191"
 mlua = { version = "0.12.3", features = ["luajit", "vendored"] }
 nfq = "0.2.6"
 rand = "0.9.5"
+ratatui = { version = "0.30.2", optional = true }
 ring = "0.17.14"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"

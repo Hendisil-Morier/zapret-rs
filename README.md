@@ -87,6 +87,18 @@ mdig --family=6 --dns-make-query=example.com \
   | mdig --dns-parse-query
 ```
 
+### Interactive TUI (`zapret-rs`)
+
+For an all-in-one terminal UI covering strategy discovery, live `nfqws2` execution with real-time packet counters, `nfqws2.toml` preview/saving, and privilege diagnostics, run the `zapret-rs` binary directly:
+
+```bash
+# One-time setup: grant only network capabilities (no sudo needed at runtime)
+sudo setcap cap_net_admin,cap_net_raw+ep ./target/release/zapret-rs
+
+# Launch the interactive TUI
+./target/release/zapret-rs
+```
+
 ### Strategy Finder (`nfqws2 --strat-finder` / `strat_finder`)
 
 `nfqws2 --strat-finder` (also available as the standalone `strat_finder` binary) replaces `zapret2/blockcheck2.sh` with a single-process, least-privilege Rust scanner. Grant only `CAP_NET_ADMIN` and `CAP_NET_RAW` once so you never run `nfqws2`, LuaJIT, `curl`, or config file writes as root:
