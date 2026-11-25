@@ -294,7 +294,7 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         frame.render_widget(card, metric_cols[idx]);
     }
 
-    draw_packet_inspector(frame, rows[2], &state.inspector.packets, state.inspector.filter, state.inspector.selected, state.inspector.paused);
+    draw_packet_inspector(frame, rows[2], &state.inspector);
     draw_log_list(frame, rows[3], " Daemon Log ", &state.run_logs);
 }
 

@@ -1,7 +1,5 @@
 //! `ratatui` widgets and hex dump renderer for Tab 2's live Packet Inspector.
 
-/// Bounded ring buffer of captured packets rendered by [`draw_packet_inspector`].
-use std::collections::VecDeque;
 /// Hex dump formatting into single-allocation strings.
 use std::fmt::Write as _;
 
@@ -14,8 +12,8 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
 };
 
-/// Decoded packet records and verdict filter helpers rendered here.
-use crate::tui::inspect::{PacketRecord, VerdictFilter, filtered_packets};
+/// Decoded packet records and inspector state rendered here.
+use crate::tui::inspect::{PacketInspectorState, PacketRecord};
 
 /// Formats `bytes` into classic 16-byte-wide `OFFSET: HEX  |ASCII|` lines.
 pub fn format_hex_dump(bytes: &[u8]) -> Vec<String> {
@@ -49,17 +47,10 @@ pub fn format_hex_dump(bytes: &[u8]) -> Vec<String> {
 }
 
 /// Renders the live scrollable Packet Inspector table on Tab 2.
-pub fn draw_packet_inspector(
-    frame: &mut Frame,
-    area: Rect,
-    packets: &VecDeque<PacketRecord>,
-    filter: VerdictFilter,
-    selected_idx: usize,
-    paused: bool,
-) {
-    let visible = filtered_packets(packets, filter);
+pub fn draw_packet_inspector(frame: &mut Frame, area: Rect, inspector: &PacketInspectorState) {
+    let visible = inspector.visible_packets();
     let capacity = usize::from(area.height.saturating_sub(3)).max(1);
-    let clamped_sel = selected_idx.min(visible.len().saturating_sub(1));
+    let clamped_sel = inspector.selected.min(visible.len().saturating_sub(1));
     let start = if clamped_sel >= capacity { clamped_sel + 1 - capacity } else { 0 };
 
     let header = Row::new(["#", "Dir", "Proto", "Flow", "Len", "Verdict", "Info"])
@@ -99,8 +90,13 @@ pub fn draw_packet_inspector(
         Constraint::Length(7),
         Constraint::Percentage(34),
     ];
-    let state_tag = if paused { "PAUSED" } else { "LIVE" };
-    let title = format!(" Packet Inspector [{} | filter: {} | {} shown] ", state_tag, filter.label(), visible.len());
+    let state_tag = if inspector.paused { "PAUSED" } else { "LIVE" };
+    let title = format!(
+        " Packet Inspector [{} | filter: {} | {} shown] ",
+        state_tag,
+        inspector.filter.label(),
+        visible.len()
+    );
     let table = Table::new(rows, widths)
         .header(header)
         .block(Block::default().borders(Borders::ALL).title(title));

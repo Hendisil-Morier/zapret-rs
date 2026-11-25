@@ -127,8 +127,11 @@ pub struct PacketRecord {
 /// Self-contained state for Tab 2's live Packet Inspector table and detail popup.
 #[derive(Debug)]
 pub struct PacketInspectorState {
-    /// Bounded ring buffer of recently captured packets (oldest at front, newest at back).
+    /// Bounded ring buffer of recently captured packets across all verdicts (oldest at front).
     pub packets: VecDeque<PacketRecord>,
+    /// Dedicated bounded ring buffer of `MODIFY` and `DROP` packets so high-volume `PASS`
+    /// traffic never evicts desynced packets from the inspector.
+    pub desync_packets: VecDeque<PacketRecord>,
     /// Active verdict filter (`ALL`, `MOD+DROP`, `DROP`, `PASS`).
     pub filter: VerdictFilter,
     /// When `true`, incoming packets are ignored so the current table stays frozen.
@@ -144,6 +147,7 @@ impl Default for PacketInspectorState {
     fn default() -> Self {
         Self {
             packets: VecDeque::new(),
+            desync_packets: VecDeque::new(),
             filter: VerdictFilter::All,
             paused: false,
             selected: 0,
@@ -153,10 +157,16 @@ impl Default for PacketInspectorState {
 }
 
 impl PacketInspectorState {
-    /// Records one packet unless paused, enforcing [`MAX_INSPECT_PACKETS`].
+    /// Records one packet unless paused, preserving `MODIFY`/`DROP` in a dedicated buffer.
     pub fn push(&mut self, record: PacketRecord) {
         if self.paused {
             return;
+        }
+        if matches!(record.verdict, PacketVerdict::Modify | PacketVerdict::Drop) {
+            if self.desync_packets.len() >= MAX_INSPECT_PACKETS {
+                self.desync_packets.pop_front();
+            }
+            self.desync_packets.push_back(record.clone());
         }
         if self.packets.len() >= MAX_INSPECT_PACKETS {
             self.packets.pop_front();
@@ -167,13 +177,24 @@ impl PacketInspectorState {
     /// Clears captured packets and resets selection/detail state.
     pub fn clear(&mut self) {
         self.packets.clear();
+        self.desync_packets.clear();
         self.selected = 0;
         self.detail_open = false;
     }
 
+    /// Returns filtered packet references in newest-first order, reading from `desync_packets`
+    /// when filtering for `MODIFY`/`DROP` so `PASS` bursts never hide desynced traffic.
+    pub fn visible_packets(&self) -> Vec<&PacketRecord> {
+        let source = match self.filter {
+            VerdictFilter::ModifiedOrDropped | VerdictFilter::DropOnly => &self.desync_packets,
+            VerdictFilter::All | VerdictFilter::PassOnly => &self.packets,
+        };
+        filtered_packets(source, self.filter)
+    }
+
     /// Returns the currently selected packet under the active [`VerdictFilter`], if any.
     pub fn selected_record(&self) -> Option<&PacketRecord> {
-        let visible = filtered_packets(&self.packets, self.filter);
+        let visible = self.visible_packets();
         if visible.is_empty() {
             return None;
         }
@@ -190,7 +211,7 @@ impl PacketInspectorState {
             }
             return Some(String::new());
         }
-        let count = filtered_packets(&self.packets, self.filter).len();
+        let count = self.visible_packets().len();
         match code {
             KeyCode::Up | KeyCode::Char('k') => {
                 self.selected = self.selected.saturating_sub(1);

@@ -246,7 +246,12 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
             }
         }
         if let Some(daemon) = active_daemon.as_mut() {
-            for _ in 0..128 {
+            // Drain all desynced (`MODIFY`/`DROP`) records first, then recent `PASS` records.
+            for _ in 0..256 {
+                let Ok(rec) = daemon.desync_rx.try_recv() else { break; };
+                state.inspector.push(rec);
+            }
+            for _ in 0..256 {
                 let Ok(rec) = daemon.pkt_rx.try_recv() else { break; };
                 state.inspector.push(rec);
             }
@@ -309,6 +314,12 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 AppAction::StopDaemon => {
                     if let Some(mut daemon) = active_daemon.take() {
                         daemon.shutdown(|g| drop_fw_tui(&mut session, g));
+                        while let Ok(rec) = daemon.desync_rx.try_recv() {
+                            state.inspector.push(rec);
+                        }
+                        while let Ok(rec) = daemon.pkt_rx.try_recv() {
+                            state.inspector.push(rec);
+                        }
                         state.run_status = RunStatus::Stopped;
                         state.push_run_log("[stop] nfqws2 stopped and temporary nftables cleaned up.");
                         state.status_banner = "nfqws2 stopped cleanly.".to_owned();

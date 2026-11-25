@@ -271,15 +271,18 @@ fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
     assert!(dump[0].starts_with("0000: 47 45 54 20"));
     assert!(dump[0].contains("|GET / HTTP/1.1"));
 
-    let rec_pass = build_packet_record(2, &qpkt, &Decision::Pass);
-
     let mut state = AppState::new(None, None, false);
     state.tab = ActiveTab::Run;
     state.inspector.push(rec_drop);
-    state.inspector.push(rec_pass);
-    assert_eq!(state.inspector.packets.len(), 2);
+    // Push 400 `PASS` packets after the `DROP` packet to ensure high-volume `PASS` traffic never
+    // evicts desynced packets from `MOD+DROP` / `DROP` views.
+    for seq in 2..=401 {
+        state.inspector.push(build_packet_record(seq, &qpkt, &Decision::Pass));
+    }
+    assert_eq!(state.inspector.packets.len(), 300);
+    assert_eq!(state.inspector.desync_packets.len(), 1);
 
-    // Filter to MOD+DROP -> only packet #1 remains visible.
+    // Filter to MOD+DROP -> packet #1 is still preserved and visible!
     assert_eq!(state.handle_key(key(KeyCode::Char('f'))), AppAction::None);
     assert_eq!(state.inspector.filter, VerdictFilter::ModifiedOrDropped);
     assert_eq!(state.inspector.selected_record().map(|r| r.seq), Some(1));
@@ -287,8 +290,8 @@ fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
     // Pause capture -> subsequent pushed packets are ignored until resumed.
     assert_eq!(state.handle_key(key(KeyCode::Char('p'))), AppAction::None);
     assert!(state.inspector.paused);
-    state.inspector.push(build_packet_record(3, &qpkt, &Decision::Drop));
-    assert_eq!(state.inspector.packets.len(), 2);
+    state.inspector.push(build_packet_record(500, &qpkt, &Decision::Drop));
+    assert_eq!(state.inspector.desync_packets.len(), 1);
 
     // Open detail popup with 'd', verify it renders headers + hex dump, then close with Esc.
     assert_eq!(state.handle_key(key(KeyCode::Char('d'))), AppAction::None);

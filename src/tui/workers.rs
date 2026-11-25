@@ -62,8 +62,10 @@ impl ActiveScan {
 pub(crate) struct ActiveDaemon {
     /// Stop flag observed by `QueueCatcher::run_until`.
     pub(crate) stop: Arc<AtomicBool>,
-    /// Bounded non-blocking stream of captured [`PacketRecord`] items for the Tab 2 inspector.
+    /// Bounded non-blocking stream of all captured [`PacketRecord`] items.
     pub(crate) pkt_rx: Receiver<PacketRecord>,
+    /// Dedicated non-blocking stream of `MODIFY`/`DROP` records so `PASS` bursts never drop them.
+    pub(crate) desync_rx: Receiver<PacketRecord>,
     /// Daemon thread handle joined on stop/exit.
     pub(crate) join: Option<JoinHandle<()>>,
     /// Temporary `nftables` rule guard dropped when the daemon stops.
@@ -217,6 +219,7 @@ where
 
     let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<(), String>>(1);
     let (pkt_tx, pkt_rx) = mpsc::sync_channel::<PacketRecord>(512);
+    let (desync_tx, desync_rx) = mpsc::sync_channel::<PacketRecord>(256);
     let stop = Arc::new(AtomicBool::new(false));
     let stop_bg = Arc::clone(&stop);
     let counters: Arc<PacketCounters> = Arc::clone(&state.counters);
@@ -239,13 +242,19 @@ where
                 |pkt| {
                     let decision = engine.process_packet(pkt);
                     let seq = counters.total.fetch_add(1, Ordering::Relaxed) + 1;
+                    let is_desync = !matches!(decision, Decision::Pass);
                     match &decision {
                         Decision::Pass => { counters.passed.fetch_add(1, Ordering::Relaxed); }
                         Decision::Replace(_) => { counters.modified.fetch_add(1, Ordering::Relaxed); }
                         Decision::Drop => { counters.dropped.fetch_add(1, Ordering::Relaxed); }
                     }
-                    // Non-blocking `try_send` ensures UI telemetry never stalls packet forwarding.
-                    let _ = pkt_tx.try_send(build_packet_record(seq, pkt, &decision));
+                    // Route desynced (`MODIFY`/`DROP`) packets to a dedicated channel so `PASS` bursts never drop them.
+                    let record = build_packet_record(seq, pkt, &decision);
+                    if is_desync {
+                        let _ = desync_tx.try_send(record);
+                    } else {
+                        let _ = pkt_tx.try_send(record);
+                    }
                     decision
                 },
             );
@@ -277,5 +286,5 @@ where
         state.parsed_profiles.len()
     ));
     state.status_banner = "nfqws2 is running. Press 'f' to filter, 'd' for detail, 'x' to stop.".to_owned();
-    Ok(ActiveDaemon { stop, pkt_rx, join: Some(join), fw_guard })
+    Ok(ActiveDaemon { stop, pkt_rx, desync_rx, join: Some(join), fw_guard })
 }
