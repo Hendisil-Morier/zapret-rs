@@ -28,5 +28,5 @@ pub use hostlist::{
     HostlistCheckOutcome, HostlistCollection, HostlistFile, HostlistPool, HostlistRef,
     HostlistSearchResult,
 };
-pub use ipcache::{DEFAULT_IPCACHE_LIFETIME_SEC, IpCache, IpCacheEntry};
+pub use ipcache::{DEFAULT_IPCACHE_LIFETIME_SEC, DEFAULT_IPCACHE_MAX_ENTRIES, IpCache, IpCacheEntry};
 pub use ipset::{IpSet, IpsetCollection, IpsetFile, parse_cidr4, parse_cidr6};

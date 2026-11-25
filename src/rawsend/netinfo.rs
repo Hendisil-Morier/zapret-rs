@@ -122,7 +122,7 @@ pub fn get_ifaddrs() -> std::io::Result<Vec<InterfaceInfo>> {
 
     // SAFETY: `libc::socket` returns a valid FD or `-1`; failure merely omits MTU metadata.
     let ioctl_fd = unsafe {
-        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0);
         if fd >= 0 {
             Some(OwnedFd::from_raw_fd(fd))
         } else {

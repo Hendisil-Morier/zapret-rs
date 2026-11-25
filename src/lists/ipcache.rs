@@ -7,6 +7,8 @@ use std::net::IpAddr;
 
 /// Default IPCache entry lifetime in seconds (`DEFAULT_IPCACHE_LIFETIME` = `7200`).
 pub const DEFAULT_IPCACHE_LIFETIME_SEC: i64 = 7200;
+/// Default maximum cached `(ip, iface)` entries retained concurrently (`0` disables cap).
+pub const DEFAULT_IPCACHE_MAX_ENTRIES: usize = 65_536;
 
 /// Cached metadata associated with one remote IP (and interface for TTL entries) (`ip_cache_item`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +30,8 @@ pub struct IpCache {
     entries: HashMap<(IpAddr, String), IpCacheEntry>,
     /// Entry expiration lifetime in seconds (`0` disables expiration).
     lifetime_sec: i64,
+    /// Maximum cached `(ip, iface)` entries retained concurrently (`0` disables cap).
+    max_entries: usize,
     /// Whether DNS-derived hostname caching is enabled (`params.cache_hostname`).
     cache_hostname: bool,
     /// Boottime second of the last executed purge sweep (`ipcache_purge_prev`).
@@ -46,9 +50,20 @@ impl IpCache {
         Self {
             entries: HashMap::new(),
             lifetime_sec: lifetime_sec.max(0),
+            max_entries: DEFAULT_IPCACHE_MAX_ENTRIES,
             cache_hostname,
             last_purge_sec: i64::MIN,
         }
+    }
+
+    /// Returns the configured maximum cached entry capacity (`0` = unbounded).
+    pub const fn max_entries(&self) -> usize {
+        self.max_entries
+    }
+
+    /// Configures the maximum cached `(ip, iface)` entry limit (`0` = unbounded).
+    pub fn set_max_entries(&mut self, max_entries: usize) {
+        self.max_entries = max_entries;
     }
 
     /// Returns the configured expiration lifetime in seconds (`0` disables expiry).
@@ -81,17 +96,50 @@ impl IpCache {
         self.entries.get(&(addr, iface.to_owned()))
     }
 
+    /// Refreshes or inserts an entry for `(addr, iface)`, returning `None` if at capacity after expiry sweep.
+    pub fn try_touch(&mut self, addr: IpAddr, iface: &str, now_sec: i64) -> Option<&mut IpCacheEntry> {
+        let key = (addr, iface.to_owned());
+        if !self.entries.contains_key(&key)
+            && self.max_entries > 0
+            && self.entries.len() >= self.max_entries
+        {
+            self.purge_rate_limited(now_sec);
+            if self.entries.len() >= self.max_entries {
+                return None;
+            }
+        }
+        let entry = self.entries.entry(key).or_insert_with(|| IpCacheEntry {
+            last_sec: now_sec,
+            hostname: None,
+            hostname_is_ip: false,
+            ttl: 0,
+        });
+        entry.last_sec = now_sec;
+        Some(entry)
+    }
+
     /// Returns the entry for `(addr, iface)` after inserting/refreshing `last_sec` (`ipcacheTouch`).
+    ///
+    /// Evicts expired entries (or one existing entry when full) to uphold `max_entries`.
     pub fn touch(&mut self, addr: IpAddr, iface: &str, now_sec: i64) -> &mut IpCacheEntry {
-        let entry = self
-            .entries
-            .entry((addr, iface.to_owned()))
-            .or_insert_with(|| IpCacheEntry {
-                last_sec: now_sec,
-                hostname: None,
-                hostname_is_ip: false,
-                ttl: 0,
-            });
+        let key = (addr, iface.to_owned());
+        if !self.entries.contains_key(&key)
+            && self.max_entries > 0
+            && self.entries.len() >= self.max_entries
+        {
+            self.purge_rate_limited(now_sec);
+            if self.entries.len() >= self.max_entries
+                && let Some(evict_key) = self.entries.keys().next().cloned()
+            {
+                self.entries.remove(&evict_key);
+            }
+        }
+        let entry = self.entries.entry(key).or_insert_with(|| IpCacheEntry {
+            last_sec: now_sec,
+            hostname: None,
+            hostname_is_ip: false,
+            ttl: 0,
+        });
         entry.last_sec = now_sec;
         entry
     }
@@ -107,7 +155,9 @@ impl IpCache {
         if !self.cache_hostname {
             return;
         }
-        let entry = self.touch(addr, "", now_sec);
+        let Some(entry) = self.try_touch(addr, "", now_sec) else {
+            return;
+        };
         if entry.hostname.as_deref() != Some(hostname) {
             entry.hostname = Some(hostname.to_owned());
             entry.hostname_is_ip = hostname_is_ip;
@@ -141,8 +191,9 @@ impl IpCache {
             return;
         }
         if *incoming_ttl != 0 {
-            let entry = self.touch(addr, iface, now_sec);
-            entry.ttl = *incoming_ttl;
+            if let Some(entry) = self.try_touch(addr, iface, now_sec) {
+                entry.ttl = *incoming_ttl;
+            }
         } else if let Some(cached) = self.get_ttl(addr, iface, server_mode) {
             *incoming_ttl = cached;
         }

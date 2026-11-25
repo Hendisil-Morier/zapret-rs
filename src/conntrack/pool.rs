@@ -14,8 +14,10 @@ use mlua::Lua;
 use crate::conntrack::entry::{
     CtrackEntry, extract_tcp_mss, extract_tcp_scale, is_tcp_syn, is_tcp_synack,
 };
-/// Connection tuple key, handshake state enum, and configurable timeout thresholds.
-use crate::conntrack::types::{ConnKey, ConnState, ConntrackTimeouts};
+/// Connection tuple key, handshake state, capacity cap, and configurable timeout thresholds.
+use crate::conntrack::types::{
+    ConnKey, ConnState, ConntrackTimeouts, DEFAULT_CTRACK_MAX_ENTRIES,
+};
 /// Protocol identifiers (`IPPROTO_TCP`/`UDP`) and FIN/RST control flag constants.
 use crate::packet::constants::{IPPROTO_TCP, IPPROTO_UDP, TH_FIN, TH_RST};
 /// Parsed packet and TCP header structs consumed on every tracked packet arrival.
@@ -27,24 +29,55 @@ use crate::timer::MonotonicTime;
 const SEQ_MSB_MASK: u32 = 0x8000_0000;
 
 /// Hash-indexed connection tracking pool with configurable state timeouts (`t_conntrack`).
-#[derive(Default)]
 pub struct ConntrackPool {
     /// Inactivity timeouts and minimum seconds between cleanup passes.
     timeouts: ConntrackTimeouts,
+    /// Maximum tracked flows retained concurrently (`0` disables capacity clamping).
+    max_entries: usize,
     /// Monotonic second timestamp of the previous eviction sweep (`t_last_purge`).
     last_purge_sec: i64,
     /// Active connections keyed by normalized client-to-server 5-tuple [`ConnKey`].
     entries: HashMap<ConnKey, Rc<RefCell<CtrackEntry>>>,
 }
 
+impl Default for ConntrackPool {
+    /// Returns an empty conntrack pool with default timeouts and [`DEFAULT_CTRACK_MAX_ENTRIES`] cap.
+    fn default() -> Self {
+        Self::new(ConntrackTimeouts::default())
+    }
+}
+
 impl ConntrackPool {
-    /// Creates an empty conntrack pool governed by `timeouts`.
+    /// Creates an empty conntrack pool governed by `timeouts` and [`DEFAULT_CTRACK_MAX_ENTRIES`].
     pub fn new(timeouts: ConntrackTimeouts) -> Self {
         Self {
             timeouts,
+            max_entries: DEFAULT_CTRACK_MAX_ENTRIES,
             last_purge_sec: 0,
             entries: HashMap::new(),
         }
+    }
+
+    /// Returns the configured maximum active flow capacity (`0` = unbounded).
+    pub const fn max_entries(&self) -> usize {
+        self.max_entries
+    }
+
+    /// Configures the maximum concurrent tracked flow limit (`0` = unbounded).
+    pub fn set_max_entries(&mut self, max_entries: usize) {
+        self.max_entries = max_entries;
+    }
+
+    /// Ensures room exists for a new flow, performing at most one expiry sweep per second on cap hit.
+    fn has_insert_capacity(&mut self, now_sec: i64) -> bool {
+        if self.max_entries == 0 || self.entries.len() < self.max_entries {
+            return true;
+        }
+        if self.last_purge_sec != now_sec {
+            self.last_purge_sec = now_sec;
+            self.purge_now(now_sec);
+        }
+        self.entries.len() < self.max_entries
     }
 
     /// Returns the number of currently tracked connections.
@@ -150,18 +183,18 @@ impl ConntrackPool {
             if let Some(hit) = self.entries.get(&rev_key) {
                 (Rc::clone(hit), true)
             } else if let Some(tcp) = &dis.tcp {
-                if is_tcp_syn(tcp.flags) {
+                if (is_tcp_syn(tcp.flags) || is_tcp_synack(tcp.flags))
+                    && self.has_insert_capacity(now.sec)
+                {
+                    let is_synack = !is_tcp_syn(tcp.flags);
+                    let key = if is_synack { rev_key } else { fwd_key };
                     let created = Rc::new(RefCell::new(CtrackEntry::new(lua)?));
-                    self.entries.insert(fwd_key, Rc::clone(&created));
-                    (created, false)
-                } else if is_tcp_synack(tcp.flags) {
-                    let created = Rc::new(RefCell::new(CtrackEntry::new(lua)?));
-                    self.entries.insert(rev_key, Rc::clone(&created));
-                    (created, true)
+                    self.entries.insert(key, Rc::clone(&created));
+                    (created, is_synack)
                 } else {
                     return Ok(None);
                 }
-            } else if dis.udp.is_some() {
+            } else if dis.udp.is_some() && self.has_insert_capacity(now.sec) {
                 let created = Rc::new(RefCell::new(CtrackEntry::new(lua)?));
                 self.entries.insert(fwd_key, Rc::clone(&created));
                 (created, false)

@@ -8,6 +8,8 @@ use crate::lua::gzip_deflate::{GZIP_CM_DEFLATE, GZIP_ID1, GZIP_ID2, MIN_OUTPUT_S
 
 /// Growth increment allocated during streaming decompression loops.
 const INFLATE_GROWTH: usize = 16384;
+/// Default maximum cumulative output bytes produced by one inflate stream (`64 MiB`).
+pub const DEFAULT_MAX_INFLATE_OUTPUT: usize = 64 * 1024 * 1024;
 /// RFC 1952 header flag bit indicating optional `FHCRC` CRC-16 field (`0x02`).
 const F_HCRC: u8 = 0x02;
 /// RFC 1952 header flag bit indicating optional `FEXTRA` field (`0x04`).
@@ -45,16 +47,21 @@ impl InflateMode {
     }
 }
 
-/// Drains `rem` through `dec` into `out`, optionally updating an RFC 1952 payload `crc`.
+/// Drains `rem` through `dec` into `out` within `max_out`, optionally updating payload `crc`.
 fn pump_decompress(
     dec: &mut Decompress,
     rem: &mut &[u8],
     out: &mut Vec<u8>,
+    max_out: usize,
     mut crc: Option<&mut Crc>,
 ) -> Option<bool> {
+    let cap_limit = max_out.saturating_add(1);
     loop {
         if out.capacity() - out.len() < MIN_OUTPUT_SPARE {
-            out.reserve(INFLATE_GROWTH);
+            let target = out.len().saturating_add(INFLATE_GROWTH).min(cap_limit);
+            if target > out.capacity() {
+                out.reserve(target - out.len());
+            }
         }
         let prev_len = out.len();
         let spare_before = out.capacity() - out.len();
@@ -65,6 +72,9 @@ fn pump_decompress(
         let produced = (dec.total_out() - before_out) as usize;
         *rem = &rem[consumed..];
 
+        if out.len() > max_out {
+            return None;
+        }
         if produced > 0
             && let Some(c) = crc.as_deref_mut()
         {
@@ -201,11 +211,7 @@ impl GzipInflater {
                 *len += 1;
                 if *len == 10 {
                     let flg = buf[3];
-                    if buf[0] != GZIP_ID1
-                        || buf[1] != GZIP_ID2
-                        || buf[2] != GZIP_CM_DEFLATE
-                        || (flg & F_RESERVED) != 0
-                    {
+                    if [buf[0], buf[1], buf[2]] != [GZIP_ID1, GZIP_ID2, GZIP_CM_DEFLATE] || (flg & F_RESERVED) != 0 {
                         return None;
                     }
                     let header = *buf;
@@ -217,19 +223,10 @@ impl GzipInflater {
                 let saved_flg = *flg;
                 buf[*len] = byte;
                 *len += 1;
-                let completed = if *len == 2 {
-                    Some(u16::from_le_bytes(*buf))
-                } else {
-                    None
-                };
+                let completed = (*len == 2).then(|| usize::from(u16::from_le_bytes(*buf)));
                 self.update_hcrc(saved_flg, &[byte]);
-                if let Some(xlen) = completed {
-                    let rem = usize::from(xlen);
-                    self.phase = if rem == 0 {
-                        next_phase_after(saved_flg, 1)
-                    } else {
-                        GzipPhase::ExtraData { flg: saved_flg, rem }
-                    };
+                if let Some(rem) = completed {
+                    self.phase = if rem == 0 { next_phase_after(saved_flg, 1) } else { GzipPhase::ExtraData { flg: saved_flg, rem } };
                 }
             }
             GzipPhase::ExtraData { flg, rem } => {
@@ -270,12 +267,12 @@ impl GzipInflater {
         Some(())
     }
 
-    /// Consumes compressed input, appending decompressed output to `out` and returning EOF status.
-    fn feed(&mut self, mut rem: &[u8], out: &mut Vec<u8>) -> Option<bool> {
+    /// Consumes compressed input within `max_out`, appending output to `out` and returning EOF status.
+    fn feed(&mut self, mut rem: &[u8], out: &mut Vec<u8>, max_out: usize) -> Option<bool> {
         loop {
             match &mut self.phase {
                 GzipPhase::Body => {
-                    if pump_decompress(&mut self.body, &mut rem, out, Some(&mut self.body_crc))? {
+                    if pump_decompress(&mut self.body, &mut rem, out, max_out, Some(&mut self.body_crc))? {
                         self.phase = GzipPhase::Trailer { buf: [0; 8], len: 0 };
                         continue;
                     }
@@ -325,23 +322,30 @@ enum InflateKind {
 pub struct InflateStream {
     /// Encapsulated decompression state machine.
     kind: InflateKind,
+    /// Remaining cumulative decompressed byte budget permitted for this stream.
+    remaining_output: usize,
 }
 
 impl InflateStream {
-    /// Creates an [`InflateStream`] configured for `mode`.
+    /// Creates an [`InflateStream`] configured for `mode` with [`DEFAULT_MAX_INFLATE_OUTPUT`].
     pub fn new(mode: InflateMode) -> Self {
+        Self::with_max_output(mode, DEFAULT_MAX_INFLATE_OUTPUT)
+    }
+
+    /// Creates an [`InflateStream`] configured for `mode` and explicit `max_output` byte limit.
+    pub fn with_max_output(mode: InflateMode, max_output: usize) -> Self {
         let kind = match mode {
             InflateMode::Raw => InflateKind::Raw(Decompress::new(false)),
             InflateMode::Zlib => InflateKind::Zlib(Decompress::new(true)),
             InflateMode::Gzip => InflateKind::Gzip(Box::new(GzipInflater::new())),
             InflateMode::AutoDetect => InflateKind::AutoPending(None),
         };
-        Self { kind }
+        Self { kind, remaining_output: max_output }
     }
 
-    /// Consumes compressed `input` bytes and returns `Some((decompressed_bytes, eof))`, or `None` on stream error.
+    /// Consumes compressed `input` bytes and returns `Some((decompressed_bytes, eof))`, or `None` on error/overflow.
     pub fn inflate(&mut self, input: &[u8], capacity_hint: usize) -> Option<(Vec<u8>, bool)> {
-        let mut out = Vec::with_capacity(capacity_hint);
+        let mut out = Vec::with_capacity(capacity_hint.min(self.remaining_output));
         if let InflateKind::AutoPending(first_opt) = &mut self.kind {
             if input.is_empty() {
                 return Some((out, false));
@@ -362,21 +366,22 @@ impl InflateStream {
                 InflateKind::Zlib(Decompress::new(true))
             };
             if prev.is_some() && self.inflate_inner(&[first], &mut out)? {
+                self.remaining_output = self.remaining_output.saturating_sub(out.len());
                 return Some((out, true));
             }
         }
 
         let eof = self.inflate_inner(input, &mut out)?;
+        self.remaining_output = self.remaining_output.saturating_sub(out.len());
         Some((out, eof))
     }
 
-    /// Dispatches `rem` into the already-resolved inner decompressor.
+    /// Dispatches `rem` into the already-resolved inner decompressor within `remaining_output`.
     fn inflate_inner(&mut self, mut rem: &[u8], out: &mut Vec<u8>) -> Option<bool> {
+        let budget = self.remaining_output;
         match &mut self.kind {
-            InflateKind::Raw(dec) | InflateKind::Zlib(dec) => {
-                pump_decompress(dec, &mut rem, out, None)
-            }
-            InflateKind::Gzip(gz) => gz.feed(rem, out),
+            InflateKind::Raw(dec) | InflateKind::Zlib(dec) => pump_decompress(dec, &mut rem, out, budget, None),
+            InflateKind::Gzip(gz) => gz.feed(rem, out, budget),
             InflateKind::AutoPending(_) => None,
         }
     }

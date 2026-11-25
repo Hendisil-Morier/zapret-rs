@@ -64,9 +64,8 @@ pub(crate) fn is_icmp_error_with_attached_ip(dis: &DissectedPacket, icmp_type: u
     }
 }
 
-/// Assigns baseline Milestone 2 [`L7Payload`] tags (`empty`, `unknown`, `ipv4`, `ipv6`, `icmp`).
+/// Assigns baseline [`L7Payload`] tags (`empty`, `unknown`, `ipv4`, `ipv6`, `icmp`).
 pub fn classify_baseline_payload(dis: &DissectedPacket) -> L7Payload {
-    // shortcut: full L7 DPI probes (HTTP/TLS/QUIC/etc.) land in Milestone 3.
     if dis.tcp.is_some() || dis.udp.is_some() {
         if dis.payload.as_deref().is_some_and(|p| !p.is_empty()) {
             L7Payload::Unknown

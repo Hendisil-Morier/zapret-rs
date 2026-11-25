@@ -3,9 +3,11 @@
 /// Raw C string conversion for `getpwnam_r` and `initgroups` libc FFI calls.
 use std::ffi::{CString, c_int, c_long};
 /// PID file creation, writing, flushing, and removal on teardown.
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 /// Write trait used for formatting the daemon PID into the open file descriptor.
 use std::io::Write;
+/// `O_NOFOLLOW` open flag preventing symlink target truncation in `PidFileGuard::create`.
+use std::os::unix::fs::OpenOptionsExt;
 /// Owned and borrowed filesystem path types for `chdir` and PID file management.
 use std::path::{Path, PathBuf};
 
@@ -246,10 +248,16 @@ impl PidFileGuard {
         } else {
             path.to_path_buf()
         };
-        let file = File::create(&abs_path).map_err(|source| ProcessError::PidFile {
-            path: abs_path.clone(),
-            source,
-        })?;
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&abs_path)
+            .map_err(|source| ProcessError::PidFile {
+                path: abs_path.clone(),
+                source,
+            })?;
         Ok(Self {
             path: abs_path,
             file: Some(file),

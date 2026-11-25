@@ -101,7 +101,7 @@ impl RawSender {
 
         let domain = if is_v6 { libc::AF_INET6 } else { libc::AF_INET };
         // SAFETY: `libc::socket` takes integer constants and returns a new FD or `-1` on error.
-        let raw_fd = unsafe { libc::socket(domain, libc::SOCK_RAW, libc::IPPROTO_RAW) };
+        let raw_fd = unsafe { libc::socket(domain, libc::SOCK_RAW | libc::SOCK_CLOEXEC, libc::IPPROTO_RAW) };
         if raw_fd < 0 {
             return Err(RawSendError::SocketIo(std::io::Error::last_os_error()));
         }

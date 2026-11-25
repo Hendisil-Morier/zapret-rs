@@ -20,6 +20,8 @@ pub const DEFAULT_CTRACK_TIMEOUT_FIN: u32 = 60;
 pub const DEFAULT_CTRACK_TIMEOUT_UDP: u32 = 60;
 /// Default interval in seconds between rate-limited conntrack purge scans (`nfqws.c`).
 pub const DEFAULT_CTRACK_PURGE_INTERVAL: i64 = 10;
+/// Default maximum number of active flows tracked simultaneously (`DEFAULT_CTRACK_MAX_ENTRIES`).
+pub const DEFAULT_CTRACK_MAX_ENTRIES: usize = 65_536;
 /// Sentinel value disabling further retransmission counting (`RETRANS_COUNTER_STOP` = `255`).
 pub const RETRANS_COUNTER_STOP: u8 = u8::MAX;
 /// Maximum number of raw packets queued while reassembling one multi-segment payload.
