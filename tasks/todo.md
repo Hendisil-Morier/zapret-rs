@@ -304,4 +304,72 @@ Target verification commands used across tasks:
 - [x] All tasks 3.1 through 3.4 checked off with individual atomic commits
 - [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
 - [x] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
-- [ ] Review with user and plan Milestone 4
+- [x] Review with user and plan Milestone 4
+
+---
+
+# Task Breakdown: Milestone 4 (Full Lua API Parity & zapret2 Script Verification)
+
+## Task 4.1: Pure-Rust crypto primitives (SHA-224/256, HKDF, AES-128/192/256 ECB/CTR/GCM) and Lua bindings
+
+**Description:** Create pure-Rust `src/crypto/` (`error.rs`, `sha2.rs`, `aes.rs`, `aes_gcm.rs`, facade `mod.rs`) covering FIPS 180-4 SHA-224/SHA-256, RFC 2104 HMAC, RFC 5869 HKDF, FIPS-197 AES-128/192/256 ECB/CTR with 128-bit big-endian `ctr_add`, and NIST SP 800-38D AES-GCM with arbitrary non-empty IV lengths and unconditional `(out, tag16)` return on decrypt. Deduplicate `src/protocol/aes_block.rs` to delegate to `src/crypto/aes.rs`, add coercing byte/string extractors in `src/lua/helpers.rs`, wire `hash`, `aes`, `aes_gcm`, `aes_ctr`, and `hkdf` in `src/lua/crypto_api.rs`, and verify against unmodified `zapret2/lua/zapret-tests.lua::test_crypto()`, NIST/RFC/FIPS KATs, and `ring` cross-checks.
+
+**Acceptance criteria:**
+- [ ] `src/crypto/` provides SHA-224/256, HMAC, HKDF (`okm_len == 0` or `> 255 * hash_len` returns `nil` without oversized allocation), AES-128/192/256 ECB/CTR, and AES-GCM (arbitrary IV >= 1 byte, returns `(out, tag16)` on decrypt even on tag mismatch) with zero new Cargo dependencies.
+- [ ] `src/protocol/aes_block.rs` delegates to `src/crypto/aes.rs` with zero duplicated AES S-boxes or round logic.
+- [ ] Lua `hash`, `aes`, `aes_gcm`, `aes_ctr`, and `hkdf` pass unmodified `zapret-tests.lua::test_crypto()` alongside NIST SP 800-38D, FIPS-197, FIPS 180-4, and RFC 5869 vectors.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [ ] Manual check: confirm `src/` files `<= 400` lines, `tests/lua_crypto.rs` `<= 450` lines, pure `mod.rs` facades, and zero `.unwrap(`/`.expect(`/`#[test]` in `src/`.
+
+**Dependencies:** Checkpoint 3B
+
+**Files likely touched:**
+- `src/lib.rs`
+- `src/crypto/{mod.rs,error.rs,sha2.rs,aes.rs,aes_gcm.rs}`
+- `src/protocol/aes_block.rs`
+- `src/lua/{mod.rs,helpers.rs,crypto_api.rs,runtime.rs}`
+- `tests/lua_crypto.rs`
+
+---
+
+## Task 4.2: Streaming gzip/gunzip, stat/time Lua bindings, and `--writable` support
+
+**Description:** Implement `src/lua/gzip_stream.rs` and `src/lua/gzip_api.rs` over `flate2` `rust_backend` (`Compress`, `Decompress`, `Crc`) with an RFC 1952 streaming header/trailer state machine covering raw deflate (`-15..=-8`), zlib (`8..=15`), gzip (`24..=31`), and auto-detect (`40..=47`), handling arbitrary byte-boundary splits and lifecycle invalidation. Implement `src/lua/fs_time_api.rs` exposing `stat`, `localtime`, `gmtime`, `timelocal`, and `timegm` via `libc`. Implement `--writable[=DIR]` and TOML `writable` in `src/runtime/writable.rs` (defaulting to `$TMPDIR/zapret-rs` or `/tmp/zapret-rs`), wiring it into config/CLI and `nfqws2`.
+
+**Acceptance criteria:**
+- [ ] Streaming gzip/gunzip bindings pass unmodified `zapret-tests.lua::test_gzip()` including byte-by-byte / mid-header splits, invalid handles, and role mismatches.
+- [ ] `stat`, `localtime`, `gmtime`, `timelocal`, and `timegm` pass `zapret-tests.lua::test_time()` and POSIX metadata/error parity checks.
+- [ ] `--writable` creates the directory (`$TMPDIR/zapret-rs` or `/tmp/zapret-rs` default) and exports `WRITABLE`.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+
+**Dependencies:** Task 4.1
+
+---
+
+## Task 4.3: Full unmodified `zapret2/lua/*.lua` E2E verification and parity hardening
+
+**Description:** Add `tests/lua_zapret_scripts_e2e.rs` verifying all non-live suites in `zapret2/lua/zapret-tests.lua` along with unmodified `zapret-antidpi.lua` (`fake`+`tls_mod`, `multisplit`, `multidisorder`, `fakedsplit`, `hostfakesplit`, `syndata`), `zapret-obfs.lua` (`wgobfs` round-trip), `zapret-auto.lua` (`circular` rotation), and `zapret-pcap.lua` (writing under `WRITABLE`), fixing any parity edge cases uncovered.
+
+**Acceptance criteria:**
+- [ ] Unmodified `zapret2/lua/{zapret-lib,zapret-tests,zapret-antidpi,zapret-auto,zapret-obfs,zapret-pcap}.lua` load cleanly and execute expected test scenarios.
+- [ ] Any subtle Lua host binding discrepancies uncovered during real-script execution are fixed and regression-tested.
+
+**Verification:**
+- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+
+**Dependencies:** Task 4.2
+
+---
+
+## Checkpoint 4: Milestone 4 Complete
+- [ ] All tasks 4.1 through 4.3 checked off with individual atomic commits
+- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
+- [ ] Review with user and plan Milestone 5

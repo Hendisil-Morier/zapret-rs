@@ -1,10 +1,10 @@
-# Implementation Plan: zapret-rs (Milestone 3 and Roadmap)
+# Implementation Plan: zapret-rs (Milestone 4 and Roadmap)
 
 ## Overview
 
-Milestone 1 delivered the core packet engine (`src/packet`), Linux `SOCK_RAW` packet injector and topology queries (`src/rawsend`), and hardened LuaJIT runtime with `zapret2`-compatible packet and system bindings (`src/lua`). Milestone 2 completed the working `nfqws2` Linux daemon with hardened NFQUEUE interception (`src/intercepter`), TOML + `clap` configuration (`src/config`), core profile dispatch (`src/desync`), `CLOCK_BOOTTIME` Lua timers (`src/timer`), and daemon/privilege-drop/signal lifecycle (`src/runtime`, `src/bin/nfqws2.rs`).
+Milestone 1 delivered the core packet engine (`src/packet`), Linux `SOCK_RAW` packet injector and topology queries (`src/rawsend`), and hardened LuaJIT runtime with `zapret2`-compatible packet and system bindings (`src/lua`). Milestone 2 completed the working `nfqws2` Linux daemon with hardened NFQUEUE interception (`src/intercepter`), TOML + `clap` configuration (`src/config`), core profile dispatch (`src/desync`), `CLOCK_BOOTTIME` Lua timers (`src/timer`), and daemon/privilege-drop/signal lifecycle (`src/runtime`, `src/bin/nfqws2.rs`). Milestone 3 completed stateful connection tracking and continuous TCP/UDP/QUIC reassembly (`src/conntrack`), full L7 protocol detectors, QUIC Initial decryption, `tls_mod`, and position markers (`src/protocol`), domain hostlists, autohostlists, CIDR IPsets, and `ipcache` (`src/lists`), and full stateful `DesyncEngine` and `SIGHUP` wiring.
 
-Milestone 3 turns `nfqws2` into a full stateful DPI desync engine in four vertical slices: bidirectional conntrack and continuous TCP/QUIC stream reassembly (`Task 3.1`), full L7 protocol detectors, QUIC Initial decryption, `tls_mod`, and position markers (`Task 3.2`), domain hostlists, autohostlists, CIDR IPsets, and `ipcache` (`Task 3.3`), and config/CLI/pipeline/SIGHUP integration (`Task 3.4`). Subsequent milestones cover remaining Lua crypto/gzip/stat/time parity (`Milestone 4`) and the `ip2net` and `mdig` companion binaries (`Milestone 5`).
+Milestone 4 delivers full `zapret2` Lua API parity and verifies unmodified `zapret2/lua/*.lua` compatibility in three vertical slices: pure-Rust cryptography (`SHA-224`/`SHA-256`, `HKDF`, `AES-128/192/256` ECB/CTR/GCM) and Lua bindings (`Task 4.1`), streaming gzip/gunzip via `flate2`, POSIX `stat`/calendar-time Lua bindings, and `--writable` support defaulting to `$TMPDIR/zapret-rs` or `/tmp/zapret-rs` (`Task 4.2`), and end-to-end verification across unmodified `zapret2/lua/*.lua` suites (`Task 4.3`). Milestone 5 covers the `ip2net` and `mdig` companion binaries and release preparation.
 
 ## Architecture Decisions
 
@@ -17,7 +17,9 @@ Milestone 3 turns `nfqws2` into a full stateful DPI desync engine in four vertic
   - `src/lua/`: add `ctrack_encode.rs` and `protocol_api.rs` while keeping `desync_api.rs` and `desync_encode.rs` concise.
   - `src/config/`: split `schema.rs` by moving profile/autohostlist TOML schemas into `profile_schema.rs` and extracting `ConntrackConfig`/`IpCacheConfig`/`AutoHostlistConfig` into `runtime_cfg.rs`.
   - `src/desync/`: split `engine.rs` by delegating TCP/UDP stateful probing, reassembly, and replay into `tcp_udp.rs` and ICMP/raw-IP into `icmp_ip.rs`.
-- **Surgical implementation discipline:** Persist symbol coordinates and ABI invariants in `scratch/m3_context.md`, locate targets via search, and use bounded `StartLine`/`EndLine` reads immediately before edits.
+- **Large subsystems & file limits:** Pre-split `profile_schema.rs`, `runtime_cfg.rs`, `desync/tcp_udp.rs`, and `desync/icmp_ip.rs` ahead of Milestone 3 feature additions, running `repo_hygiene` on every slice.
+- **Milestone 4 pure-Rust crypto & DRY deduplication (`src/crypto/`):** Implement `src/crypto/{error.rs,sha2.rs,aes.rs,aes_gcm.rs,mod.rs}` with FIPS 180-4 SHA-224/SHA-256, RFC 2104 HMAC, RFC 5869 HKDF, FIPS-197 AES-128/192/256 ECB/CTR, and NIST SP 800-38D AES-GCM supporting arbitrary non-empty IV lengths and unconditional `(out, tag16)` return on decrypt (since `ring` lacks AES-192, restricts GCM IVs to 12 bytes, and rejects mismatched decrypt tags), requiring zero new Cargo crates while deduplicating `src/protocol/aes_block.rs` into `src/crypto/aes.rs`.
+- **Milestone 4 streaming compression, `stat`/time, and `--writable`:** Implement `src/lua/gzip_stream.rs` and `src/lua/gzip_api.rs` over `flate2` `rust_backend` (`Compress`, `Decompress`, `Crc`) with an RFC 1952 streaming header/trailer state machine covering raw deflate (`-15..=-8`), zlib (`8..=15`), gzip (`24..=31`), and auto-detect (`40..=47`). Implement `src/lua/fs_time_api.rs` via `libc::lstat`, `localtime_r`, `gmtime_r`, `mktime`, and `timegm`. Implement `--writable[=DIR]` and TOML `writable` in `src/runtime/writable.rs` defaulting to `$TMPDIR/zapret-rs` (falling back to `/tmp/zapret-rs`) and exporting `WRITABLE`.
 - **Multi-binary crate layout & repository hygiene gates:** Keep `src/bin/nfqws2.rs` alongside shared library modules so Milestone 5 can add `src/bin/ip2net.rs` and `src/bin/mdig.rs`. Every task must pass `cargo clippy --all-targets --offline -- -D warnings` and `cargo nextest run --offline --show-progress none --no-pager` (including `tests/repo_hygiene.rs` checks), using `thiserror` and atomic commits.
 
 ## Dependency Graph
@@ -72,8 +74,13 @@ Tasks and detailed acceptance criteria are tracked in [todo.md](file:///home/mor
 - [x] Task 3.4: Config split, CLI options, full `DesyncEngine` wiring, `SIGHUP` reload, and E2E tests
 - [x] Checkpoint 3B: Milestone 3 Complete
 
+### Milestone 4: Full Lua API Parity & zapret2 Script Verification
+- [ ] Task 4.1: Implement pure-Rust `src/crypto/` (SHA-224/256, HKDF, AES-128/192/256 ECB/CTR/GCM), deduplicate `aes_block.rs`, and wire Lua crypto bindings
+- [ ] Task 4.2: Implement streaming gzip/gunzip over `flate2`, `stat`/calendar-time Lua bindings, and `--writable` (`$TMPDIR/zapret-rs` or `/tmp/zapret-rs` default)
+- [ ] Task 4.3: Add end-to-end verification across unmodified `zapret2/lua/{zapret-tests,zapret-antidpi,zapret-auto,zapret-obfs,zapret-pcap}.lua` and harden parity edge cases
+- [ ] Checkpoint 4: Milestone 4 Complete
+
 ### Future Milestones (High-Level Roadmap)
-- **Milestone 4 (Full Lua API Parity):** Lua bindings for crypto (`hash`, `aes`, `aes_gcm`, `aes_ctr`, `hkdf`, `bcryptorandom`), streaming gzip/gunzip via `flate2`, `stat`/time helpers (`localtime`, `gmtime`, `timelocal`, `timegm`), `--writable`, and full verification against `zapret-antidpi.lua`, `zapret-auto.lua`, and `zapret-obfs.lua`.
 - **Milestone 5 (Companion Binaries & Release):** Port `src/bin/ip2net.rs` and `src/bin/mdig.rs`, add `CHANGELOG.md`, and prepare semantic version release tags.
 
 ## Risks and Mitigations
