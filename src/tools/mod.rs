@@ -10,6 +10,12 @@ pub mod mdig_dns;
 pub mod mdig_resolver;
 /// Strategy candidate catalog ported from `zapret2/blockcheck2.d/standard/*.sh`.
 pub mod strat_catalog;
+/// Temporary `nftables` NFQUEUE rule management with RAII teardown (`zapret_strat_finder`).
+pub mod strat_nft;
+/// HTTP/TLS/QUIC connectivity probe backends (`curl` + mockable trait).
+pub mod strat_probe;
+/// In-process NFQUEUE desync worker thread and multi-domain strategy scan orchestrator.
+pub mod strat_runner;
 /// Strategy ranking, minimal cross-domain set cover, and `nfqws2.toml` serialization.
 pub mod strat_toml;
 
@@ -33,6 +39,20 @@ pub use mdig_dns::{
 pub use mdig_resolver::{MdigOutputs, run_mdig_resolver};
 /// Public API re-exports for `strat_finder` strategy catalog expansion.
 pub use strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
+/// Public API re-exports for `strat_finder` temporary `nftables` firewall management.
+pub use strat_nft::{
+    FirewallBackend, FirewallHandle, NftFirewallBackend, NftQueueGuard, STRAT_FINDER_NFT_TABLE,
+};
+/// Public API re-exports for `strat_finder` connectivity probes and outcome classification.
+pub use strat_probe::{
+    CurlProbeBackend, ProbeBackend, ProbeOutcome, ProbeRequest, classify_curl_output,
+    is_spoof_redirect,
+};
+/// Public API re-exports for `strat_finder` NFQUEUE worker and multi-domain scan orchestration.
+pub use strat_runner::{
+    InProcessWorkerHandle, ProgressEvent, ScanConfig, ScanReport, StrategyApplier,
+    TargetScanResult, run_scan,
+};
 /// Public API re-exports for `strat_finder` ranking, set cover, and TOML rendering.
 pub use strat_toml::{
     CoveredProfile, DomainStrategies, StrategyMatch, TomlRenderOptions, rank_matches,
