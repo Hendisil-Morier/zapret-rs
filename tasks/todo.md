@@ -404,23 +404,24 @@ Target verification commands used across tasks:
 
 ## Task 5.2: Implement `mdig` DNS/resolver library and CLI binary (`src/bin/mdig.rs`)
 
-**Description:** Create `src/tools/{mdig_dns.rs,mdig_resolver.rs}` and `src/bin/mdig.rs` with a `[[bin]]` entry in `Cargo.toml`, sharing RFC 1035 DNS name-skipping helpers with `src/desync/dns_cache.rs`. Implement full CLI and exit-code parity (`--family`, `--threads`, `--eagain`, `--eagain-delay`, `--verbose`, `--stats`, `--log-resolved`, `--log-failed`, `--dns-make-query`, `--dns-parse-query`) over an injectable `DnsResolver` trait backed by `libc::getaddrinfo` in production. Verify offline in `tests/mdig_cli.rs`.
+**Description:** Create `src/tools/{mdig_backend.rs,mdig_dns.rs,mdig_resolver.rs}` and `src/bin/mdig.rs` with a `[[bin]]` entry in `Cargo.toml`, sharing RFC 1035 DNS name-skipping and `A`/`AAAA` record decoding helpers in `src/protocol/datagram.rs` with `src/desync/dns_cache.rs`. Implement full CLI and exit-code parity (`--family`, `--threads`, `--eagain`, `--eagain-delay`, `--verbose`, `--stats`, `--log-resolved`, `--log-failed`, `--dns-make-query`, `--dns-parse-query`) over an injectable `DnsResolver` trait backed by `libc::getaddrinfo` in production. Verify offline in `tests/mdig_cli.rs`.
 
 **Acceptance criteria:**
-- [ ] `--dns-make-query` and `--dns-parse-query` encode/decode RFC 1035 binary DNS packets and compressed answers matching `mdig.c` exit codes (`1`, `10`, `11`).
-- [ ] Multi-threaded resolution supports `--family`, `--threads=1..=100`, `--eagain` retry delays, transparent IP/CIDR filtering, `--stats=N`, `--verbose`, and `--log-resolved` / `--log-failed` (exit `5` on creation error).
-- [ ] `tests/mdig_cli.rs` verifies all modes deterministically offline via `DnsResolver` mocks and subprocess runs.
+- [x] `--dns-make-query` and `--dns-parse-query` encode/decode RFC 1035 binary DNS packets and compressed answers matching `mdig.c` exit codes (`1`, `10`, `11`).
+- [x] Multi-threaded resolution supports `--family`, `--threads=1..=100`, `--eagain` retry delays, transparent IP/CIDR filtering, `--stats=N`, `--verbose`, and `--log-resolved` / `--log-failed` (exit `5` on creation error).
+- [x] `tests/mdig_cli.rs` verifies all modes deterministically offline via `DnsResolver` mocks and subprocess runs.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
 
 **Dependencies:** Task 5.1
 
 **Files likely touched:**
 - `Cargo.toml`
+- `src/protocol/{mod.rs,datagram.rs}`
 - `src/desync/dns_cache.rs`
-- `src/tools/{mod.rs,mdig_dns.rs,mdig_resolver.rs}`
+- `src/tools/{mod.rs,mdig_backend.rs,mdig_dns.rs,mdig_resolver.rs}`
 - `src/bin/mdig.rs`
 - `tests/mdig_cli.rs`
 

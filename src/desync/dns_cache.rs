@@ -2,11 +2,11 @@
 
 /// Interior mutability for updating `IpCache` without holding long-lived borrows.
 use std::cell::RefCell;
-/// IPv4 and IPv6 address containers populated from DNS answer RRs.
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// Global time-expiring IP-to-hostname cache (`ip_cache`).
 use crate::lists::IpCache;
+/// Shared RFC 1035 DNS name-skipping and IN `A`/`AAAA` record decoding helpers.
+use crate::protocol::{dns_parse_in_ip_rr, dns_skip_name};
 
 /// Extracts one uncompressed or single-pointer lowercase DNS QNAME (`dns_extract_name`).
 fn dns_extract_qname<'a>(packet: &'a [u8], cursor: &'a [u8]) -> Option<(String, &'a [u8])> {
@@ -43,21 +43,6 @@ fn dns_extract_qname<'a>(packet: &'a [u8], cursor: &'a [u8]) -> Option<(String, 
         labels = &labels[1 + label_len..];
     }
     None
-}
-
-/// Advances `cursor` past a possibly compressed DNS domain name (`dns_skip_name`).
-fn dns_skip_name(mut cursor: &[u8]) -> Option<&[u8]> {
-    loop {
-        let first = *cursor.first()?;
-        if (first & 0xC0) == 0xC0 {
-            return cursor.get(2..);
-        }
-        if first == 0 {
-            return Some(&cursor[1..]);
-        }
-        let label_len = usize::from(first);
-        cursor = cursor.get(1 + label_len..)?;
-    }
 }
 
 /// Parses a DNS IN A/AAAA response packet and records `hostname -> IP` entries in `ipcache`.
@@ -102,42 +87,13 @@ pub(crate) fn feed_dns_response(payload: &[u8], ipcache: &RefCell<IpCache>, now_
         let Some(rr) = dns_skip_name(cursor) else {
             return false;
         };
-        if rr.len() < 10 {
-            return false;
-        }
-        let rtype = u16::from_be_bytes([rr[0], rr[1]]);
-        let dlen = usize::from(u16::from_be_bytes([rr[8], rr[9]]));
-        let Some(rdata_and_rest) = rr.get(10..) else {
+        let Some((ip_opt, rest)) = dns_parse_in_ip_rr(rr) else {
             return false;
         };
-        if rdata_and_rest.len() < dlen {
-            return false;
+        if let Some(ip) = ip_opt {
+            cache.put_hostname(ip, &query_name, false, now_sec);
         }
-        if rr[2] == 0 && rr[3] == 1 {
-            match rtype {
-                1 if dlen == 4 => {
-                    let ip = IpAddr::V4(Ipv4Addr::new(
-                        rdata_and_rest[0],
-                        rdata_and_rest[1],
-                        rdata_and_rest[2],
-                        rdata_and_rest[3],
-                    ));
-                    cache.put_hostname(ip, &query_name, false, now_sec);
-                }
-                28 if dlen == 16 => {
-                    let mut octets = [0u8; 16];
-                    octets.copy_from_slice(&rdata_and_rest[..16]);
-                    cache.put_hostname(
-                        IpAddr::V6(Ipv6Addr::from(octets)),
-                        &query_name,
-                        false,
-                        now_sec,
-                    );
-                }
-                _ => {}
-            }
-        }
-        cursor = &rdata_and_rest[dlen..];
+        cursor = rest;
     }
     true
 }

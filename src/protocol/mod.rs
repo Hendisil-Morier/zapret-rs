@@ -19,11 +19,12 @@ pub mod tls_mod;
 
 pub use aes_block::{aes256_encrypt_block, ctr_add};
 pub use datagram::{
-    is_bt_handshake, is_dht, is_discord_ip_discovery_request, is_dns_query, is_dns_response,
-    is_dtls, is_dtls_client_hello, is_dtls_server_hello, is_mtproto, is_stun_message,
-    is_utp_bt_handshake, is_wireguard_data, is_wireguard_handshake_cookie,
-    is_wireguard_handshake_initiation, is_wireguard_handshake_response, is_wireguard_keepalive,
-    is_xmpp_features, is_xmpp_proceed_tls, is_xmpp_starttls, is_xmpp_stream,
+    dns_parse_in_ip_rr, dns_skip_name, is_bt_handshake, is_dht, is_discord_ip_discovery_request,
+    is_dns_query, is_dns_response, is_dtls, is_dtls_client_hello, is_dtls_server_hello,
+    is_mtproto, is_stun_message, is_utp_bt_handshake, is_wireguard_data,
+    is_wireguard_handshake_cookie, is_wireguard_handshake_initiation,
+    is_wireguard_handshake_response, is_wireguard_keepalive, is_xmpp_features,
+    is_xmpp_proceed_tls, is_xmpp_starttls, is_xmpp_stream,
 };
 pub use http::{
     find_host_header_offset, find_nld, http_extract_header, http_extract_host, http_pos,

@@ -1,5 +1,8 @@
 //! Stateless L7 payload probes for XMPP, DNS, WireGuard, DHT, Discord, STUN, MTProto, DTLS, and BT.
 
+/// IPv4 and IPv6 address containers decoded from DNS resource records.
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 /// AES-256 single-block cipher and counter increment used by the `IsMTProto` probe.
 use crate::protocol::aes_block::{aes256_encrypt_block, ctr_add};
 
@@ -48,6 +51,55 @@ pub fn is_dns_response(data: &[u8]) -> bool {
         && u16::from_be_bytes([data[6], data[7]]) <= 100
         && u16::from_be_bytes([data[8], data[9]]) <= 100
         && u16::from_be_bytes([data[10], data[11]]) <= 100
+}
+
+/// Advances `cursor` past an RFC 1035 DNS name (uncompressed labels or trailing `0xC0` pointer).
+pub fn dns_skip_name(mut cursor: &[u8]) -> Option<&[u8]> {
+    loop {
+        let first = *cursor.first()?;
+        if (first & 0xC0) == 0xC0 {
+            return cursor.get(2..);
+        }
+        if (first & 0xC0) != 0 {
+            return None;
+        }
+        if first == 0 {
+            return Some(&cursor[1..]);
+        }
+        let label_len = usize::from(first);
+        cursor = cursor.get(1 + label_len..)?;
+    }
+}
+
+/// Decodes one DNS resource record starting at `TYPE`, returning `IN` `A`/`AAAA` IPs and the tail.
+pub fn dns_parse_in_ip_rr(rr: &[u8]) -> Option<(Option<IpAddr>, &[u8])> {
+    if rr.len() < 10 {
+        return None;
+    }
+    let rtype = u16::from_be_bytes([rr[0], rr[1]]);
+    let rclass = u16::from_be_bytes([rr[2], rr[3]]);
+    let dlen = usize::from(u16::from_be_bytes([rr[8], rr[9]]));
+    let rdata_and_rest = rr.get(10..)?;
+    if rdata_and_rest.len() < dlen {
+        return None;
+    }
+    let rdata = &rdata_and_rest[..dlen];
+    let ip = if rclass == 1 {
+        match rtype {
+            1 if dlen == 4 => Some(IpAddr::V4(Ipv4Addr::new(
+                rdata[0], rdata[1], rdata[2], rdata[3],
+            ))),
+            28 if dlen == 16 => {
+                let mut octets = [0u8; 16];
+                octets.copy_from_slice(rdata);
+                Some(IpAddr::V6(Ipv6Addr::from(octets)))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    Some((ip, &rdata_and_rest[dlen..]))
 }
 
 /// Returns `true` for 148-byte WireGuard Handshake Initiation packets (`IsWireguardHandshakeInitiation`).
