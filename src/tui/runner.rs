@@ -24,8 +24,11 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 /// Privilege checks and automatic `sudo` UID drop at TUI startup.
 use crate::runtime::{CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps};
-/// Symlink-safe TOML writer and `~/` path expansion.
-use crate::tools::{expand_tilde, write_config_nofollow};
+/// Symlink-safe TOML writer, `~/` expansion, and non-interactive/interactive `nftables` helpers.
+use crate::tools::{
+    FirewallBackend, FirewallHandle, NftFirewallBackend, expand_tilde, sudo_needs_password,
+    write_config_nofollow,
+};
 /// Pure TUI frame renderer.
 use crate::tui::render::draw_app;
 /// Mutable TUI application state.
@@ -33,9 +36,7 @@ use crate::tui::state::AppState;
 /// Navigation, action, and worker event enums.
 use crate::tui::types::{AppAction, FinderStatus, RunStatus, ScanUiEvent};
 /// Background scan and live daemon worker lifecycle helpers.
-use crate::tui::workers::{
-    ActiveDaemon, ActiveScan, install_default_nft, start_finder_scan, start_live_daemon,
-};
+use crate::tui::workers::{ActiveDaemon, ActiveScan, start_finder_scan, start_live_daemon};
 
 /// UI refresh / input poll cadence keeping live gauges and packet counters responsive.
 const UI_TICK: Duration = Duration::from_millis(60);
@@ -94,6 +95,34 @@ impl Drop for TerminalSession {
     }
 }
 
+/// Installs temporary `nftables` rules without flashing the alternate screen unless `sudo`
+/// genuinely requires an interactive password prompt.
+fn install_nft_tui(
+    session: &mut TerminalSession,
+    qnum: u16,
+    fwmark: u32,
+    tcp_ports: &[u16],
+    udp_ports: &[u16],
+) -> io::Result<Box<dyn FirewallHandle>> {
+    let nft = NftFirewallBackend::default();
+    match nft.install_non_interactive(qnum, fwmark, tcp_ports, udp_ports) {
+        Ok(guard) => Ok(guard),
+        Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
+            session.suspend_for(|| nft.install(qnum, fwmark, tcp_ports, udp_ports))
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// Tears down a firewall guard silently unless `sudo` requires a fresh interactive password prompt.
+fn drop_fw_tui(session: &mut TerminalSession, guard: Box<dyn FirewallHandle>) {
+    if guard.needs_interactive_drop() {
+        session.suspend_for(move || drop(guard));
+    } else {
+        drop(guard);
+    }
+}
+
 /// Runs the interactive `ratatui` TUI event loop until the user quits cleanly.
 pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let _ = drop_sudo_root_if_needed();
@@ -115,7 +144,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 state.apply_scan_event(ev);
             }
             if finished && let Some(mut done_scan) = active_scan.take() {
-                done_scan.shutdown(|g| session.suspend_for(move || drop(g)));
+                done_scan.shutdown(|g| drop_fw_tui(&mut session, g));
             }
         }
 
@@ -136,7 +165,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                         state.status_banner = "Stop live nfqws2 on Tab 2 before scanning.".to_owned();
                     } else if active_scan.is_none() {
                         match start_finder_scan(&mut state, |q, m, tcp, udp| {
-                            session.suspend_for(|| install_default_nft(q, m, tcp, udp))
+                            install_nft_tui(&mut session, q, m, tcp, udp)
                         }) {
                             Ok(scan) => active_scan = Some(scan),
                             Err(err) => state.apply_scan_event(ScanUiEvent::Failed(err)),
@@ -145,7 +174,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 }
                 AppAction::StopScan => {
                     if let Some(mut scan) = active_scan.take() {
-                        scan.shutdown(|g| session.suspend_for(move || drop(g)));
+                        scan.shutdown(|g| drop_fw_tui(&mut session, g));
                         state.finder_status = FinderStatus::Done;
                         state.status_banner = "Scan stopped cleanly.".to_owned();
                     }
@@ -180,7 +209,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                         state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
                     } else if active_daemon.is_none() {
                         match start_live_daemon(&mut state, |q, m, tcp, udp| {
-                            session.suspend_for(|| install_default_nft(q, m, tcp, udp))
+                            install_nft_tui(&mut session, q, m, tcp, udp)
                         }) {
                             Ok(daemon) => active_daemon = Some(daemon),
                             Err(err) => {
@@ -193,7 +222,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 }
                 AppAction::StopDaemon => {
                     if let Some(mut daemon) = active_daemon.take() {
-                        daemon.shutdown(|g| session.suspend_for(move || drop(g)));
+                        daemon.shutdown(|g| drop_fw_tui(&mut session, g));
                         state.run_status = RunStatus::Stopped;
                         state.push_run_log("[stop] nfqws2 stopped and temporary nftables cleaned up.");
                         state.status_banner = "nfqws2 stopped cleanly.".to_owned();
@@ -201,12 +230,21 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 }
                 AppAction::GrantCaps => {
                     let exe = state.exe_path.clone();
-                    let status = session.suspend_for(|| {
-                        eprintln!("[caps] granting CAP_NET_ADMIN,CAP_NET_RAW to {exe} via sudo setcap");
+                    let status = if sudo_needs_password() {
+                        session.suspend_for(|| {
+                            eprintln!("[caps] granting CAP_NET_ADMIN,CAP_NET_RAW to {exe} via sudo setcap");
+                            Command::new("sudo")
+                                .args(["--", "setcap", "cap_net_admin,cap_net_raw+ep", &exe])
+                                .status()
+                        })
+                    } else {
                         Command::new("sudo")
-                            .args(["--", "setcap", "cap_net_admin,cap_net_raw+ep", &exe])
+                            .args(["-n", "--", "setcap", "cap_net_admin,cap_net_raw+ep", &exe])
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
                             .status()
-                    });
+                    };
                     match status {
                         Ok(s) if s.success() => {
                             reexec_after_exit = true;
@@ -225,10 +263,10 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     }
 
     if let Some(mut scan) = active_scan.take() {
-        scan.shutdown(|g| session.suspend_for(move || drop(g)));
+        scan.shutdown(|g| drop_fw_tui(&mut session, g));
     }
     if let Some(mut daemon) = active_daemon.take() {
-        daemon.shutdown(|g| session.suspend_for(move || drop(g)));
+        daemon.shutdown(|g| drop_fw_tui(&mut session, g));
     }
     drop(session);
 

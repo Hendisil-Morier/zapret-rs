@@ -13,7 +13,12 @@ use std::process::{Command, Stdio};
 pub const STRAT_FINDER_NFT_TABLE: &str = "zapret_strat_finder";
 
 /// Opaque RAII handle representing installed temporary firewall rules cleaned up on drop.
-pub trait FirewallHandle: Send {}
+pub trait FirewallHandle: Send {
+    /// Returns `true` if tearing down this guard is likely to trigger an interactive `sudo` prompt.
+    fn needs_interactive_drop(&self) -> bool {
+        false
+    }
+}
 
 /// Injectable firewall rule backend allowing live `nftables` setup and offline mock tests.
 pub trait FirewallBackend {
@@ -40,20 +45,48 @@ pub fn build_nft_cleanup_cmd() -> String {
     format!("nft delete table inet {STRAT_FINDER_NFT_TABLE}")
 }
 
-/// Builds a `Command` invoking `nft_bin` directly or wrapped in `sudo -- <nft_bin>`.
-fn build_nft_command(nft_bin: &Path, use_sudo: bool) -> Command {
-    if use_sudo {
-        let mut cmd = Command::new("sudo");
-        cmd.arg("--").arg(nft_bin);
-        cmd
-    } else {
-        Command::new(nft_bin)
+/// Returns `true` if invoking `sudo` currently requires an interactive password prompt.
+pub fn sudo_needs_password() -> bool {
+    !Command::new("sudo")
+        .args(["-n", "true"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Elevation mode used when spawning `nft`.
+#[derive(Clone, Copy)]
+enum SudoMode {
+    /// Invoke `nft` directly without `sudo`.
+    None,
+    /// Invoke `sudo -n -- nft` (fails immediately instead of prompting on `/dev/tty`).
+    NonInteractive,
+    /// Invoke `sudo -- nft` (may prompt for a password on `/dev/tty`).
+    Interactive,
+}
+
+/// Builds a `Command` invoking `nft_bin` directly or via `sudo` according to `mode`.
+fn build_nft_command(nft_bin: &Path, mode: SudoMode) -> Command {
+    match mode {
+        SudoMode::None => Command::new(nft_bin),
+        SudoMode::NonInteractive => {
+            let mut cmd = Command::new("sudo");
+            cmd.args(["-n", "--"]).arg(nft_bin);
+            cmd
+        }
+        SudoMode::Interactive => {
+            let mut cmd = Command::new("sudo");
+            cmd.arg("--").arg(nft_bin);
+            cmd
+        }
     }
 }
 
 /// Runs `nft -f -` feeding `script` on stdin and returning `Ok(())` or the captured stderr text.
-fn run_nft_script(nft_bin: &Path, use_sudo: bool, script: &str) -> Result<(), (io::ErrorKind, String)> {
-    let mut child = build_nft_command(nft_bin, use_sudo)
+fn run_nft_script(nft_bin: &Path, mode: SudoMode, script: &str) -> Result<(), (io::ErrorKind, String)> {
+    let mut child = build_nft_command(nft_bin, mode)
         .args(["-f", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -78,9 +111,10 @@ fn run_nft_script(nft_bin: &Path, use_sudo: bool, script: &str) -> Result<(), (i
 }
 
 /// Best-effort deletion of `table inet <table_name>` using direct or `sudo`-elevated `nft`.
-fn delete_nft_table_best_effort(nft_bin: &Path, table_name: &str, use_sudo: bool) {
-    let _ = build_nft_command(nft_bin, use_sudo)
+fn delete_nft_table_best_effort(nft_bin: &Path, table_name: &str, mode: SudoMode) {
+    let _ = build_nft_command(nft_bin, mode)
         .args(["delete", "table", "inet", table_name])
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
@@ -96,12 +130,26 @@ pub struct NftQueueGuard {
     used_sudo: bool,
 }
 
-impl FirewallHandle for NftQueueGuard {}
+impl FirewallHandle for NftQueueGuard {
+    /// Returns `true` only when `sudo` teardown would require a fresh interactive password prompt.
+    fn needs_interactive_drop(&self) -> bool {
+        self.used_sudo && sudo_needs_password()
+    }
+}
 
 impl Drop for NftQueueGuard {
-    /// Deletes the temporary `nftables` table on exit (best-effort, ignoring already-deleted errors).
+    /// Deletes the temporary `nftables` table on exit (tries non-interactive `sudo -n` first).
     fn drop(&mut self) {
-        delete_nft_table_best_effort(&self.nft_bin, &self.table_name, self.used_sudo);
+        if !self.used_sudo {
+            delete_nft_table_best_effort(&self.nft_bin, &self.table_name, SudoMode::None);
+            return;
+        }
+        let mode = if sudo_needs_password() {
+            SudoMode::Interactive
+        } else {
+            SudoMode::NonInteractive
+        };
+        delete_nft_table_best_effort(&self.nft_bin, &self.table_name, mode);
     }
 }
 
@@ -155,11 +203,12 @@ impl NftFirewallBackend {
         script.push_str("}\n");
         script
     }
-}
-
-impl FirewallBackend for NftFirewallBackend {
-    /// Installs fresh `bypass` queue rules, elevating only `nft` via `sudo` when run as a non-root user.
-    fn install(
+    /// Tries to install `nftables` rules silently (direct `nft`, then non-interactive `sudo -n`).
+    ///
+    /// Returns `Err(PermissionDenied)` without touching `/dev/tty` when an interactive `sudo`
+    /// password prompt is required, allowing TUI callers to suspend the alternate screen only
+    /// when a prompt is genuinely needed.
+    pub fn install_non_interactive(
         &self,
         qnum: u16,
         fwmark: u32,
@@ -167,24 +216,24 @@ impl FirewallBackend for NftFirewallBackend {
         udp_ports: &[u16],
     ) -> io::Result<Box<dyn FirewallHandle>> {
         let script = Self::build_nft_script(qnum, fwmark, tcp_ports, udp_ports);
-        delete_nft_table_best_effort(&self.nft_bin, STRAT_FINDER_NFT_TABLE, false);
+        delete_nft_table_best_effort(&self.nft_bin, STRAT_FINDER_NFT_TABLE, SudoMode::None);
 
-        match run_nft_script(&self.nft_bin, false, &script) {
+        match run_nft_script(&self.nft_bin, SudoMode::None, &script) {
             Ok(()) => Ok(Box::new(NftQueueGuard {
                 nft_bin: self.nft_bin.clone(),
                 table_name: STRAT_FINDER_NFT_TABLE.to_owned(),
                 used_sudo: false,
             })),
             Err((_, ref stderr)) if is_nft_perm_denied(stderr) && unsafe { libc::geteuid() } != 0 => {
-                eprintln!(
-                    "[nft] elevating only `nft` via sudo to install temporary table inet {STRAT_FINDER_NFT_TABLE}"
-                );
-                delete_nft_table_best_effort(&self.nft_bin, STRAT_FINDER_NFT_TABLE, true);
-                run_nft_script(&self.nft_bin, true, &script).map_err(|(kind, msg)| {
-                    io::Error::new(
-                        kind,
-                        format!("sudo nft rule installation failed (or pass --no-nft): {msg}"),
-                    )
+                if sudo_needs_password() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "sudo password required for nft",
+                    ));
+                }
+                delete_nft_table_best_effort(&self.nft_bin, STRAT_FINDER_NFT_TABLE, SudoMode::NonInteractive);
+                run_nft_script(&self.nft_bin, SudoMode::NonInteractive, &script).map_err(|(kind, msg)| {
+                    io::Error::new(kind, format!("sudo nft rule installation failed (or pass --no-nft): {msg}"))
                 })?;
                 Ok(Box::new(NftQueueGuard {
                     nft_bin: self.nft_bin.clone(),
@@ -196,6 +245,40 @@ impl FirewallBackend for NftFirewallBackend {
                 kind,
                 format!("nft rule installation failed (or pass --no-nft): {msg}"),
             )),
+        }
+    }
+}
+
+impl FirewallBackend for NftFirewallBackend {
+    /// Installs fresh `bypass` queue rules, elevating only `nft` via `sudo` when run as a non-root user.
+    fn install(
+        &self,
+        qnum: u16,
+        fwmark: u32,
+        tcp_ports: &[u16],
+        udp_ports: &[u16],
+    ) -> io::Result<Box<dyn FirewallHandle>> {
+        match self.install_non_interactive(qnum, fwmark, tcp_ports, udp_ports) {
+            Ok(guard) => Ok(guard),
+            Err(err) if err.kind() == io::ErrorKind::PermissionDenied && unsafe { libc::geteuid() } != 0 => {
+                let script = Self::build_nft_script(qnum, fwmark, tcp_ports, udp_ports);
+                eprintln!(
+                    "[nft] elevating only `nft` via sudo to install temporary table inet {STRAT_FINDER_NFT_TABLE}"
+                );
+                delete_nft_table_best_effort(&self.nft_bin, STRAT_FINDER_NFT_TABLE, SudoMode::Interactive);
+                run_nft_script(&self.nft_bin, SudoMode::Interactive, &script).map_err(|(kind, msg)| {
+                    io::Error::new(
+                        kind,
+                        format!("sudo nft rule installation failed (or pass --no-nft): {msg}"),
+                    )
+                })?;
+                Ok(Box::new(NftQueueGuard {
+                    nft_bin: self.nft_bin.clone(),
+                    table_name: STRAT_FINDER_NFT_TABLE.to_owned(),
+                    used_sudo: true,
+                }))
+            }
+            Err(err) => Err(err),
         }
     }
 }

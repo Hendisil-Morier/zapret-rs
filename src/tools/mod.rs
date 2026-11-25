@@ -56,7 +56,7 @@ pub use strat_interactive::{
 /// Public API re-exports for `strat_finder` temporary `nftables` firewall management.
 pub use strat_nft::{
     FirewallBackend, FirewallHandle, NftFirewallBackend, NftQueueGuard, STRAT_FINDER_NFT_TABLE,
-    build_nft_cleanup_cmd, is_nft_perm_denied,
+    build_nft_cleanup_cmd, is_nft_perm_denied, sudo_needs_password,
 };
 /// Public API re-exports for `strat_finder` connectivity probes and outcome classification.
 pub use strat_probe::{

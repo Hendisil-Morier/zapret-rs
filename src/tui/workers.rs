@@ -23,8 +23,8 @@ use crate::desync::DesyncEngine;
 use crate::intercepter::{Decision, QueueCatcher};
 /// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
 use crate::tools::{
-    CurlProbeBackend, FirewallBackend, FirewallHandle, InProcessWorkerHandle, NftFirewallBackend,
-    ProgressEvent, TomlRenderOptions, render_nfqws2_toml, resolve_lua_scripts, run_scan,
+    CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, TomlRenderOptions,
+    render_nfqws2_toml, resolve_lua_scripts, run_scan,
 };
 /// Application state read/updated when spawning workers.
 use crate::tui::state::AppState;
@@ -271,14 +271,4 @@ where
     ));
     state.status_banner = "nfqws2 is running. Press 'r' or 'x' to stop.".to_owned();
     Ok(ActiveDaemon { stop, join: Some(join), fw_guard })
-}
-
-/// Installs temporary `nftables` queue rules using [`NftFirewallBackend::default`].
-pub(crate) fn install_default_nft(
-    qnum: u16,
-    fwmark: u32,
-    tcp_ports: &[u16],
-    udp_ports: &[u16],
-) -> std::io::Result<Box<dyn FirewallHandle>> {
-    NftFirewallBackend::default().install(qnum, fwmark, tcp_ports, udp_ports)
 }
