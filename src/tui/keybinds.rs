@@ -104,17 +104,17 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
         ActiveTab::Run => {
             let run_rows: [&'static str; 2] = if state.run_status == RunStatus::Attached {
                 [
-                    "[x] Detach  [S] Stop Daemon  [l] Reload Lists  [f] Filter  [p] Pause  [d] Detail",
+                    "[x] Detach  [S] Stop Daemon  [l] Reload Lists  [f] Verdict  [/] Search  [p] Pause  [d] Detail",
                     "[Up/Down/PgUp/PgDn] Select Packet / Scroll Log  [c] Clear  [Esc/Enter] Close Detail",
                 ]
             } else if state.detected_socket.is_some() && state.run_status != RunStatus::Running {
                 [
-                    "[r] Attach  [f] Filter  [p] Pause  [d] Detail  [c] Clear  [l] Reload Config",
+                    "[r] Attach  [f] Verdict  [/] Search  [p] Pause  [d] Detail  [c] Clear  [l] Reload Config",
                     "[Up/Down/PgUp/PgDn] Select Packet / Scroll Daemon Log  [Esc/Enter] Close Detail",
                 ]
             } else {
                 [
-                    "[r] Start/Stop  [f] Filter  [p] Pause  [d] Detail  [c] Clear  [l] Reload Config",
+                    "[r] Start/Stop  [f] Verdict  [/] Search  [p] Pause  [d] Detail  [c] Clear  [l] Reload Config",
                     "[Up/Down/PgUp/PgDn] Select Packet / Scroll Daemon Log  [Esc/Enter] Close Detail",
                 ]
             };

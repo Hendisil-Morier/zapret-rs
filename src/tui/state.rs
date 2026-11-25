@@ -335,10 +335,7 @@ impl AppState {
             return AppAction::Quit;
         }
         if self.help_open {
-            if matches!(
-                key.code,
-                KeyCode::Esc | KeyCode::Char('?' | 'q') | KeyCode::Enter
-            ) {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?' | 'q') | KeyCode::Enter) {
                 self.help_open = false;
                 self.reset_finder_hover();
             }
@@ -346,6 +343,9 @@ impl AppState {
         }
         if self.editing_text {
             return self.handle_text_edit_key(key.code);
+        }
+        if self.inspector.filter_editing {
+            return self.handle_run_key(key.code);
         }
         if !self.inspector.detail_open && key.code == KeyCode::Char('?') {
             self.help_open = true;

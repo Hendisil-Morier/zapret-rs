@@ -123,3 +123,41 @@ fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter() {
     assert!(insp.filter_query.is_empty());
     assert_eq!(insp.visible_packets().len(), 2);
 }
+
+#[test]
+fn app_state_guards_global_keys_during_filter_editing_and_renders_query_in_title() {
+    use crossterm::event::{KeyEvent, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
+    use zapret_rs::tui::{AppAction, AppState, draw_app, types::ActiveTab};
+
+    let mut state = AppState::new(None, None, false);
+    state.tab = ActiveTab::Run;
+
+    // Enter `/` filter edit mode and type characters that collide with global bindings (`q`, `t`, `?`, `1`).
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
+        AppAction::None
+    );
+    assert!(state.inspector.filter_editing);
+    for ch in "qt?1".chars() {
+        assert_eq!(
+            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
+            AppAction::None
+        );
+    }
+    assert_eq!(state.tab, ActiveTab::Run);
+    assert!(!state.help_open);
+    assert_eq!(state.inspector.filter_query, "qt?1");
+
+    let backend = TestBackend::new(120, 32);
+    let mut term = Terminal::new(backend).expect("terminal");
+    term.draw(|f| draw_app(f, &state)).expect("draw");
+    let rendered: String = term
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect();
+    assert!(rendered.contains("/: qt?1_"), "expected active filter cursor in title");
+}

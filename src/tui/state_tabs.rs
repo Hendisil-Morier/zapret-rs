@@ -16,6 +16,7 @@ impl AppState {
     /// Handles start/attach, detach/stop, remote commands, log scroll, and inspector keys on Tab 2.
     pub(crate) fn handle_run_key(&mut self, code: KeyCode) -> AppAction {
         if !self.inspector.detail_open
+            && !self.inspector.filter_editing
             && self.focus.run == RunFocus::Log
             && adjust_log_scroll(&mut self.focus.run_log_scroll, self.run_logs.len(), code)
         {

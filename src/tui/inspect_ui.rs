@@ -139,15 +139,24 @@ pub fn draw_packet_inspector(
     } else {
         ("LIVE", theme.ok_bright, theme.frame)
     };
-    let title = Line::from(vec![
+    let mut title_spans = vec![
         Span::styled(" Packet Inspector [", Style::default().fg(theme.info).add_modifier(Modifier::BOLD)),
         Span::styled(state_tag, Style::default().fg(state_col).add_modifier(Modifier::BOLD)),
         Span::styled(" | filter: ", Style::default().fg(theme.subtle)),
         Span::styled(inspector.filter.label(), Style::default().fg(theme.special_bright).add_modifier(Modifier::BOLD)),
-        Span::styled(" | ", Style::default().fg(theme.subtle)),
-        Span::styled(format!("{} shown", visible.len()), Style::default().fg(theme.accent_bright)),
-        Span::styled("] ", Style::default().fg(theme.info).add_modifier(Modifier::BOLD)),
-    ]);
+    ];
+    if inspector.filter_editing || !inspector.filter_query.is_empty() {
+        let cursor = if inspector.filter_editing { "_" } else { "" };
+        title_spans.push(Span::styled(" | /: ", Style::default().fg(theme.subtle)));
+        title_spans.push(Span::styled(
+            format!("{}{cursor}", inspector.filter_query),
+            Style::default().fg(theme.warn_bright).add_modifier(Modifier::BOLD),
+        ));
+    }
+    title_spans.push(Span::styled(" | ", Style::default().fg(theme.subtle)));
+    title_spans.push(Span::styled(format!("{} shown", visible.len()), Style::default().fg(theme.accent_bright)));
+    title_spans.push(Span::styled("] ", Style::default().fg(theme.info).add_modifier(Modifier::BOLD)));
+    let title = Line::from(title_spans);
     let table = Table::new(rows, widths)
         .header(header)
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(border_col)).title(title));
