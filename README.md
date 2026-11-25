@@ -116,16 +116,16 @@ sudo setcap cap_net_admin,cap_net_raw+ep ./target/release/nfqws2
 # Preview the expanded strategy catalog offline (no capabilities required)
 ./target/release/nfqws2 --strat-finder --list-strategies --level quick --proto http,tls13,http3
 
-# Non-interactive scan writing a minimal nfqws2.toml in your home directory
+# Non-interactive scan writing a minimal nfqws2.toml in ~/.config/zapret-rs/
 ./target/release/nfqws2 --strat-finder \
   --domain blocked1.example,blocked2.example \
   --level quick \
   --stop-on-first \
-  --lua-dir ../zapret2/lua \
-  --write-config ~/nfqws2.toml
+  --lua-dir ./lua \
+  --write-config ~/.config/zapret-rs/nfqws2.toml
 
 # Run nfqws2 as your normal user with the generated config
-./target/release/nfqws2 --config ~/nfqws2.toml
+./target/release/nfqws2 --config ~/.config/zapret-rs/nfqws2.toml
 ```
 
 Every `curl` probe child clears all Linux capabilities and enables `PR_SET_NO_NEW_PRIVS` before `exec`, and `--write-config` refuses symlinks via `O_NOFOLLOW`. If invoked under `sudo`, `nfqws2 --strat-finder` automatically drops UID 0 back to `SUDO_UID`/`SUDO_GID` at startup.

@@ -121,17 +121,17 @@ fn candidate_lua_dirs(explicit_dir: Option<&Path>) -> Vec<PathBuf> {
     if let Some(dir) = explicit_dir {
         return vec![expand_tilde(&dir.to_string_lossy())];
     }
-    let mut dirs = vec![PathBuf::from("lua"), PathBuf::from("../zapret2/lua")];
+    let mut dirs = vec![PathBuf::from("lua")];
     if let Ok(exe) = std::env::current_exe()
         && let Some(parent) = exe.parent()
     {
         dirs.push(parent.join("lua"));
         if let Some(grand) = parent.parent().and_then(Path::parent) {
+            dirs.push(grand.join("lua"));
             dirs.push(grand.join("../zapret2/lua"));
         }
     }
-    dirs.push(PathBuf::from("/opt/zapret2/lua"));
-    dirs.push(PathBuf::from("/usr/share/zapret2/lua"));
+    dirs.extend(["../zapret2/lua", "/opt/zapret2/lua", "/usr/share/zapret2/lua"].map(PathBuf::from));
     dirs
 }
 
