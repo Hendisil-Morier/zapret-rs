@@ -5,6 +5,10 @@
 use std::cell::RefCell;
 /// Lookup table mapping `(domain, active_strategy_id)` to deterministic probe outcomes.
 use std::collections::HashMap;
+/// Filesystem helpers for temporary `--write-config` CLI tests.
+use std::fs;
+/// Subprocess execution for testing the compiled `strat_finder` CLI binary.
+use std::process::Command;
 /// Shared reference counting for coordinating mock state between applier and probe.
 use std::rc::Rc;
 /// Lock-free shutdown flag passed to [`run_scan`].
@@ -12,8 +16,8 @@ use std::sync::atomic::AtomicBool;
 /// Timeout durations configured on [`ScanConfig`].
 use std::time::Duration;
 
-/// Desync profile model received by [`StrategyApplier`].
-use zapret_rs::config::DesyncProfile;
+/// Application and desync profile models parsed from CLI-generated TOML.
+use zapret_rs::config::{AppConfig, DesyncProfile};
 /// Probe, firewall, runner, and catalog symbols under test.
 use zapret_rs::tools::{
     CurlProbeBackend, IpFamily, NftFirewallBackend, ProbeBackend, ProbeOutcome, ProbeProtocol,
@@ -246,4 +250,65 @@ fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt() {
         .expect("interrupted scan returns partial report");
     assert!(interrupted.interrupted);
     assert!(interrupted.targets.is_empty());
+}
+
+/// Verifies the compiled `strat_finder` CLI handles `--version`, `--help`, invalid flags,
+/// and `--list-strategies --write-config` without requiring root privileges.
+#[test]
+fn strat_finder_cli_version_help_invalid_and_list_write_config() {
+    let bin = env!("CARGO_BIN_EXE_strat_finder");
+
+    let ver = Command::new(bin).arg("--version").output().expect("run --version");
+    assert!(ver.status.success());
+    let ver_str = String::from_utf8_lossy(&ver.stdout);
+    assert_eq!(ver_str.trim(), format!("strat_finder {}", env!("CARGO_PKG_VERSION")));
+
+    let help = Command::new(bin).arg("--help").output().expect("run --help");
+    assert!(help.status.success());
+    let help_str = String::from_utf8_lossy(&help.stdout);
+    assert!(help_str.contains("--domain"));
+    assert!(help_str.contains("--write-config"));
+    assert!(help_str.contains("--list-strategies"));
+
+    let bad = Command::new(bin)
+        .args(["--level", "invalid_level", "--list-strategies"])
+        .output()
+        .expect("run invalid --level");
+    assert!(!bad.status.success());
+    let bad_err = String::from_utf8_lossy(&bad.stderr);
+    assert!(bad_err.contains("invalid scan level"));
+
+    let tmp_path = std::env::temp_dir().join(format!(
+        "strat_finder_cli_test_{}.toml",
+        std::process::id()
+    ));
+    let _ = fs::remove_file(&tmp_path);
+
+    let list = Command::new(bin)
+        .args([
+            "--list-strategies",
+            "--level",
+            "quick",
+            "--proto",
+            "http,tls13,http3",
+            "--domain",
+            "example.com",
+            "--write-config",
+        ])
+        .arg(&tmp_path)
+        .output()
+        .expect("run --list-strategies");
+    assert!(
+        list.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&list.stderr)
+    );
+    let list_out = String::from_utf8_lossy(&list.stdout);
+    assert!(list_out.contains("# http/ipv4 (quick):"));
+    assert!(list_out.contains("# tls13/ipv4 (quick):"));
+    assert!(list_out.contains("# http3/ipv4 (quick):"));
+
+    let parsed = AppConfig::from_toml_file(&tmp_path).expect("CLI-written TOML must parse");
+    assert_eq!(parsed.profiles.len(), 3);
+    let _ = fs::remove_file(&tmp_path);
 }

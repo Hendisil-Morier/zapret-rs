@@ -455,13 +455,13 @@ Target verification commands used across tasks:
 **Description:** Add `DesyncEngine::replace_profiles` (delegated cleanly into `src/desync/profile_state.rs` to respect the 400-line ceiling on `src/desync/engine.rs`), create `src/tools/strat_catalog.rs` and `src/tools/strat_toml.rs` with typed scan levels (`Quick`, `Standard`, `Force`), protocols (`Http`, `Tls12`, `Tls13`, `Http3`), fooling/split/fake/hostfakesplit/QUIC strategy expansion ported from `zapret2/blockcheck2.d/standard`, complexity + latency ranking, minimal cross-domain set cover, and `nfqws2.toml` rendering.
 
 **Acceptance criteria:**
-- [ ] `DesyncEngine::replace_profiles` swaps active profiles in memory, validates Lua functions, and clears `conntrack` and `ipcache` state without recreating `LuaRuntime`.
-- [ ] Strategy catalog emits distinct deterministic candidate sets for `Quick`, `Standard`, and `Force` levels across HTTP, TLS 1.2/1.3, and HTTP/3 (IPv4 and IPv6).
-- [ ] Every generated `nfqws2.toml` config parses cleanly back via `AppConfig::from_toml_str` and selects minimal covering profiles across multiple domains in `tests/strat_finder_toml.rs`.
+- [x] `DesyncEngine::replace_profiles` swaps active profiles in memory, validates Lua functions, and clears `conntrack` and `ipcache` state without recreating `LuaRuntime`.
+- [x] Strategy catalog emits distinct deterministic candidate sets for `Quick`, `Standard`, and `Force` levels across HTTP, TLS 1.2/1.3, and HTTP/3 (IPv4 and IPv6).
+- [x] Every generated `nfqws2.toml` config parses cleanly back via `AppConfig::from_toml_str` and selects minimal covering profiles across multiple domains in `tests/strat_finder_toml.rs`.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
 
 **Dependencies:** Checkpoint 5
 
@@ -475,8 +475,8 @@ Target verification commands used across tasks:
 ---
 
 ## Checkpoint 6A: Strategy Catalog & Engine Profile Swap Verified
-- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
-- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes including `repo_hygiene`
+- [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [x] `cargo nextest run --offline --show-progress none --no-pager` passes including `repo_hygiene`
 
 ---
 
@@ -485,21 +485,21 @@ Target verification commands used across tasks:
 **Description:** Create `src/tools/strat_probe.rs` and `src/tools/strat_runner.rs` implementing injectable `ProbeBackend` and `FirewallBackend` traits, `CurlProbeBackend` (measuring RTT, classifying timeouts, TCP RSTs, TLS errors, and spoofed HTTP 3xx redirects, plus HTTP/3 capability detection), RAII `NftFirewallBackend` (`table inet zapret_strat_finder` with `bypass` queue rules and `fwmark` loop guard), an in-process NFQUEUE + `DesyncEngine` worker thread communicating via channel ACK swaps, and multi-domain scan orchestration (`baseline -> sweep -> rank -> coverage`).
 
 **Acceptance criteria:**
-- [ ] Direct baseline probing classifies unblocked, timed-out, reset, TLS-blocked, and spoof-redirect responses accurately before running desync sweeps.
-- [ ] Worker thread handles profile swaps atomically via channel ACK and exits cleanly with `NftQueueGuard` cleanup on completion or shutdown signal.
-- [ ] Offline `tests/strat_finder_runner.rs` verifies baseline pruning, `--stop-on-first`, latency ranking, spoof-redirect rejection, and multi-domain set cover over mock backends.
+- [x] Direct baseline probing classifies unblocked, timed-out, reset, TLS-blocked, and spoof-redirect responses accurately before running desync sweeps.
+- [x] Worker thread handles profile swaps atomically via channel ACK and exits cleanly with `NftQueueGuard` cleanup on completion or shutdown signal.
+- [x] Offline `tests/strat_finder_runner.rs` verifies baseline pruning, `--stop-on-first`, latency ranking, spoof-redirect rejection, and multi-domain set cover over mock backends.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
 
 **Dependencies:** Task 6.1
 
 **Files likely touched:**
-- `src/tools/{mod.rs,strat_probe.rs,strat_runner.rs}`
+- `src/tools/{mod.rs,strat_nft.rs,strat_probe.rs,strat_runner.rs}`
 - `tests/strat_finder_runner.rs`
 
-**Estimated scope:** Medium (4 files)
+**Estimated scope:** Medium (5 files)
 
 ---
 
@@ -508,9 +508,9 @@ Target verification commands used across tasks:
 **Description:** Create `src/bin/strat_finder.rs` with `clap` CLI flags (`--domain`, `--proto`, `--level`, `--ipv4`/`--ipv6`, `--qnum`, `--fwmark`, `--timeout`, `--stop-on-first`, `--write-config`, `--json`, `--lua-dir`, `--curl-bin`, `--version`, plus interactive domain prompt on TTY when no `--domain` is passed), add `[[bin]] name = "strat_finder"` to `Cargo.toml`, add `strat_finder` CLI/TOML subprocess checks in `tests/strat_finder_runner.rs`, and document usage in `README.md`.
 
 **Acceptance criteria:**
-- [ ] `strat_finder --version`, `--help`, invalid-flag handling, and `--write-config` serialization work deterministically without root.
-- [ ] `cargo build --release --offline` produces `target/release/strat_finder` alongside `nfqws2`, `ip2net`, and `mdig`.
-- [ ] `clippy`, full `cargo nextest run --offline` (including `repo_hygiene`), and `unshare -r -n` live kernel tests pass after the final edit.
+- [x] `strat_finder --version`, `--help`, invalid-flag handling, and `--write-config` serialization work deterministically without root.
+- [x] `cargo build --release --offline` produces `target/release/strat_finder` alongside `nfqws2`, `ip2net`, and `mdig`.
+- [x] `clippy`, full `cargo nextest run --offline` (including `repo_hygiene`), and `unshare -r -n` live kernel tests pass after the final edit.
 
 **Dependencies:** Task 6.2
 
@@ -525,7 +525,7 @@ Target verification commands used across tasks:
 ---
 
 ## Checkpoint 6B: Milestone 6 Complete
-- [ ] All tasks 6.1 through 6.3 checked off with clean atomic commits on `feature/strat-finder` merged to `main` (or clean trunk commits)
-- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
-- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored tests including `repo_hygiene`
-- [ ] `cargo build --release --offline` builds all four binaries and `unshare -r -n` live kernel checks pass
+- [x] All tasks 6.1 through 6.3 checked off with clean atomic commits on `feature/strat-finder` merged to `main` (or clean trunk commits)
+- [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [x] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored tests including `repo_hygiene`
+- [x] `cargo build --release --offline` builds all four binaries and `unshare -r -n` live kernel checks pass

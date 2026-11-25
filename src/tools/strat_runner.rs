@@ -72,7 +72,7 @@ impl InProcessWorkerHandle {
     ///
     /// Blocks until the worker confirms both NFQUEUE bind and Lua startup succeeded, or returns
     /// the initialization error immediately without leaking a running thread.
-    pub fn spawn(base_config: AppConfig, global_stop: Arc<AtomicBool>) -> Result<Self, String> {
+    pub fn spawn(base_config: AppConfig, global_stop: &'static AtomicBool) -> Result<Self, String> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<WorkerCmd>();
         let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<(), String>>(1);
         let worker_stop = Arc::new(AtomicBool::new(false));
@@ -137,7 +137,7 @@ fn run_worker_thread(
     cmd_rx: Receiver<WorkerCmd>,
     ready_tx: SyncSender<Result<(), String>>,
     worker_stop: Arc<AtomicBool>,
-    global_stop: Arc<AtomicBool>,
+    global_stop: &'static AtomicBool,
 ) {
     let mut catcher = match QueueCatcher::bind(base_config.to_queue_config()) {
         Ok(c) => c,

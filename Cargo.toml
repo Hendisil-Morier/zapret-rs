@@ -16,6 +16,10 @@ path = "src/bin/ip2net.rs"
 name = "mdig"
 path = "src/bin/mdig.rs"
 
+[[bin]]
+name = "strat_finder"
+path = "src/bin/strat_finder.rs"
+
 [[bench]]
 name = "hotpath"
 harness = false
