@@ -406,3 +406,35 @@ fn live_nfqueue_daemon_starts_and_exits_on_sigterm() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// Verifies `--dry-run` rejects missing list files and accepts valid Milestone 3 CLI flags.
+#[test]
+fn cli_dry_run_validates_lists_and_accepts_m3_flags() {
+    let dir = fresh_temp_dir("m3-dryrun");
+    let bad_cfg = dir.join("missing-list.toml");
+    fs::write(&bad_cfg, "[[profiles]]\nhostlist = [\"does-not-exist.txt\"]\n").expect("write bad");
+    let fail = Command::new(nfqws2_bin())
+        .args(["--dry-run", "--config", bad_cfg.to_str().expect("utf8")])
+        .output()
+        .expect("run bad dry-run");
+    assert!(!fail.status.success(), "missing hostlist must fail dry-run");
+
+    let hl = dir.join("hosts.txt");
+    let good_cfg = dir.join("valid-m3.toml");
+    fs::write(&hl, "example.com\n").expect("write hosts.txt");
+    fs::write(&good_cfg, format!("[[profiles]]\nhostlist = [\"{}\"]\n", hl.display())).expect("ok");
+    let ok = Command::new(nfqws2_bin())
+        .args([
+            "--dry-run",
+            "--config",
+            good_cfg.to_str().expect("utf8"),
+            "--ctrack-timeouts=10:20:30",
+            "--ipcache-hostname=1",
+            "--payload-disable=dns_query",
+            "--reasm-disable=quic_initial",
+        ])
+        .output()
+        .expect("run valid m3 dry-run");
+    let _ = fs::remove_dir_all(&dir);
+    assert!(ok.status.success(), "valid M3 dry-run failed: {}", String::from_utf8_lossy(&ok.stderr));
+}

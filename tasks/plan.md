@@ -65,12 +65,12 @@ Tasks and detailed acceptance criteria are tracked in [todo.md](file:///home/mor
 - [x] Checkpoint 2B: Milestone 2 Complete
 
 ### Milestone 3: Conntrack, L7 Detectors, Hostlists, IPsets, and IPCache
-- [ ] Task 3.1: Conntrack, continuous TCP stream reassembly, `PacketRange`, `desync.track`, `conntrack_feed`, and cutoffs
-- [ ] Task 3.2: L7 protocol/payload detectors, QUIC Initial decryption, `tls_mod`, and position markers
-- [ ] Checkpoint 3A: Conntrack + L7 + Markers Verified
-- [ ] Task 3.3: Hostlists, autohostlist failure detection, disjoint CIDR IPsets, gzip loader, and `ipcache`
-- [ ] Task 3.4: Config split, CLI options, full `DesyncEngine` wiring, `SIGHUP` reload, and E2E tests
-- [ ] Checkpoint 3B: Milestone 3 Complete
+- [x] Task 3.1: Conntrack, continuous TCP stream reassembly, `PacketRange`, `desync.track`, `conntrack_feed`, and cutoffs
+- [x] Task 3.2: L7 protocol/payload detectors, QUIC Initial decryption, `tls_mod`, and position markers
+- [x] Checkpoint 3A: Conntrack + L7 + Markers Verified
+- [x] Task 3.3: Hostlists, autohostlist failure detection, disjoint CIDR IPsets, gzip loader, and `ipcache`
+- [x] Task 3.4: Config split, CLI options, full `DesyncEngine` wiring, `SIGHUP` reload, and E2E tests
+- [x] Checkpoint 3B: Milestone 3 Complete
 
 ### Future Milestones (High-Level Roadmap)
 - **Milestone 4 (Full Lua API Parity):** Lua bindings for crypto (`hash`, `aes`, `aes_gcm`, `aes_ctr`, `hkdf`, `bcryptorandom`), streaming gzip/gunzip via `flate2`, `stat`/time helpers (`localtime`, `gmtime`, `timelocal`, `timegm`), `--writable`, and full verification against `zapret-antidpi.lua`, `zapret-auto.lua`, and `zapret-obfs.lua`.

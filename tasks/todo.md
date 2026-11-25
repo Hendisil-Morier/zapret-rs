@@ -272,36 +272,36 @@ Target verification commands used across tasks:
 
 ## Task 3.4: Config split, CLI flags, full `DesyncEngine` stateful wiring, `SIGHUP` reload, and E2E tests
 
-**Description:** Split `src/config/schema.rs` (`391` lines -> `schema.rs` + `profile_schema.rs`) and extract `src/config/runtime_cfg.rs` (`ConntrackConfig`, `IpCacheConfig`, `AutoHostlistConfig`) before adding Milestone 3 TOML tables and CLI options (`--server`, `--ctrack-timeouts`, `--ctrack-disable`, `--ipcache-lifetime`, `--ipcache-hostname`, `--payload-disable`, `--reasm-disable`, `--hostlist-auto-debug`). Add `L7_PAYLOAD_NONE_MASK` (`1u64 << 31`) disable masks in `src/config/l7.rs`. Refactor `src/desync/` (`engine.rs`, `tcp_udp.rs`, `icmp_ip.rs`) to wire `ConntrackPool`, `IpCache`, L7 probes, DNS A/AAAA hostname learning, TLS/QUIC client-side reassembly + `replay_queue` + `dp_rediscovery`, hostlist/autohostlist/ipset `dp_match`, synthetic TCP RST on retrans fail, and `ct_new_postnat_fix`. Wire `test_list_files` validation and `SIGHUP` reload into `src/bin/nfqws2.rs` and `src/timer/runner.rs`, and add end-to-end tests.
+**Description:** Split `src/config/schema.rs` (`391` lines -> `schema.rs` + `profile_schema.rs`) and extract `src/config/runtime_cfg.rs` (`ConntrackConfig`, `IpCacheConfig`, `ProfileListsConfig`) before adding Milestone 3 TOML tables and CLI options (`--server`, `--ctrack-timeouts`, `--ctrack-disable`, `--ipcache-lifetime`, `--ipcache-hostname`, `--payload-disable`, `--reasm-disable`, `--hostlist-auto-debug`). Add `L7_PAYLOAD_NONE_MASK` (`1u64 << 31`) disable masks in `src/config/l7.rs`. Refactor `src/desync/` (`autohost.rs`, `dns_cache.rs`, `engine.rs`, `icmp_ip.rs`, `mod.rs`, `play.rs`, `probe.rs`, `profile_state.rs`, `reasm_replay.rs`, `rediscovery.rs`, `tcp.rs`, `udp.rs`, `verdict.rs`) to wire `ConntrackPool`, `IpCache`, L7 probes, DNS A/AAAA hostname learning, TLS/QUIC client-side reassembly + `replay_queue` + `dp_rediscovery`, hostlist/autohostlist/ipset `dp_match`, synthetic TCP RST on retrans fail, and `ct_new_postnat_fix`. Wire `verify_config_list_files` validation and `SIGHUP` reload into `src/bin/nfqws2.rs` and `src/timer/runner.rs`, and add end-to-end tests.
 
 **Acceptance criteria:**
-- [ ] Every TOML field and CLI override resolves deterministically, rejects `hostlist_auto` when `--server` or `--ctrack-disable` is set, and keeps all `src/` files strictly `<= 400` lines.
-- [ ] Outgoing multi-segment TLS ClientHello triggers reassembly, buffers packets, replays all pieces with populated `desync.reasm_data`/`desync.reasm_offset`/`desync.replay*`, and preserves `desync.track.lua_state` across packets.
-- [ ] QUIC Initial packets decrypt cleanly for SNI matching/hostlists and populate `desync.decrypt_data`, while `SIGHUP` reloads modified hostlist/ipset files inside `nfqws2`.
+- [x] Every TOML field and CLI override resolves deterministically, rejects `hostlist_auto` when `--server` or `--ctrack-disable` is set, and keeps all `src/` files strictly `<= 400` lines.
+- [x] Outgoing multi-segment TLS ClientHello triggers reassembly, buffers packets, replays all pieces with populated `desync.reasm_data`/`desync.reasm_offset`/`desync.replay*`, and preserves `desync.track.lua_state` across packets.
+- [x] QUIC Initial packets decrypt cleanly for SNI matching/hostlists and populate `desync.decrypt_data`, while `SIGHUP` reloads modified hostlist/ipset files inside `nfqws2`.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
-- [ ] Live check: `unshare -r -n bash -c 'ip link set lo up && cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --run-ignored only --show-progress none --no-pager'` passes all ignored kernel tests.
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Live check: `unshare -r -n bash -c 'ip link set lo up && cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --run-ignored only --show-progress none --no-pager'` passes all ignored kernel tests.
 
 **Dependencies:** Task 3.1, Task 3.2, Task 3.3
 
 **Files likely touched:**
 - `src/config/{mod.rs,l7.rs,runtime_cfg.rs,model.rs,schema.rs,profile_schema.rs,cli.rs}`
-- `src/desync/{mod.rs,engine.rs,tcp_udp.rs,icmp_ip.rs,verdict.rs}`
-- `src/timer/runner.rs`
+- `src/desync/{mod.rs,autohost.rs,dns_cache.rs,engine.rs,icmp_ip.rs,play.rs,probe.rs,profile_state.rs,reasm_replay.rs,rediscovery.rs,tcp.rs,udp.rs,verdict.rs}`
+- `src/timer/{mod.rs,runner.rs}`
 - `src/bin/nfqws2.rs`
 - `tests/config_toml.rs`
-- `tests/desync_pipeline.rs`
+- `tests/config_filters.rs`
 - `tests/desync_m3_e2e.rs`
 - `tests/nfqws2_cli.rs`
 
-**Estimated scope:** Large — Commit 3.4a (`src/config/*` split & M3 schema/CLI) + Commit 3.4b (`src/desync/{engine,tcp_udp,icmp_ip}.rs`, `src/timer/runner.rs`, `src/bin/nfqws2.rs`) + Commit 3.4c (E2E integration & reload tests).
+**Estimated scope:** Large — Commit 3.4a (`src/config/*` split & M3 schema/CLI) + Commit 3.4b (`src/desync/*`, `src/timer/*`, `src/bin/nfqws2.rs`) + Commit 3.4c (E2E integration & CLI validation tests).
 
 ---
 
 ## Checkpoint 3B: Milestone 3 Complete
-- [ ] All tasks 3.1 through 3.4 checked off with individual atomic commits
-- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
-- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
+- [x] All tasks 3.1 through 3.4 checked off with individual atomic commits
+- [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [x] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
 - [ ] Review with user and plan Milestone 4
