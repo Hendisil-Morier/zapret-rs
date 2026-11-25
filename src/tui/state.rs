@@ -93,6 +93,8 @@ pub struct AppState {
     pub active_toml: String,
     /// Parsed profile names summary for the active TOML (`empty` when invalid/empty).
     pub parsed_profiles: Vec<String>,
+    /// Parse error message for `active_toml` when non-empty and invalid (`None` when valid/empty).
+    pub toml_error: Option<String>,
     /// Vertical scroll offset inside Tab 3's TOML preview pane.
     pub toml_scroll: u16,
     /// Effective UID captured at startup for diagnostics.
@@ -139,7 +141,7 @@ impl AppState {
             targets: Vec::new(), cover: Vec::new(), finder_logs: VecDeque::new(),
             run_status: RunStatus::Stopped, counters: Arc::new(PacketCounters::default()),
             run_logs: VecDeque::new(), active_toml: String::new(),
-            parsed_profiles: Vec::new(), toml_scroll: 0, uid, has_net_caps, exe_path,
+            parsed_profiles: Vec::new(), toml_error: None, toml_scroll: 0, uid, has_net_caps, exe_path,
             status_banner: "Ready. Use 1/2/3 or Tab to switch views, 'q' to quit.".to_owned(),
             modal: None,
             inspector: PacketInspectorState::default(),
@@ -169,12 +171,20 @@ impl AppState {
         self.run_logs.push_back(msg.into());
     }
 
-    /// Updates `active_toml` and refreshes `parsed_profiles` summary if the TOML parses cleanly.
+    /// Updates `active_toml` and refreshes `parsed_profiles` and `toml_error` validation state.
     pub fn set_active_toml(&mut self, toml: String) {
-        self.parsed_profiles = match AppConfig::from_toml_str(&toml, None) {
-            Ok(cfg) => cfg.profiles.iter().map(|p| p.name.clone().unwrap_or_else(|| format!("profile #{}", p.index))).collect(),
-            Err(_) => Vec::new(),
-        };
+        if toml.trim().is_empty() {
+            self.parsed_profiles.clear();
+            self.toml_error = None;
+        } else {
+            match AppConfig::from_toml_str(&toml, None) {
+                Ok(cfg) => {
+                    self.parsed_profiles = cfg.profiles.iter().map(|p| p.name.clone().unwrap_or_else(|| format!("profile #{}", p.index))).collect();
+                    self.toml_error = None;
+                }
+                Err(err) => { self.parsed_profiles.clear(); self.toml_error = Some(err.to_string()); }
+            }
+        }
         self.active_toml = toml;
         self.toml_scroll = 0;
     }
@@ -238,19 +248,9 @@ impl AppState {
                 self.cover = report.cover;
                 self.finder_status = FinderStatus::Done;
                 self.progress_done = self.progress_total;
-                if !rendered_toml.is_empty() {
-                    self.set_active_toml(rendered_toml);
-                }
-                self.progress_label = if report.interrupted {
-                    format!("Stopped early: {n_cover} covering profile(s)")
-                } else {
-                    format!("Done: {n_cover} minimal covering profile(s)")
-                };
-                self.status_banner = if n_cover > 0 {
-                    format!("Found {n_cover} profile(s). Press 's' to save or 'a' to open Run tab.")
-                } else {
-                    "Scan finished. No blocked domains needed bypass (or none matched).".to_owned()
-                };
+                if !rendered_toml.is_empty() { self.set_active_toml(rendered_toml); }
+                self.progress_label = if report.interrupted { format!("Stopped early: {n_cover} covering profile(s)") } else { format!("Done: {n_cover} minimal covering profile(s)") };
+                self.status_banner = if n_cover > 0 { format!("Found {n_cover} profile(s). Press 's' to save or 'a' to open Run tab.") } else { "Scan finished. No blocked domains needed bypass (or none matched).".to_owned() };
             }
             ScanUiEvent::Failed(err) => {
                 self.finder_status = FinderStatus::Error(err.clone());
@@ -276,12 +276,8 @@ impl AppState {
                 ModalKeyResult::Submit => AppAction::SubmitModal,
             };
         }
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            return AppAction::Quit;
-        }
-        if self.editing_text {
-            return self.handle_text_edit_key(key.code);
-        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') { return AppAction::Quit; }
+        if self.editing_text { return self.handle_text_edit_key(key.code); }
         match key.code {
             KeyCode::Char('q') => return AppAction::Quit,
             KeyCode::Char('g') if !self.has_net_caps => { self.open_caps_modal(); return AppAction::None; }
@@ -384,13 +380,14 @@ impl AppState {
         }
     }
 
-    /// Handles TOML preview scrolling, saving, and reloading on the Config & Diagnostics tab.
+    /// Handles TOML preview scrolling, editing, saving, and reloading on the Config & Diagnostics tab.
     fn handle_config_key(&mut self, code: KeyCode) -> AppAction {
         match code {
             KeyCode::Up | KeyCode::Char('k') => self.toml_scroll = self.toml_scroll.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => self.toml_scroll = self.toml_scroll.saturating_add(1),
             KeyCode::PageUp => self.toml_scroll = self.toml_scroll.saturating_sub(10),
             KeyCode::PageDown => self.toml_scroll = self.toml_scroll.saturating_add(10),
+            KeyCode::Char('e') | KeyCode::Enter => return AppAction::EditConfig,
             KeyCode::Char('s') => return AppAction::SaveConfig,
             KeyCode::Char('l') => return AppAction::ReloadConfig,
             _ => {}

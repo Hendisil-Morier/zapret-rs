@@ -28,6 +28,8 @@ use crate::runtime::{CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps}
 use crate::tools::{
     FirewallHandle, NftFirewallBackend, STRAT_FINDER_NFT_TABLE, expand_tilde, write_config_nofollow,
 };
+/// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML builder for Tab 3.
+use crate::tui::editor::{build_starter_toml, resolve_editor_command, spawn_unprivileged_editor};
 /// Floating authentication modal state and silent `sudo -S`/`-n` executor.
 use crate::tui::modal::{AuthModal, ModalPurpose, run_sudo_silent, zeroize_string};
 /// Pure TUI frame renderer.
@@ -218,6 +220,36 @@ fn submit_auth_modal(
     false
 }
 
+/// Suspends the TUI to open `state.output_path` in `$VISUAL`/`$EDITOR` with zero caps, then reloads.
+fn edit_config_in_editor(state: &mut AppState, session: &mut TerminalSession) {
+    let path = expand_tilde(&state.output_path);
+    if !path.exists() {
+        let seed = if state.active_toml.trim().is_empty() {
+            build_starter_toml(crate::intercepter::DEFAULT_QUEUE_NUM, state.fwmark, &state.lua_dir_input)
+        } else {
+            state.active_toml.clone()
+        };
+        if let Err(err) = write_config_nofollow(&path, &seed) {
+            state.status_banner = format!("Cannot create {}: {err}", path.display());
+            return;
+        }
+    }
+    let editor_cmd = resolve_editor_command();
+    match session.suspend_for(|| spawn_unprivileged_editor(&editor_cmd, &path)) {
+        Ok(_) => match fs::read_to_string(&path) {
+            Ok(text) => {
+                state.set_active_toml(text);
+                state.status_banner = match &state.toml_error {
+                    Some(err) => format!("Reloaded with TOML error: {}", err.lines().next().unwrap_or(err)),
+                    None => format!("Reloaded {} ({} profiles)", path.display(), state.parsed_profiles.len()),
+                };
+            }
+            Err(err) => state.status_banner = format!("Reload failed after edit: {err}"),
+        },
+        Err(err) => state.status_banner = err,
+    }
+}
+
 /// Runs the interactive `ratatui` TUI event loop until the user quits cleanly.
 pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let _ = drop_sudo_root_if_needed();
@@ -299,11 +331,15 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                     match fs::read_to_string(&path) {
                         Ok(text) => {
                             state.set_active_toml(text);
-                            state.status_banner = format!("Loaded {} ({} profiles)", path.display(), state.parsed_profiles.len());
+                            state.status_banner = match &state.toml_error {
+                                Some(err) => format!("Loaded with TOML error: {}", err.lines().next().unwrap_or(err)),
+                                None => format!("Loaded {} ({} profiles)", path.display(), state.parsed_profiles.len()),
+                            };
                         }
                         Err(err) => state.status_banner = format!("Reload failed ({}): {err}", path.display()),
                     }
                 }
+                AppAction::EditConfig => edit_config_in_editor(&mut state, &mut session),
                 AppAction::StartDaemon => {
                     if active_scan.is_some() {
                         state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();

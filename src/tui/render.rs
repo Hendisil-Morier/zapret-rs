@@ -310,14 +310,17 @@ fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         state.active_toml.as_str()
     };
+    let (toml_title, border_color) = if let Some(err) = &state.toml_error {
+        let short = err.lines().next().unwrap_or(err.as_str());
+        (format!(" nfqws2.toml ({}) [INVALID: {short}] ", state.output_path), ERR_COLOR)
+    } else if !state.active_toml.trim().is_empty() {
+        (format!(" nfqws2.toml ({}) [VALID: {} profiles] ", state.output_path, state.parsed_profiles.len()), ACCENT)
+    } else {
+        (format!(" nfqws2.toml ({}) ", state.output_path), ACCENT)
+    };
     let toml_pane = Paragraph::new(toml_text)
         .scroll((state.toml_scroll, 0))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(ACCENT))
-                .title(format!(" nfqws2.toml ({}) ", state.output_path)),
-        );
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(border_color)).title(toml_title));
     frame.render_widget(toml_pane, cols[0]);
 
     let right = Layout::default()
@@ -383,7 +386,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, state: &AppState) {
         match state.tab {
             ActiveTab::Finder => "[Up/Down] Move  [Enter/Space] Edit/Toggle  [r] Start Scan  [x] Stop  [s] Save  [a] Run Tab  [q] Quit",
             ActiveTab::Run => "[r] Start/Stop  [f] Filter  [p] Pause  [Up/Down] Select  [d] Detail  [c] Clear  [l] Reload  [q] Quit",
-            ActiveTab::Config => "[Up/Down/PgUp/PgDn] Scroll  [s] Save TOML  [l] Reload File  [Tab] Switch Tab  [q] Quit",
+            ActiveTab::Config => "[e/Enter] Edit ($EDITOR)  [Up/Down/PgUp/PgDn] Scroll  [s] Save  [l] Reload  [q] Quit",
         }
     };
     let footer = Paragraph::new(Line::from(vec![

@@ -304,3 +304,29 @@ fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
     assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
     assert!(!state.inspector.detail_open);
 }
+
+/// Verifies Tab 3 `e`/`Enter` triggers `AppAction::EditConfig`, starter TOML parses cleanly,
+/// and invalid vs valid TOML updates the Config tab validation badge.
+#[test]
+fn config_tab_edit_action_and_toml_validation_badge() {
+    let mut state = AppState::new(None, None, false);
+    state.has_net_caps = true;
+    state.tab = ActiveTab::Config;
+    assert_eq!(state.handle_key(key(KeyCode::Char('e'))), AppAction::EditConfig);
+    assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::EditConfig);
+
+    // Invalid TOML populates `toml_error` and displays `[INVALID:` on Tab 3.
+    state.set_active_toml("qnum = [broken".to_owned());
+    assert!(state.toml_error.is_some());
+    assert!(state.parsed_profiles.is_empty());
+    let bad_screen = render_to_string(&state, 120, 32);
+    assert!(bad_screen.contains("[INVALID:"));
+
+    // Valid starter TOML clears `toml_error` and renders `[VALID:`.
+    let starter = zapret_rs::tui::editor::build_starter_toml(200, 0x4000_0000, "");
+    state.set_active_toml(starter);
+    assert!(state.toml_error.is_none());
+    let ok_screen = render_to_string(&state, 120, 32);
+    assert!(ok_screen.contains("[VALID:"));
+    assert!(ok_screen.contains("[e/Enter] Edit ($EDITOR)"));
+}

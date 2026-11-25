@@ -1,5 +1,7 @@
 //! Interactive `ratatui` TUI wrapping `strat_finder`, config preview, and live `nfqws2` execution.
 
+/// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML builder for Tab 3.
+pub mod editor;
 /// Live packet inspector record decoding, state, and verdict filter model.
 pub mod inspect;
 /// Live packet inspector `ratatui` table, detail popup, and hex dump renderer.

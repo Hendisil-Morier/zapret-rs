@@ -226,6 +226,8 @@ pub enum AppAction {
     StopDaemon,
     /// Reload `output_path` from disk into `active_toml`.
     ReloadConfig,
+    /// Open `output_path` in `$VISUAL`/`$EDITOR` (seeding a starter file if missing), then reload.
+    EditConfig,
     /// Execute the active floating [`crate::tui::AuthModal`] action (`Enter` pressed).
     SubmitModal,
 }
