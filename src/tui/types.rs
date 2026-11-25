@@ -200,6 +200,8 @@ pub enum AppAction {
     ReloadConfig,
     /// Open `output_path` in `$VISUAL`/`$EDITOR` (seeding a starter file if missing), then reload.
     EditConfig,
+    /// Push validated `active_toml` from Tab 3 to an attached remote daemon (`reload_config`).
+    PushConfigToDaemon,
     /// Execute the active floating [`crate::tui::AuthModal`] action (`Enter` pressed).
     SubmitModal,
 }

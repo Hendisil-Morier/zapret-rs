@@ -374,6 +374,7 @@ impl AppState {
             KeyCode::PageUp => self.toml_scroll = self.toml_scroll.saturating_sub(10),
             KeyCode::PageDown => self.toml_scroll = self.toml_scroll.saturating_add(10),
             KeyCode::Char('e') | KeyCode::Enter => return AppAction::EditConfig,
+            KeyCode::Char('p') => return AppAction::PushConfigToDaemon,
             KeyCode::Char('s') => return AppAction::SaveConfig,
             KeyCode::Char('l') => return AppAction::ReloadConfig,
             _ => {}

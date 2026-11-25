@@ -16,6 +16,8 @@ pub mod probe;
 pub mod profile_state;
 /// Client-side payload stream reassembly, delayed packet queuing, and replay orchestration.
 pub mod reasm_replay;
+/// Live TOML profile reload validation and atomic engine swap helper.
+pub mod reload;
 /// Dynamic L7/hostname profile rediscovery and autohostlist gating.
 pub mod rediscovery;
 /// Stateful TCP packet desync pipeline with TLS reassembly, replay, and RST handling.
@@ -31,5 +33,7 @@ pub use engine::DesyncEngine;
 pub use play::PacketOutcome;
 /// Re-exported list/autohostlist startup and `--dry-run` validation helper.
 pub use profile_state::verify_config_list_files;
+/// Re-exported live TOML profile reload helpers (`collect_profile_names`, `reload_engine_from_toml`).
+pub use reload::{collect_profile_names, reload_engine_from_toml};
 /// Re-exported verdict aggregator and baseline L7 payload classifier.
 pub use verdict::{aggregate_verdict, classify_baseline_payload};

@@ -49,7 +49,7 @@ See `tasks/todo-ipc.md` for acceptance criteria and verification steps.
 
 ### Phase 3: TUI side
 - [x] Task 7.5: Remote client and TUI attach mode on Tab 2
-- [ ] Task 7.6: `reload-config` command (hot-swap profiles from TOML)
+- [x] Task 7.6: `reload-config` command (hot-swap profiles from TOML)
 
 ### Checkpoint B: TUI attaches to a running `nfqws2`, shows live packets, detaches and stops it
 

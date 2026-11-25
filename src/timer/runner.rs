@@ -36,20 +36,41 @@ pub fn run_no_intercept_with_tick(
     pool_rc: &Rc<RefCell<TimerPool>>,
     runtime: &LuaRuntime,
     stop: &AtomicBool,
+    on_tick: impl FnMut(),
+) {
+    run_no_intercept_callbacks(
+        stop,
+        on_tick,
+        || pool_rc.borrow().is_empty(),
+        || pool_rc.borrow_mut().next_deadline_ms(),
+        || {
+            let current_now = boottime_ms();
+            runtime.do_gc(current_now);
+            TimerPool::run_expired(pool_rc, runtime.lua(), current_now)
+        },
+    );
+}
+
+/// Callback-driven non-intercepting timer loop allowing callers to re-borrow their engine between ticks.
+pub fn run_no_intercept_callbacks(
+    stop: &AtomicBool,
     mut on_tick: impl FnMut(),
+    mut is_empty: impl FnMut() -> bool,
+    mut next_deadline: impl FnMut() -> Option<u64>,
+    mut step_expired: impl FnMut() -> Option<u64>,
 ) {
     on_tick();
-    if pool_rc.borrow().is_empty() {
+    if is_empty() {
         return;
     }
 
-    let mut next_deadline = pool_rc.borrow_mut().next_deadline_ms();
+    let mut deadline_ms = next_deadline();
 
-    while !stop.load(Ordering::Relaxed) && !pool_rc.borrow().is_empty() {
+    while !stop.load(Ordering::Relaxed) && !is_empty() {
         on_tick();
         let now = boottime_ms();
 
-        if let Some(deadline) = next_deadline
+        if let Some(deadline) = deadline_ms
             && deadline > now
         {
             let mut remaining_ms = deadline.saturating_sub(now);
@@ -65,8 +86,6 @@ pub fn run_no_intercept_with_tick(
             break;
         }
 
-        let current_now = boottime_ms();
-        runtime.do_gc(current_now);
-        next_deadline = TimerPool::run_expired(pool_rc, runtime.lua(), current_now);
+        deadline_ms = step_expired();
     }
 }

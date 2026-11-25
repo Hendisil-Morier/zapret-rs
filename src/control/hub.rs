@@ -43,6 +43,13 @@ pub enum ControlCommand {
         /// One-shot reply channel returning a summary or failure message.
         reply: SyncSender<Result<String, String>>,
     },
+    /// Parses replacement TOML and swaps profiles inside the running `DesyncEngine`.
+    ReloadConfig {
+        /// Replacement TOML configuration text pushed by a control client.
+        toml: String,
+        /// One-shot reply channel returning the new profile count or rejection reason.
+        reply: SyncSender<Result<String, String>>,
+    },
     /// Triggers clean shutdown of the running daemon process.
     Stop {
         /// One-shot reply channel confirming shutdown initiation.

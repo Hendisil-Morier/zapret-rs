@@ -106,6 +106,11 @@ pub enum Request {
     Unsubscribe,
     /// Reloads hostlist and ipset files in the running daemon engine.
     ReloadLists,
+    /// Parses `toml` and swaps active desync profiles live (rejects `qnum`/`fwmark` changes).
+    ReloadConfig {
+        /// Full replacement `nfqws2.toml` document text.
+        toml: String,
+    },
     /// Requests graceful shutdown of the running daemon process.
     Stop,
 }

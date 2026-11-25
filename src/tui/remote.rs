@@ -64,6 +64,8 @@ pub struct RemoteDaemonMeta {
 /// Asynchronous control/lifecycle notifications streamed from the remote client thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteEvent {
+    /// Refreshed daemon status snapshot pushed in response to an in-band `status` request.
+    StatusUpdated(Box<DaemonStatus>),
     /// Informational acknowledgment or log entry from a remote command (e.g. `reload_lists`).
     InfoLog(String),
     /// Remote command error returned by the daemon.
@@ -279,7 +281,10 @@ fn run_remote_reader(
                         let _ = pkt_tx.try_send(rec);
                     }
                 }
-                Response::Status(st) => st.counters.store_into(&counters),
+                Response::Status(st) => {
+                    st.counters.store_into(&counters);
+                    let _ = ev_tx.try_send(RemoteEvent::StatusUpdated(Box::new(st)));
+                }
                 Response::Ack { op, message } => {
                     let detail = message.unwrap_or_else(|| "ok".to_owned());
                     let _ = ev_tx.try_send(RemoteEvent::InfoLog(format!("[{op}] {detail}")));

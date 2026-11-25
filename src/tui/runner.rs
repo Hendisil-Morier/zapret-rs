@@ -25,8 +25,8 @@ use crate::runtime::{CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps}
 /// Action executors coordinating workers, `sudo` modals, TOML file I/O, and attach state.
 use crate::tui::actions::{
     Tab2Session, cancel_active_scan, execute_remote_stop, poll_active_scan, poll_tab2_session,
-    reload_toml_from_disk, save_toml_to_disk, stop_local_daemon, submit_auth_modal,
-    try_start_or_attach, try_start_scan,
+    push_config_to_daemon, reload_toml_from_disk, save_toml_to_disk, stop_local_daemon,
+    submit_auth_modal, try_start_or_attach, try_start_scan,
 };
 /// Remote daemon socket auto-detection helper.
 use crate::tui::remote::detect_control_socket;
@@ -102,6 +102,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 AppAction::SaveConfig => save_toml_to_disk(&mut state),
                 AppAction::ReloadConfig => reload_toml_from_disk(&mut state),
                 AppAction::EditConfig => edit_config_in_editor(&mut state, &mut session),
+                AppAction::PushConfigToDaemon => push_config_to_daemon(&mut state, &tab2_session),
                 AppAction::StartDaemon => {
                     if active_scan.is_some() {
                         state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();

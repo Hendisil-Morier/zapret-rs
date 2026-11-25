@@ -236,7 +236,16 @@ pub(crate) fn poll_tab2_session(state: &mut AppState, session_tab2: &mut Option<
     if let Tab2Session::Remote(remote) = sess {
         while let Ok(ev) = remote.ev_rx.try_recv() {
             match ev {
-                RemoteEvent::InfoLog(msg) => state.push_run_log(msg),
+                RemoteEvent::StatusUpdated(st) => {
+                    if let Some(meta) = state.remote_meta.as_mut() {
+                        meta.profile_names = st.profile_names;
+                        meta.config_path = st.config_path;
+                    }
+                }
+                RemoteEvent::InfoLog(msg) => {
+                    state.status_banner = msg.clone();
+                    state.push_run_log(msg);
+                }
                 RemoteEvent::Error(err) => {
                     state.status_banner = err.clone();
                     state.push_run_log(format!("[error] {err}"));
@@ -292,6 +301,34 @@ pub(crate) fn reload_toml_from_disk(state: &mut AppState) {
             };
         }
         Err(err) => state.status_banner = format!("Reload failed ({}): {err}", path.display()),
+    }
+}
+
+/// Pushes Tab 3's validated `active_toml` to an attached daemon via `reload_config`.
+pub(crate) fn push_config_to_daemon(state: &mut AppState, session_tab2: &Option<Tab2Session>) {
+    let Some(Tab2Session::Remote(remote)) = session_tab2.as_ref() else {
+        state.status_banner =
+            "Not attached to a daemon. Attach on Tab 2 ('r') before pushing config.".to_owned();
+        return;
+    };
+    if let Some(err) = &state.toml_error {
+        state.status_banner =
+            format!("Cannot push invalid TOML: {}", err.lines().next().unwrap_or(err));
+        return;
+    }
+    if state.active_toml.trim().is_empty() {
+        state.status_banner = "Active TOML is empty; nothing to push.".to_owned();
+        return;
+    }
+    match remote.send_command(&Request::ReloadConfig { toml: state.active_toml.clone() }) {
+        Ok(()) => {
+            let _ = remote.send_command(&Request::Status);
+            state.status_banner = "Pushed config to attached nfqws2 daemon.".to_owned();
+        }
+        Err(err) => {
+            state.push_run_log(format!("[error] {err}"));
+            state.status_banner = err;
+        }
     }
 }
 

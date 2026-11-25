@@ -43,6 +43,7 @@ fn round_trip_every_request_and_response_variant() {
         Request::Subscribe { pass_sample_rate: Some(10) },
         Request::Unsubscribe,
         Request::ReloadLists,
+        Request::ReloadConfig { toml: "[[profiles]]\nname = \"p1\"\n".to_owned() },
         Request::Stop,
     ];
     let mut wire = Vec::new();

@@ -134,6 +134,14 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
     assert!(screen.contains("REASM") && screen.contains("DESYNC"));
     assert!(screen.contains("[x] Detach") && screen.contains("[S] Stop Daemon"));
 
+    // Verify Tab 3 'p' key triggers PushConfigToDaemon and StatusUpdated refreshes profiles.
+    state.tab = ActiveTab::Config;
+    state.set_active_toml("[[profiles]]\nname = \"pushed_p\"\nfilter_tcp = [\"443\"]\n".to_owned());
+    assert_eq!(state.handle_key(key(KeyCode::Char('p'))), AppAction::PushConfigToDaemon);
+    let config_screen = render_to_string(&state, 120, 36);
+    assert!(config_screen.contains("[p] Push Config"));
+    state.tab = ActiveTab::Run;
+
     // Keys on Tab 2 in Attached state: 'l' reloads remote lists, 'x' detaches, 'S' confirms stop.
     assert_eq!(state.handle_key(key(KeyCode::Char('l'))), AppAction::ReloadRemoteLists);
     assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::DetachDaemon);

@@ -130,6 +130,11 @@ fn handle_client_request(
         Request::ReloadLists => dispatch_loop_command("reload_lists", hub, out_tx, |reply| {
             ControlCommand::ReloadLists { reply }
         }),
+        Request::ReloadConfig { toml } => {
+            dispatch_loop_command("reload_config", hub, out_tx, |reply| {
+                ControlCommand::ReloadConfig { toml, reply }
+            })
+        }
         Request::Stop => dispatch_loop_command("stop", hub, out_tx, |reply| {
             ControlCommand::Stop { reply }
         }),

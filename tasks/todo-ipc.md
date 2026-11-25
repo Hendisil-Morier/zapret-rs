@@ -105,19 +105,19 @@ Plan: `tasks/plan-ipc.md`. Verification commands used throughout:
 **Description:** `reload_config` request carrying TOML text; the daemon parses it with `AppConfig::from_toml_str` and applies it with `DesyncEngine::replace_profiles`, returning the profile count or a parse error. TUI Tab 3 gets `p` to push the validated config to an attached daemon.
 
 **Acceptance criteria:**
-- [ ] Invalid TOML returns an error and leaves the running profiles untouched
-- [ ] Valid TOML swaps profiles and clears conntrack, as `replace_profiles` already does
-- [ ] Only profiles are swapped; changing `qnum` or `fwmark` is rejected with a message asking for a daemon restart
+- [x] Invalid TOML returns an error and leaves the running profiles untouched
+- [x] Valid TOML swaps profiles and clears conntrack, as `replace_profiles` already does
+- [x] Only profiles are swapped; changing `qnum` or `fwmark` is rejected with a message asking for a daemon restart
 
 **Verification:**
-- [ ] `tests/control_server.rs` and `tests/tui_attach.rs` extended and green
+- [x] `tests/control_server.rs` and `tests/tui_attach.rs` extended and green
 
 **Dependencies:** 7.4, 7.5
-**Files likely touched:** `src/control/{protocol,server}.rs`, `src/bin/nfqws2.rs`, `src/tui/{state,runner}.rs`
+**Files likely touched:** `src/desync/reload.rs`, `src/control/{protocol,hub,client_session}.rs`, `src/bin/nfqws2.rs`, `src/tui/{actions,remote,render,runner,state,types}.rs`
 **Estimated scope:** Medium. Commit type: `feat`.
 
 ### Checkpoint B: After Tasks 7.5-7.6
-- [ ] All tests pass, lint and both builds clean
+- [x] All tests pass, lint and both builds clean
 - [ ] End-to-end manual run against a real queue: attach, view packets, reload config, stop
 - [ ] Review with human before release
 
