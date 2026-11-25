@@ -122,17 +122,25 @@ fn curl_output_classifier_and_spoof_redirect_detection() {
     assert!(args.contains(&"https://example.com/".to_owned()));
 }
 
-/// Verifies `NftFirewallBackend::build_nft_script` uses valid `nft` block syntax, `bypass`, and `fwmark`.
+/// Verifies `NftFirewallBackend::build_nft_script` uses valid `nft` block syntax, `bypass`, and `fwmark`,
+/// and installs an `output`, `forward`, and `input` chain so forwarded traffic (e.g. Tailscale exit
+/// node clients) is intercepted alongside locally-originated packets.
 #[test]
 fn nft_script_renders_multiline_bypass_queue_and_fwmark_guard() {
     let script = NftFirewallBackend::build_nft_script(210, 0x4000_0000, &[80, 443], &[443]);
     assert!(script.contains(&format!("table inet {STRAT_FINDER_NFT_TABLE} {{")));
     assert!(script.contains("  chain output {"));
+    assert!(script.contains("  chain forward {"));
     assert!(script.contains("  chain input {"));
     assert!(script.contains("meta mark & 0x40000000 != 0 accept"));
     assert!(script.contains("tcp dport { 80, 443 } queue num 210 bypass"));
     assert!(script.contains("udp dport { 443 } queue num 210 bypass"));
     assert!(script.contains("tcp sport { 80, 443 } ct original packets 1-6 queue num 210 bypass"));
+    // forward chain must carry the same dport rules as output.
+    let forward_start = script.find("chain forward {").expect("forward chain missing");
+    let forward_block = &script[forward_start..];
+    assert!(forward_block.contains("tcp dport { 80, 443 } queue num 210 bypass"));
+    assert!(forward_block.contains("udp dport { 443 } queue num 210 bypass"));
 }
 
 /// Verifies baseline skipping for unblocked sites, spoof-redirect rejection during sweeps,

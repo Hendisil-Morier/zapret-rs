@@ -202,33 +202,65 @@ impl NftFirewallBackend {
         Self { nft_bin }
     }
 
+    /// Formats a comma-separated `{ p1, p2, ... }` port set literal for use in `nft` rule lines.
+    fn fmt_port_set(ports: &[u16]) -> String {
+        let joined = ports.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+        format!("{{ {joined} }}")
+    }
+
+    /// Appends `queue num {qnum} bypass` NFQUEUE rules for `tcp dport` and `udp dport` to `script`.
+    ///
+    /// Skips each direction when the corresponding port slice is empty.
+    fn write_dport_queue_rules(script: &mut String, qnum: u16, tcp_ports: &[u16], udp_ports: &[u16]) {
+        if !tcp_ports.is_empty() {
+            let _ = writeln!(script, "    tcp dport {} queue num {qnum} bypass", Self::fmt_port_set(tcp_ports));
+        }
+        if !udp_ports.is_empty() {
+            let _ = writeln!(script, "    udp dport {} queue num {qnum} bypass", Self::fmt_port_set(udp_ports));
+        }
+    }
+
     /// Formats a multi-line `nft -f -` script installing `bypass` NFQUEUE rules and `fwmark` guard.
+    ///
+    /// Three chains are installed:
+    /// - `output`: locally-originated packets leaving this machine.
+    /// - `forward`: packets routed through this machine (e.g. Tailscale exit-node clients).
+    /// - `input`: early inbound responses for conntrack-based reply interception.
+    ///
+    /// All chains skip packets already marked with `fwmark` to prevent modified/injected
+    /// packets from being re-queued after `nfqws2` sends them back into the stack.
     pub fn build_nft_script(qnum: u16, fwmark: u32, tcp_ports: &[u16], udp_ports: &[u16]) -> String {
         let mut script = String::new();
         let _ = writeln!(script, "table inet {STRAT_FINDER_NFT_TABLE} {{");
+
+        // Locally-originated outbound packets.
         script.push_str("  chain output {\n");
         script.push_str("    type filter hook output priority mangle; policy accept;\n");
         let _ = writeln!(script, "    meta mark & 0x{fwmark:x} != 0 accept");
-        if !tcp_ports.is_empty() {
-            let ports: Vec<String> = tcp_ports.iter().map(ToString::to_string).collect();
-            let _ = writeln!(script, "    tcp dport {{ {} }} queue num {qnum} bypass", ports.join(", "));
-        }
-        if !udp_ports.is_empty() {
-            let ports: Vec<String> = udp_ports.iter().map(ToString::to_string).collect();
-            let _ = writeln!(script, "    udp dport {{ {} }} queue num {qnum} bypass", ports.join(", "));
-        }
+        Self::write_dport_queue_rules(&mut script, qnum, tcp_ports, udp_ports);
         script.push_str("  }\n");
+
+        // Forwarded packets routed through this machine (Tailscale exit node, subnet router, etc.).
+        // The fwmark bypass prevents nfqws2's re-injected raw packets from being re-queued.
+        script.push_str("  chain forward {\n");
+        script.push_str("    type filter hook forward priority mangle; policy accept;\n");
+        let _ = writeln!(script, "    meta mark & 0x{fwmark:x} != 0 accept");
+        Self::write_dport_queue_rules(&mut script, qnum, tcp_ports, udp_ports);
+        script.push_str("  }\n");
+
+        // Early inbound response packets: conntrack match on the first few packets of the reply
+        // stream so nfqws2 can inspect server hellos and RSTs without full bidirectional capture.
         script.push_str("  chain input {\n");
         script.push_str("    type filter hook input priority mangle; policy accept;\n");
         if !tcp_ports.is_empty() {
-            let ports: Vec<String> = tcp_ports.iter().map(ToString::to_string).collect();
             let _ = writeln!(
                 script,
-                "    tcp sport {{ {} }} ct original packets 1-6 queue num {qnum} bypass",
-                ports.join(", ")
+                "    tcp sport {} ct original packets 1-6 queue num {qnum} bypass",
+                Self::fmt_port_set(tcp_ports)
             );
         }
         script.push_str("  }\n");
+
         script.push_str("}\n");
         script
     }
