@@ -26,12 +26,12 @@ use crate::tools::{
     CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, TomlRenderOptions,
     render_nfqws2_toml, resolve_lua_scripts, run_scan,
 };
-/// Live packet inspector record decoder sent over a non-blocking channel.
-use crate::tui::inspect::{PacketRecord, build_packet_record};
+/// Shared telemetry counters, serializable packet record, and decoder.
+use crate::telemetry::{PacketCounters, PacketRecord, build_packet_record};
 /// Application state read/updated when spawning workers.
 use crate::tui::state::AppState;
-/// Status, telemetry counter, and scan event types.
-use crate::tui::types::{FinderStatus, PacketCounters, RunStatus, ScanUiEvent};
+/// Status and scan event types.
+use crate::tui::types::{FinderStatus, RunStatus, ScanUiEvent};
 
 /// Active background strategy finder scan owned by the TUI event loop.
 pub(crate) struct ActiveScan {

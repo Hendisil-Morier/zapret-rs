@@ -12,8 +12,20 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
 };
 
-/// Decoded packet records and inspector state rendered here.
-use crate::tui::inspect::{PacketInspectorState, PacketRecord};
+/// Shared packet record and outcome verdict rendered in the inspector.
+use crate::telemetry::{PacketRecord, PacketVerdict};
+/// Live inspector state rendered here.
+use crate::tui::inspect::PacketInspectorState;
+
+/// Maps a [`PacketVerdict`] to its terminal badge color.
+const fn verdict_color(verdict: PacketVerdict) -> Color {
+    match verdict {
+        PacketVerdict::Pass => Color::Green,
+        PacketVerdict::Reasm => Color::Cyan,
+        PacketVerdict::Modify => Color::Yellow,
+        PacketVerdict::Desync => Color::Magenta,
+    }
+}
 
 /// Formats `bytes` into classic 16-byte-wide `OFFSET: HEX  |ASCII|` lines.
 pub fn format_hex_dump(bytes: &[u8]) -> Vec<String> {
@@ -70,11 +82,11 @@ pub fn draw_packet_inspector(frame: &mut Frame, area: Rect, inspector: &PacketIn
             };
             Row::new([
                 Cell::from(rec.seq.to_string()),
-                Cell::from(rec.direction),
-                Cell::from(rec.proto),
+                Cell::from(rec.direction.as_str()),
+                Cell::from(rec.proto.as_str()),
                 Cell::from(format!("{} -> {}", rec.src, rec.dst)),
                 Cell::from(format!("{}B", rec.payload_len)),
-                Cell::from(rec.verdict.label()).style(Style::default().fg(rec.verdict.color()).add_modifier(Modifier::BOLD)),
+                Cell::from(rec.verdict.label()).style(Style::default().fg(verdict_color(rec.verdict)).add_modifier(Modifier::BOLD)),
                 Cell::from(rec.info.as_str()),
             ])
             .style(row_style)
@@ -121,7 +133,7 @@ pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord) {
         .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .title(Span::styled(
             format!(" Packet #{} Detail [{}] ", rec.seq, rec.verdict.label()),
-            Style::default().fg(rec.verdict.color()).add_modifier(Modifier::BOLD),
+            Style::default().fg(verdict_color(rec.verdict)).add_modifier(Modifier::BOLD),
         ));
     let inner = outer.inner(popup);
     frame.render_widget(outer, popup);
@@ -133,7 +145,7 @@ pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord) {
 
     let prof_line = match &rec.profile {
         Some(name) => format!("Profile : {name}"),
-        None if rec.verdict == crate::tui::inspect::PacketVerdict::Reasm => {
+        None if rec.verdict == PacketVerdict::Reasm => {
             "Profile : none (multi-segment TLS/QUIC reassembled & re-sent raw)".to_owned()
         }
         None => "Profile : none".to_owned(),

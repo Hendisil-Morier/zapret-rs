@@ -19,11 +19,10 @@ pub mod types;
 /// Background strategy scan and live `nfqws2` NFQUEUE worker handles.
 pub mod workers;
 
-/// Re-exported live packet inspector types, state, and record decoder.
-pub use inspect::{
-    PacketInspectorState, PacketRecord, PacketVerdict, VerdictFilter, build_packet_record,
-    filtered_packets,
-};
+/// Re-exported shared telemetry counters, verdicts, decoded records, and builder.
+pub use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record};
+/// Re-exported live packet inspector state and verdict filter helpers.
+pub use inspect::{PacketInspectorState, VerdictFilter, filtered_packets};
 /// Re-exported live packet inspector `ratatui` widgets and hex dump formatter.
 pub use inspect_ui::{draw_packet_detail_modal, draw_packet_inspector, format_hex_dump};
 /// Re-exported floating authentication and capability-grant modal overlay.
@@ -34,7 +33,7 @@ pub use render::draw_app;
 pub use runner::{TuiOptions, run_tui};
 /// Re-exported mutable application state container.
 pub use state::AppState;
-/// Re-exported navigation, form, telemetry, and event types.
+/// Re-exported navigation, form, and event types.
 pub use types::{
-    ActiveTab, AppAction, FinderField, FinderStatus, IpMode, PacketCounters, RunStatus, ScanUiEvent,
+    ActiveTab, AppAction, FinderField, FinderStatus, IpMode, RunStatus, ScanUiEvent,
 };

@@ -23,13 +23,15 @@ use crate::tools::{
     CoveredProfile, DEFAULT_STRAT_QNUM, NftFirewallBackend, ProbeProtocol, ScanConfig, ScanLevel,
     TargetScanResult, default_output_config_path, detect_lua_dir, expand_tilde, normalize_domain,
 };
+/// Lock-free packet outcome counters displayed on Tab 2.
+use crate::telemetry::PacketCounters;
 /// Live packet inspector state for Tab 2.
 use crate::tui::inspect::PacketInspectorState;
 /// Floating capability-grant and `sudo` password modal state.
 use crate::tui::modal::{AuthModal, ModalKeyResult, ModalPurpose};
-/// Shared TUI enums, telemetry counters, and worker event types.
+/// Shared TUI enums and worker event types.
 use crate::tui::types::{
-    ActiveTab, AppAction, FinderField, FinderStatus, IpMode, PacketCounters, RunStatus, ScanUiEvent,
+    ActiveTab, AppAction, FinderField, FinderStatus, IpMode, RunStatus, ScanUiEvent,
 };
 
 /// Maximum number of log lines retained in each scrollable log panel.

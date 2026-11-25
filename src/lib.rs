@@ -22,6 +22,8 @@ pub mod protocol;
 pub mod rawsend;
 /// Daemon process lifecycle, privilege drop, Linux capability retention, and signal handlers.
 pub mod runtime;
+/// Shared telemetry counters and serializable decoded packet records.
+pub mod telemetry;
 /// Monotonic boottime clock, scheduled timer pool, and non-intercepting timer loop.
 pub mod timer;
 /// Companion CLI utilities (`ip2net`, `mdig`, and `strat_finder`).

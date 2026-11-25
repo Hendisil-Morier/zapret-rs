@@ -11,14 +11,14 @@ Plan: `tasks/plan-ipc.md`. Verification commands used throughout:
 **Description:** Move `PacketCounters`, `PacketVerdict`, `PacketRecord` and `build_packet_record` out of the feature-gated `src/tui/` into a new always-built `src/telemetry/` module, and make `tui` re-export them. No behavior change.
 
 **Acceptance criteria:**
-- [ ] `crate::telemetry` is available without the `tui` feature
-- [ ] `zapret_rs::tui::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record}` still resolve (re-exports)
-- [ ] `PacketRecord` derives `serde::Serialize` and `Deserialize`
+- [x] `crate::telemetry` is available without the `tui` feature
+- [x] `zapret_rs::tui::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record}` still resolve (re-exports)
+- [x] `PacketRecord` derives `serde::Serialize` and `Deserialize`
 
 **Verification:**
-- [ ] Tests pass (existing `tui_app` and `desync_m3_e2e` unchanged)
-- [ ] `cargo check --no-default-features --offline` succeeds
-- [ ] Lint clean
+- [x] Tests pass (existing `tui_app` and `desync_m3_e2e` unchanged)
+- [x] `cargo check --no-default-features --offline` succeeds
+- [x] Lint clean
 
 **Dependencies:** None
 **Files likely touched:** `src/telemetry/{mod,counters,record}.rs`, `src/tui/{inspect,types,mod}.rs`, `src/lib.rs`
