@@ -10,6 +10,10 @@ pub mod mdig_dns;
 pub mod mdig_resolver;
 /// Strategy candidate catalog ported from `zapret2/blockcheck2.d/standard/*.sh`.
 pub mod strat_catalog;
+/// Shared CLI runner powering both `nfqws2 --strat-finder` and the standalone `strat_finder` binary.
+pub mod strat_cli;
+/// Interactive terminal setup wizard for `strat_finder`.
+pub mod strat_interactive;
 /// Temporary `nftables` NFQUEUE rule management with RAII teardown (`zapret_strat_finder`).
 pub mod strat_nft;
 /// HTTP/TLS/QUIC connectivity probe backends (`curl` + mockable trait).
@@ -39,6 +43,16 @@ pub use mdig_dns::{
 pub use mdig_resolver::{MdigOutputs, run_mdig_resolver};
 /// Public API re-exports for `strat_finder` strategy catalog expansion.
 pub use strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
+/// Public API re-exports for `strat_finder` CLI entry point and `nfqws2 --strat-finder` dispatch.
+pub use strat_cli::{
+    DEFAULT_STRAT_QNUM, StratFinderCli, detect_lua_dir, extract_strat_finder_args,
+    run_strat_finder, run_strat_finder_cli,
+};
+/// Public API re-exports for `strat_finder` interactive terminal wizard.
+pub use strat_interactive::{
+    InteractiveDefaults, InteractiveSelections, default_output_config_path, expand_tilde,
+    normalize_domain, prompt_interactive_wizard,
+};
 /// Public API re-exports for `strat_finder` temporary `nftables` firewall management.
 pub use strat_nft::{
     FirewallBackend, FirewallHandle, NftFirewallBackend, NftQueueGuard, STRAT_FINDER_NFT_TABLE,

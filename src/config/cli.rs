@@ -111,6 +111,9 @@ pub struct CliArgs {
     /// Append Lua startup script (`@path` for file, otherwise inline Lua source).
     #[arg(long = "lua-init")]
     pub lua_init: Vec<String>,
+    /// Launch the built-in interactive DPI strategy finder (`nfqws2 --strat-finder --help` for options).
+    #[arg(long = "strat-finder")]
+    pub strat_finder: bool,
 }
 
 /// Loads TOML config (when specified) and merges any explicit CLI overrides.

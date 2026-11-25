@@ -7,7 +7,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 /// Filesystem helpers for temporary `--write-config` CLI tests.
 use std::fs;
-/// Subprocess execution for testing the compiled `strat_finder` CLI binary.
+/// In-memory buffered reader for testing interactive wizard prompts offline.
+use std::io::Cursor;
+/// Path buffer assertions for interactive wizard defaults and custom paths.
+use std::path::PathBuf;
+/// Subprocess execution for testing the compiled `strat_finder` and `nfqws2` binaries.
 use std::process::Command;
 /// Shared reference counting for coordinating mock state between applier and probe.
 use std::rc::Rc;
@@ -18,11 +22,12 @@ use std::time::Duration;
 
 /// Application and desync profile models parsed from CLI-generated TOML.
 use zapret_rs::config::{AppConfig, DesyncProfile};
-/// Probe, firewall, runner, and catalog symbols under test.
+/// Probe, firewall, runner, interactive wizard, and catalog symbols under test.
 use zapret_rs::tools::{
-    CurlProbeBackend, IpFamily, NftFirewallBackend, ProbeBackend, ProbeOutcome, ProbeProtocol,
-    ProbeRequest, ProgressEvent, STRAT_FINDER_NFT_TABLE, ScanConfig, ScanLevel, StrategyApplier,
-    classify_curl_output, is_spoof_redirect, run_scan,
+    CurlProbeBackend, InteractiveDefaults, IpFamily, NftFirewallBackend, ProbeBackend,
+    ProbeOutcome, ProbeProtocol, ProbeRequest, ProgressEvent, STRAT_FINDER_NFT_TABLE, ScanConfig,
+    ScanLevel, StrategyApplier, classify_curl_output, extract_strat_finder_args,
+    is_spoof_redirect, prompt_interactive_wizard, run_scan,
 };
 
 /// Shared mock state tracking the currently active strategy ID and scripted responses.
@@ -311,4 +316,76 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config() {
     let parsed = AppConfig::from_toml_file(&tmp_path).expect("CLI-written TOML must parse");
     assert_eq!(parsed.profiles.len(), 3);
     let _ = fs::remove_file(&tmp_path);
+}
+
+/// Verifies `nfqws2 --strat-finder` dispatches into the built-in strategy finder and
+/// `prompt_interactive_wizard` handles custom answers, re-prompts on typos, and skipping output.
+#[test]
+fn nfqws2_strat_finder_flag_and_interactive_wizard() {
+    // Argument extraction preserves flags and ignores `--strat-finder` after `--`.
+    assert!(extract_strat_finder_args(["nfqws2", "--dry-run"]).is_none());
+    assert!(extract_strat_finder_args(["nfqws2", "--", "--strat-finder"]).is_none());
+    let extracted = extract_strat_finder_args([
+        "nfqws2", "--strat-finder", "--level", "quick", "--stop-on-first",
+    ])
+    .expect("flag should be detected");
+    assert_eq!(extracted[0], "nfqws2 --strat-finder");
+    assert_eq!(extracted[1], "--level");
+
+    // `nfqws2 --help` lists `--strat-finder`, and `nfqws2 --strat-finder --list-strategies` works offline.
+    let nfqws2 = env!("CARGO_BIN_EXE_nfqws2");
+    let main_help = Command::new(nfqws2).arg("--help").output().expect("nfqws2 --help");
+    assert!(main_help.status.success());
+    assert!(String::from_utf8_lossy(&main_help.stdout).contains("--strat-finder"));
+
+    let sf_help = Command::new(nfqws2)
+        .args(["--strat-finder", "--help"])
+        .output()
+        .expect("nfqws2 --strat-finder --help");
+    assert!(sf_help.status.success());
+    assert!(String::from_utf8_lossy(&sf_help.stdout).contains("--interactive"));
+
+    let sf_list = Command::new(nfqws2)
+        .args(["--strat-finder", "--list-strategies", "--level", "quick", "--proto", "tls13"])
+        .output()
+        .expect("nfqws2 --strat-finder --list-strategies");
+    assert!(sf_list.status.success());
+    assert!(String::from_utf8_lossy(&sf_list.stdout).contains("# tls13/ipv4 (quick):"));
+
+    // Interactive wizard: invalid domain -> valid domains, invalid level -> quick, custom lua + output.
+    let defaults = InteractiveDefaults {
+        domains: Vec::new(),
+        protos: vec![ProbeProtocol::Http, ProbeProtocol::Tls13],
+        families: vec![IpFamily::V4],
+        level: ScanLevel::Standard,
+        stop_on_first: false,
+        lua_dir: Some(PathBuf::from("../zapret2/lua")),
+        write_config: None,
+    };
+    let scripted = "\nhttps://a.example/path, b.example\ntls13,http3\n46\nbogus\nquick\ny\n/opt/lua\n/tmp/out.toml\n";
+    let mut reader = Cursor::new(scripted.as_bytes());
+    let mut prompt_out = Vec::new();
+    let sel = prompt_interactive_wizard(&mut reader, &mut prompt_out, &defaults)
+        .expect("interactive wizard should succeed");
+
+    assert_eq!(sel.domains, vec!["a.example".to_owned(), "b.example".to_owned()]);
+    assert_eq!(sel.protos, vec![ProbeProtocol::Tls13, ProbeProtocol::Http3]);
+    assert_eq!(sel.families, vec![IpFamily::V4, IpFamily::V6]);
+    assert_eq!(sel.level, ScanLevel::Quick);
+    assert!(sel.stop_on_first);
+    assert_eq!(sel.lua_dir, Some(PathBuf::from("/opt/lua")));
+    assert_eq!(sel.write_config, Some(PathBuf::from("/tmp/out.toml")));
+
+    // Pressing Enter accepts all defaults, and typing `none` skips config file output.
+    let scripted_defaults = "c.example\n\n\n\n\n\nnone\n";
+    let mut reader2 = Cursor::new(scripted_defaults.as_bytes());
+    let mut out2 = Vec::new();
+    let sel2 = prompt_interactive_wizard(&mut reader2, &mut out2, &defaults)
+        .expect("wizard defaults should succeed");
+    assert_eq!(sel2.domains, vec!["c.example".to_owned()]);
+    assert_eq!(sel2.protos, defaults.protos);
+    assert_eq!(sel2.level, ScanLevel::Standard);
+    assert!(!sel2.stop_on_first);
+    assert_eq!(sel2.lua_dir, Some(PathBuf::from("../zapret2/lua")));
+    assert_eq!(sel2.write_config, None);
 }

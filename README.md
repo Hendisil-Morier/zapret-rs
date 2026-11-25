@@ -87,18 +87,22 @@ mdig --family=6 --dns-make-query=example.com \
   | mdig --dns-parse-query
 ```
 
-### Strategy Finder (`strat_finder`)
+### Strategy Finder (`nfqws2 --strat-finder` / `strat_finder`)
 
-`strat_finder` replaces `zapret2/blockcheck2.sh` with a single-process Rust binary. Instead of spawning `nfqws2` for each candidate, it binds one NFQUEUE worker, hot-swaps Lua desync profiles in memory, cleans up its temporary `inet zapret_strat_finder` `nftables` table on exit, and writes a ready-to-use `nfqws2.toml` covering your blocked domains.
+`nfqws2 --strat-finder` (also available as the standalone `strat_finder` binary) replaces `zapret2/blockcheck2.sh` with a single-process Rust scanner. Instead of spawning `nfqws2` for each candidate, it binds one NFQUEUE worker, hot-swaps Lua desync profiles in memory, cleans up its temporary `inet zapret_strat_finder` `nftables` table on exit, and writes a ready-to-use `nfqws2.toml` covering your blocked domains.
 
 ```bash
-# Preview the expanded strategy catalog offline (no root required)
-strat_finder --list-strategies --level quick --proto http,tls13,http3
+# Interactive wizard (prompts for domains, protocols, scan level, lua-dir, and output path)
+sudo ./target/release/nfqws2 --strat-finder
 
-# Probe blocked domains and write a minimal nfqws2.toml in your home directory
-sudo ./target/release/strat_finder \
+# Preview the expanded strategy catalog offline (no root required)
+./target/release/nfqws2 --strat-finder --list-strategies --level quick --proto http,tls13,http3
+
+# Non-interactive scan writing a minimal nfqws2.toml in your home directory
+sudo ./target/release/nfqws2 --strat-finder \
   --domain blocked1.example,blocked2.example \
-  --level standard \
+  --level quick \
+  --stop-on-first \
   --lua-dir ../zapret2/lua \
   --write-config ~/nfqws2.toml
 

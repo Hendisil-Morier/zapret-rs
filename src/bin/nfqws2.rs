@@ -38,6 +38,8 @@ use zapret_rs::runtime::{
 };
 /// Monotonic boottime clock, scheduled timer pool, and `--intercept=0` execution loop.
 use zapret_rs::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_with_tick};
+/// Built-in strategy finder dispatch invoked when `--strat-finder` is passed on the CLI.
+use zapret_rs::tools::{extract_strat_finder_args, run_strat_finder_cli};
 
 /// Unified error type surfaced cleanly from `main()` with contextual diagnostics.
 #[derive(Debug, Error)]
@@ -212,8 +214,11 @@ fn run() -> Result<(), DaemonError> {
     Ok(())
 }
 
-/// Entry point delegates to [`run`], preserving RAII destructors (e.g., [`PidFileGuard`]) on exit.
+/// Entry point dispatches `--strat-finder` or delegates to [`run`], preserving RAII destructors on exit.
 fn main() -> ExitCode {
+    if let Some(sf_args) = extract_strat_finder_args(std::env::args_os()) {
+        return run_strat_finder_cli(sf_args);
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
