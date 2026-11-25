@@ -53,26 +53,34 @@ pub struct TuiOptions {
     pub no_nft: bool,
 }
 
+/// Environment marker set across seamless post-`setcap` `exec()` restarts to prevent screen clear flash.
+const SEAMLESS_REEXEC_ENV: &str = "ZAPRET_RS_SEAMLESS_REEXEC";
+
 /// RAII wrapper keeping `crossterm` raw mode and alternate screen paired with clean teardown.
 struct TerminalSession {
     /// Active `ratatui` terminal bound to stdout.
     terminal: Terminal<CrosstermBackend<Stdout>>,
+    /// When `false`, `Drop` keeps the alternate screen active across a seamless `exec()` restart.
+    restore_on_drop: bool,
 }
 
 impl TerminalSession {
     /// Enters raw mode and the alternate screen buffer.
     fn enter() -> Result<Self, String> {
+        let seamless = std::env::var_os(SEAMLESS_REEXEC_ENV).is_some();
         enable_raw_mode().map_err(|err| format!("failed to enable terminal raw mode: {err}"))?;
         let mut stdout = io::stdout();
-        if let Err(err) = execute!(stdout, EnterAlternateScreen) {
+        if !seamless && let Err(err) = execute!(stdout, EnterAlternateScreen) {
             let _ = disable_raw_mode();
             return Err(format!("failed to enter alternate screen: {err}"));
         }
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)
             .map_err(|err| format!("failed to initialize terminal: {err}"))?;
-        let _ = terminal.clear();
-        Ok(Self { terminal })
+        if !seamless {
+            let _ = terminal.clear();
+        }
+        Ok(Self { terminal, restore_on_drop: true })
     }
 
     /// Temporarily leaves alternate screen + raw mode only if teardown requires a fresh TTY prompt.
@@ -88,11 +96,13 @@ impl TerminalSession {
 }
 
 impl Drop for TerminalSession {
-    /// Restores cooked terminal mode and leaves the alternate screen buffer.
+    /// Restores cooked terminal mode and leaves the alternate screen buffer unless handing off to `exec()`.
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
-        let _ = self.terminal.show_cursor();
+        if self.restore_on_drop {
+            let _ = disable_raw_mode();
+            let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+            let _ = self.terminal.show_cursor();
+        }
     }
 }
 
@@ -189,7 +199,11 @@ fn submit_auth_modal(
         Ok(()) => {
             state.modal = None;
             match purpose {
-                ModalPurpose::GrantCaps => return true,
+                ModalPurpose::GrantCaps => {
+                    state.has_net_caps = true;
+                    state.status_banner = "Capabilities granted.".to_owned();
+                    return true;
+                }
                 ModalPurpose::SudoForScan => try_start_scan(state, active_scan),
                 ModalPurpose::SudoForDaemon => try_start_daemon(state, active_daemon),
             }
@@ -310,14 +324,23 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     if let Some(mut daemon) = active_daemon.take() {
         daemon.shutdown(|g| drop_fw_tui(&mut session, g));
     }
-    drop(session);
-
     if reexec_after_exit {
+        // Repaint one clean modal-free frame in place and keep the alternate screen across `exec()`.
+        let _ = session.terminal.draw(|f| draw_app(f, &state));
+        session.restore_on_drop = false;
+        drop(session);
+
         let exe = std::env::current_exe()
             .map_err(|err| format!("failed to resolve current executable for restart: {err}"))?;
         let args: Vec<_> = std::env::args_os().skip(1).collect();
-        let err = Command::new(&exe).args(args).exec();
+        let err = Command::new(&exe)
+            .args(args)
+            .env(SEAMLESS_REEXEC_ENV, "1")
+            .exec();
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
         return Err(format!("failed to restart {}: {err}", exe.display()));
     }
+    drop(session);
     Ok(())
 }
