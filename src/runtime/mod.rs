@@ -8,6 +8,8 @@ pub mod error;
 pub mod process;
 /// Async-signal-safe `SIGINT`, `SIGTERM`, and `SIGHUP` flags and `sigaction` installation.
 pub mod signals;
+/// Writable Lua directory preparation and `WRITABLE` environment export (`--writable`).
+pub mod writable;
 
 /// Re-exported capability constants and privilege retention helpers.
 pub use caps::{
@@ -24,4 +26,9 @@ pub use process::{
 /// Re-exported POSIX signal handler registration and atomic flag helpers.
 pub use signals::{
     install_signal_handlers, quit_flag, reload_flag, reset_signal_flags, take_reload_requested,
+};
+/// Re-exported `--writable` directory defaults and preparation helpers.
+pub use writable::{
+    DEFAULT_WRITABLE_SUBDIR, ensure_writable_dir, prepare_writable_dir,
+    resolve_default_writable_dir,
 };

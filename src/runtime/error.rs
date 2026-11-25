@@ -69,4 +69,13 @@ pub enum ProcessError {
         #[source]
         source: std::io::Error,
     },
+    /// Failed to create, access, or verify the `--writable` Lua directory.
+    #[error("could not prepare writable dir '{}': {source}", path.display())]
+    WritableDir {
+        /// Target writable directory path on disk.
+        path: PathBuf,
+        /// Underlying OS error returned during directory setup or probe write.
+        #[source]
+        source: std::io::Error,
+    },
 }

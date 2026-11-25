@@ -337,16 +337,16 @@ Target verification commands used across tasks:
 
 ## Task 4.2: Streaming gzip/gunzip, stat/time Lua bindings, and `--writable` support
 
-**Description:** Implement `src/lua/gzip_stream.rs` and `src/lua/gzip_api.rs` over `flate2` `rust_backend` (`Compress`, `Decompress`, `Crc`) with an RFC 1952 streaming header/trailer state machine covering raw deflate (`-15..=-8`), zlib (`8..=15`), gzip (`24..=31`), and auto-detect (`40..=47`), handling arbitrary byte-boundary splits and lifecycle invalidation. Implement `src/lua/fs_time_api.rs` exposing `stat`, `localtime`, `gmtime`, `timelocal`, and `timegm` via `libc`. Implement `--writable[=DIR]` and TOML `writable` in `src/runtime/writable.rs` (defaulting to `$TMPDIR/zapret-rs` or `/tmp/zapret-rs`), wiring it into config/CLI and `nfqws2`.
+**Description:** Implement `src/lua/{gzip_deflate.rs,gzip_inflate.rs,gzip_api.rs}` over `flate2` `rust_backend` (`Compress`, `Decompress`, `Crc`) with an RFC 1952 streaming header/trailer state machine covering raw deflate (`-15..=-8`), zlib (`8..=15`), gzip (`24..=31`), and auto-detect (`40..=47`), handling arbitrary byte-boundary splits and lifecycle invalidation. Implement `src/lua/fs_time_api.rs` exposing `stat`, `localtime`, `gmtime`, `timelocal`, and `timegm` via `libc`. Implement `--writable[=DIR]` and TOML `writable` in `src/runtime/writable.rs` (defaulting to `$TMPDIR/zapret-rs` or `/tmp/zapret-rs`), wiring it into config/CLI and `nfqws2`.
 
 **Acceptance criteria:**
-- [ ] Streaming gzip/gunzip bindings pass unmodified `zapret-tests.lua::test_gzip()` including byte-by-byte / mid-header splits, invalid handles, and role mismatches.
-- [ ] `stat`, `localtime`, `gmtime`, `timelocal`, and `timegm` pass `zapret-tests.lua::test_time()` and POSIX metadata/error parity checks.
-- [ ] `--writable` creates the directory (`$TMPDIR/zapret-rs` or `/tmp/zapret-rs` default) and exports `WRITABLE`.
+- [x] Streaming gzip/gunzip bindings pass unmodified `zapret-tests.lua::test_gzip()` including byte-by-byte / mid-header splits, invalid handles, and role mismatches.
+- [x] `stat`, `localtime`, `gmtime`, `timelocal`, and `timegm` pass `zapret-tests.lua::test_time()` and POSIX metadata/error parity checks.
+- [x] `--writable` creates the directory (`$TMPDIR/zapret-rs` or `/tmp/zapret-rs` default) and exports `WRITABLE`.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
 
 **Dependencies:** Task 4.1
 

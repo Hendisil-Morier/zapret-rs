@@ -39,6 +39,15 @@ pub enum LuaInitEntry {
     Inline(String),
 }
 
+/// Optional writable directory configuration exported to Lua via the `WRITABLE` env var (`--writable`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WritableDirConfig {
+    /// Use the default directory (`$TMPDIR/zapret-rs`, falling back to `/tmp/zapret-rs`).
+    Default,
+    /// Use an explicit filesystem directory path.
+    Custom(PathBuf),
+}
+
 /// Validated Lua desync invocation attached to a [`DesyncProfile`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesyncAction {
@@ -166,6 +175,8 @@ pub struct AppConfig {
     pub reasm_disable: u64,
     /// Optional autohostlist failure debug log path (`--hostlist-auto-debug`).
     pub hostlist_auto_debug: Option<PathBuf>,
+    /// Optional writable directory created at startup and exposed via `WRITABLE` (`--writable`).
+    pub writable: Option<WritableDirConfig>,
     /// Ordered Lua startup scripts and inline snippets.
     pub lua_init: Vec<LuaInitEntry>,
     /// Named binary blobs registered into Lua globals (`fake_default_*` plus custom entries).
@@ -196,6 +207,7 @@ impl Default for AppConfig {
             payload_disable: L7_PAYLOAD_NONE_MASK,
             reasm_disable: L7_PAYLOAD_NONE_MASK,
             hostlist_auto_debug: None,
+            writable: None,
             lua_init: Vec::new(),
             blobs: default_blobs(),
             profiles: Vec::new(),

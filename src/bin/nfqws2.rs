@@ -30,10 +30,11 @@ use zapret_rs::intercepter::{IntercepterError, QueueCatcher};
 use zapret_rs::lua::LuaEngineError;
 /// Packet sender trait, Linux raw socket sender, and socket setup error type.
 use zapret_rs::rawsend::{PacketSender, RawSendError, RawSender};
-/// Process lifecycle management: PID files, `chdir`, privilege drop, caps, signals, and daemonization.
+/// Process lifecycle management: PID files, `chdir`, privilege drop, caps, signals, writable dir, and daemonization.
 use zapret_rs::runtime::{
     PidFileGuard, ProcessError, apply_chdir, daemonize, drop_privileges, install_signal_handlers,
-    quit_flag, resolve_identity, retain_net_capabilities, take_reload_requested,
+    prepare_writable_dir, quit_flag, resolve_identity, retain_net_capabilities,
+    take_reload_requested,
 };
 /// Monotonic boottime clock, scheduled timer pool, and `--intercept=0` execution loop.
 use zapret_rs::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_with_tick};
@@ -138,6 +139,13 @@ fn run() -> Result<(), DaemonError> {
         }
         println!("configuration verified");
         return Ok(());
+    }
+
+    if let Some(writable_cfg) = &config.writable {
+        let writable_dir = prepare_writable_dir(writable_cfg, identity.as_ref())?;
+        if config.debug {
+            eprintln!("nfqws2: LUA writable dir: {}", writable_dir.display());
+        }
     }
 
     // Create/truncate PID file and open raw sockets prior to dropping root privileges.

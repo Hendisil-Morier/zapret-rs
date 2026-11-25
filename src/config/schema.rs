@@ -16,8 +16,8 @@ use crate::config::blobs::{load_file_blob, parse_hex_blob};
 use crate::config::error::ConfigError;
 /// L7 payload disable bitmask parser (`--payload-disable`, `--reasm-disable`).
 use crate::config::l7::parse_l7_disable_mask;
-/// Validated runtime application configuration and startup script variants.
-use crate::config::model::{AppConfig, LuaInitEntry};
+/// Validated runtime application configuration, startup script variants, and writable directory mode.
+use crate::config::model::{AppConfig, LuaInitEntry, WritableDirConfig};
 /// Per-profile TOML schema and validated [`crate::config::DesyncProfile`] builder.
 use crate::config::profile_schema::{RawProfile, build_profile};
 /// Conntrack timeout parser for TOML `ctrack_timeouts`.
@@ -50,6 +50,16 @@ enum RawBlobSpec {
         #[serde(default)]
         offset: u64,
     },
+}
+
+/// Raw TOML `writable` setting accepting boolean enablement or a custom directory path.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum RawWritable {
+    /// Boolean flag (`true` uses `$TMPDIR/zapret-rs` or `/tmp/zapret-rs`, `false` disables).
+    Enabled(bool),
+    /// Explicit writable directory path string (empty string selects the default path).
+    Path(PathBuf),
 }
 
 /// Top-level TOML configuration file structure (`nfqws2.toml`).
@@ -98,6 +108,8 @@ struct RawConfig {
     reasm_disable: Vec<String>,
     /// Autohostlist failure debug log path (`--hostlist-auto-debug`).
     hostlist_auto_debug: Option<PathBuf>,
+    /// Optional writable Lua directory specification (`--writable`).
+    writable: Option<RawWritable>,
     /// Ordered list of startup Lua scripts or inline chunks.
     #[serde(default)]
     lua_init: Vec<RawLuaInit>,
@@ -223,6 +235,16 @@ fn apply_scalar_fields(
         .hostlist_auto_debug
         .clone()
         .map(|p| resolve_path(p, base_dir));
+    cfg.writable = match &raw.writable {
+        Some(RawWritable::Enabled(true)) => Some(WritableDirConfig::Default),
+        Some(RawWritable::Enabled(false)) | None => None,
+        Some(RawWritable::Path(path)) if path.as_os_str().is_empty() => {
+            Some(WritableDirConfig::Default)
+        }
+        Some(RawWritable::Path(path)) => {
+            Some(WritableDirConfig::Custom(resolve_path(path.clone(), base_dir)))
+        }
+    };
     Ok(())
 }
 

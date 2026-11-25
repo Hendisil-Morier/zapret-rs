@@ -12,8 +12,8 @@ use crate::config::error::ConfigError;
 use crate::config::filter::parse_u32_radix;
 /// L7 payload disable list parser for `--payload-disable` and `--reasm-disable`.
 use crate::config::l7::parse_l7_disable_mask;
-/// Validated application configuration and Lua init source variants loaded from TOML/CLI.
-use crate::config::model::{AppConfig, LuaInitEntry};
+/// Validated application configuration, Lua init source variants, and writable directory mode.
+use crate::config::model::{AppConfig, LuaInitEntry, WritableDirConfig};
 /// Conntrack `S:E:F[:U]` timeout parser for `--ctrack-timeouts`.
 use crate::config::runtime_cfg::parse_timeouts;
 
@@ -105,6 +105,9 @@ pub struct CliArgs {
     /// Override autohostlist failure debug log file path.
     #[arg(long = "hostlist-auto-debug")]
     pub hostlist_auto_debug: Option<PathBuf>,
+    /// Create a writable directory for Lua scripts (`$TMPDIR/zapret-rs` or `/tmp/zapret-rs` by default) and export `WRITABLE`.
+    #[arg(long = "writable", num_args = 0..=1, default_missing_value = "")]
+    pub writable: Option<String>,
     /// Append Lua startup script (`@path` for file, otherwise inline Lua source).
     #[arg(long = "lua-init")]
     pub lua_init: Vec<String>,
@@ -175,6 +178,14 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError> {
     }
     if let Some(debug_log) = &cli.hostlist_auto_debug {
         cfg.hostlist_auto_debug = Some(debug_log.clone());
+    }
+    if let Some(raw_writable) = &cli.writable {
+        let trimmed = raw_writable.trim();
+        cfg.writable = Some(if trimmed.is_empty() {
+            WritableDirConfig::Default
+        } else {
+            WritableDirConfig::Custom(PathBuf::from(trimmed))
+        });
     }
     for entry in &cli.lua_init {
         if let Some(path) = entry.strip_prefix('@') {
