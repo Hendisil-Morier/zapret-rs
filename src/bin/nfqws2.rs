@@ -12,11 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 /// Reference counting for injecting [`RawSender`] into [`DesyncEngine`].
 use std::rc::Rc;
-/// Shared lock-free telemetry hub and atomic stop-flag updates.
-use std::sync::{
-    Arc,
-    atomic::Ordering,
-};
+/// Shared lock-free telemetry hub for control socket subscribers.
+use std::sync::Arc;
 /// Poll timeout duration derived from the active timer pool deadline.
 use std::time::Duration;
 
@@ -27,14 +24,14 @@ use thiserror::Error;
 
 /// CLI arguments, config resolution, error wrapper, and Lua startup entry variants.
 use zapret_rs::config::{AppConfig, CliArgs, ConfigError, LuaInitEntry, resolve_config};
-/// Unix control socket server, telemetry hub, command channel, and directory helpers.
+/// Unix control socket server, telemetry hub, and directory helpers.
 use zapret_rs::control::{
-    ControlCommand, ControlServer, ControlServerConfig, ControlServerError, DaemonStatusMeta,
-    TelemetryHub, prepare_control_socket_dir, resolve_control_socket_path,
+    ControlServer, ControlServerConfig, ControlServerError, DaemonStatusMeta, TelemetryHub,
+    prepare_control_socket_dir, resolve_control_socket_path,
 };
-/// Core stateful DPI desync engine, list-file validation, and live TOML profile reload helpers.
+/// Core stateful DPI desync engine, list-file validation, and control command/reload helpers.
 use zapret_rs::desync::{
-    DesyncEngine, collect_profile_names, reload_engine_from_toml, verify_config_list_files,
+    DesyncEngine, collect_profile_names, drain_hub_commands, verify_config_list_files,
 };
 /// Linux NFQUEUE interception listener and poll error type.
 use zapret_rs::intercepter::{IntercepterError, QueueCatcher};
@@ -52,8 +49,11 @@ use zapret_rs::runtime::{
 use zapret_rs::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_callbacks};
 /// Shared packet counters and L3/L4/L7 packet record builder for control subscribers.
 use zapret_rs::telemetry::{PacketCounters, build_packet_record};
-/// Built-in strategy finder dispatch invoked when `--strat-finder` is passed on the CLI.
-use zapret_rs::tools::{extract_strat_finder_args, run_strat_finder_cli};
+/// Built-in strategy finder dispatch and optional auto-managed `nftables` queue helpers.
+use zapret_rs::tools::{
+    FirewallBackend, FirewallHandle, NftFirewallBackend, collect_config_ports,
+    extract_strat_finder_args, run_strat_finder_cli,
+};
 
 /// Maximum poll timeout when the control socket is active so commands execute promptly.
 const CONTROL_LOOP_TIMEOUT_CAP: Duration = Duration::from_millis(50);
@@ -79,6 +79,9 @@ enum DaemonError {
     /// Linux NFQUEUE socket bind, receive, poll, or verdict submission error.
     #[error("{0}")]
     Intercepter(#[from] IntercepterError),
+    /// Temporary `nftables` queue rule installation failure when `--nft` is enabled.
+    #[error("temporary nftables setup failed: {0}")]
+    Nft(#[source] std::io::Error),
     /// Referenced `--lua-init` script file could not be opened under active privileges.
     #[error("cannot open Lua init script '{}': {source}", path.display())]
     ScriptIo {
@@ -117,13 +120,34 @@ fn verify_list_files(config: &AppConfig) -> Result<(), DaemonError> {
     verify_config_list_files(config).map_err(|(path, source)| DaemonError::ListIo { path, source })
 }
 
-/// Handles pending `SIGHUP` requests by resetting modification signatures and reloading lists.
-fn check_sighup_reload(engine: &DesyncEngine, debug: bool) {
+/// Processes pending `SIGHUP` reloads and control-socket commands, refreshing `--nft` rules if needed.
+fn poll_signals_and_commands(
+    engine: &RefCell<DesyncEngine>,
+    hub: Option<&TelemetryHub>,
+    config: &AppConfig,
+    config_dir: Option<&Path>,
+    fw_guard: Option<&mut Option<Box<dyn FirewallHandle>>>,
+) {
     if take_reload_requested() {
-        if debug {
+        if config.debug {
             eprintln!("nfqws2: SIGHUP received, reloading lists");
         }
-        engine.reload_lists();
+        engine.borrow().reload_lists();
+    }
+    let Some(active_hub) = hub else {
+        return;
+    };
+    let swapped = drain_hub_commands(
+        &mut engine.borrow_mut(),
+        active_hub,
+        config.qnum,
+        config.fwmark,
+        config_dir,
+        quit_flag(),
+        config.debug,
+    );
+    if swapped && let Some(guard @ Some(_)) = fw_guard {
+        refresh_auto_nft_ports(config.qnum, config.fwmark, &engine.borrow(), guard);
     }
 }
 
@@ -133,9 +157,9 @@ fn next_loop_timeout(
     hub: Option<&TelemetryHub>,
     config: &AppConfig,
     config_dir: Option<&Path>,
+    fw_guard: &mut Option<Box<dyn FirewallHandle>>,
 ) -> Option<Duration> {
-    check_sighup_reload(&engine.borrow(), config.debug);
-    drain_control_commands(engine, hub, config, config_dir);
+    poll_signals_and_commands(engine, hub, config, config_dir, Some(fw_guard));
     let now = boottime_ms();
     let deadline = {
         let eng = engine.borrow();
@@ -150,53 +174,38 @@ fn next_loop_timeout(
     }
 }
 
-/// Drains non-blocking control requests queued by connected Unix socket clients.
-fn drain_control_commands(
-    engine: &RefCell<DesyncEngine>,
-    hub: Option<&TelemetryHub>,
-    config: &AppConfig,
-    config_dir: Option<&Path>,
+/// Refreshes managed `zapret_strat_finder` ports non-interactively after a live `reload_config`.
+fn refresh_auto_nft_ports(
+    qnum: u16,
+    fwmark: u32,
+    engine: &DesyncEngine,
+    fw_guard: &mut Option<Box<dyn FirewallHandle>>,
 ) {
-    let Some(active_hub) = hub else {
-        return;
-    };
-    while let Some(cmd) = active_hub.try_recv_command() {
-        match cmd {
-            ControlCommand::ReloadLists { reply } => {
-                engine.borrow().reload_lists();
-                if config.debug {
-                    eprintln!("nfqws2: control reload_lists completed");
-                }
-                let _ = reply.send(Ok("reloaded hostlist and ipset files".to_owned()));
-            }
-            ControlCommand::ReloadConfig { toml, reply } => {
-                let outcome = {
-                    let mut eng = engine.borrow_mut();
-                    reload_engine_from_toml(&mut eng, config.qnum, config.fwmark, config_dir, &toml)
-                };
-                match outcome {
-                    Ok(names) => {
-                        let count = names.len();
-                        active_hub.set_profile_names(names);
-                        if config.debug {
-                            eprintln!("nfqws2: control reload_config swapped {count} profile(s)");
-                        }
-                        let _ = reply.send(Ok(format!("reloaded {count} profile(s)")));
-                    }
-                    Err(err) => {
-                        let _ = reply.send(Err(err));
-                    }
-                }
-            }
-            ControlCommand::Stop { reply } => {
-                quit_flag().store(true, Ordering::Release);
-                if config.debug {
-                    eprintln!("nfqws2: control stop requested");
-                }
-                let _ = reply.send(Ok("stopping nfqws2".to_owned()));
-            }
-        }
+    let mut cfg = AppConfig { qnum, fwmark, ..AppConfig::default() };
+    cfg.profiles = engine.profiles().iter().map(|p| (**p).clone()).collect();
+    let (tcp, udp) = collect_config_ports(&cfg);
+    match NftFirewallBackend::default().install_non_interactive(qnum, fwmark, &tcp, &udp) {
+        Ok(new_guard) => *fw_guard = Some(new_guard),
+        Err(err) => eprintln!("nfqws2: warning: could not refresh --nft rules after reload: {err}"),
     }
+}
+
+/// Installs the managed temporary `nftables` queue table when `--nft` (`auto_nft`) is enabled.
+fn maybe_install_auto_nft(config: &AppConfig) -> Result<Option<Box<dyn FirewallHandle>>, DaemonError> {
+    if !config.auto_nft || !config.intercept {
+        return Ok(None);
+    }
+    let (tcp, udp) = collect_config_ports(config);
+    let guard = NftFirewallBackend::default()
+        .install(config.qnum, config.fwmark, &tcp, &udp)
+        .map_err(DaemonError::Nft)?;
+    if config.debug {
+        eprintln!(
+            "nfqws2: installed auto-cleaned nftables rules on queue {} (fwmark 0x{:08x})",
+            config.qnum, config.fwmark
+        );
+    }
+    Ok(Some(guard))
 }
 
 /// Starts the Unix control socket server after daemonization and privilege drop when configured.
@@ -315,10 +324,7 @@ fn run() -> Result<(), DaemonError> {
         )?;
         run_no_intercept_callbacks(
             quit_flag(),
-            || {
-                check_sighup_reload(&engine.borrow(), config.debug);
-                drain_control_commands(&engine, hub.as_deref(), &config, config_dir);
-            },
+            || poll_signals_and_commands(&engine, hub.as_deref(), &config, config_dir, None),
             || engine.borrow().runtime().timer_pool().borrow().is_empty(),
             || engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms(),
             || {
@@ -352,10 +358,11 @@ fn run() -> Result<(), DaemonError> {
         &engine.borrow(),
         cli.config.as_deref(),
     )?;
+    let mut fw_guard = maybe_install_auto_nft(&config)?;
 
     let loop_result = catcher.run_until(
         quit_flag(),
-        || next_loop_timeout(&engine, hub.as_deref(), &config, config_dir),
+        || next_loop_timeout(&engine, hub.as_deref(), &config, config_dir, &mut fw_guard),
         |pkt| {
             if let Some(ref active_hub) = hub {
                 let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
@@ -369,6 +376,7 @@ fn run() -> Result<(), DaemonError> {
             }
         },
     );
+    drop(fw_guard);
     if let Some(srv) = control_server {
         srv.shutdown();
     }

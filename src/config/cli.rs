@@ -116,6 +116,9 @@ pub struct CliArgs {
     /// PASS telemetry sampling divisor (`1` in N forwarded to subscribers, `0` disables PASS).
     #[arg(long = "control-pass-sample")]
     pub control_pass_sample: Option<u64>,
+    /// Automatically install temporary `nftables` queue rules on startup and delete them on exit.
+    #[arg(long = "nft", num_args = 0..=1, default_missing_value = "true", value_parser = parse_bool_arg)]
+    pub nft: Option<bool>,
     /// Append Lua startup script (`@path` for file, otherwise inline Lua source).
     #[arg(long = "lua-init")]
     pub lua_init: Vec<String>,
@@ -203,6 +206,9 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError> {
     }
     if let Some(sample) = cli.control_pass_sample {
         cfg.control_pass_sample = sample;
+    }
+    if let Some(nft) = cli.nft {
+        cfg.auto_nft = nft;
     }
     for entry in &cli.lua_init {
         if let Some(path) = entry.strip_prefix('@') {

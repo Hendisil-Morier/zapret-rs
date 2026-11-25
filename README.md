@@ -62,6 +62,9 @@ nfqws2 --intercept=0 --lua-init=@lua/zapret-lib.lua --lua-init='DLOG_CONDUP("ok"
 # Run daemonized, drop privileges after pre-initialization, and reload lists on SIGHUP
 nfqws2 --config /etc/zapret/nfqws2.toml --user nobody --daemon --pidfile /run/nfqws2.pid
 kill -HUP "$(cat /run/nfqws2.pid)"
+
+# Run with automatic temporary nftables rule creation (`inet zapret_strat_finder`) and cleanup on exit
+nfqws2 --config ~/.config/zapret-rs/nfqws2.toml --nft
 ```
 
 ## Linux Capabilities

@@ -409,5 +409,19 @@ fn control_socket_and_sample_rate_parse_from_toml_and_cli() {
 
     let default_cfg = AppConfig::from_toml_str("control_socket = true\n", None).expect("default true");
     assert_eq!(default_cfg.control_socket, ControlSocketConfig::Default);
+    assert!(!default_cfg.auto_nft);
+
+    let nft_cfg = AppConfig::from_toml_str("auto_nft = true\n", None).expect("auto_nft parses");
+    assert!(nft_cfg.auto_nft);
+    let nft_cli = CliArgs::try_parse_from([
+        "nfqws2",
+        "--config",
+        toml_path.to_str().expect("utf8 path"),
+        "--nft",
+    ])
+    .expect("--nft parses");
+    assert!(resolve_config(&nft_cli).expect("resolve --nft").auto_nft);
+    let no_nft_cli = CliArgs::try_parse_from(["nfqws2", "--nft=0"]).expect("--nft=0 parses");
+    assert!(!resolve_config(&no_nft_cli).expect("resolve --nft=0").auto_nft);
     let _ = fs::remove_dir_all(&dir);
 }

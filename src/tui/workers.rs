@@ -1,7 +1,5 @@
 //! Background strategy finder and live `nfqws2` worker handles managed by the TUI runner.
 
-/// Deduplicated TCP/UDP port collection when starting the live `nfqws2` engine.
-use std::collections::BTreeSet;
 /// Path types for resolving relative config references and Lua directories.
 use std::path::{Path, PathBuf};
 /// Shared atomic flags and channels coordinating background workers with the UI loop.
@@ -24,7 +22,7 @@ use crate::intercepter::QueueCatcher;
 /// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
 use crate::tools::{
     CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, TomlRenderOptions,
-    render_nfqws2_toml, resolve_lua_scripts, run_scan,
+    collect_config_ports, render_nfqws2_toml, resolve_lua_scripts, run_scan,
 };
 /// Shared telemetry counters, serializable packet record, verdict tag, and decoder.
 use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record};
@@ -83,30 +81,6 @@ impl ActiveDaemon {
             drop_fw(guard);
         }
     }
-}
-
-/// Collects deduplicated TCP and UDP ports referenced by `cfg.profiles` (defaults to 80/443).
-fn collect_config_ports(cfg: &AppConfig) -> (Vec<u16>, Vec<u16>) {
-    let mut tcp = BTreeSet::new();
-    let mut udp = BTreeSet::new();
-    for p in &cfg.profiles {
-        for pf in &p.filter_tcp {
-            if !pf.neg && pf.from > 0 && pf.from == pf.to {
-                tcp.insert(pf.from);
-            }
-        }
-        for pf in &p.filter_udp {
-            if !pf.neg && pf.from > 0 && pf.from == pf.to {
-                udp.insert(pf.from);
-            }
-        }
-    }
-    if tcp.is_empty() && udp.is_empty() {
-        tcp.insert(80);
-        tcp.insert(443);
-        udp.insert(443);
-    }
-    (tcp.into_iter().collect(), udp.into_iter().collect())
 }
 
 /// Starts a background strategy finder scan, invoking `install_fw` when `nftables` is enabled.

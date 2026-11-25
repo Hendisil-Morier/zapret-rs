@@ -197,6 +197,8 @@ pub struct AppConfig {
     pub control_socket: ControlSocketConfig,
     /// Sampling divisor for `PASS` telemetry records (`--control-pass-sample`, `0` disables `PASS`).
     pub control_pass_sample: u64,
+    /// Install and auto-remove the temporary `zapret_strat_finder` `nftables` table around `nfqws2` (`--nft`).
+    pub auto_nft: bool,
     /// Ordered Lua startup scripts and inline snippets.
     pub lua_init: Vec<LuaInitEntry>,
     /// Named binary blobs registered into Lua globals (`fake_default_*` plus custom entries).
@@ -230,6 +232,7 @@ impl Default for AppConfig {
             writable: None,
             control_socket: ControlSocketConfig::Auto,
             control_pass_sample: DEFAULT_PASS_SAMPLE_RATE,
+            auto_nft: false,
             lua_init: Vec::new(),
             blobs: default_blobs(),
             profiles: Vec::new(),

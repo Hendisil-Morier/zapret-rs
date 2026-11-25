@@ -124,6 +124,8 @@ struct RawConfig {
     control_socket: Option<RawControlSocket>,
     /// Sampling divisor for `PASS` packets streamed over the control socket (`0` disables PASS).
     control_pass_sample: Option<u64>,
+    /// Automatically manage and remove the temporary `zapret_strat_finder` `nftables` table (`--nft`).
+    auto_nft: Option<bool>,
     /// Ordered list of startup Lua scripts or inline chunks.
     #[serde(default)]
     lua_init: Vec<RawLuaInit>,
@@ -269,6 +271,9 @@ fn apply_scalar_fields(
     };
     if let Some(sample) = raw.control_pass_sample {
         cfg.control_pass_sample = sample;
+    }
+    if let Some(auto_nft) = raw.auto_nft {
+        cfg.auto_nft = auto_nft;
     }
     Ok(())
 }

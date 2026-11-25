@@ -34,6 +34,6 @@ pub use play::PacketOutcome;
 /// Re-exported list/autohostlist startup and `--dry-run` validation helper.
 pub use profile_state::verify_config_list_files;
 /// Re-exported live TOML profile reload helpers (`collect_profile_names`, `reload_engine_from_toml`).
-pub use reload::{collect_profile_names, reload_engine_from_toml};
+pub use reload::{collect_profile_names, drain_hub_commands, reload_engine_from_toml};
 /// Re-exported verdict aggregator and baseline L7 payload classifier.
 pub use verdict::{aggregate_verdict, classify_baseline_payload};
