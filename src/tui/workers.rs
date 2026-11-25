@@ -26,6 +26,8 @@ use crate::tools::{
     CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, TomlRenderOptions,
     render_nfqws2_toml, resolve_lua_scripts, run_scan,
 };
+/// Live packet inspector record decoder sent over a non-blocking channel.
+use crate::tui::inspect::{PacketRecord, build_packet_record};
 /// Application state read/updated when spawning workers.
 use crate::tui::state::AppState;
 /// Status, telemetry counter, and scan event types.
@@ -60,6 +62,8 @@ impl ActiveScan {
 pub(crate) struct ActiveDaemon {
     /// Stop flag observed by `QueueCatcher::run_until`.
     pub(crate) stop: Arc<AtomicBool>,
+    /// Bounded non-blocking stream of captured [`PacketRecord`] items for the Tab 2 inspector.
+    pub(crate) pkt_rx: Receiver<PacketRecord>,
     /// Daemon thread handle joined on stop/exit.
     pub(crate) join: Option<JoinHandle<()>>,
     /// Temporary `nftables` rule guard dropped when the daemon stops.
@@ -212,6 +216,7 @@ where
     let (qnum, fwmark) = (cfg.qnum, cfg.fwmark);
 
     let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<(), String>>(1);
+    let (pkt_tx, pkt_rx) = mpsc::sync_channel::<PacketRecord>(512);
     let stop = Arc::new(AtomicBool::new(false));
     let stop_bg = Arc::clone(&stop);
     let counters: Arc<PacketCounters> = Arc::clone(&state.counters);
@@ -233,12 +238,14 @@ where
                 || Some(Duration::from_millis(50)),
                 |pkt| {
                     let decision = engine.process_packet(pkt);
-                    counters.total.fetch_add(1, Ordering::Relaxed);
+                    let seq = counters.total.fetch_add(1, Ordering::Relaxed) + 1;
                     match &decision {
                         Decision::Pass => { counters.passed.fetch_add(1, Ordering::Relaxed); }
                         Decision::Replace(_) => { counters.modified.fetch_add(1, Ordering::Relaxed); }
                         Decision::Drop => { counters.dropped.fetch_add(1, Ordering::Relaxed); }
                     }
+                    // Non-blocking `try_send` ensures UI telemetry never stalls packet forwarding.
+                    let _ = pkt_tx.try_send(build_packet_record(seq, pkt, &decision));
                     decision
                 },
             );
@@ -269,6 +276,6 @@ where
         "[start] nfqws2 active on queue {qnum} (fwmark 0x{fwmark:08x}, {} profiles)",
         state.parsed_profiles.len()
     ));
-    state.status_banner = "nfqws2 is running. Press 'r' or 'x' to stop.".to_owned();
-    Ok(ActiveDaemon { stop, join: Some(join), fw_guard })
+    state.status_banner = "nfqws2 is running. Press 'f' to filter, 'd' for detail, 'x' to stop.".to_owned();
+    Ok(ActiveDaemon { stop, pkt_rx, join: Some(join), fw_guard })
 }

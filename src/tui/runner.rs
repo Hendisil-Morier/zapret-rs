@@ -245,6 +245,12 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 done_scan.shutdown(|g| drop_fw_tui(&mut session, g));
             }
         }
+        if let Some(daemon) = active_daemon.as_mut() {
+            for _ in 0..128 {
+                let Ok(rec) = daemon.pkt_rx.try_recv() else { break; };
+                state.inspector.push(rec);
+            }
+        }
 
         session
             .terminal

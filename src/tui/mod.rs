@@ -1,5 +1,9 @@
 //! Interactive `ratatui` TUI wrapping `strat_finder`, config preview, and live `nfqws2` execution.
 
+/// Live packet inspector record decoding, state, and verdict filter model.
+pub mod inspect;
+/// Live packet inspector `ratatui` table, detail popup, and hex dump renderer.
+pub mod inspect_ui;
 /// Centered floating modal popup for capability grants and `sudo` authentication.
 pub mod modal;
 /// Pure `ratatui` layout and widget renderer for all three tabs.
@@ -13,6 +17,13 @@ pub mod types;
 /// Background strategy scan and live `nfqws2` NFQUEUE worker handles.
 pub mod workers;
 
+/// Re-exported live packet inspector types, state, and record decoder.
+pub use inspect::{
+    PacketInspectorState, PacketRecord, PacketVerdict, VerdictFilter, build_packet_record,
+    filtered_packets,
+};
+/// Re-exported live packet inspector `ratatui` widgets and hex dump formatter.
+pub use inspect_ui::{draw_packet_detail_modal, draw_packet_inspector, format_hex_dump};
 /// Re-exported floating authentication and capability-grant modal overlay.
 pub use modal::{AuthModal, ModalKeyResult, ModalPurpose, draw_auth_modal};
 /// Re-exported top-level frame renderer for headless tests and the event loop.

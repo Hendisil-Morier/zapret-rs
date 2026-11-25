@@ -23,6 +23,8 @@ use crate::tools::{
     CoveredProfile, DEFAULT_STRAT_QNUM, NftFirewallBackend, ProbeProtocol, ScanConfig, ScanLevel,
     TargetScanResult, default_output_config_path, detect_lua_dir, expand_tilde, normalize_domain,
 };
+/// Live packet inspector state for Tab 2.
+use crate::tui::inspect::PacketInspectorState;
 /// Floating capability-grant and `sudo` password modal state.
 use crate::tui::modal::{AuthModal, ModalKeyResult, ModalPurpose};
 /// Shared TUI enums, telemetry counters, and worker event types.
@@ -103,6 +105,8 @@ pub struct AppState {
     pub status_banner: String,
     /// Active floating capability-grant / `sudo` authentication modal, when visible.
     pub modal: Option<AuthModal>,
+    /// Live packet inspector table, filter, pause toggle, and detail popup state on Tab 2.
+    pub inspector: PacketInspectorState,
 }
 
 impl AppState {
@@ -138,6 +142,7 @@ impl AppState {
             parsed_profiles: Vec::new(), toml_scroll: 0, uid, has_net_caps, exe_path,
             status_banner: "Ready. Use 1/2/3 or Tab to switch views, 'q' to quit.".to_owned(),
             modal: None,
+            inspector: PacketInspectorState::default(),
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
@@ -303,10 +308,7 @@ impl AppState {
             _ => { self.editing_text = false; return AppAction::None; }
         };
         match code {
-            KeyCode::Esc | KeyCode::Enter => {
-                self.editing_text = false;
-                self.status_banner = "Field updated.".to_owned();
-            }
+            KeyCode::Esc | KeyCode::Enter => { self.editing_text = false; self.status_banner = "Field updated.".to_owned(); }
             KeyCode::Backspace => { buf.pop(); }
             KeyCode::Char(c) => buf.push(c),
             _ => {}
@@ -360,8 +362,12 @@ impl AppState {
         AppAction::None
     }
 
-    /// Handles start/stop, config reload, and counter reset on the Run `nfqws2` tab.
+    /// Handles start/stop, config reload, counter reset, and live packet inspection on Tab 2.
     fn handle_run_key(&mut self, code: KeyCode) -> AppAction {
+        if let Some(msg) = self.inspector.handle_key(code) {
+            if !msg.is_empty() { self.status_banner = msg; }
+            return AppAction::None;
+        }
         match code {
             KeyCode::Char('r') | KeyCode::Enter => {
                 if self.run_status == RunStatus::Running { AppAction::StopDaemon } else { AppAction::StartDaemon }
@@ -370,7 +376,8 @@ impl AppState {
             KeyCode::Char('l') => AppAction::ReloadConfig,
             KeyCode::Char('c') => {
                 self.counters.reset();
-                self.status_banner = "Packet counters reset.".to_owned();
+                self.inspector.clear();
+                self.status_banner = "Packet counters and inspector buffer cleared.".to_owned();
                 AppAction::None
             }
             _ => AppAction::None,

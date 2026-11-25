@@ -9,6 +9,8 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Gauge, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
 };
 
+/// Live packet inspector table and detail overlay renderers.
+use crate::tui::inspect_ui::{draw_packet_detail_modal, draw_packet_inspector};
 /// Floating capability-grant and `sudo` password modal overlay renderer.
 use crate::tui::modal::draw_auth_modal;
 /// Application state rendered into the terminal frame.
@@ -45,6 +47,9 @@ pub fn draw_app(frame: &mut Frame, state: &AppState) {
         ActiveTab::Config => draw_config_tab(frame, chunks[1], state),
     }
     draw_footer(frame, chunks[2], state);
+    if state.tab == ActiveTab::Run && state.inspector.detail_open && let Some(rec) = state.inspector.selected_record() {
+        draw_packet_detail_modal(frame, rec);
+    }
     if let Some(modal) = &state.modal {
         draw_auth_modal(frame, modal);
     }
@@ -236,11 +241,7 @@ fn draw_results_table(frame: &mut Frame, area: Rect, state: &AppState) {
 fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(7),
-            Constraint::Length(5),
-            Constraint::Min(6),
-        ])
+        .constraints([Constraint::Length(6), Constraint::Length(3), Constraint::Min(6), Constraint::Length(4)])
         .split(area);
 
     let (st_text, st_color) = match &state.run_status {
@@ -293,7 +294,8 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         frame.render_widget(card, metric_cols[idx]);
     }
 
-    draw_log_list(frame, rows[2], " Daemon Log ", &state.run_logs);
+    draw_packet_inspector(frame, rows[2], &state.inspector.packets, state.inspector.filter, state.inspector.selected, state.inspector.paused);
+    draw_log_list(frame, rows[3], " Daemon Log ", &state.run_logs);
 }
 
 /// Renders Tab 3: scrollable `nfqws2.toml` preview, `nftables` script, and capability diagnostics.
@@ -380,7 +382,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         match state.tab {
             ActiveTab::Finder => "[Up/Down] Move  [Enter/Space] Edit/Toggle  [r] Start Scan  [x] Stop  [s] Save  [a] Run Tab  [q] Quit",
-            ActiveTab::Run => "[r/Enter] Start/Stop nfqws2  [l] Reload Config  [c] Reset Counters  [Tab] Switch Tab  [q] Quit",
+            ActiveTab::Run => "[r] Start/Stop  [f] Filter  [p] Pause  [Up/Down] Select  [d] Detail  [c] Clear  [l] Reload  [q] Quit",
             ActiveTab::Config => "[Up/Down/PgUp/PgDn] Scroll  [s] Save TOML  [l] Reload File  [Tab] Switch Tab  [q] Quit",
         }
     };

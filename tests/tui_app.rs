@@ -12,15 +12,23 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 /// Headless in-memory `ratatui` terminal backend for deterministic UI rendering tests.
 use ratatui::{Terminal, backend::TestBackend};
 
+/// Packet interception types used to test live packet inspector decoding.
+use zapret_rs::intercepter::{Decision, QueuedPacket};
+/// Wire packet builders used to construct realistic IPv4+TCP HTTP packets.
+use zapret_rs::packet::{
+    DissectedPacket, IPPROTO_TCP, Ipv4Header, ReconstructOptions, TH_ACK, TH_PUSH, TcpHeader,
+    reconstruct_packet,
+};
 /// Strategy catalog and report types fed into [`ScanUiEvent::Completed`].
 use zapret_rs::tools::{
     CoveredProfile, IpFamily, ProbeOutcome, ProbeProtocol, ScanLevel, ScanReport, StrategyMatch,
     TargetScanResult, TomlRenderOptions, build_catalog, render_nfqws2_toml,
 };
-/// TUI state, floating modal, frame renderer, and action/event enums under test.
+/// TUI state, packet inspector, floating modal, frame renderer, and action/event enums under test.
 use zapret_rs::tui::{
     ActiveTab, AppAction, AppState, AuthModal, FinderField, FinderStatus, IpMode, ModalPurpose,
-    RunStatus, ScanUiEvent, draw_app,
+    PacketVerdict, RunStatus, ScanUiEvent, VerdictFilter, build_packet_record, draw_app,
+    format_hex_dump,
 };
 
 /// Creates a plain unmodified [`KeyEvent`] for `code`.
@@ -225,4 +233,71 @@ fn zapret_rs_tui_binary_cli_version_and_help() {
     assert!(help_text.contains("--config"));
     assert!(help_text.contains("--lua-dir"));
     assert!(help_text.contains("--no-nft"));
+}
+
+/// Verifies live packet inspector decoding (HTTP Host, TCP flags, verdicts, hex dump),
+/// filtering (`f`), pausing (`p`), and floating packet detail rendering (`d` / `Esc`).
+#[test]
+fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
+    let http_payload = b"GET / HTTP/1.1\r\nHost: store.steampowered.com\r\n\r\n".to_vec();
+    let dis = DissectedPacket {
+        ip: Some(Ipv4Header {
+            version: 4, header_len: 5, tos: 0, total_len: 0, id: 1, frag_off: 0,
+            ttl: 64, protocol: IPPROTO_TCP, checksum: 0,
+            src: [192, 168, 1, 10], dst: [104, 18, 2, 3], options: Vec::new(),
+        }),
+        ip6: None,
+        tcp: Some(TcpHeader {
+            s_port: 51234, d_port: 80, seq: 1000, ack: 2000, reserved: 0, data_offset: 5,
+            flags: TH_PUSH | TH_ACK, window: 64240, checksum: 0, urgent_ptr: 0, options: Vec::new(),
+        }),
+        udp: None,
+        icmp: None,
+        payload: Some(http_payload),
+        ..DissectedPacket::default()
+    };
+    let wire = reconstruct_packet(&dis, &ReconstructOptions::default()).expect("wire packet");
+    let qpkt = QueuedPacket { packet_id: 1, mark: 0, ifin: None, ifout: Some("eth0"), payload: &wire };
+
+    let rec_drop = build_packet_record(1, &qpkt, &Decision::Drop);
+    assert_eq!(rec_drop.direction, "OUT");
+    assert_eq!(rec_drop.proto, "TCP");
+    assert_eq!(rec_drop.src, "192.168.1.10:51234");
+    assert_eq!(rec_drop.dst, "104.18.2.3:80");
+    assert_eq!(rec_drop.verdict, PacketVerdict::Drop);
+    assert!(rec_drop.info.contains("HTTP Host=store.steampowered.com"));
+
+    let dump = format_hex_dump(&rec_drop.payload_preview);
+    assert!(dump[0].starts_with("0000: 47 45 54 20"));
+    assert!(dump[0].contains("|GET / HTTP/1.1"));
+
+    let rec_pass = build_packet_record(2, &qpkt, &Decision::Pass);
+
+    let mut state = AppState::new(None, None, false);
+    state.tab = ActiveTab::Run;
+    state.inspector.push(rec_drop);
+    state.inspector.push(rec_pass);
+    assert_eq!(state.inspector.packets.len(), 2);
+
+    // Filter to MOD+DROP -> only packet #1 remains visible.
+    assert_eq!(state.handle_key(key(KeyCode::Char('f'))), AppAction::None);
+    assert_eq!(state.inspector.filter, VerdictFilter::ModifiedOrDropped);
+    assert_eq!(state.inspector.selected_record().map(|r| r.seq), Some(1));
+
+    // Pause capture -> subsequent pushed packets are ignored until resumed.
+    assert_eq!(state.handle_key(key(KeyCode::Char('p'))), AppAction::None);
+    assert!(state.inspector.paused);
+    state.inspector.push(build_packet_record(3, &qpkt, &Decision::Drop));
+    assert_eq!(state.inspector.packets.len(), 2);
+
+    // Open detail popup with 'd', verify it renders headers + hex dump, then close with Esc.
+    assert_eq!(state.handle_key(key(KeyCode::Char('d'))), AppAction::None);
+    assert!(state.inspector.detail_open);
+    let screen = render_to_string(&state, 110, 32);
+    assert!(screen.contains("Packet #1 Detail [DROP]"));
+    assert!(screen.contains("store.steampowered.com"));
+    assert!(screen.contains("0000: 47 45 54 20"));
+
+    assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
+    assert!(!state.inspector.detail_open);
 }
