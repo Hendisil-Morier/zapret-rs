@@ -328,8 +328,13 @@ pub fn render_nfqws2_toml(profiles: &[CoveredProfile], opts: &TomlRenderOptions)
     out
 }
 
-/// Writes `content` to `path` with `O_NOFOLLOW` so symlinks are refused rather than overwritten.
+/// Writes `content` to `path` with `O_NOFOLLOW`, creating missing parent directories automatically.
 pub fn write_config_nofollow(path: &Path, content: &str) -> io::Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)

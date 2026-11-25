@@ -63,26 +63,56 @@ pub fn normalize_domain(raw: &str) -> Option<String> {
     if host.is_empty() { None } else { Some(host.to_ascii_lowercase()) }
 }
 
-/// Expands a leading `~` or `~/` path prefix using the `HOME` environment variable.
+/// Resolves the invoking user's home directory (`$HOME`, falling back to `getpwuid_r`).
+fn resolve_user_home() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+        // When invoked via `sudo`, prefer the dropped UID's passwd home over `/root`.
+        let sudo_uid = std::env::var("SUDO_UID").ok().and_then(|s| s.parse::<u32>().ok());
+        if sudo_uid.is_none() || Path::new(&home) != Path::new("/root") {
+            return Some(PathBuf::from(home));
+        }
+    }
+    // SAFETY: `geteuid` takes no arguments and cannot fail.
+    let uid = std::env::var("SUDO_UID")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or_else(|| unsafe { libc::geteuid() });
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut buf = vec![0u8; 4096];
+    let mut res: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: `pwd`, `buf`, and `res` are valid writable buffers matching `getpwuid_r` ABI.
+    let rc = unsafe { libc::getpwuid_r(uid, &raw mut pwd, buf.as_mut_ptr().cast(), buf.len(), &raw mut res) };
+    if rc == 0 && !res.is_null() && !pwd.pw_dir.is_null() {
+        // SAFETY: `pw_dir` points to a NUL-terminated string inside `buf`.
+        let cstr = unsafe { std::ffi::CStr::from_ptr(pwd.pw_dir) };
+        if let Ok(s) = cstr.to_str() && !s.is_empty() {
+            return Some(PathBuf::from(s));
+        }
+    }
+    std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
+}
+
+/// Expands a leading `~` or `~/` path prefix using the invoking user's home directory.
 pub fn expand_tilde(raw: &str) -> PathBuf {
     let trimmed = raw.trim();
     if trimmed == "~" {
-        return std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("~"));
+        return resolve_user_home().unwrap_or_else(|| PathBuf::from("~"));
     }
     if let Some(rest) = trimmed.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
+        && let Some(home) = resolve_user_home()
     {
-        return PathBuf::from(home).join(rest);
+        return home.join(rest);
     }
     PathBuf::from(trimmed)
 }
 
-/// Suggests a default writable `nfqws2.toml` path (`$HOME/nfqws2.toml`, falling back to `./nfqws2.toml`).
+/// Returns the default config path (`$XDG_CONFIG_HOME/zapret-rs/nfqws2.toml` or `~/.config/zapret-rs/nfqws2.toml`).
 pub fn default_output_config_path() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(|h| PathBuf::from(h).join("nfqws2.toml"))
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+        return PathBuf::from(xdg).join("zapret-rs").join("nfqws2.toml");
+    }
+    resolve_user_home()
+        .map(|h| h.join(".config").join("zapret-rs").join("nfqws2.toml"))
         .unwrap_or_else(|| PathBuf::from("nfqws2.toml"))
 }
 

@@ -134,12 +134,10 @@ impl AppState {
             parsed_profiles: Vec::new(), toml_scroll: 0, uid, has_net_caps, exe_path,
             status_banner: "Ready. Use 1/2/3 or Tab to switch views, 'q' to quit.".to_owned(),
         };
-        if let Some(cfg_path) = initial_config {
-            let expanded = expand_tilde(&cfg_path.to_string_lossy());
-            if let Ok(text) = std::fs::read_to_string(&expanded) {
-                state.set_active_toml(text);
-                state.status_banner = format!("Loaded {}", expanded.display());
-            }
+        let cfg_path = expand_tilde(&state.output_path);
+        if let Ok(text) = std::fs::read_to_string(&cfg_path) {
+            state.set_active_toml(text);
+            state.status_banner = format!("Loaded {}", cfg_path.display());
         }
         state
     }
@@ -285,6 +283,7 @@ impl AppState {
         }
         match key.code {
             KeyCode::Char('q') => return AppAction::Quit,
+            KeyCode::Char('g') if !self.has_net_caps => return AppAction::GrantCaps,
             KeyCode::Char('1') => { self.tab = ActiveTab::Finder; return AppAction::None; }
             KeyCode::Char('2') => { self.tab = ActiveTab::Run; return AppAction::None; }
             KeyCode::Char('3') => { self.tab = ActiveTab::Config; return AppAction::None; }

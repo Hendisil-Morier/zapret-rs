@@ -89,15 +89,14 @@ mdig --family=6 --dns-make-query=example.com \
 
 ### Interactive TUI (`zapret-rs`)
 
-For an all-in-one terminal UI covering strategy discovery, live `nfqws2` execution with real-time packet counters, `nfqws2.toml` preview/saving, and privilege diagnostics, run the `zapret-rs` binary directly:
+For an all-in-one terminal UI covering strategy discovery, live `nfqws2` execution with real-time packet counters, `~/.config/zapret-rs/nfqws2.toml` preview/saving, and privilege diagnostics, run the `zapret-rs` binary directly:
 
 ```bash
-# One-time setup: grant only network capabilities (no sudo needed at runtime)
-sudo setcap cap_net_admin,cap_net_raw+ep ./target/release/zapret-rs
-
-# Launch the interactive TUI
+# Launch the interactive TUI as your normal user
 ./target/release/zapret-rs
 ```
+
+If network capabilities are not set yet (for example right after rebuilding), press `g` inside the TUI to run `sudo setcap cap_net_admin,cap_net_raw+ep` on the binary and restart seamlessly with capabilities active. To avoid re-granting capabilities across dev rebuilds, copy the binary to `~/.local/bin/zapret-rs` once and `setcap` that installed copy.
 
 ### Strategy Finder (`nfqws2 --strat-finder` / `strat_finder`)
 

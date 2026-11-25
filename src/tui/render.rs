@@ -336,13 +336,12 @@ fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     let cap_line = if state.has_net_caps {
         Line::from(Span::styled("Capabilities: CAP_NET_ADMIN + CAP_NET_RAW active", Style::default().fg(OK_COLOR)))
     } else {
-        Line::from(Span::styled("Capabilities: MISSING (grant once with setcap below)", Style::default().fg(WARN_COLOR)))
+        Line::from(Span::styled("Capabilities: MISSING (press 'g' to grant & restart)", Style::default().fg(WARN_COLOR)))
     };
     let diag = Paragraph::new(vec![
         Line::from(format!("Effective UID: {}", state.uid)),
         cap_line,
-        Line::from(""),
-        Line::from("One-time non-root setup:"),
+        Line::from("Or run manually:"),
         Line::from(Span::styled(
             format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", state.exe_path),
             Style::default().fg(ACCENT),
@@ -381,6 +380,8 @@ fn draw_log_list(frame: &mut Frame, area: Rect, title: &str, logs: &std::collect
 fn draw_footer(frame: &mut Frame, area: Rect, state: &AppState) {
     let hints = if state.editing_text {
         "[Type] Edit  [Enter/Esc] Done"
+    } else if !state.has_net_caps {
+        "[g] Grant Caps & Restart  [1/2/3] Tabs  [Up/Down] Move  [Enter] Edit  [q] Quit"
     } else {
         match state.tab {
             ActiveTab::Finder => "[Up/Down] Move  [Enter/Space] Edit/Toggle  [r] Start Scan  [x] Stop  [s] Save  [a] Run Tab  [q] Quit",

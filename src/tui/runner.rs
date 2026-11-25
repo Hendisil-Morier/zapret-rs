@@ -4,8 +4,12 @@
 use std::fs;
 /// Standard stdout handle backing the `ratatui` `CrosstermBackend`.
 use std::io::{self, Stdout};
+/// Unix `exec()` extension for seamlessly restarting the TUI after granting file capabilities.
+use std::os::unix::process::CommandExt as _;
 /// Path type for optional startup config and Lua directory flags.
 use std::path::PathBuf;
+/// Subprocess execution for one-key `sudo setcap` capability grant.
+use std::process::Command;
 /// Event poll tick interval.
 use std::time::Duration;
 
@@ -99,6 +103,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let mut session = TerminalSession::enter()?;
     let mut active_scan: Option<ActiveScan> = None;
     let mut active_daemon: Option<ActiveDaemon> = None;
+    let mut reexec_after_exit = false;
 
     loop {
         if let Some(scan) = active_scan.as_mut() {
@@ -194,6 +199,27 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                         state.status_banner = "nfqws2 stopped cleanly.".to_owned();
                     }
                 }
+                AppAction::GrantCaps => {
+                    let exe = state.exe_path.clone();
+                    let status = session.suspend_for(|| {
+                        eprintln!("[caps] granting CAP_NET_ADMIN,CAP_NET_RAW to {exe} via sudo setcap");
+                        Command::new("sudo")
+                            .args(["--", "setcap", "cap_net_admin,cap_net_raw+ep", &exe])
+                            .status()
+                    });
+                    match status {
+                        Ok(s) if s.success() => {
+                            reexec_after_exit = true;
+                            break;
+                        }
+                        Ok(s) => {
+                            state.status_banner = format!("setcap exited with status {s}");
+                        }
+                        Err(err) => {
+                            state.status_banner = format!("failed to run sudo setcap: {err}");
+                        }
+                    }
+                }
             }
         }
     }
@@ -203,6 +229,15 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     }
     if let Some(mut daemon) = active_daemon.take() {
         daemon.shutdown(|g| session.suspend_for(move || drop(g)));
+    }
+    drop(session);
+
+    if reexec_after_exit {
+        let exe = std::env::current_exe()
+            .map_err(|err| format!("failed to resolve current executable for restart: {err}"))?;
+        let args: Vec<_> = std::env::args_os().skip(1).collect();
+        let err = Command::new(&exe).args(args).exec();
+        return Err(format!("failed to restart {}: {err}", exe.display()));
     }
     Ok(())
 }

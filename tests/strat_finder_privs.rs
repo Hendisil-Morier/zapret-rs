@@ -11,10 +11,10 @@ use std::process::Command;
 
 /// Child privilege stripper under test.
 use zapret_rs::runtime::clear_child_privileges;
-/// Firewall backend, permission classifier, and symlink-safe TOML writer under test.
+/// Firewall backend, default config path, permission classifier, and symlink-safe TOML writer.
 use zapret_rs::tools::{
     FirewallBackend, NftFirewallBackend, STRAT_FINDER_NFT_TABLE, build_nft_cleanup_cmd,
-    is_nft_perm_denied, write_config_nofollow,
+    default_output_config_path, is_nft_perm_denied, write_config_nofollow,
 };
 
 /// Extracts the value for `key` (e.g., `"CapEff:"` or `"NoNewPrivs:"`) from `/proc/self/status`.
@@ -150,9 +150,16 @@ fn write_config_nofollow_writes_regular_file_and_refuses_symlink() {
     assert_eq!(err.raw_os_error(), Some(libc::ELOOP));
     assert_eq!(fs::read_to_string(&target).expect("read victim"), "untouched");
 
-    let regular = dir.join("nfqws2.toml");
-    write_config_nofollow(&regular, "qnum = 200\n").expect("write regular file");
+    let regular = dir.join("nested").join("zapret-rs").join("nfqws2.toml");
+    write_config_nofollow(&regular, "qnum = 200\n").expect("write regular file in nested dir");
     assert_eq!(fs::read_to_string(&regular).expect("read regular"), "qnum = 200\n");
+
+    let default_cfg = default_output_config_path();
+    let cfg_str = default_cfg.to_string_lossy();
+    assert!(
+        cfg_str.ends_with("zapret-rs/nfqws2.toml"),
+        "expected ~/.config/zapret-rs/nfqws2.toml or $XDG_CONFIG_HOME/zapret-rs/nfqws2.toml, got {cfg_str}"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }

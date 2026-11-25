@@ -144,6 +144,8 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation() {
     assert_eq!(state.handle_key(key(KeyCode::Char('c'))), AppAction::None);
     assert_eq!(state.counters.snapshot().0, 0);
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StopDaemon);
+    state.has_net_caps = false;
+    assert_eq!(state.handle_key(key(KeyCode::Char('g'))), AppAction::GrantCaps);
     assert_eq!(state.handle_key(key(KeyCode::Char('q'))), AppAction::Quit);
 }
 
