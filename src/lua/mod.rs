@@ -16,6 +16,14 @@ pub mod desync_api;
 pub mod desync_encode;
 /// Lua runtime error definitions.
 pub mod error;
+/// POSIX `stat` and broken-down calendar time (`localtime`, `gmtime`, `timelocal`, `timegm`) Lua bindings.
+pub mod fs_time_api;
+/// Streaming zlib/gzip/raw-deflate compression and decompression bindings (`gunzip_*`, `gzip_*`).
+pub mod gzip_api;
+/// Pure-Rust streaming RFC 1951/1950/1952 compression engine over `flate2`.
+pub mod gzip_deflate;
+/// Pure-Rust streaming RFC 1951/1950/1952 decompression engine over `flate2`.
+pub mod gzip_inflate;
 /// Argument validation and strict/coercing value extractors.
 pub mod helpers;
 /// Lua `dissect`, `reconstruct_dissect`, checksum fixup, and `ntop`/`pton` bindings.

@@ -28,6 +28,10 @@ use crate::lua::desync_api::{
 };
 /// Typed error wrapper for Lua runtime operations.
 use crate::lua::error::LuaEngineError;
+/// POSIX `stat` and calendar time (`localtime`, `gmtime`, `timelocal`, `timegm`) Lua bindings.
+use crate::lua::fs_time_api::register_fs_time_functions;
+/// Streaming gzip/gunzip Lua bindings (`gunzip_*`, `gzip_*`).
+use crate::lua::gzip_api::register_gzip_functions;
 /// Packet dissect, reconstruct, checksum, and IP string conversion bindings.
 use crate::lua::packet_api::register_packet_functions;
 /// Protocol split marker resolvers and TLS payload mutator bindings.
@@ -80,6 +84,8 @@ impl LuaRuntime {
         register_bitwise_functions(&lua)?;
         register_bytes_functions(&lua)?;
         register_crypto_functions(&lua)?;
+        register_gzip_functions(&lua)?;
+        register_fs_time_functions(&lua)?;
         register_packet_functions(&lua)?;
         register_protocol_functions(&lua)?;
         register_system_functions(&lua, &config)?;
