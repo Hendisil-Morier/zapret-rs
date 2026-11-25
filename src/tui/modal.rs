@@ -11,13 +11,17 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
 /// Non-interactive `sudo` credential probe shared with `nftables` setup.
 use crate::tools::sudo_needs_password;
+/// Shared keycap styling helper.
+use crate::tui::theme::styled_key_hints;
+/// Active configurable color palette.
+use crate::tui::theme_config::Theme;
 
 /// Operation awaiting confirmation or `sudo` authentication inside [`AuthModal`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,8 +187,8 @@ fn centered_rect(area: Rect, max_w: u16, max_h: u16) -> Rect {
     Rect { x, y, width: w, height: h }
 }
 
-/// Renders `modal` as a centered floating overlay on top of the active TUI screen.
-pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal) {
+/// Renders `modal` as a centered floating overlay on top of the active TUI screen using `t`.
+pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
     let popup = centered_rect(frame.area(), 70, 13);
     frame.render_widget(Clear, popup);
 
@@ -207,10 +211,15 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal) {
         ),
     };
 
+    let border_col = match modal.purpose {
+        ModalPurpose::ConfirmStopDaemon => t.err,
+        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => t.warn,
+        ModalPurpose::GrantCaps => t.accent_bright,
+    };
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .title(Span::styled(title, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        .border_style(Style::default().fg(border_col).add_modifier(Modifier::BOLD))
+        .title(Span::styled(title, Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)));
     let inner = outer.inner(popup);
     frame.render_widget(outer, popup);
 
@@ -225,11 +234,14 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal) {
         ])
         .split(inner);
 
-    frame.render_widget(Paragraph::new(summary).wrap(Wrap { trim: true }), rows[0]);
+    frame.render_widget(
+        Paragraph::new(Span::styled(summary, Style::default().fg(t.text))).wrap(Wrap { trim: true }),
+        rows[0],
+    );
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("Command: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(modal.command_preview.as_str(), Style::default().fg(Color::Cyan)),
+            Span::styled("Command: ", Style::default().fg(t.subtle)),
+            Span::styled(modal.command_preview.as_str(), Style::default().fg(t.accent_bright)),
         ]))
         .wrap(Wrap { trim: true }),
         rows[1],
@@ -238,35 +250,35 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal) {
     if modal.purpose == ModalPurpose::ConfirmStopDaemon {
         let prompt = Paragraph::new(Line::from(Span::styled(
             " Press Enter to stop the remote nfqws2 daemon, or Esc to keep it running.",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(t.warn_bright),
         )))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Yellow)));
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
         frame.render_widget(prompt, rows[2]);
     } else if modal.needs_password {
         let masked = "*".repeat(modal.password_len());
         let input = Paragraph::new(Line::from(vec![
-            Span::raw(masked),
-            Span::styled("_", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(masked, Style::default().fg(t.text)),
+            Span::styled("_", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
         ]))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow))
-                .title(" sudo password "),
+                .border_style(Style::default().fg(t.warn))
+                .title(Span::styled(" sudo password ", Style::default().fg(t.warn_bright))),
         );
         frame.render_widget(input, rows[2]);
     } else {
         let cached = Paragraph::new(Line::from(Span::styled(
             " sudo credentials cached — press Enter to run immediately",
-            Style::default().fg(Color::Green),
+            Style::default().fg(t.ok_bright),
         )))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Green)));
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.ok)));
         frame.render_widget(cached, rows[2]);
     }
 
     if let Some(err) = &modal.error {
         frame.render_widget(
-            Paragraph::new(Span::styled(err.as_str(), Style::default().fg(Color::Red))),
+            Paragraph::new(Span::styled(err.as_str(), Style::default().fg(t.err_bright))),
             rows[3],
         );
     }
@@ -277,7 +289,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal) {
         ModalPurpose::ConfirmStopDaemon => "[Enter] Stop Remote Daemon   [Esc] Cancel",
     };
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(action_hint, Style::default().fg(Color::Cyan)))),
+        Paragraph::new(Line::from(styled_key_hints(action_hint, t))),
         rows[4],
     );
 }

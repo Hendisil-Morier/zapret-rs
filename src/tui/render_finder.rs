@@ -6,27 +6,51 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Gauge, List, ListItem, Row, Table},
+    widgets::{Cell, Clear, Gauge, List, ListItem, Paragraph, Row, Table, Wrap},
 };
 
 /// Shared log panel widget helper reused from the top-level renderer.
 use crate::tui::render::draw_log_list;
 /// Application state read while rendering the Strategy Finder view.
 use crate::tui::state::AppState;
-/// Strategy Finder form descriptor and scan lifecycle status.
-use crate::tui::types::{FinderField, FinderStatus};
+/// Shared panel border helpers and `[key]` badge styling.
+use crate::tui::theme::{panel_block, styled_key_hints};
+/// Configurable TUI color palette.
+use crate::tui::theme_config::Theme;
+/// Strategy Finder form descriptor, panel focus state, and scan lifecycle status.
+use crate::tui::types::{FinderField, FinderFocus, FinderStatus};
 
-/// Primary accent color for borders, titles, and active controls.
-const ACCENT: Color = Color::Cyan;
-/// Success badge color for passing strategies.
-const OK_COLOR: Color = Color::Green;
-/// Highlight color while typing into an active Finder text box.
-const WARN_COLOR: Color = Color::Yellow;
-/// Error color for failed strategies or scan errors.
-const ERR_COLOR: Color = Color::Red;
+/// Returns a display-width-limited window of `text` centered on `cursor` (byte offset).
+///
+/// When `text` fits within `max_chars` the full string is returned unchanged.
+/// When it overflows, a slice of `max_chars` chars is extracted keeping the cursor visible,
+/// and `◀` / `▶` are prepended/appended to signal hidden content on each side.
+fn windowed_text(text: &str, cursor: usize, max_chars: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count <= max_chars || max_chars < 4 {
+        return text.to_owned();
+    }
+    // Convert byte cursor to a char index.
+    let cursor_char = text[..cursor.min(text.len())].chars().count();
+    // Keep the cursor within the window; bias toward showing content ahead of it.
+    let half = max_chars / 2;
+    let win_start_char = cursor_char.saturating_sub(half).min(char_count - max_chars);
+    let win_end_char = (win_start_char + max_chars).min(char_count);
+    // Extract the window slice by char boundary.
+    let start_byte = text.char_indices().nth(win_start_char).map(|(i, _)| i).unwrap_or(0);
+    let end_byte = text.char_indices().nth(win_end_char).map(|(i, _)| i).unwrap_or(text.len());
+    let slice = &text[start_byte..end_byte];
+    match (win_start_char > 0, win_end_char < char_count) {
+        (true, true) => format!("◀{slice}▶"),
+        (true, false) => format!("◀{slice}"),
+        (false, true) => format!("{slice}▶"),
+        (false, false) => slice.to_owned(),
+    }
+}
 
 /// Renders Tab 1: left Setup form and right Progress / Results Table / Live Log stack.
 pub(crate) fn draw_finder_tab(frame: &mut Frame, area: Rect, state: &AppState) {
+    let t = &state.theme;
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
@@ -50,106 +74,170 @@ pub(crate) fn draw_finder_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         0.0
     };
-    let gauge_color = match state.finder_status {
-        FinderStatus::Error(_) => ERR_COLOR,
-        FinderStatus::Done => OK_COLOR,
-        _ => ACCENT,
+    let (gauge_color, gauge_border) = match state.finder_status {
+        FinderStatus::Error(_) => (t.err, t.err),
+        FinderStatus::Done => (t.ok_bright, t.ok),
+        FinderStatus::Scanning => (t.accent_bright, t.accent),
+        FinderStatus::Idle => (t.accent, t.frame),
     };
     let gauge = Gauge::default()
-        .block(Block::default().borders(Borders::ALL).title(" Scan Progress "))
-        .gauge_style(Style::default().fg(gauge_color))
+        .block(panel_block(" Scan Progress ", gauge_border, t.info))
+        .gauge_style(Style::default().fg(gauge_color).add_modifier(Modifier::BOLD))
         .ratio(ratio)
         .label(state.progress_label.as_str());
     frame.render_widget(gauge, right[0]);
 
     draw_results_table(frame, right[1], state);
-    draw_log_list(frame, right[2], " Live Scan Log ", &state.finder_logs);
+    draw_log_list(
+        frame,
+        right[2],
+        " Live Scan Log ",
+        &state.finder_logs,
+        state.focus.finder_log_scroll,
+        state.focus.finder == FinderFocus::Log,
+        t,
+    );
+    if state.focus.finder == FinderFocus::Setup
+        && state.finder_hover.open
+        && state.modal.is_none()
+        && !state.help_open
+        && !state.editing_text
+    {
+        draw_finder_tooltip(frame, area, cols[0], cols[1], state);
+    }
+}
+
+/// Renders one checkbox `[x]` / `[ ]` value with semantic color styling from `t`.
+fn checkbox_span(checked: bool, t: &Theme) -> Span<'static> {
+    if checked {
+        Span::styled("[x]", Style::default().fg(t.ok_bright).add_modifier(Modifier::BOLD))
+    } else {
+        Span::styled("[ ]", Style::default().fg(t.muted))
+    }
 }
 
 /// Renders one formatted row for [`FinderField`] inside the left Setup card.
 fn format_form_row(state: &AppState, field: FinderField, focused: bool) -> ListItem<'static> {
+    let t = &state.theme;
+    // The cursor block is shown only while actively editing; `_` matches the terminal cursor style.
     let cursor = if focused && state.editing_text { "_" } else { "" };
-    let chk = |b: bool| if b { "[x]" } else { "[ ]" };
-    let (label, value) = match field {
+    // Max display chars available for the value column; keeps long strings scrollable via arrow keys.
+    const VALUE_COLS: usize = 20;
+    let (label, lbl_col, value_span) = match field {
         FinderField::Domains => {
-            let v = if state.domains_input.is_empty() && !focused {
-                "<press Enter to type domain(s)>".to_owned()
+            let span = if state.domains_input.is_empty() && !focused {
+                Span::styled("<press Enter to type domain(s)>", Style::default().fg(t.muted))
             } else {
-                format!("{}{cursor}", state.domains_input)
+                let view = windowed_text(&state.domains_input, state.text_cursor, VALUE_COLS);
+                Span::styled(format!("{view}{cursor}"), Style::default().fg(t.accent_bright))
             };
-            ("Domains      ", v)
+            ("Domains      ", t.accent_bright, span)
         }
-        FinderField::ProtoHttp => ("HTTP (80)    ", chk(state.proto_http).to_owned()),
-        FinderField::ProtoTls12 => ("TLS 1.2 (443)", chk(state.proto_tls12).to_owned()),
-        FinderField::ProtoTls13 => ("TLS 1.3 (443)", chk(state.proto_tls13).to_owned()),
-        FinderField::ProtoHttp3 => ("HTTP/3 (UDP) ", chk(state.proto_http3).to_owned()),
-        FinderField::IpMode => ("IP Version   ", state.ip_mode.label().to_owned()),
-        FinderField::Level => ("Scan Level   ", state.level.as_str().to_owned()),
-        FinderField::StopOnFirst => ("Stop On First", chk(state.stop_on_first).to_owned()),
-        FinderField::NoNft => ("Manual nft   ", chk(state.no_nft).to_owned()),
-        FinderField::LuaDir => ("Lua Dir      ", format!("{}{cursor}", state.lua_dir_input)),
-        FinderField::OutputPath => ("Config Path  ", format!("{}{cursor}", state.output_path)),
+        FinderField::ProtoHttp => ("HTTP (80)    ", t.info, checkbox_span(state.proto_http, t)),
+        FinderField::ProtoTls12 => ("TLS 1.2 (443)", t.info, checkbox_span(state.proto_tls12, t)),
+        FinderField::ProtoTls13 => ("TLS 1.3 (443)", t.info, checkbox_span(state.proto_tls13, t)),
+        FinderField::ProtoHttp3 => ("HTTP/3 (UDP) ", t.info, checkbox_span(state.proto_http3, t)),
+        FinderField::IpMode => ("IP Version   ", t.special_bright, Span::styled(state.ip_mode.label(), Style::default().fg(t.warn_bright))),
+        FinderField::Level => ("Scan Level   ", t.special_bright, Span::styled(state.level.as_str(), Style::default().fg(t.special_bright))),
+        FinderField::StopOnFirst => ("Stop On First", t.warn, checkbox_span(state.stop_on_first, t)),
+        FinderField::NoNft => ("Manual nft   ", t.warn, checkbox_span(state.no_nft, t)),
+        FinderField::LuaDir => {
+            let view = windowed_text(&state.lua_dir_input, state.text_cursor, VALUE_COLS);
+            ("Lua Dir      ", t.ok_bright, Span::styled(format!("{view}{cursor}"), Style::default().fg(t.info)))
+        }
+        FinderField::OutputPath => {
+            let view = windowed_text(&state.output_path, state.text_cursor, VALUE_COLS);
+            ("Config Path  ", t.ok_bright, Span::styled(format!("{view}{cursor}"), Style::default().fg(t.info)))
+        }
     };
 
     let prefix = if focused { "> " } else { "  " };
-    let style = if focused && state.editing_text {
-        Style::default().fg(Color::Black).bg(WARN_COLOR).add_modifier(Modifier::BOLD)
-    } else if focused {
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::White)
-    };
+    if focused && state.editing_text {
+        let edit_style = Style::default().fg(Color::Black).bg(t.warn).add_modifier(Modifier::BOLD);
+        return ListItem::new(Line::from(vec![
+            Span::styled(format!("{prefix}{label}: "), edit_style),
+            Span::styled(value_span.content.into_owned(), edit_style),
+        ]));
+    }
+    if focused {
+        let focus_lbl = Style::default().fg(t.accent_bright).bg(t.highlight_bg).add_modifier(Modifier::BOLD);
+        return ListItem::new(Line::from(vec![
+            Span::styled(prefix, Style::default().fg(t.warn_bright).bg(t.highlight_bg).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{label}: "), focus_lbl),
+            Span::styled(value_span.content.into_owned(), focus_lbl),
+        ]));
+    }
     ListItem::new(Line::from(vec![
-        Span::styled(format!("{prefix}{label}: "), style),
-        Span::styled(value, style),
+        Span::styled(format!("{prefix}{label}: "), Style::default().fg(lbl_col)),
+        value_span,
     ]))
 }
 
 /// Renders the interactive Finder configuration form card.
 fn draw_finder_form(frame: &mut Frame, area: Rect, state: &AppState) {
+    let t = &state.theme;
+    let setup_focused = state.focus.finder == FinderFocus::Setup;
     let items: Vec<ListItem<'static>> = FinderField::ALL
         .iter()
         .enumerate()
-        .map(|(idx, &field)| format_form_row(state, field, idx == state.focus_idx))
+        .map(|(idx, &field)| format_form_row(state, field, setup_focused && idx == state.focus_idx))
         .collect();
-    let title = if state.editing_text {
-        " Strategy Setup [EDITING] "
+    let (title, border, title_col) = if state.editing_text {
+        (" Strategy Setup [EDITING] ", t.warn, t.warn_bright)
+    } else if setup_focused {
+        (" Strategy Setup ", t.accent_bright, t.accent_bright)
     } else {
-        " Strategy Setup "
+        (" Strategy Setup ", t.frame, t.info)
     };
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(if state.editing_text { WARN_COLOR } else { ACCENT }))
-            .title(title),
-    );
+    let list = List::new(items).block(panel_block(title, border, title_col));
     frame.render_widget(list, area);
 }
 
-/// Renders the per-domain results table on Tab 1.
+/// Renders the per-domain results table on Tab 1 with scrollable row selection when focused.
 fn draw_results_table(frame: &mut Frame, area: Rect, state: &AppState) {
+    let t = &state.theme;
+    let focused = state.focus.finder == FinderFocus::Results;
     let header = Row::new(["Domain", "Proto", "Baseline", "Hits", "Best Strategy", "RTT"])
-        .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
+        .style(Style::default().fg(t.warn_bright).bg(t.highlight_bg).add_modifier(Modifier::BOLD));
+
+    let capacity = usize::from(area.height.saturating_sub(3)).max(1);
+    let clamped_sel = state.focus.finder_results_sel.min(state.targets.len().saturating_sub(1));
+    let start = if clamped_sel >= capacity { clamped_sel + 1 - capacity } else { 0 };
 
     let rows: Vec<Row> = state
         .targets
         .iter()
-        .map(|t| {
-            let (best, rtt, col) = if t.skipped_unblocked {
-                ("direct OK".to_owned(), "-".to_owned(), OK_COLOR)
-            } else if let Some(m) = t.matches.first() {
-                (m.strategy.id.clone(), format!("{}ms", m.latency_ms), OK_COLOR)
+        .enumerate()
+        .skip(start)
+        .take(capacity)
+        .map(|(idx, res)| {
+            let (best, rtt, col) = if res.skipped_unblocked {
+                ("direct OK".to_owned(), "-".to_owned(), t.ok_bright)
+            } else if let Some(m) = res.matches.first() {
+                (m.strategy.id.clone(), format!("{}ms", m.latency_ms), t.ok_bright)
             } else {
-                ("none".to_owned(), "-".to_owned(), ERR_COLOR)
+                ("none".to_owned(), "-".to_owned(), t.err_bright)
             };
-            Row::new([
-                Cell::from(t.domain.clone()),
-                Cell::from(format!("{}/{}", t.proto, t.ipv)),
-                Cell::from(t.baseline.summary()),
-                Cell::from(t.matches.len().to_string()),
-                Cell::from(best).style(Style::default().fg(col)),
-                Cell::from(rtt),
-            ])
+            let base_summary = res.baseline.summary();
+            let base_col = if res.skipped_unblocked {
+                t.ok
+            } else if base_summary.contains("block") || base_summary.contains("reset") || base_summary.contains("timeout") {
+                t.warn_bright
+            } else {
+                t.subtle
+            };
+            let selected = focused && idx == clamped_sel;
+            let hits_col = if res.matches.is_empty() { if selected { t.subtle } else { t.muted } } else { t.ok_bright };
+            let rtt_col = if rtt == "-" { if selected { t.subtle } else { t.muted } } else { t.warn_bright };
+            let row = Row::new([
+                Cell::from(res.domain.clone()).style(Style::default().fg(t.text).add_modifier(Modifier::BOLD)),
+                Cell::from(format!("{}/{}", res.proto, res.ipv)).style(Style::default().fg(t.accent_bright)),
+                Cell::from(base_summary).style(Style::default().fg(base_col)),
+                Cell::from(res.matches.len().to_string()).style(Style::default().fg(hits_col).add_modifier(Modifier::BOLD)),
+                Cell::from(best).style(Style::default().fg(col).add_modifier(Modifier::BOLD)),
+                Cell::from(rtt).style(Style::default().fg(rtt_col)),
+            ]);
+            if selected { row.style(Style::default().bg(t.highlight_bg)) } else { row }
         })
         .collect();
 
@@ -162,8 +250,74 @@ fn draw_results_table(frame: &mut Frame, area: Rect, state: &AppState) {
         Constraint::Length(7),
     ];
     let title = format!(" Results ({} targets, {} cover profiles) ", state.targets.len(), state.cover.len());
+    let (border, title_col) = if focused { (t.accent_bright, t.accent_bright) } else { (t.frame, t.info) };
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(title));
+        .block(panel_block(&title, border, title_col));
     frame.render_widget(table, area);
+}
+
+/// Counts how many wrapped lines `text` occupies when word-wrapped within `width` columns.
+fn wrapped_line_count(text: &str, width: usize) -> u16 {
+    let max_w = width.max(1);
+    let mut lines = 1usize;
+    let mut col = 0usize;
+    for word in text.split_whitespace() {
+        let len = word.chars().count();
+        if col == 0 {
+            col = len;
+        } else if col + 1 + len <= max_w {
+            col += 1 + len;
+        } else {
+            lines += 1;
+            col = len;
+        }
+    }
+    u16::try_from(lines).unwrap_or(u16::MAX)
+}
+
+/// Renders a floating explanation popup next to the focused [`FinderField`] after a 1s dwell.
+fn draw_finder_tooltip(
+    frame: &mut Frame,
+    bounds: Rect,
+    form_col: Rect,
+    right_col: Rect,
+    state: &AppState,
+) {
+    let t = &state.theme;
+    let (title, desc) = state.focused_field().description();
+    let avail_w = right_col.width.saturating_sub(2).max(28.min(bounds.width));
+    let w = 48u16.min(avail_w).max(20.min(bounds.width));
+    let body_lines = wrapped_line_count(desc, usize::from(w.saturating_sub(2)));
+    let h = (body_lines + 4).min(bounds.height).max(5.min(bounds.height));
+    let anchor_y = form_col.y + 1 + state.focus_idx as u16;
+    let x = if right_col.width >= 24 {
+        right_col.x + 1
+    } else {
+        bounds.x + bounds.width.saturating_sub(w) / 2
+    };
+    let popup = Rect {
+        x: x.min(bounds.x + bounds.width.saturating_sub(w)),
+        y: anchor_y.min(bounds.y + bounds.height.saturating_sub(h)),
+        width: w,
+        height: h,
+    };
+    frame.render_widget(Clear, popup);
+
+    let block = panel_block(format!(" ? {title} "), t.warn_bright, t.warn_bright);
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+    frame.render_widget(
+        Paragraph::new(Span::styled(desc, Style::default().fg(t.text))).wrap(Wrap { trim: true }),
+        sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(styled_key_hints("[Up/Down] next  [Esc] hide", t))),
+        sections[1],
+    );
 }

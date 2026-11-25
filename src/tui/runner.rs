@@ -8,8 +8,8 @@ use std::os::unix::process::CommandExt as _;
 use std::path::PathBuf;
 /// Subprocess execution for seamless post-`setcap` self-restart.
 use std::process::Command;
-/// Event poll tick interval.
-use std::time::Duration;
+/// Event poll tick interval and clock reads for Tab 1 focus-dwell help popups.
+use std::time::{Duration, Instant};
 
 /// `crossterm` event polling and keyboard press matching.
 use crossterm::{
@@ -22,24 +22,30 @@ use crossterm::{
 use crate::control::Request;
 /// Privilege checks and automatic `sudo` UID drop at TUI startup.
 use crate::runtime::{CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps};
-/// Action executors coordinating workers, `sudo` modals, TOML file I/O, and attach state.
+/// Action executors coordinating scan workers, `sudo` modals, and daemon start/attach.
 use crate::tui::actions::{
-    Tab2Session, cancel_active_scan, execute_remote_stop, poll_active_scan, poll_tab2_session,
-    push_config_to_daemon, reload_toml_from_disk, save_toml_to_disk, stop_local_daemon,
-    submit_auth_modal, try_start_or_attach, try_start_scan,
+    cancel_active_scan, poll_active_scan, submit_auth_modal, try_start_or_attach, try_start_scan,
+};
+/// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
+use crate::tui::tab2_session::{
+    Tab2Session, attach_to_socket, execute_remote_stop, poll_tab2_session, push_config_to_daemon,
+    stop_local_daemon,
 };
 /// Remote daemon socket auto-detection helper.
 use crate::tui::remote::detect_control_socket;
 /// Pure TUI frame renderer.
 use crate::tui::render::draw_app;
-/// Terminal RAII session wrapper and external editor launcher.
+/// Terminal RAII session wrapper, seamless re-exec snapshot, and TOML file I/O helpers.
 use crate::tui::session::{
-    SEAMLESS_REEXEC_ENV, TerminalSession, drop_fw_tui, edit_config_in_editor,
+    REEXEC_STATE_ENV, ReexecSnapshot, SEAMLESS_REEXEC_ENV, TerminalSession, drop_fw_tui,
+    edit_config_in_editor, reload_toml_from_disk, save_toml_to_disk,
 };
 /// Mutable TUI application state.
 use crate::tui::state::AppState;
-/// Navigation and action enums.
-use crate::tui::types::AppAction;
+/// Configurable theme resolver for `--theme` and `~/.config/zapret-rs/theme.toml`.
+use crate::tui::theme_config::resolve_theme;
+/// Navigation, deferred restart action, and UI action enums.
+use crate::tui::types::{ActiveTab, AppAction, PostCapsAction};
 /// Background strategy scan worker handle.
 use crate::tui::workers::ActiveScan;
 
@@ -57,12 +63,22 @@ pub struct TuiOptions {
     pub no_nft: bool,
     /// Optional explicit daemon Unix control socket path overriding auto-detection.
     pub control_socket: Option<PathBuf>,
+    /// Optional theme preset name or path to a TOML theme file (`--theme`).
+    pub theme: Option<String>,
 }
 
 /// Executes the interactive `ratatui` TUI event loop until the user quits cleanly.
 pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let _ = drop_sudo_root_if_needed();
     let mut state = AppState::new(opts.config, opts.lua_dir, opts.no_nft);
+    if let Some(ref theme_spec) = opts.theme {
+        let (theme, warn) = resolve_theme(Some(theme_spec));
+        state.theme = theme;
+        if let Some(msg) = warn {
+            state.status_banner = msg;
+        }
+    }
+    let (from_reexec, pending_action) = ReexecSnapshot::restore_from_env(&mut state);
     state.control_socket_override = opts.control_socket;
     state.detected_socket = detect_control_socket(state.control_socket_override.as_deref());
     state.has_net_caps = has_effective_caps(CAP_MASK_NET).unwrap_or(false);
@@ -73,12 +89,32 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let mut session = TerminalSession::enter()?;
     let mut active_scan: Option<ActiveScan> = None;
     let mut tab2_session: Option<Tab2Session> = None;
+    if let Some(sock) = state.detected_socket.clone()
+        && attach_to_socket(&mut state, &mut tab2_session, sock)
+        && !from_reexec
+    {
+        state.tab = ActiveTab::Run;
+    }
+    if state.has_net_caps {
+        match pending_action {
+            Some(PostCapsAction::StartScan) => {
+                if !matches!(tab2_session, Some(Tab2Session::Local(_))) {
+                    try_start_scan(&mut state, &mut active_scan);
+                }
+            }
+            Some(PostCapsAction::StartDaemon) if tab2_session.is_none() => {
+                try_start_or_attach(&mut state, &mut tab2_session);
+            }
+            _ => {}
+        }
+    }
     let mut probe_tick = 0u8;
     let mut reexec_after_exit = false;
 
     loop {
         poll_active_scan(&mut state, &mut active_scan, &mut session);
-        poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick);
+        poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick, active_scan.is_some());
+        state.poll_finder_hover(Instant::now());
 
         session
             .terminal
@@ -158,7 +194,12 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
         let exe = std::env::current_exe()
             .map_err(|err| format!("failed to resolve current executable for restart: {err}"))?;
         let args: Vec<_> = std::env::args_os().skip(1).collect();
-        let err = Command::new(&exe).args(args).env(SEAMLESS_REEXEC_ENV, "1").exec();
+        let mut cmd = Command::new(&exe);
+        cmd.args(args).env(SEAMLESS_REEXEC_ENV, "1");
+        if let Some(encoded) = ReexecSnapshot::capture(&state).encode() {
+            cmd.env(REEXEC_STATE_ENV, encoded);
+        }
+        let err = cmd.exec();
         let _ = disable_raw_mode();
         let _ = execute!(io::stdout(), LeaveAlternateScreen);
         return Err(format!("failed to restart {}: {err}", exe.display()));

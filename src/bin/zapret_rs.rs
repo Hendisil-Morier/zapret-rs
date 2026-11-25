@@ -31,6 +31,9 @@ struct ZapretTuiCli {
     /// Optional daemon Unix control socket path override for attach mode.
     #[arg(long = "control-socket")]
     control_socket: Option<PathBuf>,
+    /// Theme preset (`neon`, `tokyo`, `dracula`, `gruvbox`, `ansi`) or path to a `theme.toml` file.
+    #[arg(long = "theme")]
+    theme: Option<String>,
 }
 
 /// Parses optional startup flags and launches the interactive `ratatui` TUI.
@@ -41,6 +44,7 @@ fn main() -> ExitCode {
         lua_dir: cli.lua_dir,
         no_nft: cli.no_nft,
         control_socket: cli.control_socket,
+        theme: cli.theme,
     };
     match run_tui(opts) {
         Ok(()) => ExitCode::SUCCESS,

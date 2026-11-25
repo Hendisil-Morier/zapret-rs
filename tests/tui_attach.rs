@@ -132,14 +132,21 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
     assert!(screen.contains("PID 99123"), "must show remote daemon PID");
     assert!(screen.contains("tls13:multisplit:2"));
     assert!(screen.contains("REASM") && screen.contains("DESYNC"));
-    assert!(screen.contains("[x] Detach") && screen.contains("[S] Stop Daemon"));
+    assert!(screen.contains("[?] Keys"));
+
+    state.handle_key(key(KeyCode::Char('?')));
+    let help_screen = render_to_string(&state, 120, 36);
+    assert!(help_screen.contains("[x] Detach") && help_screen.contains("[S] Stop Daemon"));
+    state.handle_key(key(KeyCode::Esc));
 
     // Verify Tab 3 'p' key triggers PushConfigToDaemon and StatusUpdated refreshes profiles.
     state.tab = ActiveTab::Config;
     state.set_active_toml("[[profiles]]\nname = \"pushed_p\"\nfilter_tcp = [\"443\"]\n".to_owned());
     assert_eq!(state.handle_key(key(KeyCode::Char('p'))), AppAction::PushConfigToDaemon);
-    let config_screen = render_to_string(&state, 120, 36);
-    assert!(config_screen.contains("[p] Push Config"));
+    state.handle_key(key(KeyCode::Char('?')));
+    let config_help = render_to_string(&state, 120, 36);
+    assert!(config_help.contains("[p] Push Config"));
+    state.handle_key(key(KeyCode::Char('?')));
     state.tab = ActiveTab::Run;
 
     // Keys on Tab 2 in Attached state: 'l' reloads remote lists, 'x' detaches, 'S' confirms stop.
@@ -156,6 +163,7 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
 
     assert_eq!(state.handle_key(key(KeyCode::Char('S'))), AppAction::None);
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitModal);
+    state.modal = None;
 
     // Send a stop command through `AttachedDaemon` and see the hub receive it.
     attached.send_command(&Request::Stop).expect("send stop");
@@ -190,8 +198,10 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
     assert_eq!(state.run_status, RunStatus::Stopped);
     assert!(state.auto_reattach, "unexpected disconnect keeps auto_reattach enabled");
     state.detected_socket = Some(sock.clone());
-    let detected_screen = render_to_string(&state, 120, 36);
-    assert!(detected_screen.contains("[r] Attach"));
+    state.handle_key(key(KeyCode::Char('?')));
+    let detected_help = render_to_string(&state, 120, 36);
+    assert!(detected_help.contains("[r] Attach"));
+    state.handle_key(key(KeyCode::Esc));
 
     attached.detach();
     let _ = fs::remove_dir_all(&dir);
@@ -226,4 +236,37 @@ fn attach_reports_readable_error_on_protocol_version_mismatch() {
 
     srv_thread.join().expect("fake server join");
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn app_state_enables_auto_attach_by_default_and_clears_pending_caps_action_on_esc() {
+    let mut state = AppState::new(None, None, false);
+    assert!(state.auto_reattach, "TUI must auto-attach active daemon sockets by default");
+    state.open_caps_modal_for(Some(zapret_rs::tui::types::PostCapsAction::StartScan));
+    assert_eq!(state.pending_caps_action, Some(zapret_rs::tui::types::PostCapsAction::StartScan));
+    state.handle_key(key(KeyCode::Esc));
+    assert_eq!(state.pending_caps_action, None);
+}
+
+#[test]
+fn attached_clear_zeros_visible_counters_against_baseline() {
+    use std::sync::atomic::Ordering;
+    use zapret_rs::tui::types::ActiveTab;
+
+    let mut state = AppState::new(None, None, false);
+    state.tab = ActiveTab::Run;
+    state.run_status = RunStatus::Attached;
+    state.counters.total.store(10, Ordering::Relaxed);
+    state.counters.passed.store(7, Ordering::Relaxed);
+    state.counters.desynced.store(3, Ordering::Relaxed);
+    assert_eq!(state.visible_counters(), (10, 7, 0, 0, 3));
+
+    state.handle_key(key(KeyCode::Char('c')));
+    assert_eq!(state.visible_counters(), (0, 0, 0, 0, 0));
+
+    // Subsequent remote counter snapshots increment relative to the cleared baseline.
+    state.counters.total.store(12, Ordering::Relaxed);
+    state.counters.passed.store(8, Ordering::Relaxed);
+    state.counters.desynced.store(4, Ordering::Relaxed);
+    assert_eq!(state.visible_counters(), (2, 1, 0, 0, 1));
 }

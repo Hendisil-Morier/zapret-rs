@@ -12,16 +12,132 @@ use crossterm::{
 };
 /// `ratatui` terminal abstraction over `crossterm`.
 use ratatui::{Terminal, backend::CrosstermBackend};
+/// Serialization helpers for preserving TUI form state across seamless `setcap` restarts.
+use serde::{Deserialize, Serialize};
 
-/// Symlink-safe TOML writer, `~/` expansion, and `nftables` guard cleanup.
-use crate::tools::{FirewallHandle, expand_tilde, write_config_nofollow};
+/// Symlink-safe TOML writer, `~/` expansion, scan level enum, and `nftables` guard cleanup.
+use crate::tools::{FirewallHandle, ScanLevel, expand_tilde, write_config_nofollow};
 /// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML template generator.
 use crate::tui::editor::{build_starter_toml, resolve_editor_command, spawn_unprivileged_editor};
 /// Application state read and updated around external editing.
 use crate::tui::state::AppState;
+/// Configurable color palette preserved across seamless `setcap` restarts.
+use crate::tui::theme_config::Theme;
+/// Navigation, IP mode, and deferred post-restart action types.
+use crate::tui::types::{ActiveTab, IpMode, PostCapsAction};
 
 /// Environment marker set across seamless post-`setcap` `exec()` restarts to avoid screen flash.
 pub(crate) const SEAMLESS_REEXEC_ENV: &str = "ZAPRET_RS_SEAMLESS_REEXEC";
+/// Environment payload carrying JSON-encoded [`ReexecSnapshot`] across seamless restarts.
+pub(crate) const REEXEC_STATE_ENV: &str = "ZAPRET_RS_REEXEC_STATE";
+
+/// Serializable form and navigation snapshot preserved across `setcap` `exec()` restarts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ReexecSnapshot {
+    /// Active tab visible when the restart started.
+    pub tab: ActiveTab,
+    /// Focused form row index on Tab 1.
+    pub focus_idx: usize,
+    /// Target domains typed by the user.
+    pub domains_input: String,
+    /// HTTP (TCP 80) toggle.
+    pub proto_http: bool,
+    /// TLS 1.2 (TCP 443) toggle.
+    pub proto_tls12: bool,
+    /// TLS 1.3 (TCP 443) toggle.
+    pub proto_tls13: bool,
+    /// HTTP/3 QUIC (UDP 443) toggle.
+    pub proto_http3: bool,
+    /// Selected IP family mode.
+    pub ip_mode: IpMode,
+    /// Serialized scan thoroughness level (`"quick"`, `"standard"`, `"force"`).
+    pub level: String,
+    /// Stop-on-first-match toggle.
+    pub stop_on_first: bool,
+    /// Manual `nftables` toggle.
+    pub no_nft: bool,
+    /// Lua scripts directory field.
+    pub lua_dir_input: String,
+    /// Config TOML path field.
+    pub output_path: String,
+    /// Optional action to launch immediately once capabilities are active.
+    pub pending_action: Option<PostCapsAction>,
+    /// Active serialized `theme.toml` payload preserved across seamless `exec()` restarts.
+    #[serde(default)]
+    pub theme_toml: Option<String>,
+}
+
+impl ReexecSnapshot {
+    /// Captures current form and navigation state from `state`.
+    pub(crate) fn capture(state: &AppState) -> Self {
+        Self {
+            tab: state.tab,
+            focus_idx: state.focus_idx,
+            domains_input: state.domains_input.clone(),
+            proto_http: state.proto_http,
+            proto_tls12: state.proto_tls12,
+            proto_tls13: state.proto_tls13,
+            proto_http3: state.proto_http3,
+            ip_mode: state.ip_mode,
+            level: state.level.as_str().to_owned(),
+            stop_on_first: state.stop_on_first,
+            no_nft: state.no_nft,
+            lua_dir_input: state.lua_dir_input.clone(),
+            output_path: state.output_path.clone(),
+            pending_action: state.pending_caps_action,
+            theme_toml: Some(state.theme.to_toml()),
+        }
+    }
+
+    /// Encodes the snapshot into JSON for [`REEXEC_STATE_ENV`].
+    pub(crate) fn encode(&self) -> Option<String> {
+        serde_json::to_string(self).ok()
+    }
+
+    /// Restores any serialized snapshot from [`REEXEC_STATE_ENV`] when running after `exec()`.
+    ///
+    /// Returns `(from_reexec, pending_action)`.
+    pub(crate) fn restore_from_env(state: &mut AppState) -> (bool, Option<PostCapsAction>) {
+        if std::env::var_os(SEAMLESS_REEXEC_ENV).is_none() {
+            return (false, None);
+        }
+        let Some(raw) = std::env::var_os(REEXEC_STATE_ENV) else {
+            return (true, None);
+        };
+        let Ok(snap) = serde_json::from_str::<Self>(&raw.to_string_lossy()) else {
+            return (true, None);
+        };
+        state.tab = snap.tab;
+        state.focus_idx = snap.focus_idx;
+        state.domains_input = snap.domains_input;
+        state.proto_http = snap.proto_http;
+        state.proto_tls12 = snap.proto_tls12;
+        state.proto_tls13 = snap.proto_tls13;
+        state.proto_http3 = snap.proto_http3;
+        state.ip_mode = snap.ip_mode;
+        state.level = match snap.level.as_str() {
+            "standard" => ScanLevel::Standard,
+            "force" => ScanLevel::Force,
+            _ => ScanLevel::Quick,
+        };
+        state.stop_on_first = snap.stop_on_first;
+        state.no_nft = snap.no_nft;
+        state.lua_dir_input = snap.lua_dir_input;
+        if snap.output_path != state.output_path {
+            state.output_path = snap.output_path;
+            let cfg_path = expand_tilde(&state.output_path);
+            if let Ok(text) = fs::read_to_string(&cfg_path) {
+                state.set_active_toml(text);
+            }
+        }
+        if let Some(raw_theme) = snap.theme_toml
+            && let Ok(parsed) = Theme::from_toml_str(&raw_theme)
+        {
+            state.theme = parsed;
+        }
+        (true, snap.pending_action)
+    }
+}
 
 /// RAII wrapper keeping `crossterm` raw mode and alternate screen paired with clean teardown.
 pub(crate) struct TerminalSession {
@@ -44,9 +160,8 @@ impl TerminalSession {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)
             .map_err(|err| format!("failed to initialize terminal: {err}"))?;
-        if !seamless {
-            let _ = terminal.clear();
-        }
+        // Always wipe the active alternate screen so pre-`exec()` text never ghosts into the fresh `Terminal` buffer.
+        let _ = terminal.clear();
         Ok(Self { terminal, restore_on_drop: true })
     }
 
@@ -98,16 +213,35 @@ pub(crate) fn edit_config_in_editor(state: &mut AppState, session: &mut Terminal
     }
     let editor_cmd = resolve_editor_command();
     match session.suspend_for(|| spawn_unprivileged_editor(&editor_cmd, &path)) {
-        Ok(_) => match fs::read_to_string(&path) {
-            Ok(text) => {
-                state.set_active_toml(text);
-                state.status_banner = match &state.toml_error {
-                    Some(err) => format!("Reloaded with TOML error: {}", err.lines().next().unwrap_or(err)),
-                    None => format!("Reloaded {} ({} profiles)", path.display(), state.parsed_profiles.len()),
-                };
-            }
-            Err(err) => state.status_banner = format!("Reload failed after edit: {err}"),
-        },
+        Ok(_) => reload_toml_from_disk(state),
         Err(err) => state.status_banner = err,
+    }
+}
+
+/// Saves `state.active_toml` cleanly to `state.output_path` without following symlinks.
+pub(crate) fn save_toml_to_disk(state: &mut AppState) {
+    if state.active_toml.trim().is_empty() {
+        state.status_banner = "Nothing to save yet.".to_owned();
+        return;
+    }
+    let path = expand_tilde(&state.output_path);
+    match write_config_nofollow(&path, &state.active_toml) {
+        Ok(()) => state.status_banner = format!("Saved {}", path.display()),
+        Err(err) => state.status_banner = format!("Save failed: {err}"),
+    }
+}
+
+/// Reloads `state.output_path` from disk and refreshes Tab 3 TOML validation diagnostics.
+pub(crate) fn reload_toml_from_disk(state: &mut AppState) {
+    let path = expand_tilde(&state.output_path);
+    match fs::read_to_string(&path) {
+        Ok(text) => {
+            state.set_active_toml(text);
+            state.status_banner = match &state.toml_error {
+                Some(err) => format!("Loaded with TOML error: {}", err.lines().next().unwrap_or(err)),
+                None => format!("Loaded {} ({} profiles)", path.display(), state.parsed_profiles.len()),
+            };
+        }
+        Err(err) => state.status_banner = format!("Reload failed ({}): {err}", path.display()),
     }
 }

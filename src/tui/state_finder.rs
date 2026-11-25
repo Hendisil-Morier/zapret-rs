@@ -1,7 +1,7 @@
 //! Tab 1 Strategy Finder key handling, scan configuration builder, and event application.
 
-/// Default probe timeout for strategy finder scans launched from the TUI.
-use std::time::Duration;
+/// Default probe timeout and clock instant for focus-dwell help popups.
+use std::time::{Duration, Instant};
 
 /// Keyboard key codes handled inside the Strategy Finder form and text editor.
 use crossterm::event::KeyCode;
@@ -10,8 +10,11 @@ use crossterm::event::KeyCode;
 use crate::tools::{NftFirewallBackend, ProbeProtocol, ScanConfig, ScanLevel, normalize_domain};
 /// Application state updated by Strategy Finder actions and worker progress events.
 use crate::tui::state::AppState;
-/// Navigation, form descriptors, action results, and background scan event payloads.
-use crate::tui::types::{ActiveTab, AppAction, FinderField, FinderStatus, ScanUiEvent};
+/// Navigation, form descriptors, dwell delay, action results, and background scan events.
+use crate::tui::types::{
+    ActiveTab, AppAction, FINDER_HOVER_DELAY, FinderField, FinderFocus, FinderStatus, ScanUiEvent,
+    adjust_log_scroll,
+};
 
 impl AppState {
     /// Returns the currently selected protocol list from the Finder checkboxes.
@@ -95,6 +98,7 @@ impl AppState {
                 let n_cover = report.cover.len();
                 self.targets = report.targets;
                 self.cover = report.cover;
+                self.focus.finder_results_sel = 0;
                 self.finder_status = FinderStatus::Done;
                 self.progress_done = self.progress_total;
                 if !rendered_toml.is_empty() {
@@ -120,26 +124,191 @@ impl AppState {
         }
     }
 
-    /// Edits the active text field buffer while [`AppState::editing_text`] is `true`.
-    pub(crate) fn handle_text_edit_key(&mut self, code: KeyCode) -> AppAction {
-        let buf = match self.focused_field() {
-            FinderField::Domains => &mut self.domains_input,
-            FinderField::LuaDir => &mut self.lua_dir_input,
-            FinderField::OutputPath => &mut self.output_path,
-            _ => {
-                self.editing_text = false;
-                return AppAction::None;
+    /// Hides the option tooltip and restarts the 1-second dwell timer from now.
+    pub fn reset_finder_hover(&mut self) {
+        self.finder_hover.open = false;
+        self.finder_hover.since = Some(Instant::now());
+    }
+
+    /// Hides the option tooltip and pauses the dwell timer until the user interacts again.
+    pub fn dismiss_finder_hover(&mut self) {
+        self.finder_hover.open = false;
+        self.finder_hover.since = None;
+    }
+
+    /// Opens the Tab 1 option explanation popup once focus rests idle for [`FINDER_HOVER_DELAY`].
+    pub fn poll_finder_hover(&mut self, now: Instant) {
+        if self.tab != ActiveTab::Finder
+            || self.focus.finder != FinderFocus::Setup
+            || self.modal.is_some()
+            || self.help_open
+            || self.editing_text
+            || self.finder_status == FinderStatus::Scanning
+        {
+            self.finder_hover.open = false;
+            return;
+        }
+        if !self.finder_hover.open
+            && let Some(since) = self.finder_hover.since
+            && now.saturating_duration_since(since) >= FINDER_HOVER_DELAY
+        {
+            self.finder_hover.open = true;
+        }
+    }
+
+    /// Handles vertical/page navigation for whichever Tab 1 panel currently owns focus.
+    fn handle_finder_nav(&mut self, code: KeyCode) -> bool {
+        match self.focus.finder {
+            FinderFocus::Setup => match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.focus_idx = if self.focus_idx == 0 {
+                        FinderField::ALL.len() - 1
+                    } else {
+                        self.focus_idx - 1
+                    };
+                    self.reset_finder_hover();
+                    true
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.focus_idx = (self.focus_idx + 1) % FinderField::ALL.len();
+                    self.reset_finder_hover();
+                    true
+                }
+                _ => false,
+            },
+            FinderFocus::Results => {
+                let last = self.targets.len().saturating_sub(1);
+                let sel = &mut self.focus.finder_results_sel;
+                match code {
+                    KeyCode::Up | KeyCode::Char('k') => *sel = sel.saturating_sub(1),
+                    KeyCode::Down | KeyCode::Char('j') if !self.targets.is_empty() => {
+                        *sel = (*sel + 1).min(last);
+                    }
+                    KeyCode::PageUp => *sel = sel.saturating_sub(5),
+                    KeyCode::PageDown if !self.targets.is_empty() => *sel = (*sel + 5).min(last),
+                    KeyCode::Home => *sel = 0,
+                    KeyCode::End if !self.targets.is_empty() => *sel = last,
+                    _ => return false,
+                }
+                true
             }
-        };
+            FinderFocus::Log => {
+                adjust_log_scroll(&mut self.focus.finder_log_scroll, self.finder_logs.len(), code)
+            }
+        }
+    }
+
+    /// Edits the active text field buffer while [`AppState::editing_text`] is `true`.
+    ///
+    /// Supports Left/Right arrow cursor movement, Home/End jump-to-boundary,
+    /// mid-string insertion, and Delete-at-cursor via Backspace, so long domain
+    /// lists remain fully navigable even when they overflow the visible column.
+    pub(crate) fn handle_text_edit_key(&mut self, code: KeyCode) -> AppAction {
+        // Guard: reject non-text fields immediately so each match arm below can safely assume context.
+        if !self.focused_field().is_text() {
+            self.editing_text = false;
+            self.reset_finder_hover();
+            return AppAction::None;
+        }
         match code {
             KeyCode::Esc | KeyCode::Enter => {
                 self.editing_text = false;
                 self.status_banner = "Field updated.".to_owned();
+                self.reset_finder_hover();
             }
             KeyCode::Backspace => {
-                buf.pop();
+                // Delete the character immediately left of the cursor.
+                let pos = self.text_cursor;
+                if pos > 0 {
+                    // Walk back to the previous char boundary.
+                    let buf = match self.focused_field() {
+                        FinderField::Domains => &mut self.domains_input,
+                        FinderField::LuaDir => &mut self.lua_dir_input,
+                        FinderField::OutputPath => &mut self.output_path,
+                        _ => return AppAction::None,
+                    };
+                    let prev = buf[..pos]
+                        .char_indices()
+                        .next_back()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    buf.remove(prev);
+                    self.text_cursor = prev;
+                }
             }
-            KeyCode::Char(c) => buf.push(c),
+            KeyCode::Delete => {
+                // Delete the character at the cursor (forward delete).
+                let pos = self.text_cursor;
+                let buf = match self.focused_field() {
+                    FinderField::Domains => &mut self.domains_input,
+                    FinderField::LuaDir => &mut self.lua_dir_input,
+                    FinderField::OutputPath => &mut self.output_path,
+                    _ => return AppAction::None,
+                };
+                if pos < buf.len() {
+                    buf.remove(pos);
+                    // cursor stays at same position (now points to next char)
+                }
+            }
+            KeyCode::Left => {
+                // Move cursor one char left.
+                let pos = self.text_cursor;
+                let buf = match self.focused_field() {
+                    FinderField::Domains => &self.domains_input,
+                    FinderField::LuaDir => &self.lua_dir_input,
+                    FinderField::OutputPath => &self.output_path,
+                    _ => return AppAction::None,
+                };
+                if pos > 0 {
+                    self.text_cursor = buf[..pos]
+                        .char_indices()
+                        .next_back()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                }
+            }
+            KeyCode::Right => {
+                // Move cursor one char right.
+                let pos = self.text_cursor;
+                let buf = match self.focused_field() {
+                    FinderField::Domains => &self.domains_input,
+                    FinderField::LuaDir => &self.lua_dir_input,
+                    FinderField::OutputPath => &self.output_path,
+                    _ => return AppAction::None,
+                };
+                if pos < buf.len() {
+                    let next = buf[pos..]
+                        .char_indices()
+                        .nth(1)
+                        .map(|(i, _)| pos + i)
+                        .unwrap_or(buf.len());
+                    self.text_cursor = next;
+                }
+            }
+            KeyCode::Home => {
+                self.text_cursor = 0;
+            }
+            KeyCode::End => {
+                let buf = match self.focused_field() {
+                    FinderField::Domains => &self.domains_input,
+                    FinderField::LuaDir => &self.lua_dir_input,
+                    FinderField::OutputPath => &self.output_path,
+                    _ => return AppAction::None,
+                };
+                self.text_cursor = buf.len();
+            }
+            KeyCode::Char(c) => {
+                // Insert character at the cursor position and advance.
+                let pos = self.text_cursor;
+                let buf = match self.focused_field() {
+                    FinderField::Domains => &mut self.domains_input,
+                    FinderField::LuaDir => &mut self.lua_dir_input,
+                    FinderField::OutputPath => &mut self.output_path,
+                    _ => return AppAction::None,
+                };
+                buf.insert(pos, c);
+                self.text_cursor = pos + c.len_utf8();
+            }
             _ => {}
         }
         AppAction::None
@@ -147,48 +316,63 @@ impl AppState {
 
     /// Handles navigation, toggling, scan control, and config handoff on the Strategy Finder tab.
     pub(crate) fn handle_finder_key(&mut self, code: KeyCode) -> AppAction {
+        if self.handle_finder_nav(code) {
+            return AppAction::None;
+        }
         match code {
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.focus_idx =
-                    if self.focus_idx == 0 { FinderField::ALL.len() - 1 } else { self.focus_idx - 1 };
+            KeyCode::Esc if self.finder_status != FinderStatus::Scanning && self.finder_hover.open => {
+                self.dismiss_finder_hover();
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.focus_idx = (self.focus_idx + 1) % FinderField::ALL.len();
+            KeyCode::Enter | KeyCode::Char(' ') if self.focus.finder == FinderFocus::Setup => {
+                self.reset_finder_hover();
+                match self.focused_field() {
+                    f if f.is_text() => {
+                        self.editing_text = true;
+                        // Position cursor at end of buffer so typing continues naturally.
+                        self.text_cursor = match self.focused_field() {
+                            FinderField::Domains => self.domains_input.len(),
+                            FinderField::LuaDir => self.lua_dir_input.len(),
+                            FinderField::OutputPath => self.output_path.len(),
+                            _ => 0,
+                        };
+                        self.dismiss_finder_hover();
+                        self.status_banner = "Editing field: Left/Right move cursor, Home/End jump, Del deletes forward, Enter/Esc done.".to_owned();
+                    }
+                    FinderField::ProtoHttp => self.proto_http = !self.proto_http,
+                    FinderField::ProtoTls12 => self.proto_tls12 = !self.proto_tls12,
+                    FinderField::ProtoTls13 => self.proto_tls13 = !self.proto_tls13,
+                    FinderField::ProtoHttp3 => self.proto_http3 = !self.proto_http3,
+                    FinderField::IpMode => self.ip_mode = self.ip_mode.next(),
+                    FinderField::Level => {
+                        self.level = match self.level {
+                            ScanLevel::Quick => ScanLevel::Standard,
+                            ScanLevel::Standard => ScanLevel::Force,
+                            ScanLevel::Force => ScanLevel::Quick,
+                        };
+                    }
+                    FinderField::StopOnFirst => self.stop_on_first = !self.stop_on_first,
+                    FinderField::NoNft => self.no_nft = !self.no_nft,
+                    _ => {}
+                }
             }
-            KeyCode::Enter | KeyCode::Char(' ') => match self.focused_field() {
-                f if f.is_text() => {
-                    self.editing_text = true;
-                    self.status_banner = "Editing field: press Enter or Esc when done.".to_owned();
-                }
-                FinderField::ProtoHttp => self.proto_http = !self.proto_http,
-                FinderField::ProtoTls12 => self.proto_tls12 = !self.proto_tls12,
-                FinderField::ProtoTls13 => self.proto_tls13 = !self.proto_tls13,
-                FinderField::ProtoHttp3 => self.proto_http3 = !self.proto_http3,
-                FinderField::IpMode => self.ip_mode = self.ip_mode.next(),
-                FinderField::Level => {
-                    self.level = match self.level {
-                        ScanLevel::Quick => ScanLevel::Standard,
-                        ScanLevel::Standard => ScanLevel::Force,
-                        ScanLevel::Force => ScanLevel::Quick,
-                    };
-                }
-                FinderField::StopOnFirst => self.stop_on_first = !self.stop_on_first,
-                FinderField::NoNft => self.no_nft = !self.no_nft,
-                _ => {}
-            },
             KeyCode::Char('r') if self.finder_status != FinderStatus::Scanning => {
+                self.dismiss_finder_hover();
                 return AppAction::StartScan;
             }
             KeyCode::Char('x') | KeyCode::Esc if self.finder_status == FinderStatus::Scanning => {
                 return AppAction::StopScan;
             }
-            KeyCode::Char('s') => return AppAction::SaveConfig,
+            KeyCode::Char('s') => {
+                self.dismiss_finder_hover();
+                return AppAction::SaveConfig;
+            }
             KeyCode::Char('a') => {
                 if self.active_toml.is_empty() {
                     self.status_banner =
                         "No generated config yet: run a scan or load a file first.".to_owned();
                 } else {
                     self.tab = ActiveTab::Run;
+                    self.reset_finder_hover();
                     self.status_banner =
                         "Active config ready on Run tab. Press 'r' to start nfqws2.".to_owned();
                 }

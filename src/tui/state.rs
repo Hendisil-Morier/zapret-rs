@@ -29,8 +29,13 @@ use crate::tui::inspect::PacketInspectorState;
 use crate::tui::modal::{AuthModal, ModalKeyResult, ModalPurpose};
 /// Attached background `nfqws2` daemon metadata shown on Tab 2.
 use crate::tui::remote::RemoteDaemonMeta;
+/// Configurable color theme palette and `theme.toml` load/save helpers.
+use crate::tui::theme_config::{Theme, resolve_theme, save_theme_to_default_path};
 /// Shared TUI enums and worker event types.
-use crate::tui::types::{ActiveTab, AppAction, FinderField, FinderStatus, IpMode, RunStatus};
+use crate::tui::types::{
+    ActiveTab, AppAction, FinderField, FinderHoverState, FinderStatus, IpMode, PanelFocusState,
+    PostCapsAction, RunStatus,
+};
 
 /// Maximum number of log lines retained in each scrollable log panel.
 const MAX_LOG_LINES: usize = 200;
@@ -43,6 +48,8 @@ pub struct AppState {
     pub focus_idx: usize,
     /// `true` while typing into a focused text field.
     pub editing_text: bool,
+    /// Byte cursor position within the active text-field buffer (clamped to buffer length on each edit).
+    pub text_cursor: usize,
     /// Comma/space-separated target domains input buffer.
     pub domains_input: String,
     /// Enabled HTTP (TCP 80) protocol checkbox.
@@ -95,6 +102,8 @@ pub struct AppState {
     pub auto_reattach: bool,
     /// Lock-free packet counters shared with local worker or remote subscriber thread.
     pub counters: Arc<PacketCounters>,
+    /// Local display baseline subtracted from [`Self::counters`] after pressing `c` while attached.
+    pub counter_baseline: (u64, u64, u64, u64, u64),
     /// Recent live `nfqws2` daemon log lines.
     pub run_logs: VecDeque<String>,
     /// Active TOML text shown in Tab 3 and executed by Tab 2.
@@ -115,6 +124,16 @@ pub struct AppState {
     pub status_banner: String,
     /// Active floating capability-grant / `sudo` / stop-confirm modal, when visible.
     pub modal: Option<AuthModal>,
+    /// `true` while the centered `?` keybindings popup is open.
+    pub help_open: bool,
+    /// Action automatically resumed once capability grant triggers a seamless restart.
+    pub pending_caps_action: Option<PostCapsAction>,
+    /// Dwell timer and visibility state for Tab 1's 1-second option explanation tooltip.
+    pub finder_hover: FinderHoverState,
+    /// Per-tab focused panel and scroll offsets switched via `Tab` / `Shift+Tab`.
+    pub focus: PanelFocusState,
+    /// Active configurable TUI color palette (`neon` by default, or from `theme.toml`).
+    pub theme: Theme,
     /// Live packet inspector table, filter, pause toggle, and detail popup state on Tab 2.
     pub inspector: PacketInspectorState,
 }
@@ -137,10 +156,13 @@ impl AppState {
             .ok()
             .map_or_else(|| "./target/release/zapret-rs".to_owned(), |p| p.display().to_string());
 
+        let (theme, theme_warn) = resolve_theme(None);
+
         let mut state = Self {
             tab: ActiveTab::Finder,
             focus_idx: 0,
             editing_text: false,
+            text_cursor: 0,
             domains_input: String::new(),
             proto_http: true,
             proto_tls12: true,
@@ -165,8 +187,9 @@ impl AppState {
             finder_logs: VecDeque::new(),
             run_status: RunStatus::Stopped,
             remote_meta: None,
-            auto_reattach: false,
+            auto_reattach: true,
             counters: Arc::new(PacketCounters::default()),
+            counter_baseline: (0, 0, 0, 0, 0),
             run_logs: VecDeque::new(),
             active_toml: String::new(),
             parsed_profiles: Vec::new(),
@@ -175,14 +198,22 @@ impl AppState {
             uid,
             has_net_caps,
             exe_path,
-            status_banner: "Ready. Use 1/2/3 or Tab to switch views, 'q' to quit.".to_owned(),
+            status_banner: "Ready. Press '?' for keybindings.".to_owned(),
             modal: None,
+            help_open: false,
+            pending_caps_action: None,
+            finder_hover: FinderHoverState::default(),
+            focus: PanelFocusState::default(),
+            theme,
             inspector: PacketInspectorState::default(),
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
             state.set_active_toml(text);
             state.status_banner = format!("Loaded {}", cfg_path.display());
+        }
+        if let Some(warn) = theme_warn {
+            state.status_banner = warn;
         }
         state
     }
@@ -192,20 +223,22 @@ impl AppState {
         FinderField::ALL[self.focus_idx.min(FinderField::ALL.len() - 1)]
     }
 
+    /// Pushes `msg` into a bounded [`VecDeque`], evicting the oldest line once full.
+    fn push_bounded_log(buf: &mut VecDeque<String>, msg: String) {
+        if buf.len() >= MAX_LOG_LINES {
+            buf.pop_front();
+        }
+        buf.push_back(msg);
+    }
+
     /// Appends a bounded line to the Finder log buffer.
     pub fn push_finder_log(&mut self, msg: impl Into<String>) {
-        if self.finder_logs.len() >= MAX_LOG_LINES {
-            self.finder_logs.pop_front();
-        }
-        self.finder_logs.push_back(msg.into());
+        Self::push_bounded_log(&mut self.finder_logs, msg.into());
     }
 
     /// Appends a bounded line to the Run daemon log buffer.
     pub fn push_run_log(&mut self, msg: impl Into<String>) {
-        if self.run_logs.len() >= MAX_LOG_LINES {
-            self.run_logs.pop_front();
-        }
-        self.run_logs.push_back(msg.into());
+        Self::push_bounded_log(&mut self.run_logs, msg.into());
     }
 
     /// Transitions Tab 2 into [`RunStatus::Attached`] with `meta` and logs attachment.
@@ -224,6 +257,7 @@ impl AppState {
         self.remote_meta = Some(meta);
         self.run_status = RunStatus::Attached;
         self.auto_reattach = true;
+        self.counter_baseline = (0, 0, 0, 0, 0);
         self.push_run_log(log_line);
     }
 
@@ -231,8 +265,19 @@ impl AppState {
     pub fn set_detached(&mut self, log_line: String, banner: String) {
         self.remote_meta = None;
         self.run_status = RunStatus::Stopped;
+        self.counter_baseline = (0, 0, 0, 0, 0);
         self.push_run_log(log_line);
         self.status_banner = banner;
+    }
+
+    /// Returns `(total, passed, reassembled, modified, desynced)` minus [`Self::counter_baseline`].
+    pub fn visible_counters(&self) -> (u64, u64, u64, u64, u64) {
+        let (s0, s1, s2, s3, s4) = self.counters.snapshot();
+        let (b0, b1, b2, b3, b4) = self.counter_baseline;
+        if s0 < b0 || s1 < b1 || s2 < b2 || s3 < b3 || s4 < b4 {
+            return (s0, s1, s2, s3, s4);
+        }
+        (s0 - b0, s1 - b1, s2 - b2, s3 - b3, s4 - b4)
     }
 
     /// Updates `active_toml` and refreshes `parsed_profiles` and `toml_error` validation state.
@@ -262,7 +307,13 @@ impl AppState {
 
     /// Opens the centered floating modal for granting `CAP_NET_ADMIN|CAP_NET_RAW`.
     pub fn open_caps_modal(&mut self) {
+        self.open_caps_modal_for(None);
+    }
+
+    /// Opens the capability-grant modal and remembers any `action` to resume after restart.
+    pub fn open_caps_modal_for(&mut self, action: Option<PostCapsAction>) {
         let cmd = format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", self.exe_path);
+        self.pending_caps_action = action;
         self.modal = Some(AuthModal::open(ModalPurpose::GrantCaps, cmd));
     }
 
@@ -273,6 +324,8 @@ impl AppState {
                 ModalKeyResult::KeepOpen => AppAction::None,
                 ModalKeyResult::Close => {
                     self.modal = None;
+                    self.pending_caps_action = None;
+                    self.reset_finder_hover();
                     AppAction::None
                 }
                 ModalKeyResult::Submit => AppAction::SubmitModal,
@@ -281,8 +334,23 @@ impl AppState {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return AppAction::Quit;
         }
+        if self.help_open {
+            if matches!(
+                key.code,
+                KeyCode::Esc | KeyCode::Char('?' | 'q') | KeyCode::Enter
+            ) {
+                self.help_open = false;
+                self.reset_finder_hover();
+            }
+            return AppAction::None;
+        }
         if self.editing_text {
             return self.handle_text_edit_key(key.code);
+        }
+        if !self.inspector.detail_open && key.code == KeyCode::Char('?') {
+            self.help_open = true;
+            self.dismiss_finder_hover();
+            return AppAction::None;
         }
         match key.code {
             KeyCode::Char('q') => return AppAction::Quit,
@@ -290,24 +358,21 @@ impl AppState {
                 self.open_caps_modal();
                 return AppAction::None;
             }
-            KeyCode::Char('1') => {
-                self.tab = ActiveTab::Finder;
+            KeyCode::Char('1') => return self.switch_tab(ActiveTab::Finder),
+            KeyCode::Char('2') => return self.switch_tab(ActiveTab::Run),
+            KeyCode::Char('3') => return self.switch_tab(ActiveTab::Config),
+            KeyCode::Tab => return self.cycle_panel_focus(true),
+            KeyCode::BackTab => return self.cycle_panel_focus(false),
+            KeyCode::Char('t') if !self.inspector.detail_open => {
+                self.theme = self.theme.next_preset();
+                self.status_banner = format!("Theme: {} (press 'T' to save theme.toml)", self.theme.name);
                 return AppAction::None;
             }
-            KeyCode::Char('2') => {
-                self.tab = ActiveTab::Run;
-                return AppAction::None;
-            }
-            KeyCode::Char('3') => {
-                self.tab = ActiveTab::Config;
-                return AppAction::None;
-            }
-            KeyCode::Tab => {
-                self.tab = self.tab.next();
-                return AppAction::None;
-            }
-            KeyCode::BackTab => {
-                self.tab = self.tab.prev();
+            KeyCode::Char('T') if !self.inspector.detail_open => {
+                self.status_banner = match save_theme_to_default_path(&self.theme) {
+                    Ok(path) => format!("Saved theme '{}' to {}", self.theme.name, path.display()),
+                    Err(err) => format!("Save theme failed: {err}"),
+                };
                 return AppAction::None;
             }
             _ => {}
@@ -319,70 +384,17 @@ impl AppState {
         }
     }
 
-    /// Handles start/attach, detach/stop, remote commands, counter reset, and inspector keys on Tab 2.
-    fn handle_run_key(&mut self, code: KeyCode) -> AppAction {
-        if let Some(msg) = self.inspector.handle_key(code) {
-            if !msg.is_empty() {
-                self.status_banner = msg;
-            }
-            return AppAction::None;
-        }
-        if self.run_status == RunStatus::Attached {
-            return match code {
-                KeyCode::Char('x') => AppAction::DetachDaemon,
-                KeyCode::Char('l') => AppAction::ReloadRemoteLists,
-                KeyCode::Char('S') => {
-                    let pid_label = self
-                        .remote_meta
-                        .as_ref()
-                        .map_or_else(|| "remote".to_owned(), |m| format!("PID {}", m.pid));
-                    let preview = format!("stop nfqws2 ({pid_label}) via control socket");
-                    self.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmStopDaemon, preview));
-                    AppAction::None
-                }
-                KeyCode::Char('c') => {
-                    self.inspector.clear();
-                    self.status_banner = "Inspector buffer cleared.".to_owned();
-                    AppAction::None
-                }
-                _ => AppAction::None,
-            };
-        }
-        match code {
-            KeyCode::Char('r') | KeyCode::Enter => {
-                if self.run_status == RunStatus::Running {
-                    AppAction::StopDaemon
-                } else {
-                    AppAction::StartDaemon
-                }
-            }
-            KeyCode::Char('x') if self.run_status == RunStatus::Running => AppAction::StopDaemon,
-            KeyCode::Char('l') => AppAction::ReloadConfig,
-            KeyCode::Char('c') => {
-                self.counters.reset();
-                self.inspector.clear();
-                self.status_banner = "Packet counters and inspector buffer cleared.".to_owned();
-                AppAction::None
-            }
-            _ => AppAction::None,
-        }
+    /// Switches top-level tab and resets the Tab 1 tooltip dwell timer cleanly.
+    fn switch_tab(&mut self, tab: ActiveTab) -> AppAction {
+        self.tab = tab;
+        self.reset_finder_hover();
+        AppAction::None
     }
 
-    /// Handles TOML preview scrolling, editing, saving, and reloading on the Config & Diagnostics tab.
-    fn handle_config_key(&mut self, code: KeyCode) -> AppAction {
-        match code {
-            KeyCode::Up | KeyCode::Char('k') => self.toml_scroll = self.toml_scroll.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.toml_scroll = self.toml_scroll.saturating_add(1);
-            }
-            KeyCode::PageUp => self.toml_scroll = self.toml_scroll.saturating_sub(10),
-            KeyCode::PageDown => self.toml_scroll = self.toml_scroll.saturating_add(10),
-            KeyCode::Char('e') | KeyCode::Enter => return AppAction::EditConfig,
-            KeyCode::Char('p') => return AppAction::PushConfigToDaemon,
-            KeyCode::Char('s') => return AppAction::SaveConfig,
-            KeyCode::Char('l') => return AppAction::ReloadConfig,
-            _ => {}
-        }
+    /// Cycles focused panel inside the active tab (`Tab` / `Shift+Tab`) and updates tooltip state.
+    fn cycle_panel_focus(&mut self, forward: bool) -> AppAction {
+        self.focus.cycle(self.tab, forward);
+        self.reset_finder_hover();
         AppAction::None
     }
 }

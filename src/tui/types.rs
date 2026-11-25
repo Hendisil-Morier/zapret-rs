@@ -1,10 +1,18 @@
 //! Data types, navigation enums, and worker events for the `zapret-rs` TUI.
 
+/// Timing primitives for tracking 1-second Strategy Finder focus dwell tooltips.
+use std::time::{Duration, Instant};
+
+/// Keyboard key codes handled by shared panel scroll helpers.
+use crossterm::event::KeyCode;
+/// Serialization support for preserving navigation state across seamless `setcap` restarts.
+use serde::{Deserialize, Serialize};
+
 /// Strategy catalog enums and completed scan reports forwarded into UI events.
 use crate::tools::{IpFamily, ProbeProtocol, ScanReport};
 
 /// Top-level navigation tabs in the `zapret-rs` TUI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ActiveTab {
     /// Tab 1: interactive strategy discovery form, live sweep progress, and results table.
     Finder,
@@ -69,10 +77,79 @@ impl FinderField {
     pub const fn is_text(self) -> bool {
         matches!(self, Self::Domains | Self::LuaDir | Self::OutputPath)
     }
+
+    /// Returns a concise `(title, explanation)` pair displayed in the focus-dwell help popup.
+    pub const fn description(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Domains => (
+                "Target Domains",
+                "Comma- or space-separated hostnames to test (e.g. example.com). Omit https:// and press Enter to edit. Use Left/Right arrows to move the cursor, Home/End to jump, Delete to remove the char under the cursor.",
+            ),
+            Self::ProtoHttp => (
+                "HTTP (TCP 80)",
+                "Probes plaintext HTTP on port 80 and searches HTTP DPI desync techniques such as methodeol or host splitting.",
+            ),
+            Self::ProtoTls12 => (
+                "TLS 1.2 (TCP 443)",
+                "Probes HTTPS TLS 1.2 ClientHello handshakes on TCP port 443 to find working SNI/record desync strategies.",
+            ),
+            Self::ProtoTls13 => (
+                "TLS 1.3 (TCP 443)",
+                "Probes HTTPS TLS 1.3 ClientHello handshakes on TCP port 443, including split and multidisorder variants.",
+            ),
+            Self::ProtoHttp3 => (
+                "HTTP/3 QUIC (UDP 443)",
+                "Probes HTTP/3 QUIC Initial packets on UDP port 443 when supported by curl, testing UDP DPI desync methods.",
+            ),
+            Self::IpMode => (
+                "IP Version",
+                "Cycles target address families between IPv4 (4), IPv6 (6), and dual-stack (46). Press Enter or Space to switch.",
+            ),
+            Self::Level => (
+                "Scan Level",
+                "Sets catalog depth: quick runs top strategies fast, standard widens variants, and force tries every strategy.",
+            ),
+            Self::StopOnFirst => (
+                "Stop On First",
+                "When checked ([x]), stops sweeping a target once one strategy works; uncheck ([ ]) to measure every candidate.",
+            ),
+            Self::NoNft => (
+                "Manual nft (--no-nft)",
+                "When unchecked ([ ]), installs temporary nftables queue rules automatically. Check ([x]) to supply rules yourself.",
+            ),
+            Self::LuaDir => (
+                "Lua Directory",
+                "Folder containing zapret-lib.lua and zapret-antidpi.lua referenced by generated nfqws2.toml files.",
+            ),
+            Self::OutputPath => (
+                "Config Path",
+                "Destination nfqws2.toml path written on save ('s') and loaded by Tab 2 and Tab 3 (supports ~/ expansion).",
+            ),
+        }
+    }
+}
+
+/// Focus dwell duration on a Strategy Finder row before opening its explanation popup.
+pub const FINDER_HOVER_DELAY: Duration = Duration::from_secs(1);
+
+/// Tracks how long focus has rested on the active [`FinderField`] for contextual help display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinderHoverState {
+    /// Instant when focus settled on the current option (`None` while dismissed or paused).
+    pub since: Option<Instant>,
+    /// `true` while the floating explanation tooltip is visible on Tab 1.
+    pub open: bool,
+}
+
+impl Default for FinderHoverState {
+    /// Arms the 1-second hover timer on startup so resting on the initial option shows its hint.
+    fn default() -> Self {
+        Self { since: Some(Instant::now()), open: false }
+    }
 }
 
 /// IP address family mode selectable in the Finder form.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IpMode {
     /// IPv4 only.
     V4,
@@ -204,4 +281,118 @@ pub enum AppAction {
     PushConfigToDaemon,
     /// Execute the active floating [`crate::tui::AuthModal`] action (`Enter` pressed).
     SubmitModal,
+}
+
+/// Action deferred until after a seamless `setcap` capability-grant restart finishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PostCapsAction {
+    /// Automatically resume launching the Strategy Finder scan on Tab 1.
+    StartScan,
+    /// Automatically resume launching the local `nfqws2` engine on Tab 2.
+    StartDaemon,
+}
+
+/// Focused panel within Tab 1 (Strategy Finder) cycled with `Tab` / `Shift+Tab`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FinderFocus {
+    /// Left Strategy Setup interactive form.
+    #[default]
+    Setup,
+    /// Top-right completed strategy scan Results table.
+    Results,
+    /// Bottom-right Live Scan Log feed.
+    Log,
+}
+
+/// Focused panel within Tab 2 (Run `nfqws2`) cycled with `Tab` / `Shift+Tab`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RunFocus {
+    /// Center Packet Inspector table.
+    #[default]
+    Inspector,
+    /// Bottom Daemon Log feed.
+    Log,
+}
+
+/// Focused panel within Tab 3 (Config & Diagnostics) cycled with `Tab` / `Shift+Tab`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConfigFocus {
+    /// Left scrollable `nfqws2.toml` viewer.
+    #[default]
+    Toml,
+    /// Top-right scrollable temporary `nftables` ruleset preview.
+    Nft,
+}
+
+/// Per-tab focused panel and scroll offsets updated via `Tab`, `BackTab`, and vertical keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PanelFocusState {
+    /// Active panel on Tab 1.
+    pub finder: FinderFocus,
+    /// Active panel on Tab 2.
+    pub run: RunFocus,
+    /// Active panel on Tab 3.
+    pub config: ConfigFocus,
+    /// Selected row index inside Tab 1's `Results` table.
+    pub finder_results_sel: usize,
+    /// Lines scrolled up from the tail inside Tab 1's `Live Scan Log`.
+    pub finder_log_scroll: u16,
+    /// Lines scrolled up from the tail inside Tab 2's `Daemon Log`.
+    pub run_log_scroll: u16,
+    /// Top visible line inside Tab 3's `Temporary nftables Script` pane.
+    pub nft_scroll: u16,
+}
+
+impl PanelFocusState {
+    /// Advances panel focus cyclically within `tab` (`Tab` forward, `Shift+Tab` backward).
+    pub fn cycle(&mut self, tab: ActiveTab, forward: bool) {
+        match tab {
+            ActiveTab::Finder => {
+                self.finder = match (self.finder, forward) {
+                    (FinderFocus::Setup, true) | (FinderFocus::Log, false) => FinderFocus::Results,
+                    (FinderFocus::Results, true) | (FinderFocus::Setup, false) => FinderFocus::Log,
+                    (FinderFocus::Log, true) | (FinderFocus::Results, false) => FinderFocus::Setup,
+                };
+            }
+            ActiveTab::Run => {
+                self.run = match self.run {
+                    RunFocus::Inspector => RunFocus::Log,
+                    RunFocus::Log => RunFocus::Inspector,
+                };
+            }
+            ActiveTab::Config => {
+                self.config = match self.config {
+                    ConfigFocus::Toml => ConfigFocus::Nft,
+                    ConfigFocus::Nft => ConfigFocus::Toml,
+                };
+            }
+        }
+    }
+}
+
+/// Adjusts a bottom-anchored log scroll offset (`0` = live tail) for vertical navigation keys.
+pub fn adjust_log_scroll(scroll: &mut u16, total_len: usize, code: KeyCode) -> bool {
+    let cap = u16::try_from(total_len.saturating_sub(1)).unwrap_or(u16::MAX);
+    match code {
+        KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_add(1).min(cap),
+        KeyCode::Down | KeyCode::Char('j') => *scroll = scroll.saturating_sub(1),
+        KeyCode::PageUp => *scroll = scroll.saturating_add(5).min(cap),
+        KeyCode::PageDown => *scroll = scroll.saturating_sub(5),
+        KeyCode::End => *scroll = 0,
+        _ => return false,
+    }
+    true
+}
+
+/// Adjusts a top-anchored preview scroll offset (`0` = top) for vertical navigation keys.
+pub fn adjust_pane_scroll(scroll: &mut u16, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') => *scroll = scroll.saturating_add(1),
+        KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
+        KeyCode::PageDown => *scroll = scroll.saturating_add(10),
+        KeyCode::Home => *scroll = 0,
+        _ => return false,
+    }
+    true
 }
