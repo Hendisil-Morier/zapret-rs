@@ -1,6 +1,6 @@
 # zapret-rs
 
-`zapret-rs` (`v1.0.0`) is a Linux Rust port of [`zapret2`](https://github.com/bol-van/zapret2), delivering a memory-safe `nfqws2` NFQUEUE DPI desync daemon, embedded LuaJIT runtime compatible with unmodified `zapret2/lua/*.lua` scripts, and the `ip2net` and `mdig` companion utilities.
+`zapret-rs` (`v1.0.1`) is a Linux Rust port of [`zapret2`](https://github.com/bol-van/zapret2), delivering a memory-safe `nfqws2` NFQUEUE DPI desync daemon, embedded LuaJIT runtime compatible with unmodified `zapret2/lua/*.lua` scripts, and the `ip2net` and `mdig` companion utilities.
 
 ## Binaries & Workspace Layout
 
@@ -23,6 +23,7 @@ Run static checks, offline unit/integration suites (including repository hygiene
 ```bash
 cargo clippy --all-targets -- -D warnings
 cargo nextest run
+cargo bench
 unshare -r -n bash -c 'ip link set lo up && cargo nextest run --run-ignored only'
 ```
 

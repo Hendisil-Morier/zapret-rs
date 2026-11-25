@@ -4,6 +4,23 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-25
+
+### Security
+
+- **Symlink-Hardened Runtime File Handling:** Replaced path-following checks in `src/runtime/writable.rs` with `open(O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)` plus `fstat`/`fchown` and `O_NOFOLLOW` writability probing, added `O_NOFOLLOW` on PID file creation in `src/runtime/process.rs`, and added `SOCK_CLOEXEC` to raw/netlink sockets in `src/rawsend`.
+- **Bounded Memory Caps (`conntrack`, `ipcache`, `gunzip`):** Added `DEFAULT_CTRACK_MAX_ENTRIES` (`65_536`) in `src/conntrack` and `DEFAULT_IPCACHE_MAX_ENTRIES` (`65_536`) with bounded `try_touch` eviction in `src/lists/ipcache.rs`, and enforced `DEFAULT_MAX_INFLATE_OUTPUT` (`64 MiB`) in `src/lua/gzip_inflate.rs`.
+
+### Performance
+
+- **Interface Name Caching & NFQUEUE Dispatch:** Checked `desync_fwmark` before resolving interface names in `src/intercepter/nfqueue.rs`, added a 5-second bounded interface name cache with zero-allocation borrowed pair lookups in `src/intercepter/ifname.rs`, and cut `ifname_resolve_lo` release latency from `146.8 ns/op` to `19.1 ns/op`.
+- **Desync Dispatch & IPCache Hot Paths:** Stored interface names up to 16 bytes inline on the stack (`IfaceKey`) in `src/lists/ipcache.rs`, precomputed Lua action instance labels on `ProfileRuntime`, passed a single `boottime_now()` timestamp through packet dispatch, gated `client_label` formatting on `hostlist_auto_debug`, eliminated redundant `hostname` clones, and cached unmatched flow lookups (`profile_searched`) on `CtrackEntry` with `SIGHUP` reset support, cutting established and unmatched packet overhead by `46%` to `52%`.
+- **`RawSender` Socket Option Cache & 4-Bit Shoup GHASH:** Cached applied `SO_MARK` and `SO_BINDTODEVICE` state per socket in `src/rawsend/sender.rs` (`rawsend_loopback_v4` `1346.1 -> 1036.6 ns/op`) and replaced bit-by-bit `GF(2^128)` multiplication in `src/crypto/aes_gcm.rs` with a compile-time 4-bit reduction table (`aes_gcm_crypt_680b` `11498.4 -> 7110.4 ns/op`).
+
+### Changed
+
+- **Cargo Manifest & Benchmark Harness:** Added `default-run = "nfqws2"` and a `[[bench]]` target (`benches/hotpath.rs`, `harness = false`) in `Cargo.toml` so `cargo bench` and bare `cargo run --release` work out of the box.
+
 ## [1.0.0] - 2026-11-25
 
 ### Added
