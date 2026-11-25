@@ -324,3 +324,27 @@ fn gunzip_inflate_enforces_output_cap_and_rejects_bomb() {
         .expect("eval gzip bomb script");
     assert!(rejected, "Lua gunzip_inflate must reject output above 64 MiB default cap");
 }
+
+#[test]
+fn systemd_unit_template_enables_ambient_caps_and_auto_nft() {
+    let systemd_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("contrib/systemd");
+    let unit = fs::read_to_string(systemd_dir.join("zapret-rs.service"))
+        .expect("read contrib/systemd/zapret-rs.service");
+    assert!(unit.contains("AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW"));
+    assert!(unit.contains("RuntimeDirectory=zapret-rs"));
+    assert!(unit.contains("--nft"));
+    assert!(unit.contains("--control-socket /run/zapret-rs/control.sock"));
+
+    let path_unit = fs::read_to_string(systemd_dir.join("zapret-rs.path"))
+        .expect("read contrib/systemd/zapret-rs.path");
+    assert!(path_unit.contains("PathChanged=__REPO__/target/release/nfqws2"));
+    assert!(path_unit.contains("Unit=zapret-rs-restart.service"));
+
+    let restart_unit = fs::read_to_string(systemd_dir.join("zapret-rs-restart.service"))
+        .expect("read contrib/systemd/zapret-rs-restart.service");
+    assert!(restart_unit.contains("try-restart zapret-rs.service"));
+
+    if !zapret_rs::runtime::has_effective_caps(zapret_rs::runtime::CAP_MASK_NET).unwrap_or(false) {
+        assert!(zapret_rs::runtime::retain_net_capabilities_for(false, true).is_ok());
+    }
+}

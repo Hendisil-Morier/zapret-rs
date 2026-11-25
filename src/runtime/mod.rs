@@ -14,14 +14,14 @@ pub mod writable;
 /// Re-exported capability constants and privilege retention helpers.
 pub use caps::{
     CAP_MASK_NET, SECBIT_NO_SETUID_FIXUP, clear_child_privileges, has_effective_caps,
-    retain_net_capabilities, set_process_caps,
+    retain_net_capabilities, retain_net_capabilities_for, set_process_caps,
 };
 /// Re-exported process lifecycle error type.
 pub use error::ProcessError;
 /// Re-exported identity resolution, privilege drop, `chdir`, PID guard, and daemonization helpers.
 pub use process::{
-    IdentitySpec, PidFileGuard, apply_chdir, daemonize, drop_privileges, drop_sudo_root_if_needed,
-    parse_uid_spec, resolve_identity, resolve_user_spec,
+    IdentitySpec, PidFileGuard, apply_chdir, daemonize, drop_privileges, drop_privileges_for,
+    drop_sudo_root_if_needed, parse_uid_spec, resolve_identity, resolve_user_spec,
 };
 /// Re-exported POSIX signal handler registration and atomic flag helpers.
 pub use signals::{

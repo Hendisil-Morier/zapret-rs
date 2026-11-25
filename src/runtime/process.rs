@@ -12,7 +12,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 /// Linux capability retention helpers and `SECBIT_NO_SETUID_FIXUP` constant.
-use crate::runtime::caps::{SECBIT_NO_SETUID_FIXUP, retain_net_capabilities};
+use crate::runtime::caps::{SECBIT_NO_SETUID_FIXUP, retain_net_capabilities_for};
 /// Typed process lifecycle errors returned to the CLI binary or caller.
 use crate::runtime::error::ProcessError;
 
@@ -167,6 +167,15 @@ pub fn apply_chdir(path: &Path) -> Result<(), ProcessError> {
 /// supplementary groups via `initgroups`/`setgroups`, switches GID/UID, and calls
 /// [`retain_net_capabilities`].
 pub fn drop_privileges(id: &IdentitySpec, require_net_caps: bool) -> Result<(), ProcessError> {
+    drop_privileges_for(id, require_net_caps, false)
+}
+
+/// Drops root UID/GID cleanly to `id`, optionally keeping ambient `CAP_NET_ADMIN` for `--nft`.
+pub fn drop_privileges_for(
+    id: &IdentitySpec,
+    require_net_caps: bool,
+    preserve_nft_ambient: bool,
+) -> Result<(), ProcessError> {
     if id.gids.is_empty() {
         return Err(ProcessError::PrivilegeDrop {
             step: "gids",
@@ -222,7 +231,7 @@ pub fn drop_privileges(id: &IdentitySpec, require_net_caps: bool) -> Result<(), 
         });
     }
 
-    retain_net_capabilities(require_net_caps)
+    retain_net_capabilities_for(require_net_caps, preserve_nft_ambient)
 }
 
 /// Drops UID 0 back to `SUDO_UID`/`SUDO_GID` when launched via `sudo`, retaining only

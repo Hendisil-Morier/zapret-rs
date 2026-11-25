@@ -19,6 +19,10 @@ const CAP_NET_ADMIN: u32 = 12;
 const CAP_NET_RAW: u32 = 13;
 /// Fallback maximum capability number when `/proc/sys/kernel/cap_last_cap` cannot be read.
 const DEFAULT_CAP_LAST_CAP: i32 = 40;
+/// `PR_CAP_AMBIENT` sub-operation checking whether a capability bit is in the ambient set.
+const PR_CAP_AMBIENT_IS_SET: c_int = 1;
+/// `PR_CAP_AMBIENT` sub-operation raising a permitted+inheritable bit into the ambient set.
+const PR_CAP_AMBIENT_RAISE: c_int = 2;
 
 /// Securebit flag disabling capability wipe across `setuid` to/from UID 0 (`SECBIT_NO_SETUID_FIXUP`).
 pub const SECBIT_NO_SETUID_FIXUP: c_int = 1 << 2;
@@ -78,25 +82,33 @@ pub fn has_effective_caps(mask: u64) -> Result<bool, ProcessError> {
     Ok((data[0].effective & low) == low && (data[1].effective & high) == high)
 }
 
-/// Applies `mask` as both the effective and permitted capability sets while clearing inheritable bits.
+/// Returns `true` when `cap` is currently active in the calling thread's ambient set.
+fn ambient_cap_active(cap: u32) -> bool {
+    // SAFETY: `PR_CAP_AMBIENT` + `PR_CAP_AMBIENT_IS_SET` inspects boolean ambient flag for `cap`.
+    unsafe { libc::prctl(libc::PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET as c_ulong, cap as c_ulong, 0, 0) == 1 }
+}
+
+/// Applies `mask` as effective/permitted sets and `inheritable` as the inheritable capability set.
 /// Invokes `SYS_capset` (`pid = 0`) and returns `errno` (`EPERM` if raising unpermitted bits).
-pub fn set_process_caps(mask: u64) -> Result<(), std::io::Error> {
+fn set_process_caps_with_inheritable(mask: u64, inheritable: u64) -> Result<(), std::io::Error> {
     let mut header = CapUserHeader {
         version: LINUX_CAPABILITY_VERSION_3,
         pid: 0,
     };
     let low = mask as u32;
     let high = (mask >> 32) as u32;
+    let inh_low = inheritable as u32;
+    let inh_high = (inheritable >> 32) as u32;
     let mut data = [
         CapUserData {
             effective: low,
             permitted: low,
-            inheritable: 0,
+            inheritable: inh_low,
         },
         CapUserData {
             effective: high,
             permitted: high,
-            inheritable: 0,
+            inheritable: inh_high,
         },
     ];
     // SAFETY: `header` targets self (`pid = 0`) under v3 ABI with initialized two-element `data`.
@@ -106,6 +118,11 @@ pub fn set_process_caps(mask: u64) -> Result<(), std::io::Error> {
     } else {
         Ok(())
     }
+}
+
+/// Applies `mask` as both the effective and permitted capability sets while clearing inheritable bits.
+pub fn set_process_caps(mask: u64) -> Result<(), std::io::Error> {
+    set_process_caps_with_inheritable(mask, 0)
 }
 
 /// Reads the highest valid capability number supported by the running kernel from `/proc/sys/kernel/cap_last_cap`.
@@ -148,17 +165,49 @@ pub fn clear_child_privileges() -> std::io::Result<()> {
 /// then locks effective/permitted caps down to `CAP_MASK_NET`. When `require_net_caps` is `false`
 /// (e.g. `--intercept=0`), lack of network capabilities is non-fatal and remaining privileges are cleared.
 pub fn retain_net_capabilities(require_net_caps: bool) -> Result<(), ProcessError> {
-    if set_process_caps(CAP_MASK_NET | (1u64 << CAP_SETPCAP)).is_ok() {
+    retain_net_capabilities_for(require_net_caps, false)
+}
+
+/// Retains `CAP_NET_ADMIN|CAP_NET_RAW`, optionally preserving pre-existing ambient `CAP_NET_ADMIN`
+/// so `--nft` can execute `nft -f -` under systemd `AmbientCapabilities` without `sudo`.
+pub fn retain_net_capabilities_for(
+    require_net_caps: bool,
+    preserve_nft_ambient: bool,
+) -> Result<(), ProcessError> {
+    let can_raise_nft_ambient = preserve_nft_ambient
+        && (ambient_cap_active(CAP_NET_ADMIN)
+            || capget_current()
+                .map(|d| (d[0].permitted & (1u32 << CAP_NET_ADMIN)) != 0)
+                .unwrap_or(false));
+    let inh = if can_raise_nft_ambient { 1u64 << CAP_NET_ADMIN } else { 0 };
+    if set_process_caps_with_inheritable(CAP_MASK_NET | (1u64 << CAP_SETPCAP) | inh, inh).is_ok() {
         let max_cap = read_cap_last_cap();
         for cap in 0..=max_cap {
+            if cap < 64 && (inh & (1u64 << cap)) != 0 {
+                continue;
+            }
             // Best-effort per capability bit: container/seccomp profiles may deny `PR_CAPBSET_DROP`.
             // SAFETY: `PR_CAPBSET_DROP` reads integer capability index `cap` and ignores trailing args.
             let _ = unsafe { libc::prctl(libc::PR_CAPBSET_DROP, cap as c_ulong, 0, 0, 0) };
         }
     }
 
-    match set_process_caps(CAP_MASK_NET) {
-        Ok(()) => Ok(()),
+    match set_process_caps_with_inheritable(CAP_MASK_NET, inh) {
+        Ok(()) => {
+            if inh != 0 && !ambient_cap_active(CAP_NET_ADMIN) {
+                // SAFETY: `PR_CAP_AMBIENT_RAISE` promotes permitted+inheritable `CAP_NET_ADMIN` so child `nft` runs unprivileged.
+                let _ = unsafe {
+                    libc::prctl(
+                        libc::PR_CAP_AMBIENT,
+                        PR_CAP_AMBIENT_RAISE as c_ulong,
+                        CAP_NET_ADMIN as c_ulong,
+                        0,
+                        0,
+                    )
+                };
+            }
+            Ok(())
+        }
         Err(source) => {
             if !require_net_caps {
                 let _ = set_process_caps(0);

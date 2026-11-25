@@ -41,8 +41,8 @@ use zapret_rs::lua::LuaEngineError;
 use zapret_rs::rawsend::{PacketSender, RawSendError, RawSender};
 /// Process lifecycle management: PID files, `chdir`, privilege drop, caps, signals, writable dir, and daemonization.
 use zapret_rs::runtime::{
-    PidFileGuard, ProcessError, apply_chdir, daemonize, drop_privileges, install_signal_handlers,
-    prepare_writable_dir, quit_flag, resolve_identity, retain_net_capabilities,
+    PidFileGuard, ProcessError, apply_chdir, daemonize, drop_privileges_for, install_signal_handlers,
+    prepare_writable_dir, quit_flag, resolve_identity, retain_net_capabilities_for,
     take_reload_requested,
 };
 /// Monotonic boottime clock, scheduled timer pool, and `--intercept=0` execution loop.
@@ -251,7 +251,7 @@ fn run() -> Result<(), DaemonError> {
 
     if cli.dry_run {
         if let Some(id) = &identity {
-            drop_privileges(id, config.intercept)?;
+            drop_privileges_for(id, config.intercept, false)?;
             verify_lua_init_files(&config.lua_init)?;
             verify_list_files(&config)?;
         }
@@ -297,9 +297,9 @@ fn run() -> Result<(), DaemonError> {
     }
 
     if let Some(id) = &identity {
-        drop_privileges(id, config.intercept)?;
+        drop_privileges_for(id, config.intercept, config.auto_nft)?;
     } else if config.intercept {
-        retain_net_capabilities(true)?;
+        retain_net_capabilities_for(true, config.auto_nft)?;
     }
 
     install_signal_handlers()?;
@@ -352,13 +352,13 @@ fn run() -> Result<(), DaemonError> {
     if let Some(guard) = pid_guard.as_mut() {
         guard.write_current_pid()?;
     }
+    let mut fw_guard = maybe_install_auto_nft(&config)?;
     let (hub, control_server) = maybe_start_control_server(
         control_socket_path.as_deref(),
         &config,
         &engine.borrow(),
         cli.config.as_deref(),
     )?;
-    let mut fw_guard = maybe_install_auto_nft(&config)?;
 
     let loop_result = catcher.run_until(
         quit_flag(),
