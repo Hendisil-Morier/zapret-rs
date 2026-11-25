@@ -4,8 +4,8 @@
 use std::fmt::Write as _;
 /// Standard I/O errors and stdin pipe writing for `nft`.
 use std::io::{self, Write as _};
-/// Filesystem path to the `nft` executable.
-use std::path::PathBuf;
+/// Filesystem paths for `nft` and optional `sudo` elevation.
+use std::path::{Path, PathBuf};
 /// Subprocess spawning for `nft` rule installation and cleanup.
 use std::process::{Command, Stdio};
 
@@ -27,12 +27,73 @@ pub trait FirewallBackend {
     ) -> io::Result<Box<dyn FirewallHandle>>;
 }
 
+/// Returns `true` when `nft` stderr indicates insufficient privileges (`EPERM`/`EACCES`).
+pub fn is_nft_perm_denied(stderr: &str) -> bool {
+    let low = stderr.to_ascii_lowercase();
+    low.contains("operation not permitted")
+        || low.contains("permission denied")
+        || low.contains("must be root")
+}
+
+/// Returns the one-line cleanup command removing `table inet zapret_strat_finder`.
+pub fn build_nft_cleanup_cmd() -> String {
+    format!("nft delete table inet {STRAT_FINDER_NFT_TABLE}")
+}
+
+/// Builds a `Command` invoking `nft_bin` directly or wrapped in `sudo -- <nft_bin>`.
+fn build_nft_command(nft_bin: &Path, use_sudo: bool) -> Command {
+    if use_sudo {
+        let mut cmd = Command::new("sudo");
+        cmd.arg("--").arg(nft_bin);
+        cmd
+    } else {
+        Command::new(nft_bin)
+    }
+}
+
+/// Runs `nft -f -` feeding `script` on stdin and returning `Ok(())` or the captured stderr text.
+fn run_nft_script(nft_bin: &Path, use_sudo: bool, script: &str) -> Result<(), (io::ErrorKind, String)> {
+    let mut child = build_nft_command(nft_bin, use_sudo)
+        .args(["-f", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| (err.kind(), err.to_string()))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(script.as_bytes())
+            .map_err(|err| (err.kind(), err.to_string()))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|err| (err.kind(), err.to_string()))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        Err((io::ErrorKind::Other, err))
+    }
+}
+
+/// Best-effort deletion of `table inet <table_name>` using direct or `sudo`-elevated `nft`.
+fn delete_nft_table_best_effort(nft_bin: &Path, table_name: &str, use_sudo: bool) {
+    let _ = build_nft_command(nft_bin, use_sudo)
+        .args(["delete", "table", "inet", table_name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 /// RAII guard that removes `table inet zapret_strat_finder` when dropped.
 pub struct NftQueueGuard {
     /// Path to the `nft` binary used for teardown.
     nft_bin: PathBuf,
     /// Table name deleted on drop.
     table_name: String,
+    /// Whether `sudo` was used to install the table (so teardown uses `sudo` as well).
+    used_sudo: bool,
 }
 
 impl FirewallHandle for NftQueueGuard {}
@@ -40,11 +101,7 @@ impl FirewallHandle for NftQueueGuard {}
 impl Drop for NftQueueGuard {
     /// Deletes the temporary `nftables` table on exit (best-effort, ignoring already-deleted errors).
     fn drop(&mut self) {
-        let _ = Command::new(&self.nft_bin)
-            .args(["delete", "table", "inet", &self.table_name])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        delete_nft_table_best_effort(&self.nft_bin, &self.table_name, self.used_sudo);
     }
 }
 
@@ -102,7 +159,7 @@ impl NftFirewallBackend {
 }
 
 impl FirewallBackend for NftFirewallBackend {
-    /// Replaces any stale `zapret_strat_finder` table and installs fresh `bypass` queue rules.
+    /// Installs fresh `bypass` queue rules, elevating only `nft` via `sudo` when run as a non-root user.
     fn install(
         &self,
         qnum: u16,
@@ -110,33 +167,36 @@ impl FirewallBackend for NftFirewallBackend {
         tcp_ports: &[u16],
         udp_ports: &[u16],
     ) -> io::Result<Box<dyn FirewallHandle>> {
-        // Best-effort cleanup of any leftover table from an aborted previous run.
-        let _ = Command::new(&self.nft_bin)
-            .args(["delete", "table", "inet", STRAT_FINDER_NFT_TABLE])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-
         let script = Self::build_nft_script(qnum, fwmark, tcp_ports, udp_ports);
-        let mut child = Command::new(&self.nft_bin)
-            .args(["-f", "-"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()?;
+        delete_nft_table_best_effort(&self.nft_bin, STRAT_FINDER_NFT_TABLE, false);
 
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(script.as_bytes())?;
+        match run_nft_script(&self.nft_bin, false, &script) {
+            Ok(()) => Ok(Box::new(NftQueueGuard {
+                nft_bin: self.nft_bin.clone(),
+                table_name: STRAT_FINDER_NFT_TABLE.to_owned(),
+                used_sudo: false,
+            })),
+            Err((_, ref stderr)) if is_nft_perm_denied(stderr) && unsafe { libc::geteuid() } != 0 => {
+                eprintln!(
+                    "[nft] elevating only `nft` via sudo to install temporary table inet {STRAT_FINDER_NFT_TABLE}"
+                );
+                delete_nft_table_best_effort(&self.nft_bin, STRAT_FINDER_NFT_TABLE, true);
+                run_nft_script(&self.nft_bin, true, &script).map_err(|(kind, msg)| {
+                    io::Error::new(
+                        kind,
+                        format!("sudo nft rule installation failed (or pass --no-nft): {msg}"),
+                    )
+                })?;
+                Ok(Box::new(NftQueueGuard {
+                    nft_bin: self.nft_bin.clone(),
+                    table_name: STRAT_FINDER_NFT_TABLE.to_owned(),
+                    used_sudo: true,
+                }))
+            }
+            Err((kind, msg)) => Err(io::Error::new(
+                kind,
+                format!("nft rule installation failed (or pass --no-nft): {msg}"),
+            )),
         }
-        let output = child.wait_with_output()?;
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            return Err(io::Error::other(format!("nft rule installation failed: {err}")));
-        }
-
-        Ok(Box::new(NftQueueGuard {
-            nft_bin: self.nft_bin.clone(),
-            table_name: STRAT_FINDER_NFT_TABLE.to_owned(),
-        }))
     }
 }

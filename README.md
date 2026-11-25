@@ -89,23 +89,32 @@ mdig --family=6 --dns-make-query=example.com \
 
 ### Strategy Finder (`nfqws2 --strat-finder` / `strat_finder`)
 
-`nfqws2 --strat-finder` (also available as the standalone `strat_finder` binary) replaces `zapret2/blockcheck2.sh` with a single-process Rust scanner. Instead of spawning `nfqws2` for each candidate, it binds one NFQUEUE worker, hot-swaps Lua desync profiles in memory, cleans up its temporary `inet zapret_strat_finder` `nftables` table on exit, and writes a ready-to-use `nfqws2.toml` covering your blocked domains.
+`nfqws2 --strat-finder` (also available as the standalone `strat_finder` binary) replaces `zapret2/blockcheck2.sh` with a single-process, least-privilege Rust scanner. Grant only `CAP_NET_ADMIN` and `CAP_NET_RAW` once so you never run `nfqws2`, LuaJIT, `curl`, or config file writes as root:
 
 ```bash
-# Interactive wizard (prompts for domains, protocols, scan level, lua-dir, and output path)
-sudo ./target/release/nfqws2 --strat-finder
+# One-time setup: grant only network capabilities to the binary
+sudo setcap cap_net_admin,cap_net_raw+ep ./target/release/nfqws2
 
-# Preview the expanded strategy catalog offline (no root required)
+# Run the interactive wizard as your normal user (elevates only `nft` via sudo for the temporary table)
+./target/release/nfqws2 --strat-finder
+
+# Or manage the temporary nftables rules manually (zero sudo calls inside nfqws2)
+./target/release/nfqws2 --strat-finder --print-nft
+./target/release/nfqws2 --strat-finder --no-nft
+
+# Preview the expanded strategy catalog offline (no capabilities required)
 ./target/release/nfqws2 --strat-finder --list-strategies --level quick --proto http,tls13,http3
 
 # Non-interactive scan writing a minimal nfqws2.toml in your home directory
-sudo ./target/release/nfqws2 --strat-finder \
+./target/release/nfqws2 --strat-finder \
   --domain blocked1.example,blocked2.example \
   --level quick \
   --stop-on-first \
   --lua-dir ../zapret2/lua \
   --write-config ~/nfqws2.toml
 
-# Run nfqws2 with the generated config
-sudo ./target/release/nfqws2 --config ~/nfqws2.toml
+# Run nfqws2 as your normal user with the generated config
+./target/release/nfqws2 --config ~/nfqws2.toml
 ```
+
+Every `curl` probe child clears all Linux capabilities and enables `PR_SET_NO_NEW_PRIVS` before `exec`, and `--write-config` refuses symlinks via `O_NOFOLLOW`. If invoked under `sudo`, `nfqws2 --strat-finder` automatically drops UID 0 back to `SUDO_UID`/`SUDO_GID` at startup.

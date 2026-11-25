@@ -4,8 +4,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 /// String formatting helper for writing TOML output without intermediate allocations.
 use std::fmt::Write as _;
-/// Filesystem paths for `lua_init` entries emitted in generated `nfqws2.toml`.
-use std::path::PathBuf;
+/// Symlink-safe config file creation (`O_NOFOLLOW`) and writing.
+use std::fs::OpenOptions;
+/// Standard I/O errors and byte writing for TOML config files.
+use std::io::{self, Write as _};
+/// Unix open flag extension enabling `O_NOFOLLOW` on generated config writes.
+use std::os::unix::fs::OpenOptionsExt as _;
+/// Filesystem paths for `lua_init` entries and generated `nfqws2.toml` destinations.
+use std::path::{Path, PathBuf};
 
 /// Core config models serialized back into `nfqws2.toml`.
 use crate::config::{DesyncAction, L7Payload, PacketPos, PacketPosMode, PacketRange};
@@ -320,4 +326,15 @@ pub fn render_nfqws2_toml(profiles: &[CoveredProfile], opts: &TomlRenderOptions)
     }
 
     out
+}
+
+/// Writes `content` to `path` with `O_NOFOLLOW` so symlinks are refused rather than overwritten.
+pub fn write_config_nofollow(path: &Path, content: &str) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    file.write_all(content.as_bytes())
 }

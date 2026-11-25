@@ -2,12 +2,10 @@
 
 /// OS string argument handling for dispatching `--strat-finder` sub-invocations.
 use std::ffi::OsString;
-/// Filesystem helpers for Lua script discovery and writing generated `nfqws2.toml`.
-use std::fs;
 /// Standard I/O terminal detection and stdin reading.
 use std::io::{self, IsTerminal};
-/// Filesystem path types for Lua scripts and output configs.
-use std::path::{Path, PathBuf};
+/// Filesystem path type for Lua scripts, binaries, and output configs.
+use std::path::PathBuf;
 /// Process exit codes mapped from `clap` and runtime results.
 use std::process::ExitCode;
 /// Per-probe curl timeout conversion.
@@ -20,24 +18,29 @@ use clap::{Parser, error::ErrorKind};
 use crate::config::{AppConfig, LuaInitEntry, parse_u32_radix};
 /// Default desync fwmark constant shared with `nfqws2`.
 use crate::intercepter::DEFAULT_DESYNC_FWMARK;
-/// Process signal installation and shared termination flag (`SIGINT`/`SIGTERM`).
-use crate::runtime::{install_signal_handlers, quit_flag};
+/// Least-privilege capability checks, `sudo` root drop, and POSIX signal handling.
+use crate::runtime::{
+    CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps, install_signal_handlers, quit_flag,
+};
 /// Strategy catalog types and expansion function.
 use crate::tools::strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, build_catalog};
-/// Interactive terminal setup wizard and domain/tilde helpers.
+/// Interactive terminal setup wizard, domain/tilde helpers, and Lua script discovery.
 use crate::tools::strat_interactive::{
-    InteractiveDefaults, expand_tilde, normalize_domain, prompt_interactive_wizard,
+    InteractiveDefaults, detect_lua_dir, expand_tilde, normalize_domain, prompt_interactive_wizard,
+    resolve_lua_scripts,
 };
-/// Temporary `nftables` queue guard backend.
-use crate::tools::strat_nft::{FirewallBackend, NftFirewallBackend};
-/// Live `curl` connectivity probe backend.
+/// Temporary `nftables` queue guard backend and ruleset printer.
+use crate::tools::strat_nft::{FirewallBackend, NftFirewallBackend, build_nft_cleanup_cmd};
+/// Live `curl` connectivity probe backend (runs children with zero capabilities).
 use crate::tools::strat_probe::CurlProbeBackend;
 /// In-process NFQUEUE worker thread and scan orchestrator.
 use crate::tools::strat_runner::{
     InProcessWorkerHandle, ProgressEvent, ScanConfig, ScanReport, run_scan,
 };
-/// Minimal profile cover and `nfqws2.toml` serializer.
-use crate::tools::strat_toml::{CoveredProfile, TomlRenderOptions, render_nfqws2_toml};
+/// Minimal profile cover and symlink-safe `nfqws2.toml` serializer.
+use crate::tools::strat_toml::{
+    CoveredProfile, TomlRenderOptions, render_nfqws2_toml, write_config_nofollow,
+};
 
 /// Default NFQUEUE number for `strat_finder` (distinct from `nfqws2`'s default `200`).
 pub const DEFAULT_STRAT_QNUM: u16 = 210;
@@ -94,6 +97,12 @@ pub struct StratFinderCli {
     /// Path or executable name of `nft`.
     #[arg(long = "nft-bin", default_value = "nft")]
     pub nft_bin: PathBuf,
+    /// Skip automatic `nftables` setup/teardown (use when managing NFQUEUE rules manually).
+    #[arg(long = "no-nft")]
+    pub no_nft: bool,
+    /// Print the temporary `nftables` ruleset and cleanup command without binding NFQUEUE.
+    #[arg(long = "print-nft")]
+    pub print_nft: bool,
     /// List expanded strategy candidates without binding NFQUEUE or touching `nftables`.
     #[arg(long = "list-strategies")]
     pub list_strategies: bool,
@@ -129,50 +138,6 @@ where
     }
 
     if found { Some(out) } else { None }
-}
-
-/// Returns candidate directories searched for `zapret-lib.lua` and `zapret-antidpi.lua`.
-fn candidate_lua_dirs(explicit_dir: Option<&Path>) -> Vec<PathBuf> {
-    if let Some(dir) = explicit_dir {
-        return vec![expand_tilde(&dir.to_string_lossy())];
-    }
-    let mut dirs = vec![PathBuf::from("lua"), PathBuf::from("../zapret2/lua")];
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
-    {
-        dirs.push(parent.join("lua"));
-        if let Some(grand) = parent.parent().and_then(Path::parent) {
-            dirs.push(grand.join("../zapret2/lua"));
-        }
-    }
-    dirs.push(PathBuf::from("/opt/zapret2/lua"));
-    dirs.push(PathBuf::from("/usr/share/zapret2/lua"));
-    dirs
-}
-
-/// Auto-detects the first directory containing both `zapret-lib.lua` and `zapret-antidpi.lua`.
-pub fn detect_lua_dir(explicit_dir: Option<&Path>) -> Option<PathBuf> {
-    candidate_lua_dirs(explicit_dir).into_iter().find(|dir| {
-        dir.join("zapret-lib.lua").is_file() && dir.join("zapret-antidpi.lua").is_file()
-    })
-}
-
-/// Resolves canonical paths to `zapret-lib.lua` and `zapret-antidpi.lua`.
-fn resolve_lua_scripts(explicit_dir: Option<&Path>) -> Result<Vec<PathBuf>, String> {
-    if let Some(dir) = detect_lua_dir(explicit_dir) {
-        let lib = dir.join("zapret-lib.lua");
-        let anti = dir.join("zapret-antidpi.lua");
-        return Ok(vec![
-            fs::canonicalize(&lib).unwrap_or(lib),
-            fs::canonicalize(&anti).unwrap_or(anti),
-        ]);
-    }
-    let checked = candidate_lua_dirs(explicit_dir)
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    Err(format!("could not locate zapret-lib.lua and zapret-antidpi.lua (checked: {checked}); pass --lua-dir <PATH>"))
 }
 
 /// Escapes a string literal for JSON output without adding external crate dependencies.
@@ -268,8 +233,27 @@ fn run_list_mode(
         let out_path = expand_tilde(&out_path.to_string_lossy());
         let lua_init = resolve_lua_scripts(cli.lua_dir.as_deref()).unwrap_or_default();
         let toml = render_nfqws2_toml(&sample_cover, &TomlRenderOptions { qnum: cli.qnum, fwmark, lua_init });
-        fs::write(&out_path, toml).map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
+        write_config_nofollow(&out_path, &toml).map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
         eprintln!("Wrote sample nfqws2 config to {}", out_path.display());
+    }
+    Ok(())
+}
+
+/// Ensures `CAP_NET_ADMIN|CAP_NET_RAW` are active, dropping `sudo` UID 0 first when present.
+fn ensure_least_privilege_net_caps() -> Result<(), String> {
+    if let Some((uid, gid)) = drop_sudo_root_if_needed().map_err(|err| format!("privilege drop failed: {err}"))? {
+        eprintln!("[sec] dropped root privileges to uid={uid}, gid={gid} (retaining only CAP_NET_ADMIN, CAP_NET_RAW)");
+    }
+    if !has_effective_caps(CAP_MASK_NET).map_err(|err| format!("capability check failed: {err}"))? {
+        let exe = std::env::current_exe()
+            .ok()
+            .map_or_else(|| "./target/release/nfqws2".to_owned(), |p| p.display().to_string());
+        return Err(format!(
+            "missing CAP_NET_ADMIN / CAP_NET_RAW capabilities.\n\
+             Grant only network capabilities once (no sudo needed at runtime):\n  \
+             sudo setcap cap_net_admin,cap_net_raw+ep {exe}\n\
+             Then re-run without sudo."
+        ));
     }
     Ok(())
 }
@@ -296,9 +280,18 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
         .ok_or_else(|| format!("invalid --fwmark '{}' (expected hex like 0x40000000 or decimal)", cli.fwmark))?;
     let fwmark = if fwmark == 0 { DEFAULT_DESYNC_FWMARK } else { fwmark };
 
+    if cli.print_nft {
+        let dummy = ScanConfig { domains: Vec::new(), protos, families, level, timeout: Duration::from_secs(1), stop_on_first: false, force_blocked: false };
+        let (tcp, udp) = dummy.required_ports();
+        print!("{}", NftFirewallBackend::build_nft_script(cli.qnum, fwmark, &tcp, &udp));
+        println!("# Cleanup: sudo {}", build_nft_cleanup_cmd());
+        return Ok(());
+    }
     if cli.list_strategies {
         return run_list_mode(&cli, &protos, &families, level, fwmark);
     }
+
+    ensure_least_privilege_net_caps()?;
 
     let mut domains: Vec<String> = cli.domains.iter().filter_map(|d| normalize_domain(d)).collect();
     let mut stop_on_first = cli.stop_on_first;
@@ -339,9 +332,15 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
     // Spawn NFQUEUE worker before installing nftables rules so Drop tears down nftables first.
     let mut worker = InProcessWorkerHandle::spawn(base_cfg, quit_flag())?;
     let (tcp_ports, udp_ports) = scan_cfg.required_ports();
-    let _fw_guard = NftFirewallBackend::new(cli.nft_bin)
-        .install(cli.qnum, fwmark, &tcp_ports, &udp_ports)
-        .map_err(|err| format!("failed to install temporary nftables rules (run with sudo/root): {err}"))?;
+    let _fw_guard = if cli.no_nft {
+        None
+    } else {
+        Some(
+            NftFirewallBackend::new(cli.nft_bin)
+                .install(cli.qnum, fwmark, &tcp_ports, &udp_ports)
+                .map_err(|err| format!("{err}"))?,
+        )
+    };
 
     let probe = CurlProbeBackend::new(cli.curl_bin);
     let report = run_scan(&scan_cfg, &probe, &mut worker, quit_flag(), |ev| match ev {
@@ -360,8 +359,8 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
             eprintln!("No working strategies found; skipping config write to {}", out_path.display());
         } else {
             let toml = render_nfqws2_toml(&report.cover, &TomlRenderOptions { qnum: 200, fwmark, lua_init: lua_scripts });
-            fs::write(&out_path, toml).map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
-            eprintln!("\nWrote nfqws2 config to {}\nRun with: sudo nfqws2 --config {}", out_path.display(), out_path.display());
+            write_config_nofollow(&out_path, &toml).map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
+            eprintln!("\nWrote nfqws2 config to {}\nRun with: nfqws2 --config {}", out_path.display(), out_path.display());
         }
     }
     Ok(())

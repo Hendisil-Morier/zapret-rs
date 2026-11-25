@@ -45,17 +45,18 @@ pub use mdig_resolver::{MdigOutputs, run_mdig_resolver};
 pub use strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
 /// Public API re-exports for `strat_finder` CLI entry point and `nfqws2 --strat-finder` dispatch.
 pub use strat_cli::{
-    DEFAULT_STRAT_QNUM, StratFinderCli, detect_lua_dir, extract_strat_finder_args,
-    run_strat_finder, run_strat_finder_cli,
+    DEFAULT_STRAT_QNUM, StratFinderCli, extract_strat_finder_args, run_strat_finder,
+    run_strat_finder_cli,
 };
-/// Public API re-exports for `strat_finder` interactive terminal wizard.
+/// Public API re-exports for `strat_finder` interactive terminal wizard and Lua discovery.
 pub use strat_interactive::{
-    InteractiveDefaults, InteractiveSelections, default_output_config_path, expand_tilde,
-    normalize_domain, prompt_interactive_wizard,
+    InteractiveDefaults, InteractiveSelections, default_output_config_path, detect_lua_dir,
+    expand_tilde, normalize_domain, prompt_interactive_wizard, resolve_lua_scripts,
 };
 /// Public API re-exports for `strat_finder` temporary `nftables` firewall management.
 pub use strat_nft::{
     FirewallBackend, FirewallHandle, NftFirewallBackend, NftQueueGuard, STRAT_FINDER_NFT_TABLE,
+    build_nft_cleanup_cmd, is_nft_perm_denied,
 };
 /// Public API re-exports for `strat_finder` connectivity probes and outcome classification.
 pub use strat_probe::{
@@ -70,5 +71,5 @@ pub use strat_runner::{
 /// Public API re-exports for `strat_finder` ranking, set cover, and TOML rendering.
 pub use strat_toml::{
     CoveredProfile, DomainStrategies, StrategyMatch, TomlRenderOptions, rank_matches,
-    render_nfqws2_toml, select_minimal_cover,
+    render_nfqws2_toml, select_minimal_cover, write_config_nofollow,
 };

@@ -117,6 +117,31 @@ fn read_cap_last_cap() -> i32 {
         .unwrap_or(DEFAULT_CAP_LAST_CAP)
 }
 
+/// Cleans all Linux capabilities and sets `PR_SET_NO_NEW_PRIVS` for an unprivileged child process.
+///
+/// Uses only async-signal-safe syscalls (`prctl`, `SYS_capset`) so it is safe inside
+/// `std::os::unix::process::CommandExt::pre_exec` hooks before spawning untrusted subprocesses
+/// such as `curl`.
+pub fn clear_child_privileges() -> std::io::Result<()> {
+    // Best-effort clear of ambient capabilities (unsupported on Linux < 4.3 -> EINVAL).
+    // SAFETY: `PR_CAP_AMBIENT` + `PR_CAP_AMBIENT_CLEAR_ALL` takes zero pointer arguments.
+    let _ = unsafe {
+        libc::prctl(
+            libc::PR_CAP_AMBIENT,
+            libc::PR_CAP_AMBIENT_CLEAR_ALL as c_ulong,
+            0,
+            0,
+            0,
+        )
+    };
+    set_process_caps(0)?;
+    // SAFETY: `PR_SET_NO_NEW_PRIVS` takes integer flag `1` and zero trailing args.
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1 as c_ulong, 0, 0, 0) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Drops unnecessary capabilities and clears the bounding set while retaining `CAP_NET_ADMIN|CAP_NET_RAW`.
 ///
 /// Mirrors `zapret2`'s `dropcaps()`: first attempts bounding-set pruning if `CAP_SETPCAP` is available,

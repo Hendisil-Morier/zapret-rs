@@ -225,6 +225,31 @@ pub fn drop_privileges(id: &IdentitySpec, require_net_caps: bool) -> Result<(), 
     retain_net_capabilities(require_net_caps)
 }
 
+/// Drops UID 0 back to `SUDO_UID`/`SUDO_GID` when launched via `sudo`, retaining only
+/// `CAP_NET_ADMIN|CAP_NET_RAW`.
+///
+/// Returns `Ok(Some((uid, gid)))` when root was dropped, or `Ok(None)` when already non-root or
+/// when `SUDO_UID`/`SUDO_GID` are absent.
+pub fn drop_sudo_root_if_needed() -> Result<Option<(u32, u32)>, ProcessError> {
+    // SAFETY: `geteuid` takes no arguments and cannot fail.
+    if unsafe { libc::geteuid() } != 0 {
+        return Ok(None);
+    }
+    let Some(uid) = std::env::var("SUDO_UID").ok().and_then(|s| s.parse::<u32>().ok()) else {
+        return Ok(None);
+    };
+    let Some(gid) = std::env::var("SUDO_GID").ok().and_then(|s| s.parse::<u32>().ok()) else {
+        return Ok(None);
+    };
+    if uid == 0 {
+        return Ok(None);
+    }
+    let user = std::env::var("SUDO_USER").ok().filter(|s| !s.is_empty());
+    let id = IdentitySpec { uid, gids: vec![gid], user };
+    drop_privileges(&id, true)?;
+    Ok(Some((uid, gid)))
+}
+
 /// RAII handle keeping a PID file pre-opened across privilege drops and removing it on drop.
 ///
 /// Creating the file before dropping privileges lets the daemon write its PID even when the

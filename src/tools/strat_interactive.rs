@@ -1,5 +1,7 @@
 //! Interactive terminal setup wizard for `strat_finder` (`nfqws2 --strat-finder`).
 
+/// Filesystem canonicalization when resolving `zapret2/lua` scripts.
+use std::fs;
 /// Line-buffered input reading and prompt writing traits enabling deterministic offline tests.
 use std::io::{BufRead, Write};
 /// Path normalization for `~/` expansion and default `nfqws2.toml` paths.
@@ -82,6 +84,52 @@ pub fn default_output_config_path() -> PathBuf {
     std::env::var_os("HOME")
         .map(|h| PathBuf::from(h).join("nfqws2.toml"))
         .unwrap_or_else(|| PathBuf::from("nfqws2.toml"))
+}
+
+/// Returns candidate directories searched for `zapret-lib.lua` and `zapret-antidpi.lua`.
+fn candidate_lua_dirs(explicit_dir: Option<&Path>) -> Vec<PathBuf> {
+    if let Some(dir) = explicit_dir {
+        return vec![expand_tilde(&dir.to_string_lossy())];
+    }
+    let mut dirs = vec![PathBuf::from("lua"), PathBuf::from("../zapret2/lua")];
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        dirs.push(parent.join("lua"));
+        if let Some(grand) = parent.parent().and_then(Path::parent) {
+            dirs.push(grand.join("../zapret2/lua"));
+        }
+    }
+    dirs.push(PathBuf::from("/opt/zapret2/lua"));
+    dirs.push(PathBuf::from("/usr/share/zapret2/lua"));
+    dirs
+}
+
+/// Auto-detects the first directory containing both `zapret-lib.lua` and `zapret-antidpi.lua`.
+pub fn detect_lua_dir(explicit_dir: Option<&Path>) -> Option<PathBuf> {
+    candidate_lua_dirs(explicit_dir).into_iter().find(|dir| {
+        dir.join("zapret-lib.lua").is_file() && dir.join("zapret-antidpi.lua").is_file()
+    })
+}
+
+/// Resolves canonical paths to `zapret-lib.lua` and `zapret-antidpi.lua`.
+pub fn resolve_lua_scripts(explicit_dir: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+    if let Some(dir) = detect_lua_dir(explicit_dir) {
+        let lib = dir.join("zapret-lib.lua");
+        let anti = dir.join("zapret-antidpi.lua");
+        return Ok(vec![
+            fs::canonicalize(&lib).unwrap_or(lib),
+            fs::canonicalize(&anti).unwrap_or(anti),
+        ]);
+    }
+    let checked = candidate_lua_dirs(explicit_dir)
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "could not locate zapret-lib.lua and zapret-antidpi.lua (checked: {checked}); pass --lua-dir <PATH>"
+    ))
 }
 
 /// Reads one trimmed line from `reader` after printing `prompt` to `writer`.

@@ -1,5 +1,7 @@
 //! HTTP/TLS/QUIC connectivity probe backends (`curl` + mockable [`ProbeBackend`] trait).
 
+/// Unix `pre_exec` extension stripping all Linux capabilities before spawning `curl`.
+use std::os::unix::process::CommandExt as _;
 /// Filesystem paths for the external `curl` executable.
 use std::path::{Path, PathBuf};
 /// Subprocess spawning for `curl` probes.
@@ -7,6 +9,8 @@ use std::process::Command;
 /// Monotonic timing and request timeout durations.
 use std::time::{Duration, Instant};
 
+/// Async-signal-safe child privilege stripper (`capset(0)` + `PR_SET_NO_NEW_PRIVS`).
+use crate::runtime::clear_child_privileges;
 /// Target protocol and IP family enums shared with the strategy catalog.
 use crate::tools::strat_catalog::{IpFamily, ProbeProtocol};
 
@@ -155,12 +159,22 @@ impl CurlProbeBackend {
         args.push(url);
         args
     }
+    /// Creates a [`Command`] for `self.curl_bin` that drops all Linux capabilities and sets
+    /// `PR_SET_NO_NEW_PRIVS` in the child before `execve`.
+    fn unprivileged_command(&self) -> Command {
+        let mut cmd = Command::new(&self.curl_bin);
+        // SAFETY: `clear_child_privileges` invokes only async-signal-safe `prctl` and `SYS_capset`.
+        unsafe {
+            cmd.pre_exec(clear_child_privileges);
+        }
+        cmd
+    }
 }
 
 impl ProbeBackend for CurlProbeBackend {
-    /// Runs `curl --version` and checks whether `HTTP3` appears in the `Features:` list.
+    /// Runs `curl --version` unprivileged and checks whether `HTTP3` appears in `Features:`.
     fn supports_http3(&self) -> bool {
-        let Ok(out) = Command::new(&self.curl_bin).arg("--version").output() else {
+        let Ok(out) = self.unprivileged_command().arg("--version").output() else {
             return false;
         };
         if !out.status.success() {
@@ -171,11 +185,11 @@ impl ProbeBackend for CurlProbeBackend {
             .any(|line| line.starts_with("Features:") && line.split_whitespace().any(|tok| tok == "HTTP3"))
     }
 
-    /// Invokes `curl` for `req` and classifies status code, redirect target, and transport errors.
+    /// Invokes `curl` unprivileged for `req` and classifies status code, redirect target, and errors.
     fn probe(&self, req: &ProbeRequest) -> ProbeOutcome {
         let args = Self::build_args(req);
         let start = Instant::now();
-        let output = match Command::new(&self.curl_bin).args(&args).output() {
+        let output = match self.unprivileged_command().args(&args).output() {
             Ok(out) => out,
             Err(err) => {
                 return ProbeOutcome::Failed {
