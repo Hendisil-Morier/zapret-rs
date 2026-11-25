@@ -87,6 +87,29 @@ Tasks and detailed acceptance criteria are tracked in [todo.md](file:///home/mor
 - [x] Task 5.3: Add `CHANGELOG.md` and `README.md`, bump version to `1.0.0`, run full release & live kernel gates, and create `v1.0.0` tag
 - [x] Checkpoint 5: Milestone 5 & v1.0.0 Release Complete
 
+### Milestone 6: Native Strategy Finder (`strat_finder`)
+- [ ] Task 6.1: Engine profile hot-swap (`DesyncEngine::replace_profiles`), `strat_finder` domain model, `blockcheck2.d` strategy catalog, & TOML generator (`tests/strat_finder_toml.rs`)
+- [ ] Checkpoint 6A: Strategy Catalog & Engine Profile Swap Verified
+- [ ] Task 6.2: `nftables` + `QueueCatcher` worker, `ProbeBackend` (`curl` + mock), latency/baseline classifier, & multi-domain set-cover runner (`tests/strat_finder_runner.rs`)
+- [ ] Task 6.3: `src/bin/strat_finder.rs` (`clap` CLI + TTY prompt fallback), `Cargo.toml` binary target, & `README.md` usage docs
+- [ ] Checkpoint 6B: Milestone 6 Complete
+
+## Milestone 6 Architecture Decisions (`strat_finder`)
+
+- **In-process `DesyncEngine` hot-swap over repeated process spawning:** Instead of forking and killing `nfqws2` hundreds of times like `blockcheck2.sh`, `strat_finder` keeps one `QueueCatcher` worker thread and one `nftables` table (`inet zapret_strat_finder`) active for the entire scan, swapping `Vec<DesyncProfile>` in memory via `DesyncEngine::replace_profiles` (delegated cleanly into `src/desync/profile_state.rs` so `src/desync/engine.rs` stays under 400 lines) while clearing conntrack and `ipcache` between probes.
+- **`curl` probe backend behind a testable trait (`ProbeBackend`):** Driving `curl` for HTTP/1.1, TLS 1.2 (`--tlsv1.2 --tls-max 1.2`), TLS 1.3 (`--tlsv1.3`), and HTTP/3 QUIC (`--http3-only`) probes preserves real browser/OpenSSL wire signatures (`ClientHello` / QUIC `Initial`) without maintaining an external HTTP/3 client stack, while abstracting `ProbeBackend` and firewall setup behind traits enables deterministic offline integration tests.
+- **Direct `nfqws2.toml` output & greedy set cover:** Every candidate builds real `zapret_rs::config::{DesyncProfile, DesyncAction}` values, verified to serialize cleanly into `nfqws2`-compatible TOML (`AppConfig::from_toml_str` round-trip tested), and ranks passing strategies by lowest complexity weight and median probe latency across single or multiple domains.
+- **RAII cleanup & safety:** `NftQueueGuard` deletes `table inet zapret_strat_finder` on `Drop` across normal completion, probe errors, and `SIGINT`/`SIGTERM` shutdown.
+
+## Milestone 6 Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Interrupted scans leave orphaned `nftables` queue rules blocking user traffic | High | Wrap table setup in an RAII `NftQueueGuard`, queue with `bypass`, and wire `install_signal_handlers` + clean thread shutdown before exiting. |
+| `src/desync/engine.rs` (397 lines) exceeds `repo_hygiene`'s 400-line ceiling | Med | Delegate profile-replacement setup into `src/desync/profile_state.rs` (357 lines) and keep `DesyncEngine::replace_profiles` to a compact wrapper. |
+| HTTP/3 (`--http3-only`) unsupported by system `curl` or IPv6 absent on host | Med | Probe `curl --version` and default routes upfront and cleanly skip unsupported protocol/family combinations instead of failing the run. |
+| Noisy DPI spoof redirects (e.g., captive/block-page 302) appear as TLS/HTTP "success" | High | Record baseline response status/location and treat unexpected HTTP redirect locations matching baseline ISP block pages as failed bypasses. |
+
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
