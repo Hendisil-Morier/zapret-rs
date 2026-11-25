@@ -357,19 +357,19 @@ Target verification commands used across tasks:
 **Description:** Add `tests/lua_zapret_scripts_e2e.rs` verifying all non-live suites in `zapret2/lua/zapret-tests.lua` along with unmodified `zapret-antidpi.lua` (`fake`+`tls_mod`, `multisplit`, `multidisorder`, `fakedsplit`, `hostfakesplit`, `syndata`), `zapret-obfs.lua` (`wgobfs` round-trip), `zapret-auto.lua` (`circular` rotation), and `zapret-pcap.lua` (writing under `WRITABLE`), fixing any parity edge cases uncovered.
 
 **Acceptance criteria:**
-- [ ] Unmodified `zapret2/lua/{zapret-lib,zapret-tests,zapret-antidpi,zapret-auto,zapret-obfs,zapret-pcap}.lua` load cleanly and execute expected test scenarios.
-- [ ] Any subtle Lua host binding discrepancies uncovered during real-script execution are fixed and regression-tested.
+- [x] Unmodified `zapret2/lua/{zapret-lib,zapret-tests,zapret-antidpi,zapret-auto,zapret-obfs,zapret-pcap}.lua` load cleanly and execute expected test scenarios.
+- [x] Any subtle Lua host binding discrepancies uncovered during real-script execution are fixed and regression-tested.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
 
 **Dependencies:** Task 4.2
 
 ---
 
 ## Checkpoint 4: Milestone 4 Complete
-- [ ] All tasks 4.1 through 4.3 checked off with individual atomic commits
-- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
-- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
+- [x] All tasks 4.1 through 4.3 checked off with individual atomic commits
+- [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [x] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
 - [ ] Review with user and plan Milestone 5

@@ -77,8 +77,8 @@ Tasks and detailed acceptance criteria are tracked in [todo.md](file:///home/mor
 ### Milestone 4: Full Lua API Parity & zapret2 Script Verification
 - [x] Task 4.1: Implement pure-Rust `src/crypto/` (SHA-224/256, HKDF, AES-128/192/256 ECB/CTR/GCM), deduplicate `aes_block.rs`, and wire Lua crypto bindings
 - [x] Task 4.2: Implement streaming gzip/gunzip over `flate2`, `stat`/calendar-time Lua bindings, and `--writable` (`$TMPDIR/zapret-rs` or `/tmp/zapret-rs` default)
-- [ ] Task 4.3: Add end-to-end verification across unmodified `zapret2/lua/{zapret-tests,zapret-antidpi,zapret-auto,zapret-obfs,zapret-pcap}.lua` and harden parity edge cases
-- [ ] Checkpoint 4: Milestone 4 Complete
+- [x] Task 4.3: Add end-to-end verification across unmodified `zapret2/lua/{zapret-tests,zapret-antidpi,zapret-auto,zapret-obfs,zapret-pcap}.lua` and harden parity edge cases
+- [x] Checkpoint 4: Milestone 4 Complete
 
 ### Future Milestones (High-Level Roadmap)
 - **Milestone 5 (Companion Binaries & Release):** Port `src/bin/ip2net.rs` and `src/bin/mdig.rs`, add `CHANGELOG.md`, and prepare semantic version release tags.
