@@ -2,8 +2,8 @@
 
 /// Core `mlua` types for registering Lua functions and handling variadic arguments.
 use mlua::{Lua, Value, Variadic};
-/// Random generators (`rand::rng()`, `OsRng`) and fill traits.
-use rand::{Rng, RngCore, TryRngCore, rngs::OsRng};
+/// Random generators (`rand::rng()`, `SysRng`) and fill/range traits (`rand 0.10`).
+use rand::{Rng, RngExt, TryRng, rngs::SysRng};
 
 /// Shared argument-count validators and numeric/byte extractors.
 use crate::lua::helpers::{check_argc, coerce_i64, require_strict_bytes};
@@ -98,7 +98,7 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()> {
                 return Err(mlua::Error::external("bcryptorandom: invalid arg"));
             }
             let mut buf = vec![0u8; len as usize];
-            OsRng
+            SysRng
                 .try_fill_bytes(&mut buf)
                 .map_err(|_| mlua::Error::external("could not get entropy bytes"))?;
             lua.create_string(&buf)

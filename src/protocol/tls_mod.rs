@@ -1,7 +1,7 @@
 //! TLS ClientHello mutator (`tls_mod`) matching `TLSMod_parse_list` and `TLSMod` in `protocol.c`.
 
-/// Random generator trait and OS/thread RNG used for `rnd` and `rndsni` mutations.
-use rand::{Rng, RngCore};
+/// Random generator traits (`Rng`, `RngExt`) used for `rnd` and `rndsni` mutations (`rand 0.10`).
+use rand::{Rng, RngExt};
 
 /// TLS extension scanners and SNI offset helpers reused by `tls_mod`.
 use crate::protocol::tls::{
@@ -131,7 +131,7 @@ fn add_be24(buf: &mut [u8], off: usize, delta: isize) -> Option<()> {
 }
 
 /// Generates a random lowercase ASCII alphanumeric byte (`0-9` or `a-z`).
-fn random_az09(rng: &mut impl Rng) -> u8 {
+fn random_az09(rng: &mut impl RngExt) -> u8 {
     let r = rng.random_range(0u8..36);
     if r < 10 { b'0' + r } else { b'a' + (r - 10) }
 }

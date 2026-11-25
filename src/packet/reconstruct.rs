@@ -1,7 +1,7 @@
 //! Full-packet wire reconstruction orchestrating L3/L4 serialization, checksums, and fragmentation.
 
-/// Random number generation for intentional `--badsum` checksum corruption.
-use rand::Rng;
+/// Random number generation trait for intentional `--badsum` checksum corruption (`rand 0.10`).
+use rand::RngExt;
 
 /// Packet result alias.
 use crate::packet::byte_reader::PEResult;
