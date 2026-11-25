@@ -2,7 +2,7 @@
 name = "zapret-rs"
 version = "1.0.1"
 edition = "2024"
-default-run = "nfqws2"
+default-run = "zapret-rs"
 
 [[bin]]
 name = "nfqws2"
