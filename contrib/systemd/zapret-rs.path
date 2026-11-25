@@ -1,0 +1,12 @@
+[Unit]
+Description=Restart zapret-rs when nfqws2 release binary is rebuilt
+
+[Path]
+# Replace __REPO__ with the absolute repository path; watches the concrete target binary, not a symlink.
+PathChanged=__REPO__/target/release/nfqws2
+TriggerLimitIntervalSec=1s
+TriggerLimitBurst=2
+Unit=zapret-rs-restart.service
+
+[Install]
+WantedBy=multi-user.target

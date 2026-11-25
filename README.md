@@ -151,9 +151,33 @@ When a socket is present, launching `zapret-rs` (or `zapret-rs --control-socket 
 - `S` opens a confirmation prompt to stop the daemon cleanly.
 - `p` on Tab 3 pushes validated TOML profile changes live (`qnum`/`fwmark` changes are rejected with a restart prompt).
 
-### Sample `systemd` Unit (Unprivileged Service with Net Capabilities)
+### `systemd` Service (Unprivileged with Auto-Managed `nftables`)
 
-Run the service under your desktop/operator user (replacing `alice`) so your user's `zapret-rs` TUI session passes `SO_PEERCRED` same-UID verification:
+Unit templates live under `contrib/systemd/`. Running with `User=__USER__` and `AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW` lets `nfqws2 --nft` manage `table inet zapret_strat_finder` automatically, passes `SO_PEERCRED` same-UID verification for your `zapret-rs` TUI session, and exposes `/run/zapret-rs/control.sock`.
+
+To deploy with a copied binary:
+
+```bash
+sudo install -m 0755 target/release/nfqws2 /usr/local/bin/nfqws2
+sudo sed "s|__USER__|$USER|g; s|__HOME__|$HOME|g" contrib/systemd/zapret-rs.service \
+  | sudo tee /etc/systemd/system/zapret-rs.service >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable --now zapret-rs.service
+```
+
+To avoid `sudo install` on future rebuilds and restart automatically whenever `cargo build --release` updates `target/release/nfqws2`, symlink the binaries and enable the `systemd.path` watcher (`contrib/systemd/zapret-rs.path` + `contrib/systemd/zapret-rs-restart.service`):
+
+```bash
+sudo ln -sf "$PWD/target/release/nfqws2" /usr/local/bin/nfqws2
+sudo ln -sf "$PWD/target/release/zapret-rs" /usr/local/bin/zapret-rs
+sudo sed "s|__USER__|$USER|g; s|__HOME__|$HOME|g" contrib/systemd/zapret-rs.service \
+  | sudo tee /etc/systemd/system/zapret-rs.service >/dev/null
+sudo sed "s|__REPO__|$PWD|g" contrib/systemd/zapret-rs.path \
+  | sudo tee /etc/systemd/system/zapret-rs.path >/dev/null
+sudo cp contrib/systemd/zapret-rs-restart.service /etc/systemd/system/zapret-rs-restart.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now zapret-rs.service zapret-rs.path
+```
 
 ```ini
 [Unit]
@@ -163,14 +187,17 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=alice
+User=__USER__
 RuntimeDirectory=zapret-rs
 RuntimeDirectoryMode=0700
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=yes
-ExecStart=/usr/local/bin/nfqws2 --config /etc/zapret-rs/nfqws2.toml --control-socket /run/zapret-rs/control.sock
+LockPersonality=yes
+PrivateTmp=yes
+ExecStart=/usr/local/bin/nfqws2 --config __HOME__/.config/zapret-rs/nfqws2.toml --nft --control-socket /run/zapret-rs/control.sock
 Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target

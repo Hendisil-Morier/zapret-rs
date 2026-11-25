@@ -1,0 +1,22 @@
+[Unit]
+Description=zapret-rs nfqws2 DPI Desync Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Replace __USER__ and __HOME__ with your desktop operator user so `zapret-rs` TUI passes SO_PEERCRED checks.
+User=__USER__
+RuntimeDirectory=zapret-rs
+RuntimeDirectoryMode=0700
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=yes
+LockPersonality=yes
+PrivateTmp=yes
+ExecStart=/usr/local/bin/nfqws2 --config __HOME__/.config/zapret-rs/nfqws2.toml --nft --control-socket /run/zapret-rs/control.sock
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

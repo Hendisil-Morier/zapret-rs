@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart zapret-rs daemon after nfqws2 binary update
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl try-restart zapret-rs.service
