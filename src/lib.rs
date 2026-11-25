@@ -24,3 +24,5 @@ pub mod rawsend;
 pub mod runtime;
 /// Monotonic boottime clock, scheduled timer pool, and non-intercepting timer loop.
 pub mod timer;
+/// Companion CLI utilities (`ip2net` subnet aggregator and `mdig` multi-threaded DNS tool).
+pub mod tools;

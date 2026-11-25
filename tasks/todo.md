@@ -383,13 +383,13 @@ Target verification commands used across tasks:
 **Description:** Create `src/tools/{mod.rs,ip2net.rs}`, expose `pub mod tools` in `src/lib.rs`, and wire `src/bin/ip2net.rs` in `Cargo.toml` with zero new dependencies. Implement full flag parity with `zapret2/ip2net/ip2net.c` (`-4`, `-6`, `--prefix-length=min[-max]`, `--v4-threshold=mul/div`, `--v6-threshold=N`, `-h`/`--help`, `--version`), streaming pass-through of valid CIDRs (`< /32` / `< /128`) and ranges, `/32` and `/128` single-IP folding, `u64`-safe IPv4 threshold pruning, IPv6 `u128` aggregation, and the smallest-subnet anti-carpet-bombing tie-breaker. Verify library and subprocess behavior in `tests/ip2net_cli.rs`.
 
 **Acceptance criteria:**
-- [ ] `-4`, `-6`, `--prefix-length`, `--v4-threshold`, `--v6-threshold`, `--help`, and `--version` parse and validate with last-flag-wins family override and deterministic exit code `1` on invalid parameters.
-- [ ] Streaming pass-through emits valid CIDRs and ranges before sorted/deduplicated single-IP aggregation, folds `/32` and `/128`, ignores invalid/out-of-range/non-UTF-8 lines, and preserves C threshold and smallest-subnet tie-breaker outputs.
-- [ ] `tests/ip2net_cli.rs` verifies IPv4/IPv6 grouping, anti-carpet-bombing, fast-prune boundary, pass-through ordering, parameter errors, and `ip2net` subprocess runs.
+- [x] `-4`, `-6`, `--prefix-length`, `--v4-threshold`, `--v6-threshold`, `--help`, and `--version` parse and validate with last-flag-wins family override and deterministic exit code `1` on invalid parameters.
+- [x] Streaming pass-through emits valid CIDRs and ranges before sorted/deduplicated single-IP aggregation, folds `/32` and `/128`, ignores invalid/out-of-range/non-UTF-8 lines, and preserves C threshold and smallest-subnet tie-breaker outputs.
+- [x] `tests/ip2net_cli.rs` verifies IPv4/IPv6 grouping, anti-carpet-bombing, fast-prune boundary, pass-through ordering, parameter errors, and `ip2net` subprocess runs.
 
 **Verification:**
-- [ ] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
-- [ ] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
+- [x] Tests pass: `cargo nextest run --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --offline --show-progress none --no-pager`
+- [x] Build succeeds: `cargo clippy --manifest-path /home/morier/Documents/projects/zapret-rs/Cargo.toml --all-targets --offline -- -D warnings`
 
 **Dependencies:** Checkpoint 4
 
