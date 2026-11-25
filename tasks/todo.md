@@ -432,16 +432,16 @@ Target verification commands used across tasks:
 **Description:** Write `CHANGELOG.md` summarizing Milestones 1 through 5 and a concise `README.md` covering `nfqws2`, `ip2net`, `mdig`, build instructions, and configuration usage. Bump `Cargo.toml` package version to `1.0.0`, run full release builds (`cargo build --release --offline`), offline lint and nextest suites, and `unshare -r -n` live kernel tests, then create an annotated `v1.0.0` git tag.
 
 **Acceptance criteria:**
-- [ ] `CHANGELOG.md` and `README.md` are accurate and complete, and `Cargo.toml` / `Cargo.lock` record `version = "1.0.0"`.
-- [ ] `cargo build --release --offline` builds `nfqws2`, `ip2net`, and `mdig` cleanly, and `clippy`, `nextest`, and `unshare -r -n` live kernel tests pass after final edits.
-- [ ] Annotated git tag `v1.0.0` points to the Checkpoint 5 commit.
+- [x] `CHANGELOG.md` and `README.md` are accurate and complete, and `Cargo.toml` / `Cargo.lock` record `version = "1.0.0"`.
+- [x] `cargo build --release --offline` builds `nfqws2`, `ip2net`, and `mdig` cleanly, and `clippy`, `nextest`, and `unshare -r -n` live kernel tests pass after final edits.
+- [x] Annotated git tag `v1.0.0` points to the Checkpoint 5 commit.
 
 **Dependencies:** Task 5.2
 
 ---
 
 ## Checkpoint 5: Milestone 5 & v1.0.0 Release Complete
-- [ ] All tasks 5.1 through 5.3 checked off with individual atomic commits
-- [ ] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
-- [ ] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
-- [ ] `cargo build --release --offline` builds `nfqws2`, `ip2net`, and `mdig`, and `v1.0.0` tag is created
+- [x] All tasks 5.1 through 5.3 checked off with individual atomic commits
+- [x] `cargo clippy --all-targets --offline -- -D warnings` passes with 0 warnings
+- [x] `cargo nextest run --offline --show-progress none --no-pager` passes all non-ignored suites (including `repo_hygiene`) and ignored kernel tests pass in `unshare -r -n`
+- [x] `cargo build --release --offline` builds `nfqws2`, `ip2net`, and `mdig`, and `v1.0.0` tag is created

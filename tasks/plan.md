@@ -84,8 +84,8 @@ Tasks and detailed acceptance criteria are tracked in [todo.md](file:///home/mor
 ### Milestone 5: Companion Binaries & v1.0.0 Release
 - [x] Task 5.1: Implement `ip2net` library (`src/tools/ip2net.rs`) and CLI binary (`src/bin/ip2net.rs`) with tests
 - [x] Task 5.2: Implement `mdig` DNS/resolver library (`src/tools/{mdig_backend.rs,mdig_dns.rs,mdig_resolver.rs}`) and CLI binary (`src/bin/mdig.rs`) with offline tests
-- [ ] Task 5.3: Add `CHANGELOG.md` and `README.md`, bump version to `1.0.0`, run full release & live kernel gates, and create `v1.0.0` tag
-- [ ] Checkpoint 5: Milestone 5 & v1.0.0 Release Complete
+- [x] Task 5.3: Add `CHANGELOG.md` and `README.md`, bump version to `1.0.0`, run full release & live kernel gates, and create `v1.0.0` tag
+- [x] Checkpoint 5: Milestone 5 & v1.0.0 Release Complete
 
 ## Risks and Mitigations
 
