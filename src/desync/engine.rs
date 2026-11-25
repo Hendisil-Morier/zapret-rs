@@ -16,8 +16,8 @@ use crate::config::{AppConfig, DesyncProfile};
 use crate::desync::icmp_ip::{process_icmp_packet, process_raw_ip_packet};
 /// Shared prolog state, replay metadata, and borrowed runtime service references.
 use crate::desync::play::{EngineServices, PlayState, ReplayContext};
-/// Deduplicated file registry and per-profile runtime hostlist/ipset state.
-use crate::desync::profile_state::{ListRegistry, ProfileRuntime};
+/// Deduplicated file registry, per-profile runtime hostlist/ipset state, and profile hot-swap.
+use crate::desync::profile_state::{ListRegistry, ProfileRuntime, build_swapped_profiles};
 /// Stateful TCP DPI desync processor (`process_tcp_packet`).
 use crate::desync::tcp::process_tcp_packet;
 /// Stateful UDP DPI desync processor (`process_udp_packet`).
@@ -136,6 +136,17 @@ impl DesyncEngine {
         &self.profiles
     }
 
+    /// Swaps active profiles in-place after validating Lua callbacks, clearing conntrack and ipcache.
+    pub fn replace_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), LuaEngineError> {
+        let swapped = build_swapped_profiles(profiles, &self.runtime)?;
+        self.list_registry = swapped.registry;
+        self.profiles = swapped.profiles;
+        self.profile_runtimes = swapped.runtimes;
+        self.runtime.conntrack().borrow_mut().clear();
+        self.ipcache.borrow_mut().clear();
+        Ok(())
+    }
+
     /// Resets modification signatures and reloads all hostlists and ipsets from disk (`SIGHUP`).
     pub fn reload_lists(&self) {
         self.list_registry.reload_all(&self.profile_runtimes);
@@ -230,27 +241,12 @@ impl DesyncEngine {
             return Decision::Pass;
         }
 
-        if !any_action_runnable(
-            profile,
-            instances,
-            track_rc,
-            pos_opt.as_ref(),
-            ps.incoming,
-            ps.l7payload,
-        ) {
+        if !any_action_runnable(profile, instances, track_rc, pos_opt.as_ref(), ps.incoming, ps.l7payload) {
             return Decision::Pass;
         }
 
         match self.try_run_profile(
-            profile,
-            instances,
-            replay,
-            pkt,
-            dis,
-            ps,
-            pos_opt,
-            reasm_data,
-            decrypt_data,
+            profile, instances, replay, pkt, dis, ps, pos_opt, reasm_data, decrypt_data,
         ) {
             Ok(decision) => decision,
             Err(err) => {

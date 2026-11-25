@@ -81,14 +81,20 @@ impl ListRegistry {
                 .open(debug_path)
                 .map_err(|err| (debug_path.clone(), err))?;
         }
+        Self::load_from_profiles(&config.profiles)
+    }
 
+    /// Loads and deduplicates all hostlists and ipsets referenced by `profiles`.
+    pub(crate) fn load_from_profiles(
+        profiles: &[DesyncProfile],
+    ) -> Result<(Self, Vec<ProfileRuntime>), (PathBuf, std::io::Error)> {
         let mut hl_by_path: HashMap<PathBuf, Rc<RefCell<HostlistFile>>> = HashMap::new();
         let mut ip_by_path: HashMap<PathBuf, Rc<RefCell<IpsetFile>>> = HashMap::new();
         let mut hostlists = Vec::new();
         let mut ipsets = Vec::new();
-        let mut runtimes = Vec::with_capacity(config.profiles.len());
+        let mut runtimes = Vec::with_capacity(profiles.len());
 
-        for profile in &config.profiles {
+        for profile in profiles {
             let rt = build_profile_runtime(
                 profile,
                 &mut hl_by_path,
@@ -342,6 +348,32 @@ pub(crate) fn find_matching_profile(
         .iter()
         .zip(runtimes.iter())
         .position(|(profile, rt)| profile_matches_full(profile, rt, input))
+}
+
+/// Bundled registry, profile snapshots, and runtime states produced by [`build_swapped_profiles`].
+pub(crate) struct SwappedProfiles {
+    /// Deduplicated filesystem list handles for the swapped profiles.
+    pub(crate) registry: ListRegistry,
+    /// Ordered `Rc`-wrapped profiles ready for engine dispatch.
+    pub(crate) profiles: Vec<Rc<DesyncProfile>>,
+    /// Per-profile hostlist/ipset runtimes and action instance labels.
+    pub(crate) runtimes: Vec<ProfileRuntime>,
+}
+
+/// Validates Lua desync callbacks and builds runtime state for hot-swapping `profiles`.
+pub(crate) fn build_swapped_profiles(
+    profiles: Vec<DesyncProfile>,
+    runtime: &crate::lua::LuaRuntime,
+) -> Result<SwappedProfiles, crate::lua::LuaEngineError> {
+    runtime.verify_desync_functions(&profiles)?;
+    let (registry, runtimes) = ListRegistry::load_from_profiles(&profiles)
+        .map_err(|(_, err)| crate::lua::LuaEngineError::Io(err))?;
+    let profiles = profiles.into_iter().map(Rc::new).collect();
+    Ok(SwappedProfiles {
+        registry,
+        profiles,
+        runtimes,
+    })
 }
 
 /// Clears cached cutoffs and per-hostlist state when a flow transitions between profiles (`dp_changed`).

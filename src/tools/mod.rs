@@ -8,6 +8,10 @@ pub mod mdig_backend;
 pub mod mdig_dns;
 /// Multi-threaded domain resolver worker pool, IP/CIDR filter, and stats tracking for `mdig`.
 pub mod mdig_resolver;
+/// Strategy candidate catalog ported from `zapret2/blockcheck2.d/standard/*.sh`.
+pub mod strat_catalog;
+/// Strategy ranking, minimal cross-domain set cover, and `nfqws2.toml` serialization.
+pub mod strat_toml;
 
 /// Public API re-exports for `ip2net` configuration, validation, and streaming execution.
 pub use ip2net::{
@@ -27,3 +31,10 @@ pub use mdig_dns::{
 };
 /// Public API re-exports for `mdig` multi-threaded domain resolution and synchronized outputs.
 pub use mdig_resolver::{MdigOutputs, run_mdig_resolver};
+/// Public API re-exports for `strat_finder` strategy catalog expansion.
+pub use strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
+/// Public API re-exports for `strat_finder` ranking, set cover, and TOML rendering.
+pub use strat_toml::{
+    CoveredProfile, DomainStrategies, StrategyMatch, TomlRenderOptions, rank_matches,
+    render_nfqws2_toml, select_minimal_cover,
+};
