@@ -20,6 +20,8 @@ use crate::config::l7::{L7_PAYLOAD_NONE_MASK, L7Proto, l7_proto_matches};
 use crate::config::range::PacketRange;
 /// Milestone 3 conntrack, ipcache, and per-profile list configuration types.
 use crate::config::runtime_cfg::{ConntrackConfig, IpCacheConfig, ProfileListsConfig};
+/// Default PASS telemetry sampling divisor (`1` in `20`).
+use crate::control::DEFAULT_PASS_SAMPLE_RATE;
 /// Default NFQUEUE configuration constants and [`QueueConfig`] target struct.
 use crate::intercepter::{DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_NUM, QueueConfig};
 /// Lua runtime configuration struct populated from [`AppConfig`].
@@ -46,6 +48,20 @@ pub enum WritableDirConfig {
     Default,
     /// Use an explicit filesystem directory path.
     Custom(PathBuf),
+}
+
+/// Unix control socket binding policy for `nfqws2` (`--control-socket` / `control_socket`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ControlSocketConfig {
+    /// Bind the default path when packet interception is active, and skip it in `--intercept=0`.
+    #[default]
+    Auto,
+    /// Always bind the default control socket path (`$XDG_RUNTIME_DIR/zapret-rs/control.sock` or `/run/zapret-rs/control.sock`).
+    Default,
+    /// Bind the explicitly specified Unix socket filesystem path.
+    Custom(PathBuf),
+    /// Disable the control socket server completely (`--control-socket=off`).
+    Disabled,
 }
 
 /// Validated Lua desync invocation attached to a [`DesyncProfile`].
@@ -177,6 +193,10 @@ pub struct AppConfig {
     pub hostlist_auto_debug: Option<PathBuf>,
     /// Optional writable directory created at startup and exposed via `WRITABLE` (`--writable`).
     pub writable: Option<WritableDirConfig>,
+    /// Unix domain control socket policy (`--control-socket`, `control_socket`).
+    pub control_socket: ControlSocketConfig,
+    /// Sampling divisor for `PASS` telemetry records (`--control-pass-sample`, `0` disables `PASS`).
+    pub control_pass_sample: u64,
     /// Ordered Lua startup scripts and inline snippets.
     pub lua_init: Vec<LuaInitEntry>,
     /// Named binary blobs registered into Lua globals (`fake_default_*` plus custom entries).
@@ -208,6 +228,8 @@ impl Default for AppConfig {
             reasm_disable: L7_PAYLOAD_NONE_MASK,
             hostlist_auto_debug: None,
             writable: None,
+            control_socket: ControlSocketConfig::Auto,
+            control_pass_sample: DEFAULT_PASS_SAMPLE_RATE,
             lua_init: Vec::new(),
             blobs: default_blobs(),
             profiles: Vec::new(),

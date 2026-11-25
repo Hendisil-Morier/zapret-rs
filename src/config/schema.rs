@@ -16,8 +16,8 @@ use crate::config::blobs::{load_file_blob, parse_hex_blob};
 use crate::config::error::ConfigError;
 /// L7 payload disable bitmask parser (`--payload-disable`, `--reasm-disable`).
 use crate::config::l7::parse_l7_disable_mask;
-/// Validated runtime application configuration, startup script variants, and writable directory mode.
-use crate::config::model::{AppConfig, LuaInitEntry, WritableDirConfig};
+/// Validated runtime application configuration, startup script variants, control socket, and writable mode.
+use crate::config::model::{AppConfig, ControlSocketConfig, LuaInitEntry, WritableDirConfig};
 /// Per-profile TOML schema and validated [`crate::config::DesyncProfile`] builder.
 use crate::config::profile_schema::{RawProfile, build_profile};
 /// Conntrack timeout parser for TOML `ctrack_timeouts`.
@@ -60,6 +60,16 @@ enum RawWritable {
     Enabled(bool),
     /// Explicit writable directory path string (empty string selects the default path).
     Path(PathBuf),
+}
+
+/// Raw TOML `control_socket` setting accepting boolean enablement or explicit socket path.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum RawControlSocket {
+    /// Boolean flag (`true` selects default socket path, `false` disables).
+    Enabled(bool),
+    /// Explicit Unix socket path or `"off"`/`"none"`/`"default"`.
+    Path(String),
 }
 
 /// Top-level TOML configuration file structure (`nfqws2.toml`).
@@ -110,6 +120,10 @@ struct RawConfig {
     hostlist_auto_debug: Option<PathBuf>,
     /// Optional writable Lua directory specification (`--writable`).
     writable: Option<RawWritable>,
+    /// Unix control socket toggle or path (`--control-socket`).
+    control_socket: Option<RawControlSocket>,
+    /// Sampling divisor for `PASS` packets streamed over the control socket (`0` disables PASS).
+    control_pass_sample: Option<u64>,
     /// Ordered list of startup Lua scripts or inline chunks.
     #[serde(default)]
     lua_init: Vec<RawLuaInit>,
@@ -245,7 +259,36 @@ fn apply_scalar_fields(
             Some(WritableDirConfig::Custom(resolve_path(path.clone(), base_dir)))
         }
     };
+    cfg.control_socket = match &raw.control_socket {
+        None => ControlSocketConfig::Auto,
+        Some(RawControlSocket::Enabled(true)) => ControlSocketConfig::Default,
+        Some(RawControlSocket::Enabled(false)) => ControlSocketConfig::Disabled,
+        Some(RawControlSocket::Path(raw_val)) => {
+            parse_control_socket_str(raw_val, base_dir)?
+        }
+    };
+    if let Some(sample) = raw.control_pass_sample {
+        cfg.control_pass_sample = sample;
+    }
     Ok(())
+}
+
+/// Parses a string `control_socket` value (`"off"`/`"default"` or path) for CLI and TOML callers.
+pub(super) fn parse_control_socket_str(
+    raw: &str,
+    base_dir: Option<&Path>,
+) -> Result<ControlSocketConfig, ConfigError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::Validation(
+            "control_socket path cannot be empty (use \"off\" to disable)".to_owned(),
+        ));
+    }
+    match trimmed.to_ascii_lowercase().as_str() {
+        "off" | "none" | "false" | "0" => Ok(ControlSocketConfig::Disabled),
+        "default" | "auto" | "true" | "1" => Ok(ControlSocketConfig::Default),
+        _ => Ok(ControlSocketConfig::Custom(resolve_path(PathBuf::from(trimmed), base_dir))),
+    }
 }
 
 /// Resolves relative file paths against `base_dir` when present.

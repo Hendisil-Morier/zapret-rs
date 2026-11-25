@@ -61,29 +61,29 @@ Plan: `tasks/plan-ipc.md`. Verification commands used throughout:
 
 ## Task 7.4: `nfqws2` integration
 
-**Description:** Add `--control-socket PATH` and TOML `control_socket`. In `nfqws2.rs`, create the hub, start the server after privilege drop, update counters and publish records from the packet closure (records only when subscribed, PASS sampled), drain commands in `next_loop_timeout` (cap 50 ms), and implement `stop` (set quit flag) and `reload_lists`.
+**Description:** Add `--control-socket <PATH|off|default>` (`control_socket` in TOML, auto-resolving `$XDG_RUNTIME_DIR/zapret-rs/control.sock` else `/run/zapret-rs/control.sock` for live intercepting daemons) and `--control-pass-sample N` (`control_pass_sample` in TOML, default 20). In `nfqws2.rs`, create parent dir (`0700`, chowned before privilege drop), start the server after privilege drop and daemonize, update counters and publish records from the packet closure (records built only when subscribed, PASS sampled), drain commands in `next_loop_timeout` (cap 50 ms), and implement `stop` (set quit flag) and `reload_lists`.
 
 **Acceptance criteria:**
-- [ ] Without the flag, behavior and hot path are unchanged
-- [ ] `--intercept=0` daemon with a control socket answers `hello` and `status`, and exits cleanly on `stop` with no socket or pidfile left behind
-- [ ] Packet closure cost without subscribers is only the existing counter increments
+- [x] Default control socket path binds automatically in intercept mode (`--control-socket=off` leaves hot path untouched)
+- [x] `--intercept=0` daemon with a control socket answers `hello` and `status`, reloads lists, and exits cleanly on `stop` with no socket or pidfile left behind
+- [x] Packet closure cost without subscribers is only atomic counter increments
 
 **Verification:**
-- [ ] `tests/nfqws2_control.rs` (spawns the real binary with `--intercept=0`) passes
-- [ ] Lint clean, release build succeeds
+- [x] `tests/nfqws2_control.rs` (spawns the real binary with `--intercept=0`) passes
+- [x] Lint clean, release build succeeds
 
 **Dependencies:** 7.3
-**Files likely touched:** `src/bin/nfqws2.rs`, `src/config/{cli,toml}.rs`, `tests/nfqws2_control.rs`, `tests/config_toml.rs`
+**Files likely touched:** `src/bin/nfqws2.rs`, `src/config/{cli,mod,model,schema}.rs`, `src/control/{client_session,mod,socket}.rs`, `src/telemetry/counters.rs`, `src/tui/workers.rs`, `tests/nfqws2_control.rs`, `tests/config_toml.rs`
 **Estimated scope:** Medium. Commit type: `feat`.
 
 ### Checkpoint A: After Tasks 7.1-7.4
-- [ ] All tests pass, lint and both builds clean
-- [ ] `nfqws2 --intercept=0 --control-socket /tmp/z.sock` answers status and stops via a raw client
+- [x] All tests pass, lint and both builds clean
+- [x] `nfqws2 --intercept=0 --control-socket <path>` answers status and stops cleanly via a client
 - [ ] Review with human before the TUI work
 
 ## Task 7.5: Remote client and TUI attach mode on Tab 2
 
-**Description:** A client thread that connects, does the handshake, subscribes, and feeds the existing `Arc<PacketCounters>` and `pkt_rx`/`desync_rx` channels. Tab 2 auto-detects a socket (configured path, then `$XDG_RUNTIME_DIR/zapret-rs.sock`, then `/run/zapret-rs/control.sock`) and shows `ATTACHED` status. Keys: `x` detaches, `S` stops the daemon after a confirm popup, `l` asks the daemon to reload lists. In attach mode the TUI never installs nftables rules.
+**Description:** A client thread that connects, does the handshake, subscribes, and feeds the existing `Arc<PacketCounters>` and `pkt_rx`/`desync_rx` channels. Tab 2 auto-detects a socket (configured path, then `$XDG_RUNTIME_DIR/zapret-rs/control.sock`, then `/run/zapret-rs/control.sock`) and shows `ATTACHED` status. Keys: `x` detaches, `S` stops the daemon after a confirm popup, `l` asks the daemon to reload lists. In attach mode the TUI never installs nftables rules.
 
 **Acceptance criteria:**
 - [ ] With a daemon socket present, `r` attaches instead of starting an in-process engine

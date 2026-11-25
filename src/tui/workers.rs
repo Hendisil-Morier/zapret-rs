@@ -17,8 +17,8 @@ use std::time::Duration;
 
 /// Configuration models parsed for live scanning and live `nfqws2` execution.
 use crate::config::{AppConfig, LuaInitEntry};
-/// Core stateful DPI desync engine and per-packet outcome classification run live on Tab 2.
-use crate::desync::{DesyncEngine, PacketOutcome};
+/// Core stateful DPI desync engine and packet loop bound by Tab 2.
+use crate::desync::DesyncEngine;
 /// NFQUEUE catcher bound by the live Tab 2 daemon thread.
 use crate::intercepter::QueueCatcher;
 /// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
@@ -26,8 +26,8 @@ use crate::tools::{
     CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, TomlRenderOptions,
     render_nfqws2_toml, resolve_lua_scripts, run_scan,
 };
-/// Shared telemetry counters, serializable packet record, and decoder.
-use crate::telemetry::{PacketCounters, PacketRecord, build_packet_record};
+/// Shared telemetry counters, serializable packet record, verdict tag, and decoder.
+use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record};
 /// Application state read/updated when spawning workers.
 use crate::tui::state::AppState;
 /// Status and scan event types.
@@ -241,17 +241,10 @@ where
                 || Some(Duration::from_millis(50)),
                 |pkt| {
                     let (decision, outcome) = engine.process_packet_traced(pkt);
-                    let seq = counters.total.fetch_add(1, Ordering::Relaxed) + 1;
-                    let is_special = !matches!(outcome, PacketOutcome::Pass);
-                    match &outcome {
-                        PacketOutcome::Pass => { counters.passed.fetch_add(1, Ordering::Relaxed); }
-                        PacketOutcome::Reasm => { counters.reassembled.fetch_add(1, Ordering::Relaxed); }
-                        PacketOutcome::Modify(_) => { counters.modified.fetch_add(1, Ordering::Relaxed); }
-                        PacketOutcome::Desync(_) => { counters.desynced.fetch_add(1, Ordering::Relaxed); }
-                    }
+                    let (seq, verdict) = counters.record_outcome(&outcome);
                     // Route `REASM`/`MODIFY`/`DESYNC` to a dedicated channel so `PASS` bursts never drop them.
                     let record = build_packet_record(seq, pkt, &outcome);
-                    if is_special {
+                    if verdict != PacketVerdict::Pass {
                         let _ = desync_tx.try_send(record);
                     } else {
                         let _ = pkt_tx.try_send(record);

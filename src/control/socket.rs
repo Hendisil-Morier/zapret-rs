@@ -1,19 +1,33 @@
 //! Safe Unix domain socket binding, symlink refusal, stale-socket probing, and poll helpers.
 
+/// Runtime directory creation (`$XDG_RUNTIME_DIR/zapret-rs`) and environment lookup.
+use std::env;
+/// C path encoding for symlink-safe parent directory validation via `open(O_NOFOLLOW)`.
+use std::ffi::CString;
 /// Scoped socket bind serialization so process-wide `umask(0177)` has no concurrent races.
-use std::fs;
+use std::fs::{self, DirBuilder};
 /// File type and permission error matching when probing pre-existing socket paths.
 use std::io::ErrorKind;
-/// Raw FD extraction for polling the listening socket without busy-waiting.
-use std::os::fd::AsRawFd;
-/// Unix-specific socket file detection, inode metadata, and permission bits (`0600`).
-use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+/// Raw FD access for polling the listening socket and `fchown`/`fstat` directory hardening.
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+/// Raw path bytes passed safely to `libc::open`.
+use std::os::unix::ffi::OsStrExt;
+/// Unix-specific socket file detection, inode metadata, and permission bits (`0600` / `0700`).
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 /// Unix domain listener binding and liveness probing via `connect`.
 use std::os::unix::net::{UnixListener, UnixStream};
 /// Filesystem path handling for binding and unlinking the control socket.
 use std::path::{Path, PathBuf};
 /// Global mutex serializing temporary `umask(0177)` changes during socket bind.
 use std::sync::Mutex;
+
+/// Configuration enum deciding whether and where `nfqws2` binds its control socket.
+use crate::config::ControlSocketConfig;
+
+/// Relative control socket suffix created under `$XDG_RUNTIME_DIR` when available.
+pub const DEFAULT_CONTROL_SOCKET_SUBPATH: &str = "zapret-rs/control.sock";
+/// System-wide fallback socket path used when `$XDG_RUNTIME_DIR` is unset (e.g., under systemd).
+pub const DEFAULT_SYSTEM_CONTROL_SOCKET: &str = "/run/zapret-rs/control.sock";
 
 /// Global mutex ensuring two concurrent [`bind_control_socket`] calls never clobber umask.
 static UMASK_LOCK: Mutex<()> = Mutex::new(());
@@ -51,6 +65,94 @@ pub enum ControlServerError {
         #[source]
         source: std::io::Error,
     },
+}
+
+/// Returns the default control socket path (`$XDG_RUNTIME_DIR/zapret-rs/control.sock` or `/run/zapret-rs/control.sock`).
+pub fn default_control_socket_path() -> PathBuf {
+    if let Some(xdg) = env::var_os("XDG_RUNTIME_DIR").filter(|val| !val.is_empty()) {
+        return PathBuf::from(xdg).join(DEFAULT_CONTROL_SOCKET_SUBPATH);
+    }
+    PathBuf::from(DEFAULT_SYSTEM_CONTROL_SOCKET)
+}
+
+/// Returns ordered, deduplicated control socket candidates checked when auto-attaching.
+pub fn control_socket_candidates(configured: Option<&Path>) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(path) = configured {
+        out.push(path.to_path_buf());
+    }
+    if let Some(xdg) = env::var_os("XDG_RUNTIME_DIR").filter(|val| !val.is_empty()) {
+        let p = PathBuf::from(xdg).join(DEFAULT_CONTROL_SOCKET_SUBPATH);
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    let sys = PathBuf::from(DEFAULT_SYSTEM_CONTROL_SOCKET);
+    if !out.contains(&sys) {
+        out.push(sys);
+    }
+    out
+}
+
+/// Resolves whether and where `nfqws2` should bind a control socket given config and `--intercept`.
+pub fn resolve_control_socket_path(
+    policy: &ControlSocketConfig,
+    intercept: bool,
+) -> Option<PathBuf> {
+    match policy {
+        ControlSocketConfig::Auto => intercept.then(default_control_socket_path),
+        ControlSocketConfig::Default => Some(default_control_socket_path()),
+        ControlSocketConfig::Custom(path) => Some(path.clone()),
+        ControlSocketConfig::Disabled => None,
+    }
+}
+
+/// Ensures the parent directory of `socket_path` exists (`0700`), rejects symlinks, and chowns to `target_uid`.
+pub fn prepare_control_socket_dir(
+    socket_path: &Path,
+    target_uid: Option<u32>,
+    target_gid: Option<u32>,
+) -> Result<(), ControlServerError> {
+    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+
+    if !parent.exists() {
+        DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(parent)
+            .map_err(|source| ControlServerError::Io { path: parent.to_path_buf(), source })?;
+    }
+
+    let c_dir = CString::new(parent.as_os_str().as_bytes()).map_err(|_| ControlServerError::Io {
+        path: parent.to_path_buf(),
+        source: std::io::Error::from_raw_os_error(libc::EINVAL),
+    })?;
+    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: `c_dir` is a NUL-terminated path opened with `O_DIRECTORY | O_NOFOLLOW`.
+    let raw_fd = unsafe { libc::open(c_dir.as_ptr(), flags) };
+    if raw_fd < 0 {
+        return Err(ControlServerError::Io {
+            path: parent.to_path_buf(),
+            source: std::io::Error::last_os_error(),
+        });
+    }
+    // SAFETY: `raw_fd` is a valid directory FD exclusively owned here.
+    let dir_fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+
+    if let Some(uid) = target_uid {
+        let gid = target_gid.unwrap_or(libc::gid_t::MAX);
+        // SAFETY: `dir_fd` is verified non-symlink via `O_NOFOLLOW`; `fchown` avoids path TOCTOU races.
+        if unsafe { libc::fchown(dir_fd.as_raw_fd(), uid, gid) } != 0 {
+            return Err(ControlServerError::Io {
+                path: parent.to_path_buf(),
+                source: std::io::Error::last_os_error(),
+            });
+        }
+    }
+    let _ = dir_fd;
+    Ok(())
 }
 
 /// Validates any pre-existing file at `path`, removing only confirmed stale sockets (`ECONNREFUSED`).

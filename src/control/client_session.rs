@@ -30,7 +30,7 @@ use crate::control::protocol::{
 use crate::control::server::ControlServerConfig;
 
 /// Read timeout so client reader threads observe `stop` without blocking indefinitely.
-const CLIENT_READ_TIMEOUT: Duration = Duration::from_millis(100);
+const CLIENT_READ_TIMEOUT: Duration = Duration::from_millis(40);
 /// Write timeout preventing a stalled peer from wedging its own writer thread.
 const CLIENT_WRITE_TIMEOUT: Duration = Duration::from_millis(150);
 /// Maximum time a synchronous control command waits for the packet loop to reply.
@@ -54,9 +54,8 @@ pub(crate) fn serve_client(
     let (out_tx, out_rx) = mpsc::sync_channel::<Response>(config.client_queue_cap.max(1));
 
     let writer_alive = Arc::clone(&client_alive);
-    let writer_stop = Arc::clone(&server_stop);
     let writer_join = thread::spawn(move || {
-        run_client_writer(writer_stream, out_rx, writer_alive, writer_stop);
+        run_client_writer(writer_stream, out_rx, writer_alive);
     });
 
     let mut reader = BufReader::new(stream);
@@ -97,10 +96,9 @@ pub(crate) fn serve_client(
     }
 
     hub.remove_subscriber(id);
-    client_alive.store(false, Ordering::Release);
     drop(out_tx);
-    let _ = reader.get_ref().shutdown(Shutdown::Both);
     let _ = writer_join.join();
+    let _ = reader.get_ref().shutdown(Shutdown::Both);
 }
 
 /// Dispatches one decoded client [`Request`], returning `false` if the connection should close.
@@ -268,14 +266,13 @@ fn send_or_close(out_tx: &SyncSender<Response>, resp: Response) -> bool {
     out_tx.try_send(resp).is_ok()
 }
 
-/// Drains `out_rx` into `stream` until shutdown or write failure, then marks client dead.
+/// Drains `out_rx` into `stream` until the session drops `out_tx` or `alive` clears.
 fn run_client_writer(
     mut stream: UnixStream,
     out_rx: Receiver<Response>,
     alive: Arc<AtomicBool>,
-    server_stop: Arc<AtomicBool>,
 ) {
-    while alive.load(Ordering::Acquire) && !server_stop.load(Ordering::Acquire) {
+    while alive.load(Ordering::Acquire) {
         match out_rx.recv_timeout(CLIENT_READ_TIMEOUT) {
             Ok(resp) => {
                 if write_message(&mut stream, &resp).is_err() {

@@ -10,8 +10,8 @@ use clap::{Parser, error::ErrorKind};
 
 /// Config, schema, filter, L7, and CLI types under test.
 use zapret_rs::config::{
-    AppConfig, CliArgs, ConfigError, L7Payload, L7Proto, LuaInitEntry, PacketRange,
-    ProfileMatchInput, l7_payload_matches, resolve_config,
+    AppConfig, CliArgs, ConfigError, ControlSocketConfig, L7Payload, L7Proto, LuaInitEntry,
+    PacketRange, ProfileMatchInput, l7_payload_matches, resolve_config,
 };
 /// IP protocol numbers used to verify cross-L4 `filter_defaults` denial.
 use zapret_rs::packet::constants::{IPPROTO_ICMP, IPPROTO_TCP, IPPROTO_UDP};
@@ -375,5 +375,39 @@ fn cli_m3_flags_override_toml_settings() {
     ])
     .expect("CLI syntax valid");
     assert!(matches!(resolve_config(&err_cli), Err(ConfigError::Validation(_))));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Verifies `control_socket` and `control_pass_sample` TOML fields and CLI overrides.
+#[test]
+fn control_socket_and_sample_rate_parse_from_toml_and_cli() {
+    let dir = unique_temp_dir("ctl-cfg");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create temp dir");
+    let toml_path = dir.join("ctl.toml");
+    fs::write(
+        &toml_path,
+        "control_socket = \"run/custom.sock\"\ncontrol_pass_sample = 7\n",
+    )
+    .expect("write ctl toml");
+
+    let cfg = AppConfig::from_toml_file(&toml_path).expect("parse ctl toml");
+    assert_eq!(cfg.control_socket, ControlSocketConfig::Custom(dir.join("run/custom.sock")));
+    assert_eq!(cfg.control_pass_sample, 7);
+
+    let off_cli = CliArgs::try_parse_from([
+        "nfqws2",
+        "--config",
+        toml_path.to_str().expect("utf8 path"),
+        "--control-socket=off",
+        "--control-pass-sample=0",
+    ])
+    .expect("CLI parses");
+    let resolved = resolve_config(&off_cli).expect("resolve off override");
+    assert_eq!(resolved.control_socket, ControlSocketConfig::Disabled);
+    assert_eq!(resolved.control_pass_sample, 0);
+
+    let default_cfg = AppConfig::from_toml_str("control_socket = true\n", None).expect("default true");
+    assert_eq!(default_cfg.control_socket, ControlSocketConfig::Default);
     let _ = fs::remove_dir_all(&dir);
 }

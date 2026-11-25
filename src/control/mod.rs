@@ -31,5 +31,8 @@ pub use protocol::{
 };
 /// Re-exported Unix control socket server and configuration.
 pub use server::{ControlServer, ControlServerConfig};
-/// Re-exported socket binding error types.
-pub use socket::ControlServerError;
+/// Re-exported socket binding error types and path/directory helpers.
+pub use socket::{
+    ControlServerError, DEFAULT_SYSTEM_CONTROL_SOCKET, control_socket_candidates,
+    default_control_socket_path, prepare_control_socket_dir, resolve_control_socket_path,
+};

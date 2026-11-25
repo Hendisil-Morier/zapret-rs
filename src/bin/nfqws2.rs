@@ -6,12 +6,17 @@ use std::cell::RefCell;
 use std::fs::File;
 /// Classification of `EACCES`/`EPERM` when skipping raw socket preinit in `--intercept=0` mode.
 use std::io::ErrorKind;
-/// Path buffer carried inside file I/O diagnostics for missing Lua scripts.
-use std::path::PathBuf;
+/// Path buffer carried inside file I/O diagnostics and control socket setup.
+use std::path::{Path, PathBuf};
 /// Process exit status code allowing deterministic RAII cleanup before termination.
 use std::process::ExitCode;
 /// Reference counting for injecting [`RawSender`] into [`DesyncEngine`].
 use std::rc::Rc;
+/// Shared lock-free telemetry hub and atomic stop-flag updates.
+use std::sync::{
+    Arc,
+    atomic::Ordering,
+};
 /// Poll timeout duration derived from the active timer pool deadline.
 use std::time::Duration;
 
@@ -22,6 +27,11 @@ use thiserror::Error;
 
 /// CLI arguments, config resolution, error wrapper, and Lua startup entry variants.
 use zapret_rs::config::{AppConfig, CliArgs, ConfigError, LuaInitEntry, resolve_config};
+/// Unix control socket server, telemetry hub, command channel, and directory helpers.
+use zapret_rs::control::{
+    ControlCommand, ControlServer, ControlServerConfig, ControlServerError, DaemonStatusMeta,
+    TelemetryHub, prepare_control_socket_dir, resolve_control_socket_path,
+};
 /// Core stateful DPI desync engine and list-file startup validation helper.
 use zapret_rs::desync::{DesyncEngine, verify_config_list_files};
 /// Linux NFQUEUE interception listener and poll error type.
@@ -38,8 +48,13 @@ use zapret_rs::runtime::{
 };
 /// Monotonic boottime clock, scheduled timer pool, and `--intercept=0` execution loop.
 use zapret_rs::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_with_tick};
+/// Shared packet counters and L3/L4/L7 packet record builder for control subscribers.
+use zapret_rs::telemetry::{PacketCounters, build_packet_record};
 /// Built-in strategy finder dispatch invoked when `--strat-finder` is passed on the CLI.
 use zapret_rs::tools::{extract_strat_finder_args, run_strat_finder_cli};
+
+/// Maximum poll timeout when the control socket is active so commands execute promptly.
+const CONTROL_LOOP_TIMEOUT_CAP: Duration = Duration::from_millis(50);
 
 /// Unified error type surfaced cleanly from `main()` with contextual diagnostics.
 #[derive(Debug, Error)]
@@ -47,6 +62,9 @@ enum DaemonError {
     /// CLI parsing or TOML validation failure.
     #[error("{0}")]
     Config(#[from] ConfigError),
+    /// Unix domain control socket setup or binding failure.
+    #[error("{0}")]
+    Control(#[from] ControlServerError),
     /// Failure during `chdir`, UID/user resolution, PID file creation, capability setup, daemonize, or signals.
     #[error("{0}")]
     Process(#[from] ProcessError),
@@ -107,9 +125,14 @@ fn check_sighup_reload(engine: &DesyncEngine, debug: bool) {
     }
 }
 
-/// Runs SIGHUP inspection, periodic Lua GC, and expired timer callbacks, returning the next `poll()` wait.
-fn next_loop_timeout(engine: &DesyncEngine, debug: bool) -> Option<Duration> {
+/// Runs SIGHUP inspection, control commands, Lua GC, and expired timer callbacks.
+fn next_loop_timeout(
+    engine: &DesyncEngine,
+    hub: Option<&TelemetryHub>,
+    debug: bool,
+) -> Option<Duration> {
     check_sighup_reload(engine, debug);
+    drain_control_commands(engine, hub, debug);
     let now = boottime_ms();
     engine.runtime().do_gc(now);
     let deadline = TimerPool::run_expired(
@@ -117,7 +140,74 @@ fn next_loop_timeout(engine: &DesyncEngine, debug: bool) -> Option<Duration> {
         engine.runtime().lua(),
         now,
     );
-    duration_until(deadline, boottime_ms())
+    let wait = duration_until(deadline, boottime_ms());
+    if hub.is_some() {
+        Some(wait.map_or(CONTROL_LOOP_TIMEOUT_CAP, |d| d.min(CONTROL_LOOP_TIMEOUT_CAP)))
+    } else {
+        wait
+    }
+}
+
+/// Drains non-blocking control requests queued by connected Unix socket clients.
+fn drain_control_commands(engine: &DesyncEngine, hub: Option<&TelemetryHub>, debug: bool) {
+    let Some(active_hub) = hub else {
+        return;
+    };
+    while let Some(cmd) = active_hub.try_recv_command() {
+        match cmd {
+            ControlCommand::ReloadLists { reply } => {
+                engine.reload_lists();
+                if debug {
+                    eprintln!("nfqws2: control reload_lists completed");
+                }
+                let _ = reply.send(Ok("reloaded hostlist and ipset files".to_owned()));
+            }
+            ControlCommand::Stop { reply } => {
+                quit_flag().store(true, Ordering::Release);
+                if debug {
+                    eprintln!("nfqws2: control stop requested");
+                }
+                let _ = reply.send(Ok("stopping nfqws2".to_owned()));
+            }
+        }
+    }
+}
+
+/// Collects readable display labels for active desync profiles in `engine`.
+fn collect_profile_names(engine: &DesyncEngine) -> Vec<String> {
+    engine
+        .profiles()
+        .iter()
+        .map(|p| p.name.clone().unwrap_or_else(|| format!("profile#{}", p.index)))
+        .collect()
+}
+
+/// Starts the Unix control socket server after daemonization and privilege drop when configured.
+fn maybe_start_control_server(
+    socket_path: Option<&Path>,
+    config: &AppConfig,
+    engine: &DesyncEngine,
+    config_path: Option<&Path>,
+) -> Result<(Option<Arc<TelemetryHub>>, Option<ControlServer>), DaemonError> {
+    let Some(path) = socket_path else {
+        return Ok((None, None));
+    };
+    let meta = DaemonStatusMeta {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        pid: std::process::id(),
+        qnum: config.qnum,
+        fwmark: config.fwmark,
+        intercept: config.intercept,
+        profile_names: collect_profile_names(engine),
+        config_path: config_path.map(|p| p.display().to_string()),
+    };
+    let hub = TelemetryHub::new(Arc::new(PacketCounters::default()), meta, config.control_pass_sample);
+    let srv_cfg = ControlServerConfig::new(path.to_path_buf(), env!("CARGO_PKG_VERSION"));
+    let srv = ControlServer::start(srv_cfg, Arc::clone(&hub))?;
+    if config.debug {
+        eprintln!("nfqws2: control socket listening at {}", srv.socket_path().display());
+    }
+    Ok((Some(hub), Some(srv)))
 }
 
 /// Executes the `nfqws2` startup pipeline (`chdir`, identity, `preinit`, `droproot`, signals) and event loop.
@@ -143,11 +233,20 @@ fn run() -> Result<(), DaemonError> {
         return Ok(());
     }
 
+    let control_socket_path =
+        resolve_control_socket_path(&config.control_socket, config.intercept);
+
     if let Some(writable_cfg) = &config.writable {
         let writable_dir = prepare_writable_dir(writable_cfg, identity.as_ref())?;
         if config.debug {
             eprintln!("nfqws2: LUA writable dir: {}", writable_dir.display());
         }
+    }
+
+    if let Some(ref sock_path) = control_socket_path {
+        let uid = identity.as_ref().map(|id| id.uid);
+        let gid = identity.as_ref().and_then(|id| id.gids.first().copied());
+        prepare_control_socket_dir(sock_path, uid, gid)?;
     }
 
     // Create/truncate PID file and open raw sockets prior to dropping root privileges.
@@ -189,10 +288,20 @@ fn run() -> Result<(), DaemonError> {
             guard.write_current_pid()?;
         }
         let engine = DesyncEngine::with_sender(&config, sender)?;
+        let (hub, control_server) = maybe_start_control_server(
+            control_socket_path.as_deref(),
+            &config,
+            &engine,
+            cli.config.as_deref(),
+        )?;
         let debug = config.debug;
         run_no_intercept_with_tick(engine.runtime().timer_pool(), engine.runtime(), quit_flag(), || {
             check_sighup_reload(&engine, debug);
+            drain_control_commands(&engine, hub.as_deref(), debug);
         });
+        if let Some(srv) = control_server {
+            srv.shutdown();
+        }
         return Ok(());
     }
 
@@ -204,13 +313,34 @@ fn run() -> Result<(), DaemonError> {
     if let Some(guard) = pid_guard.as_mut() {
         guard.write_current_pid()?;
     }
+    let (hub, control_server) = maybe_start_control_server(
+        control_socket_path.as_deref(),
+        &config,
+        &engine,
+        cli.config.as_deref(),
+    )?;
 
     let debug = config.debug;
-    catcher.run_until(
+    let loop_result = catcher.run_until(
         quit_flag(),
-        || next_loop_timeout(&engine, debug),
-        |pkt| engine.process_packet(pkt),
-    )?;
+        || next_loop_timeout(&engine, hub.as_deref(), debug),
+        |pkt| {
+            if let Some(ref active_hub) = hub {
+                let (decision, outcome) = engine.process_packet_traced(pkt);
+                let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
+                if active_hub.should_publish(verdict) {
+                    active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
+                }
+                decision
+            } else {
+                engine.process_packet(pkt)
+            }
+        },
+    );
+    if let Some(srv) = control_server {
+        srv.shutdown();
+    }
+    loop_result?;
     Ok(())
 }
 

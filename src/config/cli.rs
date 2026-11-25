@@ -12,10 +12,12 @@ use crate::config::error::ConfigError;
 use crate::config::filter::parse_u32_radix;
 /// L7 payload disable list parser for `--payload-disable` and `--reasm-disable`.
 use crate::config::l7::parse_l7_disable_mask;
-/// Validated application configuration, Lua init source variants, and writable directory mode.
+/// Validated application configuration, Lua init variants, and writable mode.
 use crate::config::model::{AppConfig, LuaInitEntry, WritableDirConfig};
 /// Conntrack `S:E:F[:U]` timeout parser for `--ctrack-timeouts`.
 use crate::config::runtime_cfg::parse_timeouts;
+/// Shared `control_socket` string parser reused across TOML and `--control-socket`.
+use crate::config::schema::parse_control_socket_str;
 
 /// Parses `--fwmark` from decimal or `0x` hex notation for `clap`.
 fn parse_fwmark_arg(raw: &str) -> Result<u32, String> {
@@ -108,6 +110,12 @@ pub struct CliArgs {
     /// Create a writable directory for Lua scripts (`$TMPDIR/zapret-rs` or `/tmp/zapret-rs` by default) and export `WRITABLE`.
     #[arg(long = "writable", num_args = 0..=1, default_missing_value = "")]
     pub writable: Option<String>,
+    /// Unix control socket path override (`"off"` disables, `"default"` uses runtime dir default).
+    #[arg(long = "control-socket")]
+    pub control_socket: Option<String>,
+    /// PASS telemetry sampling divisor (`1` in N forwarded to subscribers, `0` disables PASS).
+    #[arg(long = "control-pass-sample")]
+    pub control_pass_sample: Option<u64>,
     /// Append Lua startup script (`@path` for file, otherwise inline Lua source).
     #[arg(long = "lua-init")]
     pub lua_init: Vec<String>,
@@ -189,6 +197,12 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError> {
         } else {
             WritableDirConfig::Custom(PathBuf::from(trimmed))
         });
+    }
+    if let Some(raw_ctrl) = &cli.control_socket {
+        cfg.control_socket = parse_control_socket_str(raw_ctrl, None)?;
+    }
+    if let Some(sample) = cli.control_pass_sample {
+        cfg.control_pass_sample = sample;
     }
     for entry in &cli.lua_init {
         if let Some(path) = entry.strip_prefix('@') {

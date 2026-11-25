@@ -3,6 +3,11 @@
 /// Atomic 64-bit counters and relaxed ordering for low-overhead hot-path increments.
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Desync engine per-packet outcome classification mapped to [`PacketVerdict`].
+use crate::desync::PacketOutcome;
+/// High-level packet outcome tag returned alongside incremented sequence numbers.
+use crate::telemetry::record::PacketVerdict;
+
 /// Lock-free packet outcome counters shared across the packet loop, IPC hub, and TUI.
 #[derive(Debug, Default)]
 pub struct PacketCounters {
@@ -37,5 +42,29 @@ impl PacketCounters {
         self.reassembled.store(0, Ordering::Relaxed);
         self.modified.store(0, Ordering::Relaxed);
         self.desynced.store(0, Ordering::Relaxed);
+    }
+
+    /// Increments `total` and the bucket matching `outcome`, returning `(seq, verdict)`.
+    pub fn record_outcome(&self, outcome: &PacketOutcome) -> (u64, PacketVerdict) {
+        let seq = self.total.fetch_add(1, Ordering::Relaxed) + 1;
+        let verdict = match outcome {
+            PacketOutcome::Pass => {
+                self.passed.fetch_add(1, Ordering::Relaxed);
+                PacketVerdict::Pass
+            }
+            PacketOutcome::Reasm => {
+                self.reassembled.fetch_add(1, Ordering::Relaxed);
+                PacketVerdict::Reasm
+            }
+            PacketOutcome::Modify(_) => {
+                self.modified.fetch_add(1, Ordering::Relaxed);
+                PacketVerdict::Modify
+            }
+            PacketOutcome::Desync(_) => {
+                self.desynced.fetch_add(1, Ordering::Relaxed);
+                PacketVerdict::Desync
+            }
+        };
+        (seq, verdict)
     }
 }

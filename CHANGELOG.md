@@ -4,6 +4,12 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Daemon Control Socket Server (`nfqws2`):** Added local Unix domain socket IPC (`src/control`) authenticated via `0600` permissions and `SO_PEERCRED` same-UID verification, exposing `hello`, `status`, `subscribe`/`unsubscribe`, `reload_lists`, and `stop` over newline-delimited JSON. Added `--control-socket <PATH|off|default>` (`control_socket` in TOML, defaulting to `$XDG_RUNTIME_DIR/zapret-rs/control.sock` or `/run/zapret-rs/control.sock`) and `--control-pass-sample <N>` (`control_pass_sample` in TOML, defaulting to `20`).
+
 ## [1.0.1] - 2026-11-25
 
 ### Security

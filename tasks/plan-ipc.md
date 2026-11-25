@@ -43,7 +43,7 @@ See `tasks/todo-ipc.md` for acceptance criteria and verification steps.
 
 ### Phase 2: Daemon side
 - [x] Task 7.3: Control server (Unix socket, peer-uid check, subscriptions)
-- [ ] Task 7.4: `nfqws2` integration (`--control-socket`, hub, stop and reload-lists commands)
+- [x] Task 7.4: `nfqws2` integration (`--control-socket`, hub, stop and reload-lists commands)
 
 ### Checkpoint A: Daemon exposes status and stop over a real socket
 

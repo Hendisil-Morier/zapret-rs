@@ -43,8 +43,8 @@ pub use l7::{
 };
 /// Re-exported validated runtime configuration and profile/action structs.
 pub use model::{
-    AppConfig, DEFAULT_LUA_GC_INTERVAL, DesyncAction, DesyncProfile, LuaInitEntry,
-    ProfileMatchInput, WritableDirConfig,
+    AppConfig, ControlSocketConfig, DEFAULT_LUA_GC_INTERVAL, DesyncAction, DesyncProfile,
+    LuaInitEntry, ProfileMatchInput, WritableDirConfig,
 };
 /// Re-exported packet position and range filter primitives.
 pub use range::{PacketPos, PacketPosMode, PacketRange};
