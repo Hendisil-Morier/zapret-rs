@@ -84,34 +84,114 @@ pub fn rank_matches(matches: &mut [StrategyMatch]) {
     });
 }
 
+/// Maps [`ProbeProtocol`] to its runtime `nfqws2` profile bucket (`tls12` and `tls13` share TLS).
+const fn runtime_bucket_key(proto: ProbeProtocol) -> u8 {
+    match proto {
+        ProbeProtocol::Http => 0,
+        ProbeProtocol::Tls12 | ProbeProtocol::Tls13 => 1,
+        ProbeProtocol::Http3 => 2,
+    }
+}
+
+/// Extracts the protocol-agnostic strategy suffix (after the first `':'`, e.g. `"ipv4:multisplit:2"`).
+fn strategy_runtime_key(spec: &StrategySpec) -> &str {
+    spec.id.split_once(':').map_or(spec.id.as_str(), |(_, rest)| rest)
+}
+
+/// Merges per-domain matches that share one runtime `nfqws2` filter bucket (such as `tls12` + `tls13`).
+///
+/// When both TLS 1.2 and TLS 1.3 succeeded for a domain, keeps strategies that passed both (with
+/// mean latency) so one profile serves both versions; if disjoint, prefers TLS 1.3 over TLS 1.2 so
+/// a TLS 1.2 profile never shadows TLS 1.3 on identical `filter_l7 = ["tls"]` rules.
+fn merge_domain_bucket_matches(entries: &[&DomainStrategies]) -> Vec<StrategyMatch> {
+    if entries.len() == 1 {
+        return entries[0].matches.clone();
+    }
+    let mut per_entry: Vec<BTreeMap<&str, (&StrategySpec, u64)>> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let mut map: BTreeMap<&str, (&StrategySpec, u64)> = BTreeMap::new();
+        for m in &entry.matches {
+            let key = strategy_runtime_key(&m.strategy);
+            map.entry(key)
+                .and_modify(|(_, lat)| *lat = (*lat).min(m.latency_ms))
+                .or_insert((&m.strategy, m.latency_ms));
+        }
+        per_entry.push(map);
+    }
+
+    let mut shared = Vec::new();
+    for (&key, &(first_spec, first_lat)) in &per_entry[0] {
+        let mut lat_sum = first_lat;
+        let mut best_spec = first_spec;
+        let mut all_hit = true;
+        for other in &per_entry[1..] {
+            if let Some(&(spec, lat)) = other.get(key) {
+                lat_sum = lat_sum.saturating_add(lat);
+                if spec.proto == ProbeProtocol::Tls13 {
+                    best_spec = spec;
+                }
+            } else {
+                all_hit = false;
+                break;
+            }
+        }
+        if all_hit {
+            shared.push(StrategyMatch {
+                strategy: best_spec.clone(),
+                latency_ms: lat_sum / (per_entry.len() as u64),
+            });
+        }
+    }
+    if !shared.is_empty() {
+        return shared;
+    }
+
+    entries
+        .iter()
+        .find(|e| e.proto == ProbeProtocol::Tls13)
+        .unwrap_or(&entries[0])
+        .matches
+        .clone()
+}
+
 /// Selects a minimal set of [`CoveredProfile`] entries covering all domains with passing strategies.
 ///
-/// Domains are grouped by `(proto, ipv)` bucket so TCP HTTP, TLS, and QUIC UDP profiles remain
-/// separated. Within each bucket, a greedy set cover repeatedly chooses the strategy covering the
-/// most uncovered domains, breaking ties by lowest complexity weight, then lowest mean latency,
-/// then lexicographic strategy ID.
+/// Domains are grouped by runtime `(L7Proto, ipv)` bucket so TCP HTTP, TLS, and QUIC UDP profiles
+/// remain separated while TLS 1.2 and TLS 1.3 merge into one non-shadowing TLS profile per domain.
+/// Within each bucket, a greedy set cover repeatedly chooses the strategy covering the most
+/// uncovered domains, breaking ties by lowest complexity weight, then lowest mean latency, then
+/// lexicographic runtime strategy key.
 pub fn select_minimal_cover(results: &[DomainStrategies]) -> Vec<CoveredProfile> {
-    let mut buckets: BTreeMap<(ProbeProtocol, IpFamily), Vec<&DomainStrategies>> = BTreeMap::new();
+    let mut buckets: BTreeMap<(u8, IpFamily), BTreeMap<String, Vec<&DomainStrategies>>> =
+        BTreeMap::new();
     for entry in results {
         if !entry.matches.is_empty() {
-            buckets.entry((entry.proto, entry.ipv)).or_default().push(entry);
+            buckets
+                .entry((runtime_bucket_key(entry.proto), entry.ipv))
+                .or_default()
+                .entry(entry.domain.clone())
+                .or_default()
+                .push(entry);
         }
     }
 
     let mut covered = Vec::new();
-    for ((_proto, _ipv), entries) in buckets {
-        let mut uncovered: BTreeSet<String> =
-            entries.iter().map(|e| e.domain.clone()).collect();
-        // Map strategy ID -> (StrategySpec, domain -> best latency_ms).
+    for ((_bucket, _ipv), by_domain) in buckets {
+        let mut uncovered: BTreeSet<String> = by_domain.keys().cloned().collect();
+        // Map runtime key -> (StrategySpec, domain -> best latency_ms).
         let mut candidates: BTreeMap<String, (StrategySpec, BTreeMap<String, u64>)> =
             BTreeMap::new();
-        for entry in &entries {
-            for m in &entry.matches {
-                let (_, dom_map) = candidates
-                    .entry(m.strategy.id.clone())
+        for (domain, entries) in &by_domain {
+            for m in merge_domain_bucket_matches(entries) {
+                let key = strategy_runtime_key(&m.strategy).to_owned();
+                let (spec_slot, dom_map) = candidates
+                    .entry(key)
                     .or_insert_with(|| (m.strategy.clone(), BTreeMap::new()));
+                if m.strategy.proto == ProbeProtocol::Tls13 && spec_slot.proto != ProbeProtocol::Tls13 {
+                    *spec_slot = m.strategy;
+                }
                 dom_map
-                    .entry(entry.domain.clone())
+                    .entry(domain.clone())
                     .and_modify(|lat| *lat = (*lat).min(m.latency_ms))
                     .or_insert(m.latency_ms);
             }
@@ -119,7 +199,7 @@ pub fn select_minimal_cover(results: &[DomainStrategies]) -> Vec<CoveredProfile>
 
         while !uncovered.is_empty() {
             let mut best_pick: Option<(usize, u32, u64, String, Vec<String>)> = None;
-            for (id, (spec, dom_map)) in &candidates {
+            for (key, (spec, dom_map)) in &candidates {
                 let mut hits = Vec::new();
                 let mut lat_sum = 0u64;
                 for dom in &uncovered {
@@ -135,25 +215,25 @@ pub fn select_minimal_cover(results: &[DomainStrategies]) -> Vec<CoveredProfile>
                 let avg_lat = lat_sum / (count as u64);
                 let is_better = match &best_pick {
                     None => true,
-                    Some((b_cnt, b_w, b_lat, b_id, _)) => {
+                    Some((b_cnt, b_w, b_lat, b_key, _)) => {
                         count > *b_cnt
                             || (count == *b_cnt
-                                && (spec.weight, avg_lat, id.as_str())
-                                    < (*b_w, *b_lat, b_id.as_str()))
+                                && (spec.weight, avg_lat, key.as_str())
+                                    < (*b_w, *b_lat, b_key.as_str()))
                     }
                 };
                 if is_better {
-                    best_pick = Some((count, spec.weight, avg_lat, id.clone(), hits));
+                    best_pick = Some((count, spec.weight, avg_lat, key.clone(), hits));
                 }
             }
 
-            let Some((_, _, avg_latency_ms, best_id, domains)) = best_pick else {
+            let Some((_, _, avg_latency_ms, best_key, domains)) = best_pick else {
                 break;
             };
             for dom in &domains {
                 uncovered.remove(dom);
             }
-            if let Some((strategy, _)) = candidates.get(&best_id) {
+            if let Some((strategy, _)) = candidates.get(&best_key) {
                 covered.push(CoveredProfile {
                     strategy: strategy.clone(),
                     domains,
@@ -177,9 +257,7 @@ fn toml_quote(raw: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if c.is_control() => {
-                let _ = write!(out, "\\u{:04X}", c as u32);
-            }
+            c if c.is_control() => { let _ = write!(out, "\\u{:04X}", c as u32); }
             c => out.push(c),
         }
     }
@@ -198,49 +276,24 @@ fn format_packet_pos(pos: PacketPos) -> String {
 
 /// Formats a [`PacketRange`] into canonical `nfqws2` range syntax parseable by [`PacketRange::parse`].
 fn format_packet_range(range: PacketRange) -> String {
-    if range == PacketRange::NEVER {
-        return "x".to_owned();
-    }
-    if range == PacketRange::ALWAYS {
-        return "a".to_owned();
-    }
+    if range == PacketRange::NEVER { return "x".to_owned(); }
+    if range == PacketRange::ALWAYS { return "a".to_owned(); }
     let sep = if range.upper_cutoff { '<' } else { '-' };
-    if range.from == PacketPos::ALWAYS {
-        return format!("{sep}{}", format_packet_pos(range.to));
-    }
-    if range.to == PacketPos::ALWAYS {
-        return format!("{}{sep}", format_packet_pos(range.from));
-    }
-    format!(
-        "{}{sep}{}",
-        format_packet_pos(range.from),
-        format_packet_pos(range.to)
-    )
+    if range.from == PacketPos::ALWAYS { return format!("{sep}{}", format_packet_pos(range.to)); }
+    if range.to == PacketPos::ALWAYS { return format!("{}{sep}", format_packet_pos(range.from)); }
+    format!("{}{sep}{}", format_packet_pos(range.from), format_packet_pos(range.to))
 }
 
 /// Known `L7Payload` variants inspected when converting a `payload_mask` back into TOML strings.
 const KNOWN_PAYLOADS: &[L7Payload] = &[
-    L7Payload::Empty,
-    L7Payload::HttpReq,
-    L7Payload::HttpReply,
-    L7Payload::TlsClientHello,
-    L7Payload::TlsServerHello,
-    L7Payload::QuicInitial,
-    L7Payload::DnsQuery,
-    L7Payload::DnsResponse,
+    L7Payload::Empty, L7Payload::HttpReq, L7Payload::HttpReply, L7Payload::TlsClientHello,
+    L7Payload::TlsServerHello, L7Payload::QuicInitial, L7Payload::DnsQuery, L7Payload::DnsResponse,
 ];
 
 /// Converts an action's `payload_mask` into TOML payload names (`empty` slice means `"all"`).
 fn payload_names(mask: u64) -> Vec<&'static str> {
-    if mask == 0 {
-        return Vec::new();
-    }
-    KNOWN_PAYLOADS
-        .iter()
-        .copied()
-        .filter(|p| (mask & p.bit()) != 0)
-        .map(L7Payload::as_str)
-        .collect()
+    if mask == 0 { return Vec::new(); }
+    KNOWN_PAYLOADS.iter().copied().filter(|p| (mask & p.bit()) != 0).map(L7Payload::as_str).collect()
 }
 
 /// Appends one `[[profiles.actions]]` block to `out`.
@@ -253,27 +306,15 @@ fn write_action_toml(out: &mut String, action: &DesyncAction) {
         let _ = writeln!(out, "payload = [{}]", joined.join(", "));
     }
     if action.in_range != PacketRange::NEVER {
-        let _ = writeln!(
-            out,
-            "in_range = {}",
-            toml_quote(&format_packet_range(action.in_range))
-        );
+        let _ = writeln!(out, "in_range = {}", toml_quote(&format_packet_range(action.in_range)));
     }
     if action.out_range != PacketRange::ALWAYS {
-        let _ = writeln!(
-            out,
-            "out_range = {}",
-            toml_quote(&format_packet_range(action.out_range))
-        );
+        let _ = writeln!(out, "out_range = {}", toml_quote(&format_packet_range(action.out_range)));
     }
     if !action.args.is_empty() {
         out.push_str("[profiles.actions.args]\n");
         for (key, val) in &action.args {
-            if val.is_empty() {
-                let _ = writeln!(out, "{key} = true");
-            } else {
-                let _ = writeln!(out, "{key} = {}", toml_quote(val));
-            }
+            if val.is_empty() { let _ = writeln!(out, "{key} = true"); } else { let _ = writeln!(out, "{key} = {}", toml_quote(val)); }
         }
     }
     out.push('\n');

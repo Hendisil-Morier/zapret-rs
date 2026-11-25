@@ -244,6 +244,67 @@ fn minimal_set_cover_selects_shared_simplest_fastest_profiles() {
     assert_eq!(cover[1].domains, vec!["c.example".to_owned()]);
 }
 
+/// Verifies `select_minimal_cover` merges `tls12` and `tls13` into one non-shadowing TLS profile
+/// per domain, choosing a strategy that passes both when available or preferring `tls13` when disjoint.
+#[test]
+fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing() {
+    let cat12 = build_catalog(ProbeProtocol::Tls12, ScanLevel::Standard, IpFamily::V4);
+    let cat13 = build_catalog(ProbeProtocol::Tls13, ScanLevel::Standard, IpFamily::V4);
+    let find = |cat: &[zapret_rs::tools::StrategySpec], suffix: &str| {
+        cat.iter()
+            .find(|s| s.id.ends_with(suffix))
+            .expect("strategy in catalog")
+            .clone()
+    };
+
+    // Shared case: `tls12` matched both `sniext+1` (faster) and `2`, while `tls13` only matched `2`.
+    // Must emit one profile using `multisplit:2` so TLS 1.3 is never shadowed by `sniext+1`.
+    let shared_results = vec![
+        DomainStrategies {
+            domain: "store.steampowered.com".to_owned(),
+            proto: ProbeProtocol::Tls12,
+            ipv: IpFamily::V4,
+            matches: vec![
+                StrategyMatch { strategy: find(&cat12, "multisplit:sniext+1"), latency_ms: 100 },
+                StrategyMatch { strategy: find(&cat12, "multisplit:2"), latency_ms: 140 },
+            ],
+        },
+        DomainStrategies {
+            domain: "store.steampowered.com".to_owned(),
+            proto: ProbeProtocol::Tls13,
+            ipv: IpFamily::V4,
+            matches: vec![StrategyMatch { strategy: find(&cat13, "multisplit:2"), latency_ms: 160 }],
+        },
+    ];
+    let shared_cover = select_minimal_cover(&shared_results);
+    assert_eq!(shared_cover.len(), 1);
+    assert_eq!(shared_cover[0].strategy.id, "tls13:ipv4:multisplit:2");
+    assert_eq!(shared_cover[0].avg_latency_ms, 150);
+
+    // Disjoint case: `tls12` only matched `sniext+1`, `tls13` only matched `2`.
+    // Must emit one profile preferring `tls13` rather than letting `tls12` shadow it.
+    let disjoint_results = vec![
+        DomainStrategies {
+            domain: "store.steampowered.com".to_owned(),
+            proto: ProbeProtocol::Tls12,
+            ipv: IpFamily::V4,
+            matches: vec![StrategyMatch {
+                strategy: find(&cat12, "multisplit:sniext+1"),
+                latency_ms: 100,
+            }],
+        },
+        DomainStrategies {
+            domain: "store.steampowered.com".to_owned(),
+            proto: ProbeProtocol::Tls13,
+            ipv: IpFamily::V4,
+            matches: vec![StrategyMatch { strategy: find(&cat13, "multisplit:2"), latency_ms: 200 }],
+        },
+    ];
+    let disjoint_cover = select_minimal_cover(&disjoint_results);
+    assert_eq!(disjoint_cover.len(), 1);
+    assert_eq!(disjoint_cover[0].strategy.id, "tls13:ipv4:multisplit:2");
+}
+
 /// Verifies every Lua action function emitted by `build_catalog` exists in the sibling
 /// `zapret2/lua/zapret-antidpi.lua` script when present in the workspace.
 #[test]
