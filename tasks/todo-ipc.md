@@ -126,16 +126,16 @@ Plan: `tasks/plan-ipc.md`. Verification commands used throughout:
 **Description:** README section for the control socket with a sample systemd unit (`RuntimeDirectory=zapret-rs`, `User=`, `AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW`), CHANGELOG `1.1.0` heading consolidating entries written in earlier commits, version bump, annotated tag.
 
 **Acceptance criteria:**
-- [ ] `Cargo.toml` version is 1.1.0 and the changelog has Added/Changed entries
-- [ ] Tag `v1.1.0` created on `main` after merge (not pushed unless asked)
+- [x] `Cargo.toml` version is 1.1.0 and the changelog has Added/Changed entries
+- [x] Tag `v1.1.0` created on `main` after merge (not pushed unless asked)
 
 **Verification:**
-- [ ] Full test suite, lint, both builds, and `tests/repo_hygiene.rs` green
+- [x] Full test suite, lint, both builds, and `tests/repo_hygiene.rs` green
 
 **Dependencies:** 7.1-7.6
 **Files likely touched:** `README.md`, `CHANGELOG.md`, `Cargo.toml`, `Cargo.lock`
 **Estimated scope:** Small. Commit type: `chore`.
 
 ### Checkpoint C: Milestone 7 Complete
-- [ ] All acceptance criteria met
-- [ ] Ready for review and merge
+- [x] All acceptance criteria met
+- [x] Ready for review and merge

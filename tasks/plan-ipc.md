@@ -54,7 +54,7 @@ See `tasks/todo-ipc.md` for acceptance criteria and verification steps.
 ### Checkpoint B: TUI attaches to a running `nfqws2`, shows live packets, detaches and stops it
 
 ### Phase 4: Release
-- [ ] Task 7.7: README systemd example, CHANGELOG, 1.1.0 bump and tag
+- [x] Task 7.7: README systemd example, CHANGELOG, 1.1.0 bump and tag
 
 ## Git Workflow
 

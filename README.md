@@ -1,14 +1,15 @@
 # zapret-rs
 
-`zapret-rs` (`v1.0.1`) is a Linux Rust port of [`zapret2`](https://github.com/bol-van/zapret2), delivering a memory-safe `nfqws2` NFQUEUE DPI desync daemon, embedded LuaJIT runtime compatible with unmodified `zapret2/lua/*.lua` scripts, and the `ip2net` and `mdig` companion utilities.
+`zapret-rs` (`v1.1.0`) is a Linux Rust port of [`zapret2`](https://github.com/bol-van/zapret2), delivering a memory-safe `nfqws2` NFQUEUE DPI desync daemon, embedded LuaJIT runtime compatible with unmodified `zapret2/lua/*.lua` scripts, and the `ip2net` and `mdig` companion utilities.
 
 ## Binaries & Workspace Layout
 
 - **`nfqws2`** ([src/bin/nfqws2.rs](src/bin/nfqws2.rs)): Main NFQUEUE packet interception and Lua desync daemon.
+- **`zapret-rs`** ([src/bin/zapret_rs.rs](src/bin/zapret_rs.rs)): Interactive `ratatui` TUI (default run target) wrapping strategy discovery, config editing, live engine control, and daemon attach monitoring.
 - **`ip2net`** ([src/bin/ip2net.rs](src/bin/ip2net.rs)): Streaming IPv4/IPv6 address and CIDR subnet aggregator.
 - **`mdig`** ([src/bin/mdig.rs](src/bin/mdig.rs)): Multi-threaded DNS resolver and raw RFC 1035 query/reply tool.
 
-Core library subsystems live under [src/](src): `packet`, `rawsend`, `intercepter`, `config`, `conntrack`, `protocol`, `lists`, `desync`, `crypto`, `lua`, `timer`, `runtime`, and `tools`.
+Core library subsystems live under [src/](src): `packet`, `rawsend`, `intercepter`, `config`, `conntrack`, `protocol`, `lists`, `desync`, `crypto`, `lua`, `timer`, `runtime`, `telemetry`, `control`, `tools`, and `tui`.
 
 ## Building & Running Tests
 
@@ -129,3 +130,45 @@ sudo setcap cap_net_admin,cap_net_raw+ep ./target/release/nfqws2
 ```
 
 Every `curl` probe child clears all Linux capabilities and enables `PR_SET_NO_NEW_PRIVS` before `exec`, and `--write-config` refuses symlinks via `O_NOFOLLOW`. If invoked under `sudo`, `nfqws2 --strat-finder` automatically drops UID 0 back to `SUDO_UID`/`SUDO_GID` at startup.
+
+## Daemon Control Socket & TUI Attach Mode
+
+When intercepting packets, `nfqws2` exposes a local Unix domain stream socket (mode `0600`, verified via `SO_PEERCRED` so only the same user UID can connect). Resolution order:
+
+1. `--control-socket <PATH>` (CLI) or `control_socket` (TOML). Use `--control-socket=off` (or `control_socket = false`) to disable.
+2. `$XDG_RUNTIME_DIR/zapret-rs/control.sock` when `XDG_RUNTIME_DIR` is set.
+3. `/run/zapret-rs/control.sock` otherwise.
+
+Missing parent directories are created (`0700`) and chowned to `--user`/`--uid` prior to dropping privileges. Non-`PASS` verdicts (`REASM`, `MODIFY`, `DESYNC`) are always streamed to attached subscribers while `PASS` packets are sampled (`--control-pass-sample N` / `control_pass_sample`, default `20`, `0` disables `PASS` streaming).
+
+When a socket is present, launching `zapret-rs` (or `zapret-rs --control-socket <PATH>`) lets Tab 2 (`r`) attach without creating duplicate `nftables` rules:
+
+- `x` detaches while leaving `nfqws2` running.
+- `l` reloads daemon hostlist/ipset files.
+- `S` opens a confirmation prompt to stop the daemon cleanly.
+- `p` on Tab 3 pushes validated TOML profile changes live (`qnum`/`fwmark` changes are rejected with a restart prompt).
+
+### Sample `systemd` Unit (Unprivileged Service with Net Capabilities)
+
+Run the service under your desktop/operator user (replacing `alice`) so your user's `zapret-rs` TUI session passes `SO_PEERCRED` same-UID verification:
+
+```ini
+[Unit]
+Description=zapret-rs nfqws2 DPI Desync Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alice
+RuntimeDirectory=zapret-rs
+RuntimeDirectoryMode=0700
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=yes
+ExecStart=/usr/local/bin/nfqws2 --config /etc/zapret-rs/nfqws2.toml --control-socket /run/zapret-rs/control.sock
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
