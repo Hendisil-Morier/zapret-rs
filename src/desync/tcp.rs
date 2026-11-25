@@ -85,6 +85,7 @@ fn try_tcp_tls_reassembly(
     if let Some(delayed) = delayed_ready {
         replay_and_finish(engine, pkt.packet_id, ps.ctrack.as_ref(), delayed);
     }
+    engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
     Some(Decision::Drop)
 }
 

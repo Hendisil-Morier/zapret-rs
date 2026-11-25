@@ -22,6 +22,20 @@ use crate::packet::DissectedPacket;
 /// Monotonic boottime timestamp passed through from `DesyncEngine::process_packet`.
 use crate::timer::MonotonicTime;
 
+/// High-level reason behind an intercepted packet's kernel NFQUEUE [`crate::intercepter::Decision`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum PacketOutcome {
+    /// Passed unmodified by NFQUEUE (`Decision::Pass`).
+    #[default]
+    Pass,
+    /// Held or re-sent unmodified via raw socket during multi-segment TLS/QUIC reassembly.
+    Reasm,
+    /// Modified in-place by a matched desync profile (`Decision::Replace`), carrying its profile name.
+    Modify(Option<String>),
+    /// Replaced or dropped by a matched desync profile (e.g., `multisplit`), carrying its profile name.
+    Desync(Option<String>),
+}
+
 /// Contextual parameters distinguishing live packet handling from delayed-queue replay.
 pub(crate) struct ReplayContext<'a> {
     /// Zero-based index within an active replay batch.

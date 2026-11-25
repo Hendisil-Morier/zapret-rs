@@ -128,12 +128,20 @@ pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord) {
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(5), Constraint::Min(4), Constraint::Length(1)])
+        .constraints([Constraint::Length(6), Constraint::Min(4), Constraint::Length(1)])
         .split(inner);
 
+    let prof_line = match &rec.profile {
+        Some(name) => format!("Profile : {name}"),
+        None if rec.verdict == crate::tui::inspect::PacketVerdict::Reasm => {
+            "Profile : none (multi-segment TLS/QUIC reassembled & re-sent raw)".to_owned()
+        }
+        None => "Profile : none".to_owned(),
+    };
     let mut meta = vec![
         Line::from(format!("Flow    : {} {} -> {} (iface: {})", rec.direction, rec.src, rec.dst, rec.iface)),
         Line::from(format!("L3/Mark : {}  ttl={}  fwmark=0x{:08x}  payload={} bytes", rec.proto, rec.ttl, rec.fwmark, rec.payload_len)),
+        Line::from(prof_line),
         Line::from(format!("Info    : {}", rec.info)),
     ];
     if let Some(tcp) = &rec.tcp_detail {

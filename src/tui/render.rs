@@ -267,21 +267,20 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(ACCENT)).title(" Live nfqws2 Controller "));
     frame.render_widget(info, rows[0]);
 
-    let (total, passed, modified, dropped) = state.counters.snapshot();
+    let (total, passed, reasm, modified, desynced) = state.counters.snapshot();
     let metric_cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
+            Constraint::Percentage(20), Constraint::Percentage(20),
+            Constraint::Percentage(20), Constraint::Percentage(20), Constraint::Percentage(20),
         ])
         .split(rows[1]);
     for (idx, (title, val, col)) in [
-        (" Total Packets ", total, ACCENT),
+        (" Total ", total, ACCENT),
         (" Passed ", passed, OK_COLOR),
+        (" Reasm ", reasm, Color::Cyan),
         (" Modified ", modified, WARN_COLOR),
-        (" Dropped ", dropped, ERR_COLOR),
+        (" Desync ", desynced, Color::Magenta),
     ]
     .into_iter()
     .enumerate()

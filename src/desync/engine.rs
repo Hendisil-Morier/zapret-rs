@@ -14,8 +14,8 @@ use mlua::Value;
 use crate::config::{AppConfig, DesyncProfile};
 /// ICMP and non-TCP/UDP/ICMP raw IP packet processors.
 use crate::desync::icmp_ip::{process_icmp_packet, process_raw_ip_packet};
-/// Shared prolog state, replay metadata, and borrowed runtime service references.
-use crate::desync::play::{EngineServices, PlayState, ReplayContext};
+/// Shared prolog state, replay metadata, packet outcome tag, and borrowed runtime services.
+use crate::desync::play::{EngineServices, PacketOutcome, PlayState, ReplayContext};
 /// Deduplicated file registry, per-profile runtime hostlist/ipset state, and profile hot-swap.
 use crate::desync::profile_state::{ListRegistry, ProfileRuntime, build_swapped_profiles};
 /// Stateful TCP DPI desync processor (`process_tcp_packet`).
@@ -72,6 +72,8 @@ pub struct DesyncEngine {
     pub(crate) reasm_disable: u64,
     /// Optional debug log file appended on autohostlist failure events.
     pub(crate) hostlist_auto_debug: Option<PathBuf>,
+    /// High-level outcome recorded for the most recent packet (`Pass`, `Reasm`, `Modify`, `Desync`).
+    pub(crate) last_outcome: RefCell<PacketOutcome>,
 }
 
 impl DesyncEngine {
@@ -118,6 +120,7 @@ impl DesyncEngine {
             payload_disable: config.payload_disable,
             reasm_disable: config.reasm_disable,
             hostlist_auto_debug: config.hostlist_auto_debug.clone(),
+            last_outcome: RefCell::new(PacketOutcome::Pass),
         })
     }
 
@@ -167,11 +170,31 @@ impl DesyncEngine {
         }
     }
 
+    /// Upgrades `last_outcome` (`Pass` < `Reasm` < `Modify` < `Desync`) without downgrading replay hits.
+    pub(crate) fn record_outcome(&self, outcome: PacketOutcome) {
+        let mut slot = self.last_outcome.borrow_mut();
+        if matches!(
+            (&*slot, &outcome),
+            (PacketOutcome::Pass, _)
+                | (PacketOutcome::Reasm, PacketOutcome::Modify(_) | PacketOutcome::Desync(_))
+                | (PacketOutcome::Modify(_), PacketOutcome::Desync(_))
+        ) {
+            *slot = outcome;
+        }
+    }
+
     /// Processes one intercepted live packet and returns the kernel NFQUEUE [`Decision`].
     pub fn process_packet(&self, pkt: &QueuedPacket<'_>) -> Decision {
+        self.last_outcome.replace(PacketOutcome::Pass);
         let now = boottime_now();
         self.ipcache.borrow_mut().purge_rate_limited(now.sec);
         self.process_packet_play(&ReplayContext::live(), pkt, now)
+    }
+
+    /// Processes one live packet and returns both the kernel [`Decision`] and high-level [`PacketOutcome`].
+    pub fn process_packet_traced(&self, pkt: &QueuedPacket<'_>) -> (Decision, PacketOutcome) {
+        let decision = self.process_packet(pkt);
+        (decision, self.last_outcome.borrow().clone())
     }
 
     /// Dispatches one live or replayed packet through TCP, UDP, ICMP, or raw IP pipelines.
@@ -248,7 +271,15 @@ impl DesyncEngine {
         match self.try_run_profile(
             profile, instances, replay, pkt, dis, ps, pos_opt, reasm_data, decrypt_data,
         ) {
-            Ok(decision) => decision,
+            Ok(decision) => {
+                let label = || Some(profile.name.clone().unwrap_or_else(|| format!("profile #{}", profile.index)));
+                match &decision {
+                    Decision::Replace(_) => self.record_outcome(PacketOutcome::Modify(label())),
+                    Decision::Drop => self.record_outcome(PacketOutcome::Desync(label())),
+                    Decision::Pass => {}
+                }
+                decision
+            }
             Err(err) => {
                 eprintln!("desync ERROR: {err}. passing packet unmodified.");
                 Decision::Pass
@@ -292,54 +323,27 @@ impl DesyncEngine {
         let desync_tbl = {
             let track_ref = active_ctrack.as_ref().map(|rc| rc.borrow());
             let table_input = DesyncTableInput {
-                dis,
-                profile,
-                incoming: active_incoming,
-                ifin: pkt.ifin,
-                ifout: pkt.ifout,
-                fwmark: pkt.mark,
-                target_ip4: ps.target_ip4,
-                target_ip6: ps.target_ip6,
-                target_port: ps.target_port,
-                l7payload: ps.l7payload,
-                l7proto: ps.l7proto,
-                track: track_ref.as_deref(),
-                tpos: replay.tpos,
-                b_reverse: active_b_reverse,
-                replay_piece: replay.replay_piece,
-                replay_piece_count: replay.replay_piece_count,
-                reasm_offset: replay.reasm_offset,
-                reasm_data,
-                decrypt_data,
+                dis, profile, incoming: active_incoming, ifin: pkt.ifin, ifout: pkt.ifout,
+                fwmark: pkt.mark, target_ip4: ps.target_ip4, target_ip6: ps.target_ip6,
+                target_port: ps.target_port, l7payload: ps.l7payload, l7proto: ps.l7proto,
+                track: track_ref.as_deref(), tpos: replay.tpos, b_reverse: active_b_reverse,
+                replay_piece: replay.replay_piece, replay_piece_count: replay.replay_piece_count,
+                reasm_offset: replay.reasm_offset, reasm_data, decrypt_data,
             };
-            build_desync_table(lua, &table_input)
-                .map_err(|e| format!("failed to build desync table: {e}"))?
+            build_desync_table(lua, &table_input).map_err(|e| format!("failed to build desync table: {e}"))?
         };
-        let ctx_ud = self
-            .runtime
-            .desync_ctx_userdata()
-            .map_err(|e| format!("failed to fetch desync ctx userdata: {e}"))?;
+        let ctx_ud = self.runtime.desync_ctx_userdata().map_err(|e| format!("failed to fetch desync ctx userdata: {e}"))?;
         let globals = lua.globals();
 
         let mut verdict = VERDICT_PASS;
         for (idx, action) in profile.actions.iter().enumerate() {
             let func_n = (idx as u32) + 1;
             let instance = &instances[idx];
-            if !action_is_runnable(
-                action,
-                profile.index,
-                instance,
-                active_ctrack.as_ref(),
-                pos_opt.as_ref(),
-                active_incoming,
-                ps.l7payload,
-            ) {
+            if !action_is_runnable(action, profile.index, instance, active_ctrack.as_ref(), pos_opt.as_ref(), active_incoming, ps.l7payload) {
                 continue;
             }
 
-            let func_val = globals
-                .get::<Value>(action.func.as_str())
-                .map_err(|e| format!("failed to resolve '{}': {e}", action.func))?;
+            let func_val = globals.get::<Value>(action.func.as_str()).map_err(|e| format!("failed to resolve '{}': {e}", action.func))?;
             let Value::Function(func): Value = func_val else {
                 return Err(format!("desync function '{}' does not exist", action.func));
             };
@@ -357,22 +361,9 @@ impl DesyncEngine {
                 .and_then(|()| desync_tbl.raw_set("func_instance", instance.as_str()))
                 .map_err(|e| format!("failed to update desync table fields: {e}"))?;
 
-            let results = invoke_action_callback(
-                ctx_state,
-                &func,
-                &ctx_ud,
-                &desync_tbl,
-                func_n,
-                &action.func,
-                instance,
-            )?;
-
-            let action_verdict = parse_lua_verdict(&results)?;
-            verdict = aggregate_verdict(verdict, action_verdict);
-
-            if ctx_state.borrow().cancel {
-                break;
-            }
+            let results = invoke_action_callback(ctx_state, &func, &ctx_ud, &desync_tbl, func_n, &action.func, instance)?;
+            verdict = aggregate_verdict(verdict, parse_lua_verdict(&results)?);
+            if ctx_state.borrow().cancel { break; }
 
             if active_ctrack.is_none() {
                 let adopted = {

@@ -27,6 +27,8 @@ pub mod verdict;
 
 /// Re-exported stateful desync execution engine.
 pub use engine::DesyncEngine;
+/// Re-exported high-level packet outcome classification (`Pass`, `Reasm`, `Modify`, `Desync`).
+pub use play::PacketOutcome;
 /// Re-exported list/autohostlist startup and `--dry-run` validation helper.
 pub use profile_state::verify_config_list_files;
 /// Re-exported verdict aggregator and baseline L7 payload classifier.

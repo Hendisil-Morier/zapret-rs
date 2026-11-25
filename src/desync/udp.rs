@@ -113,6 +113,7 @@ fn process_quic_initial_flow(
                     } else if req_full {
                         delayed_ready = Some(std::mem::take(&mut entry.delayed));
                     } else {
+                        engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
                         return Err(Decision::Drop);
                     }
                 }
@@ -122,6 +123,7 @@ fn process_quic_initial_flow(
             }
             if let Some(delayed) = delayed_ready {
                 replay_and_finish(engine, pkt.packet_id, Some(ctrack_rc), delayed);
+                engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
                 return Err(Decision::Drop);
             }
         }
@@ -151,6 +153,7 @@ fn process_quic_initial_flow(
             started && queue_delayed_packet(&mut entry, pkt.payload, pkt.mark, pkt.ifin, pkt.ifout)
         };
         if queued {
+            engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
             return Err(Decision::Drop);
         }
     }

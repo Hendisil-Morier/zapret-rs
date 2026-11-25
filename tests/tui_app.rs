@@ -12,8 +12,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 /// Headless in-memory `ratatui` terminal backend for deterministic UI rendering tests.
 use ratatui::{Terminal, backend::TestBackend};
 
+/// Packet outcome classification used to test `REASM` vs `DESYNC` inspector badges.
+use zapret_rs::desync::PacketOutcome;
 /// Packet interception types used to test live packet inspector decoding.
-use zapret_rs::intercepter::{Decision, QueuedPacket};
+use zapret_rs::intercepter::QueuedPacket;
 /// Wire packet builders used to construct realistic IPv4+TCP HTTP packets.
 use zapret_rs::packet::{
     DissectedPacket, IPPROTO_TCP, Ipv4Header, ReconstructOptions, TH_ACK, TH_PUSH, TcpHeader,
@@ -191,9 +193,10 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
     let mut state = AppState::new(None, None, false);
     state.domains_input = "example.com".to_owned();
     state.counters.total.store(99, Ordering::Relaxed);
-    state.counters.passed.store(90, Ordering::Relaxed);
+    state.counters.passed.store(86, Ordering::Relaxed);
+    state.counters.reassembled.store(4, Ordering::Relaxed);
     state.counters.modified.store(7, Ordering::Relaxed);
-    state.counters.dropped.store(2, Ordering::Relaxed);
+    state.counters.desynced.store(2, Ordering::Relaxed);
 
     for &(w, h) in &[(120u16, 36u16), (80, 24)] {
         state.tab = ActiveTab::Finder;
@@ -259,50 +262,60 @@ fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
     let wire = reconstruct_packet(&dis, &ReconstructOptions::default()).expect("wire packet");
     let qpkt = QueuedPacket { packet_id: 1, mark: 0, ifin: None, ifout: Some("eth0"), payload: &wire };
 
-    let rec_drop = build_packet_record(1, &qpkt, &Decision::Drop);
-    assert_eq!(rec_drop.direction, "OUT");
-    assert_eq!(rec_drop.proto, "TCP");
-    assert_eq!(rec_drop.src, "192.168.1.10:51234");
-    assert_eq!(rec_drop.dst, "104.18.2.3:80");
-    assert_eq!(rec_drop.verdict, PacketVerdict::Drop);
-    assert!(rec_drop.info.contains("HTTP Host=store.steampowered.com"));
+    let desync_outcome = PacketOutcome::Desync(Some("tls13:ipv4:multisplit:2".to_owned()));
+    let rec_desync = build_packet_record(1, &qpkt, &desync_outcome);
+    assert_eq!(rec_desync.direction, "OUT");
+    assert_eq!(rec_desync.proto, "TCP");
+    assert_eq!(rec_desync.src, "192.168.1.10:51234");
+    assert_eq!(rec_desync.dst, "104.18.2.3:80");
+    assert_eq!(rec_desync.verdict, PacketVerdict::Desync);
+    assert_eq!(rec_desync.profile.as_deref(), Some("tls13:ipv4:multisplit:2"));
+    assert!(rec_desync.info.contains("HTTP Host=store.steampowered.com"));
+    assert!(rec_desync.info.contains("(tls13:ipv4:multisplit:2)"));
 
-    let dump = format_hex_dump(&rec_drop.payload_preview);
+    let dump = format_hex_dump(&rec_desync.payload_preview);
     assert!(dump[0].starts_with("0000: 47 45 54 20"));
     assert!(dump[0].contains("|GET / HTTP/1.1"));
 
     let mut state = AppState::new(None, None, false);
     state.tab = ActiveTab::Run;
-    state.inspector.push(rec_drop);
-    // Push 400 `PASS` packets after the `DROP` packet to ensure high-volume `PASS` traffic never
-    // evicts desynced packets from `MOD+DROP` / `DROP` views.
-    for seq in 2..=401 {
-        state.inspector.push(build_packet_record(seq, &qpkt, &Decision::Pass));
+    state.inspector.push(rec_desync);
+    // Push a `REASM` pass-through packet and 400 `PASS` packets to verify neither evicts `DESYNC`.
+    state.inspector.push(build_packet_record(2, &qpkt, &PacketOutcome::Reasm));
+    for seq in 3..=402 {
+        state.inspector.push(build_packet_record(seq, &qpkt, &PacketOutcome::Pass));
     }
     assert_eq!(state.inspector.packets.len(), 300);
     assert_eq!(state.inspector.desync_packets.len(), 1);
+    assert_eq!(state.inspector.reasm_packets.len(), 1);
 
-    // Filter to MOD+DROP -> packet #1 is still preserved and visible!
+    // Filter to DESYNC+MOD -> packet #1 is isolated from both `REASM` and `PASS`.
     assert_eq!(state.handle_key(key(KeyCode::Char('f'))), AppAction::None);
-    assert_eq!(state.inspector.filter, VerdictFilter::ModifiedOrDropped);
+    assert_eq!(state.inspector.filter, VerdictFilter::DesyncOnly);
     assert_eq!(state.inspector.selected_record().map(|r| r.seq), Some(1));
 
     // Pause capture -> subsequent pushed packets are ignored until resumed.
     assert_eq!(state.handle_key(key(KeyCode::Char('p'))), AppAction::None);
     assert!(state.inspector.paused);
-    state.inspector.push(build_packet_record(500, &qpkt, &Decision::Drop));
+    state.inspector.push(build_packet_record(500, &qpkt, &desync_outcome));
     assert_eq!(state.inspector.desync_packets.len(), 1);
 
-    // Open detail popup with 'd', verify it renders headers + hex dump, then close with Esc.
+    // Open detail popup with 'd', verify it renders profile + headers + hex dump, then close with Esc.
     assert_eq!(state.handle_key(key(KeyCode::Char('d'))), AppAction::None);
     assert!(state.inspector.detail_open);
     let screen = render_to_string(&state, 110, 32);
-    assert!(screen.contains("Packet #1 Detail [DROP]"));
+    assert!(screen.contains("Packet #1 Detail [DESYNC]"));
+    assert!(screen.contains("Profile : tls13:ipv4:multisplit:2"));
     assert!(screen.contains("store.steampowered.com"));
     assert!(screen.contains("0000: 47 45 54 20"));
 
     assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
     assert!(!state.inspector.detail_open);
+
+    // Next filter cycle shows only `REASM` pass-throughs (packet #2).
+    assert_eq!(state.handle_key(key(KeyCode::Char('f'))), AppAction::None);
+    assert_eq!(state.inspector.filter, VerdictFilter::ReasmOnly);
+    assert_eq!(state.inspector.selected_record().map(|r| r.seq), Some(2));
 }
 
 /// Verifies Tab 3 `e`/`Enter` triggers `AppAction::EditConfig`, starter TOML parses cleanly,

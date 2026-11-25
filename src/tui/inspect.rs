@@ -10,8 +10,10 @@ use crossterm::event::KeyCode;
 /// Terminal color mapping for verdict badges.
 use ratatui::style::Color;
 
-/// Kernel packet metadata and verdict decision recorded per intercepted packet.
-use crate::intercepter::{Decision, QueuedPacket};
+/// High-level packet outcome distinguishing reassembly pass-throughs from desync hits.
+use crate::desync::PacketOutcome;
+/// Kernel packet metadata recorded per intercepted packet.
+use crate::intercepter::QueuedPacket;
 /// L3/L4 wire packet dissector and TCP flag bitmasks.
 use crate::packet::{TH_ACK, TH_FIN, TH_PUSH, TH_RST, TH_SYN, TH_URG, dissect_packet};
 /// L7 protocol probes for TLS SNI, HTTP Host, QUIC Initial, and DNS labels.
@@ -25,49 +27,61 @@ const MAX_PAYLOAD_PREVIEW: usize = 128;
 /// Maximum recent packets retained in memory for live TUI inspection.
 const MAX_INSPECT_PACKETS: usize = 300;
 
-/// Simplified verdict classification displayed in the live packet table.
+/// Simplified packet outcome classification displayed in the live packet table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PacketVerdict {
-    /// Packet passed unmodified (`Decision::Pass`).
+    /// Packet passed unmodified by NFQUEUE.
     Pass,
-    /// Packet payload was modified in-place (`Decision::Replace`).
+    /// Multi-segment TLS/QUIC packet held or re-sent untouched via raw socket (no profile hit).
+    Reasm,
+    /// Packet payload was modified in-place by a matched profile.
     Modify,
-    /// Original packet was dropped (typically replaced by split/fake sends, `Decision::Drop`).
-    Drop,
+    /// Original packet was replaced/split via raw socket by a matched profile (e.g., `multisplit`).
+    Desync,
 }
 
 impl PacketVerdict {
-    /// Returns a compact uppercase verdict label.
+    /// Returns a compact uppercase outcome label.
     pub const fn label(self) -> &'static str {
-        match self { Self::Pass => "PASS", Self::Modify => "MODIFY", Self::Drop => "DROP" }
+        match self {
+            Self::Pass => "PASS",
+            Self::Reasm => "REASM",
+            Self::Modify => "MODIFY",
+            Self::Desync => "DESYNC",
+        }
     }
 
-    /// Returns the terminal color associated with this verdict.
+    /// Returns the terminal color associated with this outcome.
     pub const fn color(self) -> Color {
-        match self { Self::Pass => Color::Green, Self::Modify => Color::Yellow, Self::Drop => Color::Red }
+        match self {
+            Self::Pass => Color::Green,
+            Self::Reasm => Color::Cyan,
+            Self::Modify => Color::Yellow,
+            Self::Desync => Color::Magenta,
+        }
     }
 }
 
-/// Interactive verdict filter cycled via `f` on Tab 2.
+/// Interactive outcome filter cycled via `f` on Tab 2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerdictFilter {
     /// Display all packets.
     All,
-    /// Display only `MODIFY` and `DROP` packets (desynced traffic).
-    ModifiedOrDropped,
-    /// Display only `DROP` packets.
-    DropOnly,
+    /// Display only `MODIFY` and `DESYNC` packets (actual profile hits).
+    DesyncOnly,
+    /// Display only `REASM` packets (multi-segment TLS/QUIC reassembly pass-throughs).
+    ReasmOnly,
     /// Display only `PASS` packets.
     PassOnly,
 }
 
 impl VerdictFilter {
-    /// Cycles through `All -> ModifiedOrDropped -> DropOnly -> PassOnly -> All`.
+    /// Cycles through `All -> DesyncOnly -> ReasmOnly -> PassOnly -> All`.
     pub const fn next(self) -> Self {
         match self {
-            Self::All => Self::ModifiedOrDropped,
-            Self::ModifiedOrDropped => Self::DropOnly,
-            Self::DropOnly => Self::PassOnly,
+            Self::All => Self::DesyncOnly,
+            Self::DesyncOnly => Self::ReasmOnly,
+            Self::ReasmOnly => Self::PassOnly,
             Self::PassOnly => Self::All,
         }
     }
@@ -76,8 +90,8 @@ impl VerdictFilter {
     pub const fn label(self) -> &'static str {
         match self {
             Self::All => "ALL",
-            Self::ModifiedOrDropped => "MOD+DROP",
-            Self::DropOnly => "DROP",
+            Self::DesyncOnly => "DESYNC+MOD",
+            Self::ReasmOnly => "REASM",
             Self::PassOnly => "PASS",
         }
     }
@@ -86,8 +100,8 @@ impl VerdictFilter {
     pub const fn matches(self, verdict: PacketVerdict) -> bool {
         match self {
             Self::All => true,
-            Self::ModifiedOrDropped => matches!(verdict, PacketVerdict::Modify | PacketVerdict::Drop),
-            Self::DropOnly => matches!(verdict, PacketVerdict::Drop),
+            Self::DesyncOnly => matches!(verdict, PacketVerdict::Modify | PacketVerdict::Desync),
+            Self::ReasmOnly => matches!(verdict, PacketVerdict::Reasm),
             Self::PassOnly => matches!(verdict, PacketVerdict::Pass),
         }
     }
@@ -118,8 +132,10 @@ pub struct PacketRecord {
     pub tcp_detail: Option<String>,
     /// Concise summary (TCP flags + decoded TLS SNI, HTTP Host, QUIC, or DNS tag).
     pub info: String,
-    /// Engine verdict applied to this packet.
+    /// Engine outcome classification applied to this packet.
     pub verdict: PacketVerdict,
+    /// Matched desync profile name when `verdict` is `Modify` or `Desync`.
+    pub profile: Option<String>,
     /// Leading payload bytes (up to 128 bytes) for hex + ASCII inspection.
     pub payload_preview: Vec<u8>,
 }
@@ -127,12 +143,13 @@ pub struct PacketRecord {
 /// Self-contained state for Tab 2's live Packet Inspector table and detail popup.
 #[derive(Debug)]
 pub struct PacketInspectorState {
-    /// Bounded ring buffer of recently captured packets across all verdicts (oldest at front).
+    /// Bounded ring buffer of recently captured packets across all outcomes (oldest at front).
     pub packets: VecDeque<PacketRecord>,
-    /// Dedicated bounded ring buffer of `MODIFY` and `DROP` packets so high-volume `PASS`
-    /// traffic never evicts desynced packets from the inspector.
+    /// Dedicated ring buffer of `MODIFY`/`DESYNC` profile hits so `PASS`/`REASM` never evict them.
     pub desync_packets: VecDeque<PacketRecord>,
-    /// Active verdict filter (`ALL`, `MOD+DROP`, `DROP`, `PASS`).
+    /// Dedicated ring buffer of `REASM` multi-segment pass-through packets.
+    pub reasm_packets: VecDeque<PacketRecord>,
+    /// Active outcome filter (`ALL`, `DESYNC+MOD`, `REASM`, `PASS`).
     pub filter: VerdictFilter,
     /// When `true`, incoming packets are ignored so the current table stays frozen.
     pub paused: bool,
@@ -148,6 +165,7 @@ impl Default for PacketInspectorState {
         Self {
             packets: VecDeque::new(),
             desync_packets: VecDeque::new(),
+            reasm_packets: VecDeque::new(),
             filter: VerdictFilter::All,
             paused: false,
             selected: 0,
@@ -157,16 +175,21 @@ impl Default for PacketInspectorState {
 }
 
 impl PacketInspectorState {
-    /// Records one packet unless paused, preserving `MODIFY`/`DROP` in a dedicated buffer.
+    /// Records one packet unless paused, keeping `DESYNC`/`MODIFY` and `REASM` in dedicated buffers.
     pub fn push(&mut self, record: PacketRecord) {
         if self.paused {
             return;
         }
-        if matches!(record.verdict, PacketVerdict::Modify | PacketVerdict::Drop) {
-            if self.desync_packets.len() >= MAX_INSPECT_PACKETS {
-                self.desync_packets.pop_front();
+        match record.verdict {
+            PacketVerdict::Modify | PacketVerdict::Desync => {
+                if self.desync_packets.len() >= MAX_INSPECT_PACKETS { self.desync_packets.pop_front(); }
+                self.desync_packets.push_back(record.clone());
             }
-            self.desync_packets.push_back(record.clone());
+            PacketVerdict::Reasm => {
+                if self.reasm_packets.len() >= MAX_INSPECT_PACKETS { self.reasm_packets.pop_front(); }
+                self.reasm_packets.push_back(record.clone());
+            }
+            PacketVerdict::Pass => {}
         }
         if self.packets.len() >= MAX_INSPECT_PACKETS {
             self.packets.pop_front();
@@ -178,15 +201,16 @@ impl PacketInspectorState {
     pub fn clear(&mut self) {
         self.packets.clear();
         self.desync_packets.clear();
+        self.reasm_packets.clear();
         self.selected = 0;
         self.detail_open = false;
     }
 
-    /// Returns filtered packet references in newest-first order, reading from `desync_packets`
-    /// when filtering for `MODIFY`/`DROP` so `PASS` bursts never hide desynced traffic.
+    /// Returns filtered packet references in newest-first order using the dedicated ring buffers.
     pub fn visible_packets(&self) -> Vec<&PacketRecord> {
         let source = match self.filter {
-            VerdictFilter::ModifiedOrDropped | VerdictFilter::DropOnly => &self.desync_packets,
+            VerdictFilter::DesyncOnly => &self.desync_packets,
+            VerdictFilter::ReasmOnly => &self.reasm_packets,
             VerdictFilter::All | VerdictFilter::PassOnly => &self.packets,
         };
         filtered_packets(source, self.filter)
@@ -285,12 +309,13 @@ fn detect_l7_info(is_udp: bool, payload: &[u8]) -> Option<String> {
     None
 }
 
-/// Dissects `pkt` and `decision` into a lightweight [`PacketRecord`] for the TUI inspector.
-pub fn build_packet_record(seq: u64, pkt: &QueuedPacket<'_>, decision: &Decision) -> PacketRecord {
-    let verdict = match decision {
-        Decision::Pass => PacketVerdict::Pass,
-        Decision::Replace(_) => PacketVerdict::Modify,
-        Decision::Drop => PacketVerdict::Drop,
+/// Dissects `pkt` and `outcome` into a lightweight [`PacketRecord`] for the TUI inspector.
+pub fn build_packet_record(seq: u64, pkt: &QueuedPacket<'_>, outcome: &PacketOutcome) -> PacketRecord {
+    let (verdict, profile) = match outcome {
+        PacketOutcome::Pass => (PacketVerdict::Pass, None),
+        PacketOutcome::Reasm => (PacketVerdict::Reasm, None),
+        PacketOutcome::Modify(prof) => (PacketVerdict::Modify, prof.clone()),
+        PacketOutcome::Desync(prof) => (PacketVerdict::Desync, prof.clone()),
     };
     let (direction, iface) = if let Some(out) = pkt.ifout.filter(|s| !s.is_empty()) {
         ("OUT", out.to_owned())
@@ -310,7 +335,7 @@ pub fn build_packet_record(seq: u64, pkt: &QueuedPacket<'_>, decision: &Decision
         ("?".to_owned(), "?".to_owned(), 0)
     };
 
-    let (proto, src, dst, tcp_detail, info) = if let Some(tcp) = &dis.tcp {
+    let (proto, src, dst, tcp_detail, mut info) = if let Some(tcp) = &dis.tcp {
         let flags = format_tcp_flags(tcp.flags);
         let detail = format!("seq={} ack={} win={} flags=[{}]", tcp.seq, tcp.ack, tcp.window, flags);
         let info = match detect_l7_info(false, payload) {
@@ -326,23 +351,16 @@ pub fn build_packet_record(seq: u64, pkt: &QueuedPacket<'_>, decision: &Decision
     } else {
         ("IP", src_ip, dst_ip, None, format!("{}B raw", pkt.payload.len()))
     };
+    if let Some(ref prof) = profile {
+        info.push_str(&format!(" ({prof})"));
+    }
 
     let preview_src = if payload.is_empty() { pkt.payload } else { payload };
     let preview_len = preview_src.len().min(MAX_PAYLOAD_PREVIEW);
 
     PacketRecord {
-        seq,
-        direction,
-        proto,
-        src,
-        dst,
-        ttl,
-        fwmark: pkt.mark,
-        iface,
-        payload_len: payload.len(),
-        tcp_detail,
-        info,
-        verdict,
+        seq, direction, proto, src, dst, ttl, fwmark: pkt.mark, iface,
+        payload_len: payload.len(), tcp_detail, info, verdict, profile,
         payload_preview: preview_src[..preview_len].to_vec(),
     }
 }

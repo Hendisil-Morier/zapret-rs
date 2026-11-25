@@ -163,14 +163,40 @@ fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni() {
         &ch[split..],
     );
 
-    assert_eq!(engine.process_packet(&out_pkt(3, &seg1)), Decision::Drop);
+    assert_eq!(
+        engine.process_packet_traced(&out_pkt(3, &seg1)),
+        (Decision::Drop, zapret_rs::desync::PacketOutcome::Reasm)
+    );
     assert!(sender.borrow().packets.is_empty(), "piece 1 must wait");
 
-    assert_eq!(engine.process_packet(&out_pkt(4, &seg2)), Decision::Drop);
-    let captured = &sender.borrow().packets;
-    assert_eq!(captured.len(), 2, "both delayed segments must flush via sender");
-    assert_eq!(dissect_packet(&captured[0].data, false).ip.expect("ip").ttl, 64);
-    assert_eq!(dissect_packet(&captured[1].data, false).ip.expect("ip").ttl, 33);
+    assert_eq!(
+        engine.process_packet_traced(&out_pkt(4, &seg2)),
+        (
+            Decision::Drop,
+            zapret_rs::desync::PacketOutcome::Modify(Some("profile #1".to_owned()))
+        )
+    );
+    {
+        let captured = &sender.borrow().packets;
+        assert_eq!(captured.len(), 2, "both delayed segments must flush via sender");
+        assert_eq!(dissect_packet(&captured[0].data, false).ip.expect("ip").ttl, 64);
+        assert_eq!(dissect_packet(&captured[1].data, false).ip.expect("ip").ttl, 33);
+    }
+
+    // Non-matching 2-segment ClientHello (`www.google.com` vs `hostlist_domains = ["iana.org"]`)
+    // must classify both segments as `Reasm` (reassembled pass-through, not `Desync`).
+    let gch = fake_fixture("tls_clienthello_www_google_com.bin");
+    send_handshake(&engine, c, s, 42001, 443, 10);
+    let g1 = build_tcp4(c, s, 42001, 443, 1001, 2001, TH_ACK, &gch[..split]);
+    let g2 = build_tcp4(c, s, 42001, 443, 1001 + split as u32, 2001, TH_ACK | TH_PUSH, &gch[split..]);
+    assert_eq!(
+        engine.process_packet_traced(&out_pkt(12, &g1)),
+        (Decision::Drop, zapret_rs::desync::PacketOutcome::Reasm)
+    );
+    assert_eq!(
+        engine.process_packet_traced(&out_pkt(13, &g2)),
+        (Decision::Drop, zapret_rs::desync::PacketOutcome::Reasm)
+    );
 
     engine
         .runtime()
