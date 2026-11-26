@@ -109,7 +109,8 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
                     "[Up/Down/PgUp/PgDn] Select Packet / Scroll Daemon Log  [Esc/Enter] Close Detail",
                 ]
             };
-            push_help_section(&mut lines, "Run nfqws2", true, &run_rows, t);
+            let run_title = if cfg!(windows) { "Run WinDivert" } else { "Run nfqws2" };
+            push_help_section(&mut lines, run_title, true, &run_rows, t);
         }
         ActiveTab::Config => {
             let cfg_row = if state.run_status == RunStatus::Attached {

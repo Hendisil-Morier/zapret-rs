@@ -220,9 +220,10 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         RunStatus::Error(_) => t.err,
         RunStatus::Stopped => t.frame,
     };
+    let ctrl_title = if cfg!(windows) { " Live WinDivert Controller " } else { " Live nfqws2 Controller " };
     let info = Paragraph::new(run_controller_lines(state))
         .wrap(Wrap { trim: true })
-        .block(panel_block(" Live nfqws2 Controller ", ctrl_border, t.accent_bright));
+        .block(panel_block(ctrl_title, ctrl_border, t.accent_bright));
     frame.render_widget(info, rows[0]);
 
     let (total, passed, reasm, modified, desynced) = state.visible_counters();

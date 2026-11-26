@@ -3,6 +3,9 @@
 /// Serialization support for preserving the active tab across seamless `setcap` restarts.
 use serde::{Deserialize, Serialize};
 
+/// Platform-appropriate packet engine name displayed in Tab 2 headers, logs, and status banners.
+pub(crate) const ENGINE_LABEL: &str = if cfg!(windows) { "WinDivert" } else { "nfqws2" };
+
 /// Shared header/popup descriptor defining one top-level tab in display order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TabSpec {
@@ -48,8 +51,8 @@ impl ActiveTab {
         TabSpec {
             tab: Self::Run,
             num_prefix: " 2:",
-            short_label: " Run nfqws2 ",
-            full_title: "2: Run nfqws2",
+            short_label: if cfg!(windows) { " Run WinDivert " } else { " Run nfqws2 " },
+            full_title: if cfg!(windows) { "2: Run WinDivert" } else { "2: Run nfqws2" },
         },
         TabSpec {
             tab: Self::Config,

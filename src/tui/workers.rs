@@ -321,10 +321,12 @@ where
     };
 
     state.run_status = RunStatus::Running;
+    let engine = crate::tui::tabs::ENGINE_LABEL;
     state.push_run_log(format!(
-        "[start] nfqws2 active on queue {qnum} (fwmark 0x{fwmark:08x}, {} profiles)",
+        "[start] {engine} active (queue {qnum}, fwmark 0x{fwmark:08x}, {} profiles)",
         state.parsed_profiles.len()
     ));
-    state.status_banner = "nfqws2 is running. Press 'f' to filter, 'd' for detail, 'x' to stop.".to_owned();
+    state.status_banner =
+        format!("{engine} is running. Press 'f' to filter, 'd' for detail, 'x' to stop.");
     Ok(ActiveDaemon { stop, pkt_rx, desync_rx, join: Some(join), fw_guard })
 }

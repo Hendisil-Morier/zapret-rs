@@ -329,8 +329,10 @@ impl AppState {
                 } else {
                     self.tab = ActiveTab::Run;
                     self.reset_finder_hover();
-                    self.status_banner =
-                        "Active config ready on Run tab. Press 'r' to start nfqws2.".to_owned();
+                    self.status_banner = format!(
+                        "Active config ready on Run tab. Press 'r' to start {}.",
+                        crate::tui::tabs::ENGINE_LABEL
+                    );
                 }
             }
             _ => {}

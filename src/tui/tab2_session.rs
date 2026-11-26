@@ -234,8 +234,13 @@ pub(crate) fn stop_local_daemon(
         daemon.shutdown(|g| drop_fw_tui(session, g));
         drain_packet_pair(state, &daemon.desync_rx, &daemon.pkt_rx, usize::MAX);
         state.run_status = RunStatus::Stopped;
-        state.push_run_log("[stop] nfqws2 stopped and temporary nftables cleaned up.");
-        state.status_banner = "nfqws2 stopped cleanly.".to_owned();
+        let engine = crate::tui::tabs::ENGINE_LABEL;
+        state.push_run_log(if cfg!(windows) {
+            format!("[stop] {engine} stopped cleanly.")
+        } else {
+            format!("[stop] {engine} stopped and temporary nftables cleaned up.")
+        });
+        state.status_banner = format!("{engine} stopped cleanly.");
     }
 }
 
