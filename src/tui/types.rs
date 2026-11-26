@@ -11,33 +11,8 @@ use serde::{Deserialize, Serialize};
 /// Strategy catalog enums and completed scan reports forwarded into UI events.
 use crate::tools::{IpFamily, ProbeProtocol, ScanReport};
 
-/// Top-level navigation tabs in the `zapret-rs` TUI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ActiveTab {
-    /// Tab 1: interactive strategy discovery form, live sweep progress, and results table.
-    Finder,
-    /// Tab 2: live in-process `nfqws2` engine controller with real-time packet counters.
-    Run,
-    /// Tab 3: scrollable `nfqws2.toml` viewer, `nftables` preview, and capability diagnostics.
-    Config,
-}
-
-impl ActiveTab {
-    /// Returns the 0-based tab index for `ratatui::widgets::Tabs`.
-    pub const fn index(self) -> usize {
-        match self { Self::Finder => 0, Self::Run => 1, Self::Config => 2 }
-    }
-
-    /// Advances to the next tab cyclically.
-    pub const fn next(self) -> Self {
-        match self { Self::Finder => Self::Run, Self::Run => Self::Config, Self::Config => Self::Finder }
-    }
-
-    /// Moves to the previous tab cyclically.
-    pub const fn prev(self) -> Self {
-        match self { Self::Finder => Self::Config, Self::Run => Self::Finder, Self::Config => Self::Run }
-    }
-}
+/// Top-level navigation tabs, defined in their own module and re-exported here for existing paths.
+pub use crate::tui::tabs::ActiveTab;
 
 /// Interactive form rows on the Strategy Finder tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

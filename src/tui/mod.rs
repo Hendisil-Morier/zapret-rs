@@ -18,6 +18,8 @@ pub mod modal;
 pub mod remote;
 /// Pure `ratatui` layout and widget renderer for all three tabs.
 pub mod render;
+/// Config & Diagnostics Tab 3 panel widgets extracted to keep renderer modules focused.
+pub mod render_config;
 /// Strategy Finder Tab 1 panel widgets extracted to keep renderer modules focused.
 pub mod render_finder;
 /// Terminal lifecycle, `sudo`-safe suspend/resume, and worker coordination loop.
@@ -30,8 +32,12 @@ pub mod session;
 pub mod state;
 /// Strategy Finder form editing, scan config builder, and event handlers for [`AppState`].
 pub mod state_finder;
+/// Global hotkeys shared by every tab (help, quit, tab switching, panel focus, themes).
+pub mod state_global;
 /// Tab 2 (Run) and Tab 3 (Config) keyboard handlers for [`AppState`].
 pub mod state_tabs;
+/// Top-level navigation tab enum shared by state, renderer, and key handling.
+pub mod tabs;
 /// Theme-driven panel builders, `[key]` badge styling, log tagging, and syntax highlighters.
 pub mod theme;
 /// Configurable color themes, built-in vivid presets, hex parsing, and `theme.toml` persistence.

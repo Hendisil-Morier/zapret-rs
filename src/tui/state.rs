@@ -30,7 +30,7 @@ use crate::tui::modal::{AuthModal, ModalKeyResult, ModalPurpose};
 /// Attached background `nfqws2` daemon metadata shown on Tab 2.
 use crate::tui::remote::RemoteDaemonMeta;
 /// Configurable color theme palette and `theme.toml` load/save helpers.
-use crate::tui::theme_config::{Theme, resolve_theme, save_theme_to_default_path};
+use crate::tui::theme_config::{Theme, resolve_theme};
 /// Shared TUI enums and worker event types.
 use crate::tui::types::{
     ActiveTab, AppAction, FinderField, FinderHoverState, FinderStatus, IpMode, PanelFocusState,
@@ -347,54 +347,13 @@ impl AppState {
         if self.inspector.filter_editing {
             return self.handle_run_key(key.code);
         }
-        if !self.inspector.detail_open && key.code == KeyCode::Char('?') {
-            self.help_open = true;
-            self.dismiss_finder_hover();
-            return AppAction::None;
-        }
-        match key.code {
-            KeyCode::Char('q') => return AppAction::Quit,
-            KeyCode::Char('g') if !self.has_net_caps => {
-                self.open_caps_modal();
-                return AppAction::None;
-            }
-            KeyCode::Char('1') => return self.switch_tab(ActiveTab::Finder),
-            KeyCode::Char('2') => return self.switch_tab(ActiveTab::Run),
-            KeyCode::Char('3') => return self.switch_tab(ActiveTab::Config),
-            KeyCode::Tab => return self.cycle_panel_focus(true),
-            KeyCode::BackTab => return self.cycle_panel_focus(false),
-            KeyCode::Char('t') if !self.inspector.detail_open => {
-                self.theme = self.theme.next_preset();
-                self.status_banner = format!("Theme: {} (press 'T' to save theme.toml)", self.theme.name);
-                return AppAction::None;
-            }
-            KeyCode::Char('T') if !self.inspector.detail_open => {
-                self.status_banner = match save_theme_to_default_path(&self.theme) {
-                    Ok(path) => format!("Saved theme '{}' to {}", self.theme.name, path.display()),
-                    Err(err) => format!("Save theme failed: {err}"),
-                };
-                return AppAction::None;
-            }
-            _ => {}
+        if let Some(action) = self.handle_global_key(key.code) {
+            return action;
         }
         match self.tab {
             ActiveTab::Finder => self.handle_finder_key(key.code),
             ActiveTab::Run => self.handle_run_key(key.code),
             ActiveTab::Config => self.handle_config_key(key.code),
         }
-    }
-
-    /// Switches top-level tab and resets the Tab 1 tooltip dwell timer cleanly.
-    fn switch_tab(&mut self, tab: ActiveTab) -> AppAction {
-        self.tab = tab;
-        self.reset_finder_hover();
-        AppAction::None
-    }
-
-    /// Cycles focused panel inside the active tab (`Tab` / `Shift+Tab`) and updates tooltip state.
-    fn cycle_panel_focus(&mut self, forward: bool) -> AppAction {
-        self.focus.cycle(self.tab, forward);
-        self.reset_finder_hover();
-        AppAction::None
     }
 }
