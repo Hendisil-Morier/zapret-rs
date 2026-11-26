@@ -191,38 +191,37 @@ fn run_accept_loop(
             continue;
         }
         loop {
-            match bound.listener.accept() {
-                Ok((stream, _addr)) => {
-                    let allowed = match peer_credentials(&stream) {
-                        Ok(creds) => (config.uid_check)(creds.uid, expected_uid),
-                        Err(_) => false,
-                    };
-                    if !allowed {
-                        let _ = stream.shutdown(Shutdown::Both);
-                        drop(stream);
-                        continue;
-                    }
-                    if let Ok(mut guard) = client_joins.lock() {
-                        guard.retain(|h| !h.is_finished());
-                        if guard.len() >= MAX_CONTROL_CLIENTS {
-                            write_error_and_close(
-                                stream,
-                                ControlErrorCode::CommandFailed,
-                                "too many control clients connected",
-                            );
-                            continue;
-                        }
-                        let id = next_id.fetch_add(1, Ordering::Relaxed);
-                        apply_optional_sndbuf(&stream, config.client_sndbuf);
-                        let cfg = config.clone();
-                        let h = Arc::clone(&hub);
-                        let st = Arc::clone(&stop);
-                        guard.push(thread::spawn(move || serve_client(id, stream, cfg, h, st)));
-                    }
-                }
+            let stream = match bound.listener.accept() {
+                Ok((stream, _addr)) => stream,
                 Err(err) if err.kind() == ErrorKind::WouldBlock => break,
                 Err(_) => break,
+            };
+            let allowed = match peer_credentials(&stream) {
+                Ok(creds) => (config.uid_check)(creds.uid, expected_uid),
+                Err(_) => false,
+            };
+            if !allowed {
+                let _ = stream.shutdown(Shutdown::Both);
+                continue;
             }
+            let Ok(mut guard) = client_joins.lock() else {
+                continue;
+            };
+            guard.retain(|h| !h.is_finished());
+            if guard.len() >= MAX_CONTROL_CLIENTS {
+                write_error_and_close(
+                    stream,
+                    ControlErrorCode::CommandFailed,
+                    "too many control clients connected",
+                );
+                continue;
+            }
+            let id = next_id.fetch_add(1, Ordering::Relaxed);
+            apply_optional_sndbuf(&stream, config.client_sndbuf);
+            let cfg = config.clone();
+            let h = Arc::clone(&hub);
+            let st = Arc::clone(&stop);
+            guard.push(thread::spawn(move || serve_client(id, stream, cfg, h, st)));
         }
     }
 

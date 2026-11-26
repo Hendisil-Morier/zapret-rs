@@ -159,33 +159,34 @@ pub fn register_desync_functions(
             };
 
             let plan_tbl = lua.create_table()?;
-            if let Some(profile) = profile_opt {
-                for (idx, action) in profile.actions.iter().enumerate() {
-                    let n = (idx as u32) + 1;
-                    if n <= current_func_n {
-                        continue;
-                    }
-                    let instance = desync_instance_name(&action.func, profile.index, n);
-                    let range = if incoming {
-                        action.in_range
-                    } else {
-                        action.out_range
-                    };
-                    let entry = lua.create_table_with_capacity(0, 7)?;
-                    let arg_tbl = build_action_args_table(lua, &action.args, None, false)?
-                        .ok_or_else(|| {
-                            mlua::Error::external("unexpected blob substitution failure")
-                        })?;
-                    entry.raw_set("arg", arg_tbl)?;
-                    entry.raw_set("func", action.func.as_str())?;
-                    entry.raw_set("func_n", i64::from(n))?;
-                    entry.raw_set("func_instance", instance.as_str())?;
-                    entry.raw_set("range", packet_range_to_lua(lua, range)?)?;
-                    entry.raw_set("payload", payload_mask_to_lua_table(lua, action.payload_mask)?)?;
-                    entry.raw_set("payload_filter", l7_payload_str_list(action.payload_mask))?;
-
-                    plan_tbl.raw_set(i64::from(n - current_func_n), entry)?;
+            let Some(profile) = profile_opt else {
+                return Ok(Value::Table(plan_tbl));
+            };
+            for (idx, action) in profile.actions.iter().enumerate() {
+                let n = (idx as u32) + 1;
+                if n <= current_func_n {
+                    continue;
                 }
+                let instance = desync_instance_name(&action.func, profile.index, n);
+                let range = if incoming {
+                    action.in_range
+                } else {
+                    action.out_range
+                };
+                let entry = lua.create_table_with_capacity(0, 7)?;
+                let arg_tbl = build_action_args_table(lua, &action.args, None, false)?
+                    .ok_or_else(|| {
+                        mlua::Error::external("unexpected blob substitution failure")
+                    })?;
+                entry.raw_set("arg", arg_tbl)?;
+                entry.raw_set("func", action.func.as_str())?;
+                entry.raw_set("func_n", i64::from(n))?;
+                entry.raw_set("func_instance", instance.as_str())?;
+                entry.raw_set("range", packet_range_to_lua(lua, range)?)?;
+                entry.raw_set("payload", payload_mask_to_lua_table(lua, action.payload_mask)?)?;
+                entry.raw_set("payload_filter", l7_payload_str_list(action.payload_mask))?;
+
+                plan_tbl.raw_set(i64::from(n - current_func_n), entry)?;
             }
 
             Ok(Value::Table(plan_tbl))

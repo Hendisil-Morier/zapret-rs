@@ -139,25 +139,41 @@ impl QueueCatcher {
             }
 
             if (pfd.revents & libc::POLLIN) != 0 {
-                loop {
-                    match self.queue.recv() {
-                        Ok(msg) => {
-                            self.handle_message(msg, &mut on_packet)?;
-                            if stop.load(Ordering::Relaxed) {
-                                return Ok(());
-                            }
-                        }
-                        Err(err) if err.kind() == ErrorKind::WouldBlock => break,
-                        Err(err) if err.kind() == ErrorKind::Interrupted => continue,
-                        Err(err) if err.raw_os_error() == Some(libc::ENOBUFS) => continue,
-                        Err(err) => return Err(err.into()),
-                    }
+                if self.drain_ready_messages(stop, &mut on_packet)? {
+                    return Ok(());
                 }
-            } else if (pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)) != 0 {
+                continue;
+            }
+            if (pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)) != 0 {
                 return Err(IntercepterError::PollError(pfd.revents));
             }
         }
         Ok(())
+    }
+
+    /// Drains all queued NFQUEUE messages until `WouldBlock`; returns `true` if `stop` fired.
+    fn drain_ready_messages<F>(
+        &mut self,
+        stop: &AtomicBool,
+        on_packet: &mut F,
+    ) -> Result<bool, IntercepterError>
+    where
+        F: FnMut(&QueuedPacket<'_>) -> Decision,
+    {
+        loop {
+            match self.queue.recv() {
+                Ok(msg) => {
+                    self.handle_message(msg, on_packet)?;
+                    if stop.load(Ordering::Relaxed) {
+                        return Ok(true);
+                    }
+                }
+                Err(err) if err.kind() == ErrorKind::WouldBlock => return Ok(false),
+                Err(err) if err.kind() == ErrorKind::Interrupted => continue,
+                Err(err) if err.raw_os_error() == Some(libc::ENOBUFS) => continue,
+                Err(err) => return Err(err.into()),
+            }
+        }
     }
 
     /// Evaluates fwmark suppression before resolving interface names, then dispatches and submits the verdict.

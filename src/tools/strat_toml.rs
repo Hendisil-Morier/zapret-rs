@@ -198,36 +198,9 @@ pub fn select_minimal_cover(results: &[DomainStrategies]) -> Vec<CoveredProfile>
         }
 
         while !uncovered.is_empty() {
-            let mut best_pick: Option<(usize, u32, u64, String, Vec<String>)> = None;
-            for (key, (spec, dom_map)) in &candidates {
-                let mut hits = Vec::new();
-                let mut lat_sum = 0u64;
-                for dom in &uncovered {
-                    if let Some(&lat) = dom_map.get(dom) {
-                        hits.push(dom.clone());
-                        lat_sum = lat_sum.saturating_add(lat);
-                    }
-                }
-                if hits.is_empty() {
-                    continue;
-                }
-                let count = hits.len();
-                let avg_lat = lat_sum / (count as u64);
-                let is_better = match &best_pick {
-                    None => true,
-                    Some((b_cnt, b_w, b_lat, b_key, _)) => {
-                        count > *b_cnt
-                            || (count == *b_cnt
-                                && (spec.weight, avg_lat, key.as_str())
-                                    < (*b_w, *b_lat, b_key.as_str()))
-                    }
-                };
-                if is_better {
-                    best_pick = Some((count, spec.weight, avg_lat, key.clone(), hits));
-                }
-            }
-
-            let Some((_, _, avg_latency_ms, best_key, domains)) = best_pick else {
+            let Some((avg_latency_ms, best_key, domains)) =
+                pick_best_candidate(&candidates, &uncovered)
+            else {
                 break;
             };
             for dom in &domains {
@@ -244,6 +217,40 @@ pub fn select_minimal_cover(results: &[DomainStrategies]) -> Vec<CoveredProfile>
     }
 
     covered
+}
+
+/// Selects the candidate covering the most `uncovered` domains, breaking ties by weight, latency, and key.
+fn pick_best_candidate(
+    candidates: &BTreeMap<String, (StrategySpec, BTreeMap<String, u64>)>,
+    uncovered: &BTreeSet<String>,
+) -> Option<(u64, String, Vec<String>)> {
+    let mut best_pick: Option<(usize, u32, u64, String, Vec<String>)> = None;
+    for (key, (spec, dom_map)) in candidates {
+        let mut hits = Vec::new();
+        let mut lat_sum = 0u64;
+        for dom in uncovered {
+            if let Some(&lat) = dom_map.get(dom) {
+                hits.push(dom.clone());
+                lat_sum = lat_sum.saturating_add(lat);
+            }
+        }
+        if hits.is_empty() {
+            continue;
+        }
+        let count = hits.len();
+        let avg_lat = lat_sum / (count as u64);
+        let is_better = match &best_pick {
+            None => true,
+            Some((b_cnt, b_w, b_lat, b_key, _)) => {
+                count > *b_cnt
+                    || (count == *b_cnt && (spec.weight, avg_lat, key.as_str()) < (*b_w, *b_lat, b_key.as_str()))
+            }
+        };
+        if is_better {
+            best_pick = Some((count, spec.weight, avg_lat, key.clone(), hits));
+        }
+    }
+    best_pick.map(|(_, _, avg_lat, key, hits)| (avg_lat, key, hits))
 }
 
 /// Escapes `raw` as a TOML basic double-quoted string literal.
