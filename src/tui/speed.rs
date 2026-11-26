@@ -1,7 +1,12 @@
 //! Tab 4 model: probe targets, per-target before/after samples, run phase, and comparison wording.
 
-/// Domain normalization shared with the Strategy Finder form plus the timed sample types.
-use crate::tools::{SpeedSample, SpeedTarget, control_target, domain_target, normalize_domain};
+/// Parsed config inspector used when falling back to active profile `hostlist_domains`.
+use crate::config::AppConfig;
+/// Domain normalization and config domain extraction shared with Tab 1 and config merging.
+use crate::tools::{
+    SpeedSample, SpeedTarget, control_target, domain_target, extract_hostlist_domains,
+    normalize_domain,
+};
 
 /// Which side of the comparison a sample belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +116,20 @@ impl SpeedState {
     }
 }
 
-/// Builds the probe list: each distinct Tab 1 domain in order, then the unaffected control target.
+/// Returns `domains_input` when non-empty, otherwise extracts inline `hostlist_domains` from `active_toml`.
+pub fn effective_speed_domains(domains_input: &str, active_toml: &str) -> String {
+    if !domains_input.trim().is_empty() {
+        return domains_input.to_owned();
+    }
+    if active_toml.trim().is_empty() {
+        return String::new();
+    }
+    AppConfig::from_toml_str(active_toml, None)
+        .map(|cfg| extract_hostlist_domains(&cfg).join(", "))
+        .unwrap_or_default()
+}
+
+/// Builds the probe list: each distinct Tab 1 / config domain in order, then the unaffected control target.
 pub fn build_targets(domains_input: &str) -> Vec<SpeedTarget> {
     let mut seen: Vec<String> = Vec::new();
     for domain in domains_input
@@ -139,10 +157,15 @@ pub fn format_rate(bytes_per_sec: u64) -> String {
     }
 }
 
-/// Describes one sample: first-byte time and speed on success, otherwise the failure class.
+/// Describes one sample: TCP connect time, first-byte time, and speed on success, else failure class.
 pub fn describe_sample(sample: &SpeedSample) -> String {
     if sample.outcome.is_success() {
-        format!("{}ms  {}", sample.ttfb_ms, format_rate(sample.bytes_per_sec))
+        format!(
+            "conn {}ms ttfb {}ms  {}",
+            sample.connect_ms,
+            sample.ttfb_ms,
+            format_rate(sample.bytes_per_sec)
+        )
     } else {
         sample.outcome.summary().split(' ').next().unwrap_or("FAILED").to_owned()
     }

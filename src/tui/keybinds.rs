@@ -134,7 +134,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
                 &mut lines,
                 "Speed Test",
                 true,
-                &["[r] Run Before/After Check  [c] Clear Results  [Up/Down/j/k] Select Row"],
+                &["[r] Run Before/After Check  [x/Esc] Cancel  [c] Clear Results  [Up/Down/j/k] Select"],
                 t,
             );
         }

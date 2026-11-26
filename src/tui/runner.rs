@@ -43,7 +43,7 @@ use crate::tui::session::{
     edit_config_in_editor, reload_toml_from_disk, save_toml_to_disk, seed_domains_on_startup,
 };
 /// Tab 4 speed comparison job and its per-tick driver.
-use crate::tui::speed_runner::{SpeedJob, begin_speed_test, poll_speed_test};
+use crate::tui::speed_runner::{SpeedJob, begin_speed_test, cancel_speed_test, poll_speed_test};
 /// Mutable TUI application state.
 use crate::tui::state::AppState;
 /// Configurable theme resolver for `--theme` and `~/.config/zapret-rs/theme.toml`.
@@ -196,6 +196,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                         speed_job = begin_speed_test(&mut state, &mut tab2_session, &mut session);
                     }
                 }
+                AppAction::CancelSpeedTest => cancel_speed_test(&mut speed_job, &mut state),
                 AppAction::SubmitModal => {
                     if submit_auth_modal(&mut state, &mut active_scan, &mut tab2_session) {
                         reexec_after_exit = true;

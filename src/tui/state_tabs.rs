@@ -6,7 +6,7 @@ use crossterm::event::KeyCode;
 /// Floating confirmation modal built when stopping an attached daemon (`S`).
 use crate::tui::modal::{AuthModal, ModalPurpose};
 /// Tab 4 target builder used to populate the speed confirmation preview.
-use crate::tui::speed::build_targets;
+use crate::tui::speed::{build_targets, effective_speed_domains};
 /// Application state updated by Run and Config key handlers.
 use crate::tui::state::AppState;
 /// Tab focus enums, scroll helpers, action results, and daemon run lifecycle states.
@@ -94,16 +94,20 @@ impl AppState {
         AppAction::None
     }
 
-    /// Handles start, navigation, and clear keys on Tab 4 (Speed Test).
+    /// Handles start, cancel, navigation, and clear keys on Tab 4 (Speed Test).
     pub(crate) fn handle_speed_key(&mut self, code: KeyCode) -> AppAction {
         match code {
             KeyCode::Up | KeyCode::Char('k') => self.speed.move_selection(-1),
             KeyCode::Down | KeyCode::Char('j') => self.speed.move_selection(1),
+            KeyCode::Char('x') | KeyCode::Esc if self.speed.phase.is_running() => {
+                return AppAction::CancelSpeedTest;
+            }
             KeyCode::Char('r') | KeyCode::Enter => {
                 if self.speed.phase.is_running() {
                     self.status_banner = "Speed comparison already in progress.".to_owned();
                 } else {
-                    let count = build_targets(&self.domains_input).len();
+                    let eff = effective_speed_domains(&self.domains_input, &self.active_toml);
+                    let count = build_targets(&eff).len();
                     let preview = format!("stop nfqws2 -> measure {count} target(s) -> start nfqws2 -> re-measure");
                     self.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmSpeedTest, preview));
                 }

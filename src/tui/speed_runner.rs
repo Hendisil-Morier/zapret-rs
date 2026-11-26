@@ -14,7 +14,7 @@ use crate::tui::actions::try_start_or_attach;
 use crate::tui::daemon_cycle::STOP_TIMEOUT;
 use crate::tui::remote::detect_control_socket;
 use crate::tui::session::TerminalSession;
-use crate::tui::speed::{Side, SpeedPhase, build_targets};
+use crate::tui::speed::{Side, SpeedPhase, build_targets, effective_speed_domains};
 use crate::tui::state::AppState;
 use crate::tui::tab2_session::{Tab2Session, attach_to_socket, execute_remote_stop, stop_local_daemon};
 use crate::tui::types::RunStatus;
@@ -84,6 +84,15 @@ fn abort_speed_job(job: &mut Option<SpeedJob>, state: &mut AppState, msg: String
     *job = None;
 }
 
+/// Cancels an in-flight speed test cleanly, dropping the probe receiver and marking [`SpeedPhase::Done`].
+pub(crate) fn cancel_speed_test(job: &mut Option<SpeedJob>, state: &mut AppState) {
+    if job.take().is_some() || state.speed.phase.is_running() {
+        state.speed.phase = SpeedPhase::Done;
+        state.push_run_log("[speed] Speed test cancelled by user.");
+        state.status_banner = "Speed test cancelled.".to_owned();
+    }
+}
+
 /// Starts the Tab 4 before/after speed comparison after user confirmation.
 ///
 /// Stops any active daemon first so the `Before` sweep measures unprotected traffic cleanly.
@@ -103,7 +112,8 @@ pub(crate) fn begin_speed_test(
         Some(Tab2Session::Local(_)) => stop_local_daemon(state, session_tab2, session),
         None => {}
     }
-    let targets = build_targets(&state.domains_input);
+    let eff = effective_speed_domains(&state.domains_input, &state.active_toml);
+    let targets = build_targets(&eff);
     let ipv = state.ip_mode.families().into_iter().next().unwrap_or(IpFamily::V4);
     state.speed.start(&targets);
     state.status_banner = "Speed test: waiting for daemon to stop...".to_owned();

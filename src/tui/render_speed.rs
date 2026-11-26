@@ -12,7 +12,9 @@ use ratatui::{
 /// Timed `curl` sample type rendered in before/after columns.
 use crate::tools::SpeedSample;
 /// Before/after sample formatting and row delta helpers.
-use crate::tui::speed::{Change, SpeedPhase, build_targets, compare, describe_sample};
+use crate::tui::speed::{
+    Change, SpeedPhase, build_targets, compare, describe_sample, effective_speed_domains,
+};
 /// Mutable application state inspected for Tab 1 domains and Tab 4 results.
 use crate::tui::state::AppState;
 /// Shared bordered panel builder and `[key]` hint badge helper.
@@ -54,7 +56,13 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         SpeedPhase::Done => t.ok,
         _ => t.warn,
     };
-    let preview_targets = build_targets(&state.domains_input);
+    let eff_domains = effective_speed_domains(&state.domains_input, &state.active_toml);
+    let preview_targets = build_targets(&eff_domains);
+    let source_hint = if state.domains_input.trim().is_empty() && !eff_domains.trim().is_empty() {
+        "Targets (from active config + control): "
+    } else {
+        "Targets (from Tab 1 + control): "
+    };
     let target_list: String = preview_targets
         .iter()
         .map(|tgt| tgt.label.as_str())
@@ -68,7 +76,7 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled(state.ip_mode.label(), Style::default().fg(t.warn_bright)),
         ]),
         Line::from(vec![
-            Span::styled("Targets (from Tab 1 + control): ", Style::default().fg(t.subtle)),
+            Span::styled(source_hint, Style::default().fg(t.subtle)),
             Span::styled(target_list, Style::default().fg(t.text)),
         ]),
     ])
@@ -119,10 +127,10 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             })
             .collect();
         let widths = [
-            Constraint::Percentage(28),
+            Constraint::Percentage(24),
+            Constraint::Percentage(27),
+            Constraint::Percentage(27),
             Constraint::Percentage(22),
-            Constraint::Percentage(22),
-            Constraint::Percentage(28),
         ];
         let table = Table::new(table_rows, widths)
             .header(header)
@@ -132,7 +140,7 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState) {
 
     frame.render_widget(
         Paragraph::new(Line::from(styled_key_hints(
-            " [r] Run Speed Comparison  [c] Clear  [Up/Down/j/k] Select  [?] Keys",
+            " [r] Run Speed Comparison  [x/Esc] Cancel  [c] Clear  [Up/Down/j/k] Select  [?] Keys",
             t,
         ))),
         rows[2],

@@ -6,11 +6,14 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 
 /// Probe outcome and timed sample types shared with Tab 4 rows.
-use zapret_rs::tools::{CONTROL_HOST, ProbeOutcome, SpeedSample};
+use zapret_rs::tools::{
+    CONTROL_HOST, CoveredProfile, IpFamily, ProbeOutcome, ProbeProtocol, ScanLevel, SpeedSample,
+    TomlRenderOptions, build_catalog, render_nfqws2_toml,
+};
 /// Tab 4 model and formatting helpers under test.
 use zapret_rs::tui::speed::{
     Change, Side, SpeedPhase, SpeedRow, SpeedState, build_targets, compare, describe_sample,
-    format_rate,
+    effective_speed_domains, format_rate,
 };
 /// Top-level TUI state, navigation enum, and frame renderer.
 use zapret_rs::tui::{ActiveTab, AppAction, AppState, ModalPurpose, draw_app};
@@ -86,7 +89,7 @@ fn format_rate_and_describe_sample_cover_scales_and_errors() {
     assert_eq!(format_rate(512), "512 B/s");
     assert_eq!(format_rate(12_500), "12 KB/s");
     assert_eq!(format_rate(10_827_906), "10.8 MB/s");
-    assert_eq!(describe_sample(&ok_sample(112, 10_827_906)), "112ms  10.8 MB/s");
+    assert_eq!(describe_sample(&ok_sample(112, 10_827_906)), "conn 20ms ttfb 112ms  10.8 MB/s");
     assert_eq!(describe_sample(&blocked_sample()), "TIMEOUT");
 }
 
@@ -149,4 +152,42 @@ fn tab4_run_key_requires_confirmation_then_emits_run_speed_test_action() {
         AppAction::None
     );
     assert!(state.modal.is_none());
+}
+
+#[test]
+fn tab4_falls_back_to_active_toml_domains_and_cancels_with_x_or_esc() {
+    let strat = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4)[0].clone();
+    let cfg_toml = render_nfqws2_toml(
+        &[CoveredProfile {
+            strategy: strat,
+            domains: vec!["store.steampowered.com".to_owned(), "youtube.com".to_owned()],
+            avg_latency_ms: 40,
+        }],
+        &TomlRenderOptions::default(),
+    );
+    assert_eq!(
+        effective_speed_domains("", &cfg_toml),
+        "store.steampowered.com, youtube.com"
+    );
+    assert_eq!(
+        effective_speed_domains("custom.example", &cfg_toml),
+        "custom.example"
+    );
+
+    let mut state = AppState::new(None, None, false);
+    state.tab = ActiveTab::Speed;
+    state.set_active_toml(cfg_toml);
+    let rendered = render_str(&state);
+    assert!(rendered.contains("store.steampowered.com") && rendered.contains("from active config"));
+
+    // While running, both `x` and `Esc` emit `AppAction::CancelSpeedTest`.
+    state.speed.phase = SpeedPhase::ProbingBefore;
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+        AppAction::CancelSpeedTest
+    );
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        AppAction::CancelSpeedTest
+    );
 }

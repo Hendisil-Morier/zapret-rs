@@ -260,6 +260,8 @@ pub enum AppAction {
     SubmitModal,
     /// Run the confirmed before/after speed comparison on Tab 4.
     RunSpeedTest,
+    /// Cancel an in-flight before/after speed comparison on Tab 4 (`x` or `Esc`).
+    CancelSpeedTest,
 }
 
 /// Action deferred until after a seamless `setcap` capability-grant restart finishes.
