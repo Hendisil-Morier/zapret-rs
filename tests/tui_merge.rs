@@ -116,7 +116,23 @@ fn scan_completion_stashes_pending_merge_and_esc_keeps_new_scan_only() {
     assert!(merged.contains("old.example") && merged.contains("new.example"));
 
     // Pressing Esc on ConfirmMergeConfig discards pending_merge and keeps the new scan config.
-    state.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmMergeConfig, "merge".to_owned()));
+    state.modal = Some(AuthModal::confirm(
+        ModalPurpose::ConfirmMergeConfig,
+        "merge 2 new profile(s)".to_owned(),
+    ));
+    {
+        use ratatui::{Terminal, backend::TestBackend};
+        use zapret_rs::tui::draw_app;
+        let mut term = Terminal::new(TestBackend::new(100, 30)).expect("create test terminal");
+        term.draw(|f| draw_app(f, &state)).expect("render ConfirmMergeConfig modal");
+        let rendered: String =
+            term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+        assert!(rendered.contains("Merge Existing nfqws2.toml Profiles?"));
+        assert!(rendered.contains("Action : merge 2 new profile(s)"));
+        assert!(rendered.contains("[Enter] Merge Profiles"));
+        assert!(!rendered.contains("Enter: merge profiles |"));
+        assert!(!rendered.contains("sudo password"));
+    }
     assert_eq!(
         state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
         AppAction::None

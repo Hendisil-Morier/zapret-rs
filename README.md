@@ -74,20 +74,20 @@ If you installed with `--symlinks`, you can also invoke `nfqws2`, `strat_finder`
 
 ## Windows (Experimental)
 
-Windows 10 and 11 (`x64`) are supported via WinDivert:
+Windows 10 and 11 (`x64`) are supported via WinDivert, and all required DLL/driver/Lua files are already bundled in the release archive:
 
-1. Download `zapret-rs-v1.4.2-windows-x86_64.zip` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it (`WinDivert.dll`, `WinDivert64.sys`, and `lua/` are already bundled alongside `zapret-rs.exe`).
-   If building from source instead, copy `WinDivert.dll` and `WinDivert64.sys` from `WinDivert-2.2.2-A` (`x64/`) into the same folder as `zapret-rs.exe`.
-2. Open **Windows Terminal (Admin)** (`Win + X` -> **Terminal (Admin)**) in the extracted folder and launch the TUI:
+1. Download `zapret-rs-v1.4.2-windows-x86_64.zip` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it.
+2. Open **Windows Terminal (Admin)** (`Win + X` -> **Terminal (Admin)**), change into the extracted folder, and launch the TUI:
 
 ```powershell
+cd "$HOME\Downloads\zapret-rs-v1.4.2-windows-x86_64"
 .\zapret-rs.exe
 ```
 
-Or run the headless daemon directly:
+Or run the headless daemon directly once your config has been generated:
 
 ```powershell
-.\zapret-rs.exe daemon --config nfqws2.toml
+.\zapret-rs.exe daemon --config "$env:USERPROFILE\.config\zapret-rs\nfqws2.toml"
 ```
 
 Note: Windows' built-in `curl.exe` lacks HTTP/3 support, so Strategy Finder skips HTTP/3 probes unless an HTTP/3-enabled `curl.exe` is installed earlier on `PATH`.
@@ -149,4 +149,4 @@ With the `x86_64-pc-windows-gnu` Rust target and `mingw-w64-gcc` installed:
 cargo build --target x86_64-pc-windows-gnu --release
 ```
 
-The resulting executable is written to `target/x86_64-pc-windows-gnu/release/zapret-rs.exe`.
+The resulting executable is written to `target/x86_64-pc-windows-gnu/release/zapret-rs.exe`. When running a self-built binary on Windows instead of the release archive, place `WinDivert.dll` and `WinDivert64.sys` from `WinDivert-2.2.2-A` (`x64/`) alongside `zapret-rs.exe`.

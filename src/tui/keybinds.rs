@@ -115,6 +115,8 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
         ActiveTab::Config => {
             let cfg_row = if state.run_status == RunStatus::Attached {
                 "[e/Enter] Edit ($EDITOR)  [p] Push Config  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn] Scroll"
+            } else if cfg!(windows) {
+                "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn/Home] Scroll TOML/Filter/Hostlist"
             } else {
                 "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn/Home] Scroll TOML/nft/Hostlist"
             };

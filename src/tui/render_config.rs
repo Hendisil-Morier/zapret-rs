@@ -67,10 +67,15 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     let nft_focused = state.focus.config == ConfigFocus::Nft;
     let nft_border = if nft_focused { t.accent_bright } else { t.frame };
     let nft_script = state.nft_preview_script();
+    let filter_title = if cfg!(windows) {
+        " WinDivert Filter "
+    } else {
+        " Temporary nftables Script "
+    };
     let nft_pane = Paragraph::new(highlight_nft(&nft_script, t))
         .scroll((state.focus.nft_scroll, 0))
         .wrap(Wrap { trim: false })
-        .block(panel_block(" Temporary nftables Script ", nft_border, t.accent_bright));
+        .block(panel_block(filter_title, nft_border, t.accent_bright));
     frame.render_widget(nft_pane, right[0]);
 
     let autolist_focused = state.focus.config == ConfigFocus::AutoHostlist;

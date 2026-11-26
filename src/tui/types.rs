@@ -92,8 +92,12 @@ impl FinderField {
                 "When checked ([x]), stops sweeping a target once one strategy works; uncheck ([ ]) to measure every candidate.",
             ),
             Self::NoNft => (
-                "Manual nft (--no-nft)",
-                "When unchecked ([ ]), installs temporary nftables queue rules automatically. Check ([x]) to supply rules yourself.",
+                if cfg!(windows) { "Manual Filter" } else { "Manual nft (--no-nft)" },
+                if cfg!(windows) {
+                    "When unchecked ([ ]), opens WinDivert packet interception automatically. Check ([x]) to skip filter setup during scans."
+                } else {
+                    "When unchecked ([ ]), installs temporary nftables queue rules automatically. Check ([x]) to supply rules yourself."
+                },
             ),
             Self::LuaDir => (
                 "Lua Directory",
@@ -354,15 +358,9 @@ impl PanelFocusState {
             }
             ActiveTab::Config => {
                 self.config = match (self.config, forward) {
-                    (ConfigFocus::Toml, true) | (ConfigFocus::AutoHostlist, false) => {
-                        ConfigFocus::Nft
-                    }
-                    (ConfigFocus::Nft, true) | (ConfigFocus::Toml, false) => {
-                        ConfigFocus::AutoHostlist
-                    }
-                    (ConfigFocus::AutoHostlist, true) | (ConfigFocus::Nft, false) => {
-                        ConfigFocus::Toml
-                    }
+                    (ConfigFocus::Toml, true) | (ConfigFocus::AutoHostlist, false) => ConfigFocus::Nft,
+                    (ConfigFocus::Nft, true) | (ConfigFocus::Toml, false) => ConfigFocus::AutoHostlist,
+                    (ConfigFocus::AutoHostlist, true) | (ConfigFocus::Nft, false) => ConfigFocus::Toml,
                 };
             }
             ActiveTab::Speed | ActiveTab::Status => {}

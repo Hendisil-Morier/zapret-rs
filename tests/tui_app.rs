@@ -212,7 +212,12 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
 
         state.tab = ActiveTab::Config;
         let cfg_screen = render_to_string(&state, w, h);
-        assert!(cfg_screen.contains("Temporary nftables Script"));
+        let expected_filter_title = if cfg!(windows) {
+            "WinDivert Filter"
+        } else {
+            "Temporary nftables Script"
+        };
+        assert!(cfg_screen.contains(expected_filter_title));
         assert!(cfg_screen.contains("table inet zapret_strat_finder {"));
         assert!(cfg_screen.contains("Auto Hostlist"));
     }

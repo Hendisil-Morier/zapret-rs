@@ -172,7 +172,11 @@ fn format_form_row(
         FinderField::IpMode => ("IP Version   ", t.special_bright, Span::styled(state.ip_mode.label(), Style::default().fg(t.warn_bright))),
         FinderField::Level => ("Scan Level   ", t.special_bright, Span::styled(state.level.as_str(), Style::default().fg(t.special_bright))),
         FinderField::StopOnFirst => ("Stop On First", t.warn, checkbox_span(state.stop_on_first, t)),
-        FinderField::NoNft => ("Manual nft   ", t.warn, checkbox_span(state.no_nft, t)),
+        FinderField::NoNft => (
+            if cfg!(windows) { "Manual Filter" } else { "Manual nft   " },
+            t.warn,
+            checkbox_span(state.no_nft, t),
+        ),
         FinderField::LuaDir => (
             "Lua Dir      ",
             t.ok_bright,

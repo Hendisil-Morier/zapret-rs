@@ -202,7 +202,14 @@ fn centered_rect(area: Rect, max_w: u16, max_h: u16) -> Rect {
 
 /// Renders `modal` as a centered floating overlay on top of the active TUI screen using `t`.
 pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
-    let popup = centered_rect(frame.area(), 70, 13);
+    let is_confirm = matches!(
+        modal.purpose,
+        ModalPurpose::ConfirmStopDaemon
+            | ModalPurpose::ConfirmSpeedTest
+            | ModalPurpose::ConfirmMergeConfig
+            | ModalPurpose::ConfirmApplyDns
+    );
+    let popup = centered_rect(frame.area(), 70, if is_confirm { 11 } else { 13 });
     frame.render_widget(Clear, popup);
 
     let (title, summary) = match modal.purpose {
@@ -225,6 +232,10 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         ModalPurpose::ConfirmStopDaemon => (
             " Confirm Stop Daemon ",
             "Send stop over the control socket? System traffic interception will cease.",
+        ),
+        ModalPurpose::ConfirmSpeedTest if cfg!(windows) => (
+            " Confirm Before/After Speed Check ",
+            "Temporarily stops WinDivert to measure unprotected baseline, then restarts it and re-tests.",
         ),
         ModalPurpose::ConfirmSpeedTest => (
             " Confirm Before/After Speed Check ",
@@ -256,12 +267,13 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
     let inner = outer.inner(popup);
     frame.render_widget(outer, popup);
 
+    let middle_height = if is_confirm { 2 } else { 3 };
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(2),
             Constraint::Length(2),
-            Constraint::Length(3),
+            Constraint::Length(middle_height),
             Constraint::Length(1),
             Constraint::Min(1),
         ])
@@ -271,41 +283,33 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         Paragraph::new(Span::styled(summary, Style::default().fg(t.text))).wrap(Wrap { trim: true }),
         rows[0],
     );
+    let preview_label = if is_confirm { "Action : " } else { "Command: " };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("Command: ", Style::default().fg(t.subtle)),
+            Span::styled(preview_label, Style::default().fg(t.subtle)),
             Span::styled(modal.command_preview.as_str(), Style::default().fg(t.accent_bright)),
         ]))
         .wrap(Wrap { trim: true }),
         rows[1],
     );
 
-    if matches!(
-        modal.purpose,
-        ModalPurpose::ConfirmStopDaemon
-            | ModalPurpose::ConfirmSpeedTest
-            | ModalPurpose::ConfirmMergeConfig
-            | ModalPurpose::ConfirmApplyDns
-    ) {
-        let prompt_msg = match modal.purpose {
-            ModalPurpose::ConfirmSpeedTest => {
-                " Press Enter to stop nfqws2 briefly and run the before/after comparison, or Esc to cancel."
-            }
+    if is_confirm {
+        let note = match modal.purpose {
             ModalPurpose::ConfirmMergeConfig => {
-                " Enter: merge profiles | k: keep existing (do nothing) | Esc: replace with new scan."
+                "Choose Merge to update matching slots, Keep Existing to leave disk untouched, or Replace Only to discard old profiles."
+            }
+            ModalPurpose::ConfirmSpeedTest => {
+                "Your unprotected baseline connection will be probed briefly before restarting the engine."
             }
             ModalPurpose::ConfirmApplyDns => {
-                " Press Enter to apply this DNS configuration to the OS, or Esc to cancel."
+                "DNS changes affect active network interfaces immediately and can be reverted via the Automatic (DHCP) preset."
             }
-            _ => " Press Enter to stop the remote nfqws2 daemon, or Esc to keep it running.",
+            _ => "Packet interception will stop until the daemon is started again.",
         };
-        let prompt = Paragraph::new(Line::from(Span::styled(
-            prompt_msg,
-            Style::default().fg(t.warn_bright),
-        )))
-        .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
-        frame.render_widget(prompt, rows[2]);
+        frame.render_widget(
+            Paragraph::new(Span::styled(note, Style::default().fg(t.muted))).wrap(Wrap { trim: true }),
+            rows[2],
+        );
     } else if cfg!(windows) && modal.purpose == ModalPurpose::GrantCaps {
         let notice = Paragraph::new(Line::from(Span::styled(
             " Right-click zapret-rs.exe and select \"Run as administrator\", then retry.",
