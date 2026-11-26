@@ -4,6 +4,23 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-11-26
+
+### Added
+
+- **Operational Component Status Tab (`5: Status`):** Added Tab 5 displaying live `[OK]` / `[WARN]` / `[ERR]` health checks for Privileges, Packet Driver (`WinDivert` / `nftables` + `NFQUEUE`), Lua Scripts, `curl` Probe (including HTTP/3 detection), Config (`nfqws2.toml`), and Daemon & IPC (`zapret-rs.service` on Linux), with `[r]` refresh and remediation details.
+- **Release Packaging CI:** Added `release-linux` (`tar.gz`) and `release-windows` (`zip` bundling `WinDivert.dll`, `WinDivert64.sys`, and license) workflows with shared `Swatinem/rust-cache@v2` and `actions/cache@v4` caching on `v*` tags.
+- **Keep Existing Merge Option:** Added `[k] Keep Existing` to the post-scan merge modal so users can discard a new scan config and preserve their existing `nfqws2.toml`.
+
+### Changed
+
+- **Windows TUI Engine Labels:** Tab 2 headers, controller panel, help popup, and run logs now display `WinDivert` instead of `nfqws2` on Windows.
+
+### Fixed
+
+- **WinDivert Packet Injection:** Resolved `IfIdx` via Win32 `GetBestInterfaceEx` (`iphlpapi.dll`) when `ifout` is absent and ran `WinDivertHelperCalcChecksums` before `WinDivertSend` to fix silent injection failures and NIC checksum offloading.
+- **Windows Console & Error Reporting:** Forced `CP_UTF8` (`65001`) at TUI startup, used ASCII `<`/`>` scroll arrows on Windows `conhost.exe`, improved `Scan Progress` gauge contrast, reported `"WinDivert packet interception failed"` instead of Linux `NFQUEUE` on Windows, bundled `tests/fixtures/fake/*.bin`, and gated Linux/Unix-only integration tests and benchmarks.
+
 ## [1.2.1] - 2026-11-26
 
 ### Added
