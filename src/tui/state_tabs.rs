@@ -5,6 +5,8 @@ use crossterm::event::KeyCode;
 
 /// Floating confirmation modal built when stopping an attached daemon (`S`).
 use crate::tui::modal::{AuthModal, ModalPurpose};
+/// Tab 4 target builder used to populate the speed confirmation preview.
+use crate::tui::speed::build_targets;
 /// Application state updated by Run and Config key handlers.
 use crate::tui::state::AppState;
 /// Tab focus enums, scroll helpers, action results, and daemon run lifecycle states.
@@ -92,11 +94,20 @@ impl AppState {
         AppAction::None
     }
 
-    /// Handles navigation and clear keys on Tab 4 (Speed Test).
+    /// Handles start, navigation, and clear keys on Tab 4 (Speed Test).
     pub(crate) fn handle_speed_key(&mut self, code: KeyCode) -> AppAction {
         match code {
             KeyCode::Up | KeyCode::Char('k') => self.speed.move_selection(-1),
             KeyCode::Down | KeyCode::Char('j') => self.speed.move_selection(1),
+            KeyCode::Char('r') | KeyCode::Enter => {
+                if self.speed.phase.is_running() {
+                    self.status_banner = "Speed comparison already in progress.".to_owned();
+                } else {
+                    let count = build_targets(&self.domains_input).len();
+                    let preview = format!("stop nfqws2 -> measure {count} target(s) -> start nfqws2 -> re-measure");
+                    self.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmSpeedTest, preview));
+                }
+            }
             KeyCode::Char('c') => {
                 if self.speed.phase.is_running() {
                     self.status_banner = "Cannot clear results while speed test is running.".to_owned();

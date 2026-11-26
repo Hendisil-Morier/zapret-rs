@@ -258,6 +258,8 @@ pub enum AppAction {
     PushConfigToDaemon,
     /// Execute the active floating [`crate::tui::AuthModal`] action (`Enter` pressed).
     SubmitModal,
+    /// Run the confirmed before/after speed comparison on Tab 4.
+    RunSpeedTest,
 }
 
 /// Action deferred until after a seamless `setcap` capability-grant restart finishes.

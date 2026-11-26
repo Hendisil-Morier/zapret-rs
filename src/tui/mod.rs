@@ -30,6 +30,8 @@ pub mod render_speed;
 pub mod runner;
 /// Tab 4 model: before/after speed comparison state, targets, and delta helpers.
 pub mod speed;
+/// Tab 4 speed comparison background runner (`stop -> probe -> start -> settle -> probe`).
+pub mod speed_runner;
 /// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
 pub mod tab2_session;
 /// Terminal alternate-screen session RAII guard and unprivileged `$EDITOR` launcher.

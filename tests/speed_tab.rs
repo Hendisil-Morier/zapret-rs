@@ -13,7 +13,7 @@ use zapret_rs::tui::speed::{
     format_rate,
 };
 /// Top-level TUI state, navigation enum, and frame renderer.
-use zapret_rs::tui::{ActiveTab, AppState, draw_app};
+use zapret_rs::tui::{ActiveTab, AppAction, AppState, ModalPurpose, draw_app};
 
 /// Builds a successful [`SpeedSample`] with explicit TTFB and throughput.
 fn ok_sample(ttfb_ms: u64, bytes_per_sec: u64) -> SpeedSample {
@@ -116,4 +116,37 @@ fn tab4_key_switches_renders_empty_state_table_and_help_popup() {
     state.speed = sp;
     let table_screen = render_str(&state);
     assert!(table_screen.contains("FIXED (works with zapret)") && table_screen.contains("2.5 MB/s"));
+}
+
+#[test]
+fn tab4_run_key_requires_confirmation_then_emits_run_speed_test_action() {
+    let mut state = AppState::new(None, None, false);
+    state.tab = ActiveTab::Speed;
+    state.domains_input = "example.com".to_owned();
+
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
+        AppAction::None
+    );
+    let modal = state.modal.as_ref().expect("r on Tab 4 must open ConfirmSpeedTest popup");
+    assert_eq!(modal.purpose, ModalPurpose::ConfirmSpeedTest);
+
+    let popup = render_str(&state);
+    assert!(popup.contains("Confirm Before/After Speed Check"));
+
+    // Confirming closes the modal and returns `AppAction::RunSpeedTest`.
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        AppAction::RunSpeedTest
+    );
+    assert!(state.modal.is_none());
+
+    // Pressing Esc cancels instead.
+    state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert!(state.modal.is_some());
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        AppAction::None
+    );
+    assert!(state.modal.is_none());
 }

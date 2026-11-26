@@ -333,7 +333,14 @@ impl AppState {
                     self.reset_finder_hover();
                     AppAction::None
                 }
-                ModalKeyResult::Submit => AppAction::SubmitModal,
+                ModalKeyResult::Submit => {
+                    if modal.purpose == ModalPurpose::ConfirmSpeedTest {
+                        self.modal = None;
+                        AppAction::RunSpeedTest
+                    } else {
+                        AppAction::SubmitModal
+                    }
+                }
             };
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {

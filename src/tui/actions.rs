@@ -150,7 +150,7 @@ pub(crate) fn submit_auth_modal(
         ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => {
             run_sudo_silent(&["-v"], pw_ref)
         }
-        ModalPurpose::ConfirmStopDaemon => Ok(()),
+        ModalPurpose::ConfirmStopDaemon | ModalPurpose::ConfirmSpeedTest => Ok(()),
     };
 
     if let Some(ref mut secret) = pw_buf {
@@ -168,7 +168,7 @@ pub(crate) fn submit_auth_modal(
                 }
                 ModalPurpose::SudoForScan => try_start_scan(state, active_scan),
                 ModalPurpose::SudoForDaemon => try_start_or_attach(state, session_tab2),
-                ModalPurpose::ConfirmStopDaemon => {}
+                ModalPurpose::ConfirmStopDaemon | ModalPurpose::ConfirmSpeedTest => {}
             }
         }
         Err(msg) => {

@@ -42,6 +42,8 @@ use crate::tui::session::{
     REEXEC_STATE_ENV, ReexecSnapshot, SEAMLESS_REEXEC_ENV, TerminalSession, drop_fw_tui,
     edit_config_in_editor, reload_toml_from_disk, save_toml_to_disk,
 };
+/// Tab 4 speed comparison job and its per-tick driver.
+use crate::tui::speed_runner::{SpeedJob, begin_speed_test, poll_speed_test};
 /// Mutable TUI application state.
 use crate::tui::state::AppState;
 /// Configurable theme resolver for `--theme` and `~/.config/zapret-rs/theme.toml`.
@@ -111,6 +113,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
         }
     }
     let mut cycle: Option<DaemonCycle> = None;
+    let mut speed_job: Option<SpeedJob> = None;
     let mut probe_tick = 0u8;
     let mut reexec_after_exit = false;
 
@@ -118,6 +121,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
         poll_active_scan(&mut state, &mut active_scan, &mut session);
         poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick, active_scan.is_some());
         poll_daemon_cycle(&mut cycle, &mut state, &mut tab2_session);
+        poll_speed_test(&mut speed_job, &mut state, &mut tab2_session);
         state.poll_finder_hover(Instant::now());
 
         session
@@ -174,10 +178,19 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 AppAction::RestartDaemon => {
                     if active_scan.is_some() {
                         state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
-                    } else if cycle.is_some() {
-                        state.status_banner = "A daemon restart is already in progress.".to_owned();
+                    } else if cycle.is_some() || speed_job.is_some() {
+                        state.status_banner = "A daemon cycle is already in progress.".to_owned();
                     } else {
                         cycle = begin_restart(&mut state, &mut tab2_session, &mut session);
+                    }
+                }
+                AppAction::RunSpeedTest => {
+                    if active_scan.is_some() {
+                        state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
+                    } else if cycle.is_some() || speed_job.is_some() {
+                        state.status_banner = "A speed check or restart is already running.".to_owned();
+                    } else {
+                        speed_job = begin_speed_test(&mut state, &mut tab2_session, &mut session);
                     }
                 }
                 AppAction::SubmitModal => {
