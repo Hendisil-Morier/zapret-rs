@@ -21,7 +21,8 @@ use serde::{Deserialize, Serialize};
 use crate::config::AppConfig;
 /// Symlink-safe TOML writer, `~/` expansion, scan level enum, and domain extractor.
 use crate::tools::{
-    FirewallHandle, ScanLevel, expand_tilde, extract_hostlist_domains, write_config_nofollow,
+    DomainScope, FirewallHandle, ScanLevel, expand_tilde, extract_hostlist_domains,
+    write_config_nofollow,
 };
 /// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML template generator.
 use crate::tui::editor::{build_starter_toml, resolve_editor_command, spawn_unprivileged_editor};
@@ -71,6 +72,9 @@ pub(crate) struct ReexecSnapshot {
     /// Active serialized `theme.toml` payload preserved across seamless `exec()` restarts.
     #[serde(default)]
     pub theme_toml: Option<String>,
+    /// Selected Tab 1 domain scope preserved across seamless `exec()` restarts.
+    #[serde(default)]
+    pub domain_scope: DomainScope,
 }
 
 impl ReexecSnapshot {
@@ -92,6 +96,7 @@ impl ReexecSnapshot {
             output_path: state.output_path.clone(),
             pending_action: state.pending_caps_action,
             theme_toml: Some(state.theme.to_toml()),
+            domain_scope: state.domain_scope,
         }
     }
 
@@ -129,6 +134,7 @@ impl ReexecSnapshot {
         state.stop_on_first = snap.stop_on_first;
         state.no_nft = snap.no_nft;
         state.lua_dir_input = snap.lua_dir_input;
+        state.domain_scope = snap.domain_scope;
         if snap.output_path != state.output_path {
             state.output_path = snap.output_path;
             let cfg_path = expand_tilde(&state.output_path);

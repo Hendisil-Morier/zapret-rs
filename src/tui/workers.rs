@@ -22,7 +22,7 @@ use crate::intercepter::QueueCatcher;
 /// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
 use crate::tools::{
     CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, TomlRenderOptions,
-    collect_config_ports, render_nfqws2_toml, resolve_lua_scripts, run_scan,
+    collect_config_ports, render_nfqws2_toml_scoped, resolve_lua_scripts, run_scan,
 };
 /// Shared telemetry counters, serializable packet record, verdict tag, and decoder.
 use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record};
@@ -115,7 +115,7 @@ where
     let (tx, rx) = mpsc::channel::<ScanUiEvent>();
     let stop = Arc::new(AtomicBool::new(false));
     let stop_bg = Arc::clone(&stop);
-    let (qnum, fwmark) = (state.finder_qnum, state.fwmark);
+    let (qnum, fwmark, domain_scope) = (state.finder_qnum, state.fwmark, state.domain_scope);
 
     // Static stop flag for `InProcessWorkerHandle::spawn` (worker exits cleanly when dropped).
     static NEVER_STOP: AtomicBool = AtomicBool::new(false);
@@ -152,7 +152,11 @@ where
                     let rendered_toml = if report.cover.is_empty() {
                         String::new()
                     } else {
-                        render_nfqws2_toml(&report.cover, &TomlRenderOptions { qnum: 200, fwmark, lua_init: lua_scripts })
+                        render_nfqws2_toml_scoped(
+                            &report.cover,
+                            &TomlRenderOptions { qnum: 200, fwmark, lua_init: lua_scripts },
+                            domain_scope,
+                        )
                     };
                     let _ = tx.send(ScanUiEvent::Completed { report, rendered_toml });
                 }

@@ -177,6 +177,11 @@ fn format_form_row(
             t.ok_bright,
             text_field_span(&state.output_path, state, focused, t.info, value_cols),
         ),
+        FinderField::DomainScope => (
+            "Domain Scope ",
+            t.special_bright,
+            Span::styled(state.domain_scope.label(), Style::default().fg(t.warn_bright)),
+        ),
     };
 
     let prefix = if focused { "> " } else { "  " };

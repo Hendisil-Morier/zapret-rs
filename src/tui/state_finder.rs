@@ -353,6 +353,7 @@ impl AppState {
             }
             FinderField::StopOnFirst => self.stop_on_first = !self.stop_on_first,
             FinderField::NoNft => self.no_nft = !self.no_nft,
+            FinderField::DomainScope => self.domain_scope = self.domain_scope.next(),
             _ => {}
         }
     }

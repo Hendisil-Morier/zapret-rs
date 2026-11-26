@@ -20,8 +20,8 @@ use crate::runtime::{CAP_MASK_NET, has_effective_caps};
 use crate::telemetry::PacketCounters;
 /// Strategy catalog, scan level, and interactive path helpers.
 use crate::tools::{
-    CoveredProfile, DEFAULT_STRAT_QNUM, ScanLevel, TargetScanResult, default_output_config_path,
-    detect_lua_dir, expand_tilde,
+    CoveredProfile, DEFAULT_STRAT_QNUM, DomainScope, ScanLevel, TargetScanResult,
+    default_output_config_path, detect_lua_dir, expand_tilde,
 };
 /// Live packet inspector state for Tab 2.
 use crate::tui::inspect::PacketInspectorState;
@@ -76,6 +76,8 @@ pub struct AppState {
     pub lua_dir_input: String,
     /// Destination/loaded `nfqws2.toml` path input buffer.
     pub output_path: String,
+    /// Domain scoping mode applied when generating `nfqws2.toml` profiles from a scan.
+    pub domain_scope: DomainScope,
     /// Explicit `--control-socket` override passed into the TUI CLI, if any.
     pub control_socket_override: Option<PathBuf>,
     /// Auto-detected running daemon socket path ready to attach when stopped.
@@ -183,6 +185,7 @@ impl AppState {
             no_nft,
             lua_dir_input: lua_dir,
             output_path,
+            domain_scope: DomainScope::default(),
             control_socket_override: None,
             detected_socket: None,
             finder_qnum: DEFAULT_STRAT_QNUM,

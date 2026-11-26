@@ -9,12 +9,15 @@ use std::path::PathBuf;
 
 /// Strategy TOML fixture builders and merge helper under test.
 use zapret_rs::tools::{
-    CoveredProfile, IpFamily, ProbeOutcome, ProbeProtocol, ScanLevel, ScanReport, StrategyMatch,
-    TargetScanResult, TomlRenderOptions, build_catalog, merge_nfqws2_toml, render_nfqws2_toml,
+    CoveredProfile, DomainScope, IpFamily, ProbeOutcome, ProbeProtocol, ScanLevel, ScanReport,
+    StrategyMatch, TargetScanResult, TomlRenderOptions, build_catalog, merge_nfqws2_toml,
+    render_nfqws2_toml,
 };
 /// TUI session domain persistence and state machine types under test.
 use zapret_rs::tui::session::{domains_history_path, save_domains_history, seed_domains_on_startup};
-use zapret_rs::tui::{AppAction, AppState, AuthModal, ModalPurpose, ScanUiEvent};
+use zapret_rs::tui::{
+    AppAction, AppState, AuthModal, FinderField, ModalPurpose, ScanUiEvent, draw_app,
+};
 
 /// Creates a unique scratch directory under the OS temp dir.
 fn temp_cfg_dir(tag: &str) -> PathBuf {
@@ -117,4 +120,29 @@ fn scan_completion_stashes_pending_merge_and_esc_keeps_new_scan_only() {
     );
     assert!(state.pending_merge.is_none());
     assert_eq!(state.active_toml, rendered_new);
+}
+
+#[test]
+fn tab1_domain_scope_row_cycles_options_and_renders_in_setup_form() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut state = AppState::new(None, None, false);
+    assert_eq!(state.domain_scope, DomainScope::ScannedOnly);
+    state.focus_idx = FinderField::ALL.len() - 1;
+    assert_eq!(state.focused_field(), FinderField::DomainScope);
+
+    state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    assert_eq!(state.domain_scope, DomainScope::AllDomains);
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(state.domain_scope, DomainScope::AutoHostlist);
+
+    let backend = TestBackend::new(120, 32);
+    let mut term = Terminal::new(backend).expect("terminal");
+    term.draw(|f| draw_app(f, &state)).expect("draw");
+    let rendered: String =
+        term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+    assert!(rendered.contains("Domain Scope") && rendered.contains("Auto Hostlist"));
+
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(state.domain_scope, DomainScope::ScannedOnly);
 }

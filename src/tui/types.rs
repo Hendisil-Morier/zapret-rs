@@ -39,6 +39,8 @@ pub enum FinderField {
     LuaDir,
     /// Output `nfqws2.toml` path text field.
     OutputPath,
+    /// Domain matching scope for generated profiles (`Scanned Only`, `All Domains`, `Auto Hostlist`).
+    DomainScope,
 }
 
 impl FinderField {
@@ -46,6 +48,7 @@ impl FinderField {
     pub const ALL: &'static [Self] = &[
         Self::Domains, Self::ProtoHttp, Self::ProtoTls12, Self::ProtoTls13, Self::ProtoHttp3,
         Self::IpMode, Self::Level, Self::StopOnFirst, Self::NoNft, Self::LuaDir, Self::OutputPath,
+        Self::DomainScope,
     ];
 
     /// Returns `true` when this row accepts free-form text input.
@@ -99,6 +102,10 @@ impl FinderField {
             Self::OutputPath => (
                 "Config Path",
                 "Destination nfqws2.toml path written on save ('s') and loaded by Tab 2 and Tab 3 (supports ~/ expansion).",
+            ),
+            Self::DomainScope => (
+                "Domain Scope",
+                "Scanned Only restricts profiles to listed domains; All Domains applies to all sites on those ports; Auto Hostlist learns blocked domains automatically.",
             ),
         }
     }
