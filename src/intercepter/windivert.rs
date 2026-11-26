@@ -217,7 +217,7 @@ impl PacketIntercepter for WinDivertIntercepter {
                 }
             };
             seq = seq.wrapping_add(1);
-            let if_idx_str = addr.if_idx().to_string();
+            let if_idx_str = format!("{}.{}", addr.if_idx(), addr.sub_if_idx());
             let if_name = (addr.if_idx() > 0).then_some(if_idx_str.as_str());
             let pkt = QueuedPacket {
                 packet_id: seq,

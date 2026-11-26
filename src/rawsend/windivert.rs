@@ -1,5 +1,7 @@
 //! Windows WinDivert `WINDIVERT_FLAG_SEND_ONLY` raw L3 packet injector.
 
+/// Zero-copy fast path for packets needing no TTL adjustment under `Impostor=1`.
+use std::borrow::Cow;
 /// Standard IPv4/IPv6 destination address enum.
 use std::net::IpAddr;
 
@@ -84,6 +86,43 @@ pub fn parse_ifout_indices(ifout: Option<&str>) -> Option<(u32, u32)> {
     }
 }
 
+/// Ensures an injected `Impostor=1` packet carries at least TTL/HopLimit `2`.
+///
+/// WinDivert decrements TTL once on outbound `Impostor=1` packets before routing; values `<= 1`
+/// drop to zero locally with `ERROR_HOST_UNREACHABLE` (`1232`). Updates the IPv4 header checksum
+/// via RFC 1624 incremental adjustment without touching TCP/UDP checksums (preserving `badsum`).
+pub fn bump_impostor_min_ttl(packet: &[u8]) -> Cow<'_, [u8]> {
+    let version = packet.first().map_or(0, |b| b >> 4);
+    if version == 4 && packet.len() >= 20 && packet[8] <= 1 {
+        let mut owned = packet.to_vec();
+        let old_word = u16::from_be_bytes([owned[8], owned[9]]);
+        let new_word = u16::from_be_bytes([2, owned[9]]);
+        let hc = u16::from_be_bytes([owned[10], owned[11]]);
+        let mut acc = u32::from(!hc) + u32::from(!old_word) + u32::from(new_word);
+        acc = (acc & 0xFFFF) + (acc >> 16);
+        acc = (acc & 0xFFFF) + (acc >> 16);
+        let new_hc = !(acc as u16);
+        owned[8] = 2;
+        owned[10..12].copy_from_slice(&new_hc.to_be_bytes());
+        return Cow::Owned(owned);
+    }
+    if version == 6 && packet.len() >= 40 && packet[7] <= 1 {
+        let mut owned = packet.to_vec();
+        owned[7] = 2;
+        return Cow::Owned(owned);
+    }
+    Cow::Borrowed(packet)
+}
+
+/// Reads the IPv4 TTL or IPv6 HopLimit byte for diagnostic send-error messages.
+fn packet_ttl(packet: &[u8]) -> u8 {
+    match packet.first().map_or(0, |b| b >> 4) {
+        4 if packet.len() >= 20 => packet[8],
+        6 if packet.len() >= 40 => packet[7],
+        _ => 0,
+    }
+}
+
 impl PacketSender for WinDivertSender {
     /// Injects one raw IPv4 or IPv6 packet via WinDivert's `SEND_ONLY` handle.
     fn send(
@@ -95,9 +134,20 @@ impl PacketSender for WinDivertSender {
     ) -> Result<(), RawSendError> {
         let (if_idx, sub_if_idx) =
             parse_ifout_indices(ifout).unwrap_or_else(|| (resolve_best_if_idx(dst), 0));
+        let wire_pkt = bump_impostor_min_ttl(packet);
         let addr = WinDivertAddress::outbound(if_idx, sub_if_idx, dst.is_ipv6());
         let handle = self.ensure_handle()?;
-        handle.send(packet, &addr)?;
+        if let Err(err) = handle.send(&wire_pkt, &addr) {
+            let io_err = std::io::Error::new(
+                err.kind(),
+                format!(
+                    "{err} [dst={dst} if={if_idx}.{sub_if_idx} ttl={} len={}]",
+                    packet_ttl(&wire_pkt),
+                    wire_pkt.len()
+                ),
+            );
+            return Err(RawSendError::SocketIo(io_err));
+        }
         Ok(())
     }
 }

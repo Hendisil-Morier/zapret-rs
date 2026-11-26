@@ -78,6 +78,16 @@ impl WinDivertAddress {
             self.union_bytes[3],
         ])
     }
+
+    /// Reads `Network.SubIfIdx` from the address union.
+    pub fn sub_if_idx(&self) -> u32 {
+        u32::from_ne_bytes([
+            self.union_bytes[4],
+            self.union_bytes[5],
+            self.union_bytes[6],
+            self.union_bytes[7],
+        ])
+    }
 }
 
 /// Win32 `OVERLAPPED` struct passed to `WinDivertRecvEx` for non-blocking timeout waits.
