@@ -150,6 +150,10 @@ pub struct AppState {
     pub autohostlist_paths: Vec<PathBuf>,
     /// Learned domain entries currently loaded from `autohostlist_paths`.
     pub autohostlist_entries: Vec<String>,
+    /// Cached operational health checks displayed on Tab 5 (`Status`).
+    pub status_checks: Vec<crate::tui::status_check::ComponentCheck>,
+    /// Selected row index inside Tab 5's component status table.
+    pub status_selected: usize,
 }
 
 impl AppState {
@@ -212,19 +216,12 @@ impl AppState {
             toml_scroll: 0,
             uid,
             has_net_caps,
-            exe_path,
-            status_banner: "Ready. Press '?' for keybindings.".to_owned(),
-            modal: None,
-            help_open: false,
-            pending_caps_action: None,
-            finder_hover: FinderHoverState::default(),
-            focus: PanelFocusState::default(),
-            theme,
-            inspector: PacketInspectorState::default(),
-            speed: SpeedState::default(),
-            pending_merge: None,
-            autohostlist_paths: Vec::new(),
-            autohostlist_entries: Vec::new(),
+            exe_path, status_banner: "Ready. Press '?' for keybindings.".to_owned(),
+            modal: None, help_open: false, pending_caps_action: None,
+            finder_hover: FinderHoverState::default(), focus: PanelFocusState::default(), theme,
+            inspector: PacketInspectorState::default(), speed: SpeedState::default(),
+            pending_merge: None, autohostlist_paths: Vec::new(), autohostlist_entries: Vec::new(),
+            status_checks: Vec::new(), status_selected: 0,
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
@@ -394,6 +391,7 @@ impl AppState {
             ActiveTab::Run => self.handle_run_key(key.code),
             ActiveTab::Config => self.handle_config_key(key.code),
             ActiveTab::Speed => self.handle_speed_key(key.code),
+            ActiveTab::Status => self.handle_status_key(key.code),
         }
     }
 }

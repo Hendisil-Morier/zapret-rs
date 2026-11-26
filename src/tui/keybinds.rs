@@ -129,6 +129,15 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
                 t,
             );
         }
+        ActiveTab::Status => {
+            push_help_section(
+                &mut lines,
+                "Status",
+                true,
+                &["[r/Enter] Refresh Checks  [Up/Down/j/k] Select Component"],
+                t,
+            );
+        }
     }
 
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);

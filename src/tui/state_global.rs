@@ -28,6 +28,7 @@ impl AppState {
             KeyCode::Char('2') => return Some(self.switch_tab(ActiveTab::Run)),
             KeyCode::Char('3') => return Some(self.switch_tab(ActiveTab::Config)),
             KeyCode::Char('4') => return Some(self.switch_tab(ActiveTab::Speed)),
+            KeyCode::Char('5') => return Some(self.switch_tab(ActiveTab::Status)),
             KeyCode::Tab => return Some(self.cycle_panel_focus(true)),
             KeyCode::BackTab => return Some(self.cycle_panel_focus(false)),
             KeyCode::Char('t') if !detail_open => {
@@ -51,6 +52,9 @@ impl AppState {
     /// Switches top-level tab and resets the Tab 1 tooltip dwell timer cleanly.
     fn switch_tab(&mut self, tab: ActiveTab) -> AppAction {
         self.tab = tab;
+        if tab == ActiveTab::Status && self.status_checks.is_empty() {
+            self.refresh_status_checks();
+        }
         self.reset_finder_hover();
         AppAction::None
     }

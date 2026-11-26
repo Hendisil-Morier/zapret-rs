@@ -68,6 +68,12 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) {
         ActiveTab::Run => handle_run_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Config => handle_config_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Speed => handle_speed_mouse(state, pos, is_left, scroll_dir, chunks[1]),
+        ActiveTab::Status => {
+            if let Some(dir) = scroll_dir && !state.status_checks.is_empty() {
+                let next = state.status_selected as isize + dir;
+                state.status_selected = next.clamp(0, state.status_checks.len() as isize - 1) as usize;
+            }
+        }
     }
 }
 
@@ -86,6 +92,9 @@ fn handle_header_click(state: &mut AppState, col: u16, header_area: Rect) {
         let width = spec.hit_width();
         if col >= x && col < x + width {
             state.tab = spec.tab;
+            if spec.tab == ActiveTab::Status && state.status_checks.is_empty() {
+                state.refresh_status_checks();
+            }
             state.editing_text = false;
             state.reset_finder_hover();
             return;

@@ -171,4 +171,34 @@ impl AppState {
         }
         AppAction::None
     }
+
+    /// Re-runs all Tab 5 operational health checks and clamps the selected row index.
+    pub fn refresh_status_checks(&mut self) {
+        self.status_checks = crate::tui::status_check::collect_component_statuses(self);
+        if !self.status_checks.is_empty() {
+            self.status_selected = self.status_selected.min(self.status_checks.len() - 1);
+        } else {
+            self.status_selected = 0;
+        }
+    }
+
+    /// Handles navigation and refresh (`r`) keys on Tab 5 (`Status`).
+    pub(crate) fn handle_status_key(&mut self, code: KeyCode) -> AppAction {
+        let len = self.status_checks.len();
+        match code {
+            KeyCode::Up | KeyCode::Char('k') if len > 0 => {
+                self.status_selected = self.status_selected.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') if len > 0 => {
+                self.status_selected = (self.status_selected + 1).min(len - 1);
+            }
+            KeyCode::Home => self.status_selected = 0,
+            KeyCode::Char('r') | KeyCode::Enter => {
+                self.refresh_status_checks();
+                self.status_banner = "Refreshed operational component checks.".to_owned();
+            }
+            _ => {}
+        }
+        AppAction::None
+    }
 }

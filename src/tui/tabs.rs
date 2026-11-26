@@ -37,11 +37,13 @@ pub enum ActiveTab {
     Config,
     /// Tab 4: before/after speed comparison (daemon stopped vs. daemon running).
     Speed,
+    /// Tab 5: operational health status for privileges, driver, Lua, `curl`, config, and IPC.
+    Status,
 }
 
 impl ActiveTab {
     /// Single source of truth for tab order, header widths, and keybind popup titles.
-    pub const SPECS: [TabSpec; 4] = [
+    pub const SPECS: [TabSpec; 5] = [
         TabSpec {
             tab: Self::Finder,
             num_prefix: " 1:",
@@ -66,6 +68,12 @@ impl ActiveTab {
             short_label: " Speed Test ",
             full_title: "4: Speed Test",
         },
+        TabSpec {
+            tab: Self::Status,
+            num_prefix: " 5:",
+            short_label: " Status ",
+            full_title: "5: Status",
+        },
     ];
 
     /// Returns the shared [`TabSpec`] metadata for `self`.
@@ -75,6 +83,7 @@ impl ActiveTab {
             Self::Run => &Self::SPECS[1],
             Self::Config => &Self::SPECS[2],
             Self::Speed => &Self::SPECS[3],
+            Self::Status => &Self::SPECS[4],
         }
     }
 

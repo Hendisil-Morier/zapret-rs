@@ -28,12 +28,16 @@ pub mod render_config;
 pub mod render_finder;
 /// Before/after Speed Test Tab 4 table and status card renderer.
 pub mod render_speed;
+/// Operational component Status Tab 5 table and detail renderer.
+pub mod render_status;
 /// Terminal lifecycle, `sudo`-safe suspend/resume, and worker coordination loop.
 pub mod runner;
 /// Tab 4 model: before/after speed comparison state, targets, and delta helpers.
 pub mod speed;
 /// Tab 4 speed comparison background runner (`stop -> probe -> start -> settle -> probe`).
 pub mod speed_runner;
+/// Tab 5 operational health checks for privileges, driver, Lua, `curl`, config, and IPC.
+pub mod status_check;
 /// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
 pub mod tab2_session;
 /// Terminal alternate-screen session RAII guard and unprivileged `$EDITOR` launcher.

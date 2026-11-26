@@ -19,6 +19,8 @@ use crate::tui::render_config::draw_config_tab;
 use crate::tui::render_finder::draw_finder_tab;
 /// Tab 4 Speed Test rendering helper.
 use crate::tui::render_speed::draw_speed_tab;
+/// Tab 5 Status rendering helper.
+use crate::tui::render_status::draw_status_tab;
 /// Application state rendered into the terminal frame.
 use crate::tui::state::AppState;
 /// Shared panel border helpers, `[key]` badge styling, log tagging, and syntax highlighters.
@@ -45,6 +47,7 @@ pub fn draw_app(frame: &mut Frame, state: &AppState) {
         ActiveTab::Run => draw_run_tab(frame, chunks[1], state),
         ActiveTab::Config => draw_config_tab(frame, chunks[1], state),
         ActiveTab::Speed => draw_speed_tab(frame, chunks[1], state),
+        ActiveTab::Status => draw_status_tab(frame, chunks[1], state),
     }
     draw_footer(frame, chunks[2], state);
     if state.tab == ActiveTab::Run

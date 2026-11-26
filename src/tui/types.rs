@@ -365,7 +365,7 @@ impl PanelFocusState {
                     }
                 };
             }
-            ActiveTab::Speed => {}
+            ActiveTab::Speed | ActiveTab::Status => {}
         }
     }
 }
