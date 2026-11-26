@@ -24,6 +24,8 @@ pub mod strat_probe;
 pub mod strat_runner;
 /// Strategy ranking, minimal cross-domain set cover, and `nfqws2.toml` serialization.
 pub mod strat_toml;
+/// Non-destructive `nfqws2.toml` profile merging and hostlist domain extraction helpers.
+pub mod strat_merge;
 
 /// Public API re-exports for `ip2net` configuration, validation, and streaming execution.
 pub use ip2net::{
@@ -80,3 +82,5 @@ pub use strat_toml::{
     CoveredProfile, DomainStrategies, StrategyMatch, TomlRenderOptions, rank_matches,
     render_nfqws2_toml, select_minimal_cover, write_config_nofollow,
 };
+/// Public API re-exports for non-destructive `nfqws2.toml` merging and domain extraction.
+pub use strat_merge::{extract_hostlist_domains, merge_nfqws2_toml};
