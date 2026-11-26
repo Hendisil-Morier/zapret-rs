@@ -1,7 +1,19 @@
-//! Tab 2 (Run `nfqws2`) and Tab 3 (Config & Diagnostics) keyboard handlers for [`AppState`].
+//! Tab 2 (Run `nfqws2`), Tab 3 (Config & Auto Hostlist), and Tab 4 (Speed Test) handlers.
 
-/// Keyboard key codes handled on Tab 2 and Tab 3.
+/// Ordered deduplication when loading learned domains across `hostlist_auto` files.
+use std::collections::BTreeSet;
+/// Non-blocking file read for refreshing Tab 3's `Auto Hostlist` pane.
+use std::fs;
+/// Path resolution relative to `nfqws2.toml`'s parent directory.
+use std::path::PathBuf;
+
+/// Keyboard key codes handled on Tab 2, Tab 3, and Tab 4.
 use crossterm::event::KeyCode;
+
+/// Validated `AppConfig` parser used to locate configured `hostlist_auto` paths.
+use crate::config::AppConfig;
+/// `~/` path expansion shared with Tab 1 and config saving.
+use crate::tools::expand_tilde;
 
 /// Floating confirmation modal built when stopping an attached daemon (`S`).
 use crate::tui::modal::{AuthModal, ModalPurpose};
@@ -75,11 +87,12 @@ impl AppState {
         }
     }
 
-    /// Handles TOML or `nftables` preview scrolling, editing, saving, and reloading on Tab 3.
+    /// Handles TOML, `nftables`, and `Auto Hostlist` scrolling, editing, saving, and reloading on Tab 3.
     pub(crate) fn handle_config_key(&mut self, code: KeyCode) -> AppAction {
         let scroll = match self.focus.config {
             ConfigFocus::Toml => &mut self.toml_scroll,
             ConfigFocus::Nft => &mut self.focus.nft_scroll,
+            ConfigFocus::AutoHostlist => &mut self.focus.autolist_scroll,
         };
         if adjust_pane_scroll(scroll, code) {
             return AppAction::None;
@@ -92,6 +105,40 @@ impl AppState {
             _ => {}
         }
         AppAction::None
+    }
+
+    /// Re-reads `hostlist_auto` paths and learned domain lines referenced by `active_toml`.
+    pub fn refresh_autohostlist(&mut self) {
+        self.autohostlist_paths.clear();
+        self.autohostlist_entries.clear();
+        if self.active_toml.trim().is_empty() {
+            return;
+        }
+        let cfg_path = expand_tilde(&self.output_path);
+        let Ok(cfg) = AppConfig::from_toml_str(&self.active_toml, cfg_path.parent()) else {
+            return;
+        };
+        let mut seen_paths: Vec<PathBuf> = Vec::new();
+        for p in &cfg.profiles {
+            if let Some(path) = &p.lists.hostlist_auto
+                && !seen_paths.contains(path)
+            {
+                seen_paths.push(path.clone());
+            }
+        }
+        let mut domains = BTreeSet::new();
+        for path in &seen_paths {
+            if let Ok(text) = fs::read_to_string(path) {
+                for line in text.lines() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                        domains.insert(trimmed.to_owned());
+                    }
+                }
+            }
+        }
+        self.autohostlist_paths = seen_paths;
+        self.autohostlist_entries = domains.into_iter().collect();
     }
 
     /// Handles start, cancel, navigation, and clear keys on Tab 4 (Speed Test).

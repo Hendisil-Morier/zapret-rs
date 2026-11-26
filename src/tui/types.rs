@@ -310,6 +310,8 @@ pub enum ConfigFocus {
     Toml,
     /// Top-right scrollable temporary `nftables` ruleset preview.
     Nft,
+    /// Bottom-right scrollable `autohostlist` learned-domains viewer.
+    AutoHostlist,
 }
 
 /// Per-tab focused panel and scroll offsets updated via `Tab`, `BackTab`, and vertical keys.
@@ -329,6 +331,8 @@ pub struct PanelFocusState {
     pub run_log_scroll: u16,
     /// Top visible line inside Tab 3's `Temporary nftables Script` pane.
     pub nft_scroll: u16,
+    /// Top visible line inside Tab 3's `Auto Hostlist` pane.
+    pub autolist_scroll: u16,
 }
 
 impl PanelFocusState {
@@ -349,9 +353,16 @@ impl PanelFocusState {
                 };
             }
             ActiveTab::Config => {
-                self.config = match self.config {
-                    ConfigFocus::Toml => ConfigFocus::Nft,
-                    ConfigFocus::Nft => ConfigFocus::Toml,
+                self.config = match (self.config, forward) {
+                    (ConfigFocus::Toml, true) | (ConfigFocus::AutoHostlist, false) => {
+                        ConfigFocus::Nft
+                    }
+                    (ConfigFocus::Nft, true) | (ConfigFocus::Toml, false) => {
+                        ConfigFocus::AutoHostlist
+                    }
+                    (ConfigFocus::AutoHostlist, true) | (ConfigFocus::Nft, false) => {
+                        ConfigFocus::Toml
+                    }
                 };
             }
             ActiveTab::Speed => {}

@@ -118,11 +118,18 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let mut cycle: Option<DaemonCycle> = None;
     let mut speed_job: Option<SpeedJob> = None;
     let mut probe_tick = 0u8;
+    let mut autolist_tick = 0u8;
     let mut reexec_after_exit = false;
 
     loop {
         poll_active_scan(&mut state, &mut active_scan, &mut session);
         poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick, active_scan.is_some());
+        if state.tab == crate::tui::ActiveTab::Config {
+            autolist_tick = autolist_tick.wrapping_add(1);
+            if autolist_tick.is_multiple_of(16) {
+                state.refresh_autohostlist();
+            }
+        }
         poll_daemon_cycle(&mut cycle, &mut state, &mut tab2_session);
         poll_speed_test(&mut speed_job, &mut state, &mut tab2_session);
         state.poll_finder_hover(Instant::now());

@@ -125,7 +125,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
             let cfg_row = if state.run_status == RunStatus::Attached {
                 "[e/Enter] Edit ($EDITOR)  [p] Push Config  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn] Scroll"
             } else {
-                "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn/Home] Scroll TOML/nft"
+                "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn/Home] Scroll TOML/nft/Hostlist"
             };
             push_help_section(&mut lines, "Config & Diagnostics", true, &[cfg_row], t);
         }

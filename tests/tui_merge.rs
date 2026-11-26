@@ -146,3 +146,46 @@ fn tab1_domain_scope_row_cycles_options_and_renders_in_setup_form() {
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(state.domain_scope, DomainScope::ScannedOnly);
 }
+
+#[test]
+fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains() {
+    use ratatui::{Terminal, backend::TestBackend};
+    use zapret_rs::tools::render_nfqws2_toml_scoped;
+    use zapret_rs::tui::types::ActiveTab;
+
+    let dir = temp_cfg_dir("autolist-ui");
+    let cfg_path = dir.join("nfqws2.toml");
+    let autolist_path = dir.join("autohostlist.txt");
+    fs::write(&autolist_path, "# auto\nblocked-one.example\nblocked-two.example\n")
+        .expect("write autohostlist");
+
+    let strat = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4)[0].clone();
+    let cfg_toml = render_nfqws2_toml_scoped(
+        &[CoveredProfile {
+            strategy: strat,
+            domains: vec!["seed.example".to_owned()],
+            avg_latency_ms: 40,
+        }],
+        &TomlRenderOptions::default(),
+        DomainScope::AutoHostlist,
+    );
+    fs::write(&cfg_path, &cfg_toml).expect("write nfqws2.toml");
+
+    let mut state = AppState::new(Some(cfg_path), None, false);
+    state.tab = ActiveTab::Config;
+    assert_eq!(state.autohostlist_paths, vec![autolist_path]);
+    assert_eq!(
+        state.autohostlist_entries,
+        vec!["blocked-one.example".to_owned(), "blocked-two.example".to_owned()]
+    );
+
+    let backend = TestBackend::new(120, 32);
+    let mut term = Terminal::new(backend).expect("terminal");
+    term.draw(|f| draw_app(f, &state)).expect("draw");
+    let rendered: String =
+        term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+    assert!(rendered.contains("Auto Hostlist (2)"));
+    assert!(rendered.contains("blocked-one.example") && rendered.contains("blocked-two.example"));
+
+    let _ = fs::remove_dir_all(&dir);
+}

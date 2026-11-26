@@ -214,7 +214,7 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
         let cfg_screen = render_to_string(&state, w, h);
         assert!(cfg_screen.contains("Temporary nftables Script"));
         assert!(cfg_screen.contains("table inet zapret_strat_finder {"));
-        assert!(cfg_screen.contains("System & Privilege Diagnostics"));
+        assert!(cfg_screen.contains("Auto Hostlist"));
     }
 }
 

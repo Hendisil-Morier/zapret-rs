@@ -4,7 +4,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
 };
@@ -73,30 +73,55 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         .block(panel_block(" Temporary nftables Script ", nft_border, t.accent_bright));
     frame.render_widget(nft_pane, right[0]);
 
-    let (cap_line, diag_border) = if state.has_net_caps {
+    let autolist_focused = state.focus.config == ConfigFocus::AutoHostlist;
+    let (autolist_title, autolist_border, autolist_lines) = if state.autohostlist_paths.is_empty() {
         (
-            Line::from(Span::styled("Capabilities: CAP_NET_ADMIN + CAP_NET_RAW active", Style::default().fg(t.ok_bright))),
-            t.ok,
+            " Auto Hostlist (off) ".to_owned(),
+            if autolist_focused { t.accent_bright } else { t.frame },
+            vec![
+                Line::from(Span::styled(
+                    "No hostlist_auto configured in nfqws2.toml.",
+                    Style::default().fg(t.muted),
+                )),
+                Line::from(Span::styled(
+                    "Set Tab 1 'Domain Scope' to Auto Hostlist to learn blocked domains live.",
+                    Style::default().fg(t.subtle),
+                )),
+            ],
         )
     } else {
+        let path_list = state
+            .autohostlist_paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut lines = vec![Line::from(vec![
+            Span::styled("File: ", Style::default().fg(t.info)),
+            Span::styled(path_list, Style::default().fg(t.subtle)),
+        ])];
+        if state.autohostlist_entries.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "(empty yet — blocked domains are appended live on failure)",
+                Style::default().fg(t.muted),
+            )));
+        } else {
+            for domain in &state.autohostlist_entries {
+                lines.push(Line::from(Span::styled(
+                    format!("  {domain}"),
+                    Style::default().fg(t.ok_bright),
+                )));
+            }
+        }
         (
-            Line::from(Span::styled("Capabilities: MISSING (press 'g' to grant & restart)", Style::default().fg(t.warn_bright))),
-            t.warn,
+            format!(" Auto Hostlist ({}) ", state.autohostlist_entries.len()),
+            if autolist_focused { t.accent_bright } else { t.ok },
+            lines,
         )
     };
-    let diag = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("Effective UID: ", Style::default().fg(t.info)),
-            Span::styled(state.uid.to_string(), Style::default().fg(t.text).add_modifier(Modifier::BOLD)),
-        ]),
-        cap_line,
-        Line::from(Span::styled("Or run manually:", Style::default().fg(t.subtle))),
-        Line::from(Span::styled(
-            format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", state.exe_path),
-            Style::default().fg(t.special_bright).add_modifier(Modifier::BOLD),
-        )),
-    ])
-    .wrap(Wrap { trim: true })
-    .block(panel_block(" System & Privilege Diagnostics ", diag_border, t.info));
-    frame.render_widget(diag, right[1]);
+    let autolist_pane = Paragraph::new(autolist_lines)
+        .scroll((state.focus.autolist_scroll, 0))
+        .wrap(Wrap { trim: false })
+        .block(panel_block(&autolist_title, autolist_border, t.info));
+    frame.render_widget(autolist_pane, right[1]);
 }

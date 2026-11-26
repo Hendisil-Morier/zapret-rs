@@ -146,6 +146,10 @@ pub struct AppState {
     pub speed: SpeedState,
     /// Stashed `(previous_toml, scan_toml)` awaiting user merge confirmation after a scan.
     pub pending_merge: Option<(String, String)>,
+    /// Unique resolved `hostlist_auto` file paths referenced by `active_toml`.
+    pub autohostlist_paths: Vec<PathBuf>,
+    /// Learned domain entries currently loaded from `autohostlist_paths`.
+    pub autohostlist_entries: Vec<String>,
 }
 
 impl AppState {
@@ -220,6 +224,8 @@ impl AppState {
             inspector: PacketInspectorState::default(),
             speed: SpeedState::default(),
             pending_merge: None,
+            autohostlist_paths: Vec::new(),
+            autohostlist_entries: Vec::new(),
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
@@ -317,6 +323,7 @@ impl AppState {
         }
         self.active_toml = toml;
         self.toml_scroll = 0;
+        self.refresh_autohostlist();
     }
 
     /// Opens the centered floating modal for granting `CAP_NET_ADMIN|CAP_NET_RAW`.
