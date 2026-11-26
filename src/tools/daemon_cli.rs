@@ -13,6 +13,9 @@ use crate::config::CliArgs;
 /// Linux daemon runtime startup and event loop runner.
 #[cfg(target_os = "linux")]
 use crate::tools::daemon_runtime::run_daemon_linux;
+/// Windows WinDivert daemon runtime startup and event loop runner.
+#[cfg(windows)]
+use crate::tools::daemon_windows::run_daemon_windows;
 /// Shared strategy finder CLI dispatch (`--strat-finder`).
 use crate::tools::strat_cli::{extract_strat_finder_args, run_strat_finder_cli};
 
@@ -42,10 +45,18 @@ where
             ExitCode::FAILURE
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    match run_daemon_windows(&cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("nfqws2 error: {err}");
+            ExitCode::FAILURE
+        }
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = cli;
-        eprintln!("nfqws2 error: NFQUEUE packet interception requires Linux");
+        eprintln!("nfqws2 error: packet interception is not yet implemented on this OS");
         ExitCode::FAILURE
     }
 }

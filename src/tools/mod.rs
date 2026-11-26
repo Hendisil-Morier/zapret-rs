@@ -5,6 +5,9 @@ pub mod daemon_cli;
 /// Linux `nfqws2` NFQUEUE daemon startup and event loop runtime.
 #[cfg(target_os = "linux")]
 pub mod daemon_runtime;
+/// Windows WinDivert daemon startup pipeline and event loop.
+#[cfg(windows)]
+pub mod daemon_windows;
 /// OS-agnostic firewall rule backend contract and target port collector.
 pub mod firewall;
 /// Self-installing CLI (`install` / `uninstall`) for binary, Lua scripts, caps, and systemd.

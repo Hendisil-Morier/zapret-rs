@@ -11,27 +11,36 @@ use std::sync::mpsc::{self, Receiver};
 /// Background worker threads for strategy scanning and live `nfqws2` packet processing.
 use std::thread::{self, JoinHandle};
 /// Poll interval for the live `nfqws2` daemon loop.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use std::time::Duration;
 
 /// Configuration models parsed for live scanning and live `nfqws2` execution.
 use crate::config::{AppConfig, LuaInitEntry};
 /// Core stateful DPI desync engine and packet loop bound by Tab 2.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use crate::desync::DesyncEngine;
-/// NFQUEUE catcher bound by the live Tab 2 daemon thread.
+/// OS-agnostic packet interception loop trait.
+#[cfg(windows)]
+use crate::intercepter::PacketIntercepter;
+/// NFQUEUE catcher bound by the live Tab 2 daemon thread on Linux.
 #[cfg(target_os = "linux")]
 use crate::intercepter::QueueCatcher;
+/// WinDivert intercepter bound by the live Tab 2 daemon thread on Windows.
+#[cfg(windows)]
+use crate::intercepter::WinDivertIntercepter;
 /// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
 use crate::tools::{
     CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, ScanConfig,
     TomlRenderOptions, collect_config_ports, render_nfqws2_toml_scoped, resolve_lua_scripts,
     run_scan,
 };
+/// WinDivert filter-expression builder used by the live Tab 2 daemon thread on Windows.
+#[cfg(windows)]
+use crate::tools::build_windivert_filter;
 /// Shared telemetry counters and serializable packet record.
 use crate::telemetry::{PacketCounters, PacketRecord};
-/// Verdict tag and packet record builder used by the live Linux loop.
-#[cfg(target_os = "linux")]
+/// Verdict tag and packet record builder used by the live capture loop.
+#[cfg(any(target_os = "linux", windows))]
 use crate::telemetry::{PacketVerdict, build_packet_record};
 /// Application state read/updated when spawning workers.
 use crate::tui::state::AppState;
@@ -246,7 +255,36 @@ where
                     },
                 );
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(windows)]
+            {
+                let (tcp_ports, udp_ports) = collect_config_ports(&cfg);
+                let filter = build_windivert_filter(&tcp_ports, &udp_ports);
+                let mut catcher = match WinDivertIntercepter::bind(&filter) {
+                    Ok(c) => c,
+                    Err(err) => { let _ = ready_tx.send(Err(format!("WinDivert bind failed: {err}"))); return; }
+                };
+                let engine = match DesyncEngine::new(&cfg) {
+                    Ok(e) => e,
+                    Err(err) => { let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}"))); return; }
+                };
+                let _ = ready_tx.send(Ok(()));
+                let _ = catcher.run_until(
+                    &stop_bg,
+                    || Some(Duration::from_millis(50)),
+                    |pkt| {
+                        let (decision, outcome) = engine.process_packet_traced(pkt);
+                        let (seq, verdict) = counters.record_outcome(&outcome);
+                        let record = build_packet_record(seq, pkt, &outcome);
+                        if verdict != PacketVerdict::Pass {
+                            let _ = desync_tx.try_send(record);
+                        } else {
+                            let _ = pkt_tx.try_send(record);
+                        }
+                        decision
+                    },
+                );
+            }
+            #[cfg(not(any(target_os = "linux", windows)))]
             {
                 let _ = (&cfg, &stop_bg, &counters, &pkt_tx, &desync_tx);
                 let _ = ready_tx.send(Err(
