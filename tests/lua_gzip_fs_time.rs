@@ -1,4 +1,5 @@
 //! Integration tests for Task 4.2: streaming gzip/gunzip, POSIX `stat`/time bindings, and `--writable`.
+#![cfg(unix)]
 
 /// Interior mutability and single-thread sharing for passing [`CapturingSender`] into [`LuaRuntime`].
 use std::cell::RefCell;

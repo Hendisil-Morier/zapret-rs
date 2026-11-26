@@ -172,11 +172,19 @@ impl DnsResolver for MockResolver {
             *entry += 1;
             *entry
         };
+        #[cfg(unix)]
+        const EAI_AGAIN: i32 = libc::EAI_AGAIN;
+        #[cfg(not(unix))]
+        const EAI_AGAIN: i32 = 11002;
+        #[cfg(unix)]
+        const EAI_NONAME: i32 = libc::EAI_NONAME;
+        #[cfg(not(unix))]
+        const EAI_NONAME: i32 = 11001;
         match domain {
-            "flaky.example" if attempt < 3 => Err(ResolveError { code: libc::EAI_AGAIN }),
+            "flaky.example" if attempt < 3 => Err(ResolveError { code: EAI_AGAIN }),
             "flaky.example" => Ok(vec![IpAddr::V4(Ipv4Addr::new(198, 51, 100, 42))]),
-            "dead.example" => Err(ResolveError { code: libc::EAI_AGAIN }),
-            "missing.example" => Err(ResolveError { code: libc::EAI_NONAME }),
+            "dead.example" => Err(ResolveError { code: EAI_AGAIN }),
+            "missing.example" => Err(ResolveError { code: EAI_NONAME }),
             "dual.example" => {
                 let mut res = Vec::new();
                 if family.allows_v4() {

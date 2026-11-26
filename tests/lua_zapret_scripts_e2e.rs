@@ -45,8 +45,10 @@ use zapret_rs::timer::{TimerPool, boottime_ms};
 /// Directory containing all unmodified `zapret2` Lua scripts.
 const ZAPRET2_LUA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua");
 /// Path to `zapret2`'s fake TLS ClientHello binary fixture.
-const TLS_HELLO_FIXTURE: &str =
-    "/home/morier/Documents/projects/zapret2/files/fake/tls_clienthello_www_google_com.bin";
+const TLS_HELLO_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/fake/tls_clienthello_www_google_com.bin"
+);
 /// Peer IP endpoints shared by synthetic client/server IPv4 test flows.
 const CLI_IP: [u8; 4] = [10, 0, 0, 2];
 /// Server IPv4 address used in synthetic flows.

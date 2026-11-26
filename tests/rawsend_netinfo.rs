@@ -1,4 +1,5 @@
 //! Integration tests for kernel source-IP route lookup, `get_ifaddrs`, and `PacketSender` / `RawSender`.
+#![cfg(target_os = "linux")]
 
 /// Standard IP address types for loopback route and interface assertions.
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};

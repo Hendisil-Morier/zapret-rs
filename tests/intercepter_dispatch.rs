@@ -1,4 +1,5 @@
 //! Integration tests for NFQUEUE configuration defaults, fwmark suppression, `SIOCGIFNAME` lookup, and `poll` timeouts.
+#![cfg(target_os = "linux")]
 
 /// Duration helpers for testing `poll_timeout_ms`.
 use std::time::Duration;

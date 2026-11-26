@@ -1,5 +1,6 @@
 //! Integration tests verifying [`DesyncEngine`] profile matching, verdict reconstruction,
 //! and baseline L7 payload classification.
+#![cfg(target_os = "linux")]
 
 /// Shared synthetic packet builders for integration tests.
 mod common;

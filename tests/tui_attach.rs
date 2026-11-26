@@ -1,6 +1,6 @@
 //! Integration tests for TUI control-socket attach mode, remote telemetry, modals, and errors.
 
-#![cfg(feature = "tui")]
+#![cfg(all(unix, feature = "tui"))]
 
 use std::fs;
 use std::io::BufReader;

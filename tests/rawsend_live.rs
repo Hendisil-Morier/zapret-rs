@@ -1,4 +1,5 @@
 //! Live kernel `SOCK_RAW` loopback injection and `ipfrag2` integration tests (run in `unshare -r -n` or as root).
+#![cfg(target_os = "linux")]
 
 /// Error kind matching for expected kernel checksum-drop timeouts on `recv_from`.
 use std::io::ErrorKind;

@@ -2,6 +2,9 @@
 //!
 //! Run with `cargo bench --offline` (or `unshare -r -n sh -c 'ip link set lo up && cargo bench --offline -- --raw'`).
 
+#[cfg(target_os = "linux")]
+mod linux_bench {
+
 /// Shared interior mutability for mock `PacketSender` injection.
 use std::cell::RefCell;
 /// Temporary hostlist/ipset setup and fake payload fixture loading.
@@ -304,7 +307,8 @@ fn bench_rawsend_loopback() {
     });
 }
 
-fn main() {
+/// Parses optional `--raw` flag and runs all hot-path benchmarks.
+pub fn main() {
     let raw_mode = std::env::args().any(|arg| arg == "--raw");
     let tls_ch = fs::read(zapret2_path("files/fake/tls_clienthello_www_google_com.bin"))
         .expect("read TLS ClientHello fixture");
@@ -318,4 +322,11 @@ fn main() {
     if raw_mode {
         bench_rawsend_loopback();
     }
+}
+}
+
+/// Entry point forwarding to [`linux_bench::main`] on Linux and no-op on other targets.
+fn main() {
+    #[cfg(target_os = "linux")]
+    linux_bench::main();
 }

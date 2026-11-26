@@ -1,4 +1,5 @@
 //! End-to-end tests spawning real `nfqws2 --intercept=0` with its Unix control socket.
+#![cfg(unix)]
 
 use std::fs;
 use std::io::BufReader;

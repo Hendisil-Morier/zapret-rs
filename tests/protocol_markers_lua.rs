@@ -18,9 +18,9 @@ const ZAPRET_LIB_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-li
 /// Path to `zapret2`'s unmodified `zapret-tests.lua`.
 const ZAPRET_TESTS_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-tests.lua");
 
-/// Reads a binary test fixture from `zapret2/files/fake/`.
+/// Reads a binary test fixture from `tests/fixtures/fake/`.
 fn read_fake_fixture(name: &str) -> Vec<u8> {
-    let path = Path::new("/home/morier/Documents/projects/zapret2/files/fake").join(name);
+    let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake")).join(name);
     std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
 }
 

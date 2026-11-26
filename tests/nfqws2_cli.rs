@@ -1,4 +1,5 @@
 //! End-to-end CLI, PID file, POSIX signal, and runtime lifecycle tests for `nfqws2`.
+#![cfg(target_os = "linux")]
 
 /// Standard filesystem helpers for temporary configs, scripts, and PID files.
 use std::fs;

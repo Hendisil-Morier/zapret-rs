@@ -1,4 +1,5 @@
 //! Privilege-separation, zero-capability `curl` child, `--print-nft`, and `O_NOFOLLOW` tests.
+#![cfg(target_os = "linux")]
 
 /// Filesystem helpers for symlink-refusal config-write tests.
 use std::fs;

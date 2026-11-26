@@ -1,4 +1,5 @@
 //! Tests for the timed speed probe: output parsing, argument shape, and a fake-`curl` end to end run.
+#![cfg(unix)]
 
 /// Executable bit for the temporary fake `curl` script.
 use std::os::unix::fs::PermissionsExt as _;

@@ -37,9 +37,9 @@ use zapret_rs::rawsend::PacketSender;
 /// Mock sender and basic IPv4 TCP/UDP builders reused across scenarios.
 use common::{CapturingSender, build_ipv4_tcp, build_ipv4_udp};
 
-/// Reads a binary fixture file from `zapret2/files/fake/`.
+/// Reads a binary fixture file from `tests/fixtures/fake/`.
 fn fake_fixture(name: &str) -> Vec<u8> {
-    let path = Path::new("/home/morier/Documents/projects/zapret2/files/fake").join(name);
+    let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake")).join(name);
     fs::read(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
 }
 

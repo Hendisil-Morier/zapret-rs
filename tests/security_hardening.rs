@@ -1,4 +1,5 @@
 //! Regression tests for symlink hardening (`--writable`, `--pidfile`) and memory-cap bounds.
+#![cfg(target_os = "linux")]
 
 /// Temporary file and directory management for filesystem symlink checks.
 use std::fs;

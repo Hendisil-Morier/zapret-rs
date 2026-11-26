@@ -1,4 +1,5 @@
 //! Integration tests for Unix control socket server security, lifecycle, and fanout isolation.
+#![cfg(unix)]
 
 use std::fs;
 use std::io::BufReader;
