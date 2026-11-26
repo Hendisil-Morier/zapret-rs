@@ -14,6 +14,8 @@ pub mod merge;
 pub mod nft;
 /// HTTP/TLS/QUIC connectivity probe backends (`curl` + mockable trait).
 pub mod probe;
+/// `curl` connectivity probe outcome classification and spoof-redirect detection.
+pub mod probe_classify;
 /// In-process NFQUEUE desync worker thread and multi-domain strategy scan orchestrator.
 pub mod runner;
 /// Strategy ranking, minimal cross-domain set cover, and `nfqws2.toml` serialization.
@@ -52,10 +54,9 @@ pub use nft::{
     is_nft_perm_denied, sudo_needs_password,
 };
 /// Public API re-exports for `strat_finder` connectivity probes and outcome classification.
-pub use probe::{
-    CurlProbeBackend, PROBE_WRITE_OUT, ProbeBackend, ProbeOutcome, ProbeRequest,
-    classify_curl_output, is_spoof_redirect,
-};
+pub use probe::{CurlProbeBackend, ProbeBackend, ProbeRequest, format_resolve_arg};
+/// Public API re-exports for `curl` probe outcomes and classifiers.
+pub use probe_classify::{PROBE_WRITE_OUT, ProbeOutcome, classify_curl_output, is_spoof_redirect};
 /// Public API re-exports for `strat_finder` multi-domain scan orchestration.
 pub use runner::{ProgressEvent, ScanConfig, ScanReport, TargetScanResult, run_scan};
 /// Public API re-exports for `strat_finder` in-process worker handle and applier trait.

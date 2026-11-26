@@ -9,8 +9,10 @@ use std::time::Duration;
 
 /// Strategy catalog definitions and expansion function.
 use crate::tools::strat::catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
-/// Connectivity probe traits and classified outcomes.
-use crate::tools::strat::probe::{ProbeBackend, ProbeOutcome, ProbeRequest};
+/// Connectivity probe traits and request models.
+use crate::tools::strat::probe::{ProbeBackend, ProbeRequest};
+/// Classified probe outcomes.
+use crate::tools::strat::probe_classify::ProbeOutcome;
 /// Ranking and minimal cross-domain set cover types and algorithms.
 use crate::tools::strat::toml::{
     CoveredProfile, DomainStrategies, StrategyMatch, rank_matches, select_minimal_cover,

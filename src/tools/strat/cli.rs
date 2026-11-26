@@ -77,9 +77,9 @@ pub struct StratFinderCli {
     /// Desync firewall mark in hex (`0x40000000`) or decimal for loop suppression.
     #[arg(long = "fwmark", default_value = "0x40000000")]
     pub fwmark: String,
-    /// Per-probe curl timeout in seconds.
-    #[arg(long = "timeout", default_value_t = 3)]
-    pub timeout: u64,
+    /// Per-probe curl timeout in seconds (fractional values such as `1.5` supported).
+    #[arg(long = "timeout", default_value_t = 2.0)]
+    pub timeout: f64,
     /// Stop sweeping a target as soon as the first working strategy succeeds.
     #[arg(long = "stop-on-first")]
     pub stop_on_first: bool,
@@ -314,9 +314,12 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
     base_cfg.ipcache.hostname = true;
     base_cfg.lua_init = lua_scripts.iter().cloned().map(LuaInitEntry::File).collect();
 
+    if !cli.timeout.is_finite() || cli.timeout <= 0.0 {
+        return Err(format!("invalid --timeout '{}' (expected positive seconds, e.g. 2.0)", cli.timeout));
+    }
     let scan_cfg = ScanConfig {
         domains, protos, families, level, stop_on_first,
-        timeout: Duration::from_secs(cli.timeout.max(1)), force_blocked: cli.force_blocked,
+        timeout: Duration::from_secs_f64(cli.timeout.clamp(0.2, 60.0)), force_blocked: cli.force_blocked,
     };
 
     // Spawn NFQUEUE worker before installing nftables rules so Drop tears down nftables first.

@@ -56,7 +56,7 @@ impl AppState {
             protos,
             families: self.ip_mode.families(),
             level: self.level,
-            timeout: Duration::from_secs(3),
+            timeout: Duration::from_secs(2),
             stop_on_first: self.stop_on_first,
             force_blocked: false,
         })
@@ -69,7 +69,7 @@ impl AppState {
             protos: self.selected_protos(),
             families: self.ip_mode.families(),
             level: self.level,
-            timeout: Duration::from_secs(3),
+            timeout: Duration::from_secs(2),
             stop_on_first: self.stop_on_first,
             force_blocked: false,
         };

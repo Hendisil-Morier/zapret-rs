@@ -1,5 +1,9 @@
 //! HTTP/TLS/QUIC connectivity probe backends (`curl` + mockable [`ProbeBackend`] trait).
 
+/// Deduplicated per-scan DNS resolution cache mapping `(domain, family)` to resolved IP.
+use std::collections::HashMap;
+/// Resolved target IP address and synchronous OS resolver trait for `--resolve` pinning.
+use std::net::{IpAddr, ToSocketAddrs};
 /// Unix `pre_exec` extension stripping all Linux capabilities before spawning `curl`.
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt as _;
@@ -7,6 +11,10 @@ use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 /// Subprocess spawning for `curl` probes.
 use std::process::Command;
+/// Shared thread-safe cache and bounded worker-pool synchronization primitives.
+use std::sync::{Arc, Mutex, RwLock};
+/// Work-stealing atomic cursor for bounded parallel probe batches.
+use std::sync::atomic::{AtomicUsize, Ordering};
 /// Monotonic timing and request timeout durations.
 use std::time::{Duration, Instant};
 
@@ -15,94 +23,8 @@ use std::time::{Duration, Instant};
 use crate::runtime::clear_child_privileges;
 /// Target protocol and IP family enums shared with the strategy catalog.
 use crate::tools::strat::catalog::{IpFamily, ProbeProtocol};
-
-/// `curl -w` format read by [`classify_curl_output`]: status code, redirect target, total seconds.
-pub const PROBE_WRITE_OUT: &str = "%{http_code}\n%{redirect_url}\n%{time_total}\n";
-
-/// Outcome of probing one domain over a specific protocol and IP family.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProbeOutcome {
-    /// Server responded normally without DPI interception or foreign redirect.
-    Available {
-        /// Observed HTTP status code (e.g., `200`, `301`, `403`, `404`).
-        http_code: u16,
-        /// Measured request latency in milliseconds.
-        latency_ms: u64,
-    },
-    /// HTTP 3xx response redirected to an unrelated host (typical ISP DPI block page).
-    SpoofRedirect {
-        /// Raw `Location` redirect URL returned by the interceptor.
-        location: String,
-    },
-    /// Connection or handshake timed out (DPI blackhole/drop).
-    Timeout,
-    /// Connection was reset or refused by peer/DPI (TCP RST).
-    TcpReset,
-    /// TLS/QUIC handshake failed with an SSL/crypto error.
-    TlsError {
-        /// Underlying `curl` exit code (e.g., `35`, `56`, `60`).
-        code: i32,
-    },
-    /// Unclassified transport or tool failure.
-    Failed {
-        /// Process exit code (`-1` if spawning failed).
-        code: i32,
-        /// Short diagnostic text from stderr or spawn error.
-        detail: String,
-    },
-}
-
-/// Maps common `curl` non-zero exit codes to concise human-readable diagnostic hints.
-fn curl_exit_hint(code: i32) -> Option<&'static str> {
-    match code {
-        6 => Some("DNS resolve failed"),
-        7 => Some("connect failed"),
-        23 => Some("output write error"),
-        28 => Some("timeout"),
-        35 => Some("TLS handshake error"),
-        52 => Some("empty reply"),
-        56 => Some("recv/reset error"),
-        60 => Some("TLS cert verify failed"),
-        _ => None,
-    }
-}
-
-impl ProbeOutcome {
-    /// Returns `true` when the probe reached the target server cleanly.
-    pub const fn is_success(&self) -> bool {
-        matches!(self, Self::Available { .. })
-    }
-
-    /// Returns measured latency in milliseconds when the probe succeeded.
-    pub const fn latency_ms(&self) -> Option<u64> {
-        match self {
-            Self::Available { latency_ms, .. } => Some(*latency_ms),
-            _ => None,
-        }
-    }
-
-    /// Returns a compact single-line summary suitable for progress logs and reports.
-    pub fn summary(&self) -> String {
-        match self {
-            Self::Available { http_code, latency_ms } => format!("OK (HTTP {http_code}, {latency_ms} ms)"),
-            Self::SpoofRedirect { location } => format!("SPOOF_REDIRECT ({location})"),
-            Self::Timeout => "TIMEOUT".to_owned(),
-            Self::TcpReset => "TCP_RESET".to_owned(),
-            Self::TlsError { code } => format!("TLS_ERROR (curl {code})"),
-            Self::Failed { code, detail } => {
-                let tag = match curl_exit_hint(*code) {
-                    Some(hint) => format!("code {code} [{hint}]"),
-                    None => format!("code {code}"),
-                };
-                if detail.is_empty() {
-                    format!("FAILED ({tag})")
-                } else {
-                    format!("FAILED ({tag}: {detail})")
-                }
-            }
-        }
-    }
-}
+/// Classified probe outcomes, `-w` format string, and `curl` output classifier.
+use crate::tools::strat::probe_classify::{PROBE_WRITE_OUT, ProbeOutcome, classify_curl_output};
 
 /// Parameters describing one connectivity probe request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +39,29 @@ pub struct ProbeRequest {
     pub timeout: Duration,
 }
 
+/// Upper bound on concurrent `curl` child processes launched by [`CurlProbeBackend::probe_batch`].
+const MAX_PARALLEL_PROBES: usize = 8;
+
+/// Formats `timeout` as a locale-independent decimal-second string (`0.2`..=`60`) for `curl`.
+fn format_curl_timeout(timeout: Duration) -> String {
+    let ms = timeout.as_millis().clamp(200, 60_000) as u64;
+    let (secs, frac) = (ms / 1000, ms % 1000);
+    if frac == 0 {
+        secs.to_string()
+    } else {
+        let s = format!("{secs}.{frac:03}");
+        s.trim_end_matches('0').to_owned()
+    }
+}
+
+/// Formats one `curl --resolve` pin (`host:port:ip`, bracketing IPv6 addresses).
+pub fn format_resolve_arg(domain: &str, port: u16, ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => format!("{domain}:{port}:{v4}"),
+        IpAddr::V6(v6) => format!("{domain}:{port}:[{v6}]"),
+    }
+}
+
 /// Injectable connectivity probe interface allowing live `curl` execution and offline mocks.
 pub trait ProbeBackend {
     /// Returns `true` if this backend supports HTTP/3 (QUIC) probing.
@@ -124,31 +69,60 @@ pub trait ProbeBackend {
 
     /// Executes one connectivity probe against `req` and classifies the result.
     fn probe(&self, req: &ProbeRequest) -> ProbeOutcome;
+
+    /// Executes a batch of independent probes and returns outcomes in matching index order.
+    fn probe_batch(&self, reqs: &[ProbeRequest]) -> Vec<ProbeOutcome> {
+        reqs.iter().map(|req| self.probe(req)).collect()
+    }
 }
 
-/// Live [`ProbeBackend`] invoking the system `curl` binary.
+/// Thread-safe per-scan DNS resolution cache mapping `(domain, family)` to the resolved IP.
+type ResolveCache = Arc<RwLock<HashMap<(String, IpFamily), Option<IpAddr>>>>;
+
+/// Live [`ProbeBackend`] invoking the system `curl` binary with per-scan DNS resolution caching.
 #[derive(Debug, Clone)]
 pub struct CurlProbeBackend {
     /// Path or executable name of `curl` (defaults to `"curl"`).
     curl_bin: PathBuf,
+    /// Cached first resolved IP per `(domain, IpFamily)` avoiding repeat `getaddrinfo` lookups.
+    resolve_cache: ResolveCache,
 }
 
 impl Default for CurlProbeBackend {
     /// Constructs a [`CurlProbeBackend`] using `"curl"` from `PATH`.
     fn default() -> Self {
-        Self { curl_bin: PathBuf::from("curl") }
+        Self::new(PathBuf::from("curl"))
     }
 }
 
 impl CurlProbeBackend {
     /// Constructs a [`CurlProbeBackend`] pointing at an explicit `curl` binary path.
     pub fn new(curl_bin: PathBuf) -> Self {
-        Self { curl_bin }
+        Self { curl_bin, resolve_cache: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     /// Returns the configured `curl` binary path.
     pub fn curl_bin(&self) -> &Path {
         &self.curl_bin
+    }
+
+    /// Looks up or populates the cached IP for `(domain, ipv)` matching the target address family.
+    fn cached_ip(&self, domain: &str, port: u16, ipv: IpFamily) -> Option<IpAddr> {
+        let key = (domain.to_owned(), ipv);
+        if let Ok(guard) = self.resolve_cache.read()
+            && let Some(&cached) = guard.get(&key)
+        {
+            return cached;
+        }
+        let resolved = (domain, port).to_socket_addrs().ok().and_then(|addrs| {
+            addrs
+                .map(|sa| sa.ip())
+                .find(|ip| matches!((ipv, ip), (IpFamily::V4, IpAddr::V4(_)) | (IpFamily::V6, IpAddr::V6(_))))
+        });
+        if let Ok(mut guard) = self.resolve_cache.write() {
+            guard.insert(key, resolved);
+        }
+        resolved
     }
 
     /// Builds the `curl` argument list for `req` (separated for deterministic unit testing).
@@ -169,30 +143,17 @@ impl CurlProbeBackend {
         timeout: Duration,
         write_out: &str,
     ) -> Vec<String> {
-        let secs = timeout.as_secs().max(1).to_string();
+        let secs = format_curl_timeout(timeout);
         let null_sink = if cfg!(windows) { "NUL" } else { "/dev/null" };
         let mut args = vec![
-            "-sS".to_owned(),
-            "-o".to_owned(),
-            null_sink.to_owned(),
-            "--noproxy".to_owned(),
-            "*".to_owned(),
-            "--connect-timeout".to_owned(),
-            secs.clone(),
-            "--max-time".to_owned(),
-            secs,
-            if ipv == IpFamily::V4 { "-4" } else { "-6" }.to_owned(),
-            "-w".to_owned(),
-            write_out.to_owned(),
+            "-sS".to_owned(), "-o".to_owned(), null_sink.to_owned(), "--noproxy".to_owned(), "*".to_owned(),
+            "--connect-timeout".to_owned(), secs.clone(), "--max-time".to_owned(), secs,
+            if ipv == IpFamily::V4 { "-4" } else { "-6" }.to_owned(), "-w".to_owned(), write_out.to_owned(),
         ];
         match proto {
             None => {}
             Some(ProbeProtocol::Http) => args.push("--http1.1".to_owned()),
-            Some(ProbeProtocol::Tls12) => {
-                args.push("--tlsv1.2".to_owned());
-                args.push("--tls-max".to_owned());
-                args.push("1.2".to_owned());
-            }
+            Some(ProbeProtocol::Tls12) => args.extend(["--tlsv1.2", "--tls-max", "1.2"].map(str::to_owned)),
             Some(ProbeProtocol::Tls13) => args.push("--tlsv1.3".to_owned()),
             Some(ProbeProtocol::Http3) => args.push("--http3-only".to_owned()),
         }
@@ -228,9 +189,14 @@ impl ProbeBackend for CurlProbeBackend {
             .any(|line| line.starts_with("Features:") && line.split_whitespace().any(|tok| tok == "HTTP3"))
     }
 
-    /// Invokes `curl` unprivileged for `req` and classifies status code, redirect target, and errors.
+    /// Invokes `curl` unprivileged for `req` (with `--resolve` cache hit when resolved) and classifies the output.
     fn probe(&self, req: &ProbeRequest) -> ProbeOutcome {
-        let args = Self::build_args(req);
+        let mut args = Self::build_args(req);
+        if let Some(ip) = self.cached_ip(&req.domain, req.proto.default_port(), req.ipv) {
+            let resolve = format_resolve_arg(&req.domain, req.proto.default_port(), ip);
+            let url_idx = args.len().saturating_sub(1);
+            args.splice(url_idx..url_idx, ["--resolve".to_owned(), resolve]);
+        }
         let start = Instant::now();
         let output = match self.unprivileged_command().args(&args).output() {
             Ok(out) => out,
@@ -247,94 +213,36 @@ impl ProbeBackend for CurlProbeBackend {
         let stderr = String::from_utf8_lossy(&output.stderr);
         classify_curl_output(&req.domain, exit_code, &stdout, &stderr, elapsed_ms)
     }
-}
 
-/// Extracts the normalized lowercase host (without port or IPv6 brackets) from an HTTP URL.
-fn extract_url_host(url: &str) -> Option<String> {
-    let rest = url
-        .trim()
-        .strip_prefix("http://")
-        .or_else(|| url.trim().strip_prefix("https://"))?;
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    let host_port = authority.rsplit('@').next().unwrap_or(authority);
-    if host_port.is_empty() {
-        return None;
-    }
-    let host = if let Some(v6) = host_port.strip_prefix('[') {
-        v6.split(']').next().unwrap_or("")
-    } else {
-        host_port.split(':').next().unwrap_or("")
-    };
-    if host.is_empty() { None } else { Some(host.to_ascii_lowercase()) }
-}
-
-/// Returns `true` when `location` redirects `domain` to an unrelated external host (ISP block page).
-///
-/// Mirrors `zapret2`'s `is_dpi_redirect`: same-host and subdomain/parent-domain transitions
-/// (such as `example.com` -> `www.example.com`) are legitimate; foreign hosts are spoofed.
-pub fn is_spoof_redirect(domain: &str, location: &str) -> bool {
-    let Some(target_host) = extract_url_host(location) else {
-        return false;
-    };
-    let origin = domain.trim().trim_end_matches('.').to_ascii_lowercase();
-    let target = target_host.trim_end_matches('.');
-    if target == origin
-        || target.ends_with(&format!(".{origin}"))
-        || origin.ends_with(&format!(".{target}"))
-    {
-        return false;
-    }
-    // Also allow sibling subdomains sharing the same registrable second-level suffix (e.g., `m.foo.com` <-> `www.foo.com`).
-    let orig_parts: Vec<&str> = origin.split('.').collect();
-    let targ_parts: Vec<&str> = target.split('.').collect();
-    if orig_parts.len() >= 2 && targ_parts.len() >= 2 {
-        let orig_tail = &orig_parts[orig_parts.len() - 2..];
-        let targ_tail = &targ_parts[targ_parts.len() - 2..];
-        if orig_tail == targ_tail {
-            return false;
+    /// Runs independent probes concurrently across a bounded worker pool preserving request order.
+    fn probe_batch(&self, reqs: &[ProbeRequest]) -> Vec<ProbeOutcome> {
+        if reqs.len() <= 1 {
+            return reqs.iter().map(|r| self.probe(r)).collect();
         }
-    }
-    true
-}
-
-/// Classifies raw `curl` exit code, `-w` stdout lines, and stderr into a [`ProbeOutcome`].
-pub fn classify_curl_output(
-    domain: &str,
-    exit_code: i32,
-    stdout: &str,
-    stderr: &str,
-    fallback_elapsed_ms: u64,
-) -> ProbeOutcome {
-    if exit_code == 0 {
-        let mut lines = stdout.lines();
-        let http_code = lines.next().and_then(|s| s.trim().parse::<u16>().ok()).unwrap_or(0);
-        let redirect_url = lines.next().unwrap_or("").trim();
-        let latency_ms = lines
-            .next()
-            .and_then(|s| s.trim().parse::<f64>().ok())
-            .filter(|t| t.is_finite() && *t >= 0.0)
-            .map_or(fallback_elapsed_ms, |secs| (secs * 1000.0).round() as u64);
-
-        if (300..=399).contains(&http_code) && !redirect_url.is_empty() && is_spoof_redirect(domain, redirect_url) {
-            return ProbeOutcome::SpoofRedirect { location: redirect_url.to_owned() };
-        }
-        if http_code > 0 {
-            return ProbeOutcome::Available { http_code, latency_ms };
-        }
-        return ProbeOutcome::Failed { code: 0, detail: "empty HTTP response".to_owned() };
-    }
-
-    let stderr_low = stderr.to_ascii_lowercase();
-    match exit_code {
-        28 => ProbeOutcome::Timeout,
-        52 | 56 if stderr_low.contains("reset") || stderr_low.contains("empty reply") => ProbeOutcome::TcpReset,
-        56 if stderr_low.contains("ssl") || stderr_low.contains("tls") => ProbeOutcome::TlsError { code: exit_code },
-        56 | 52 => ProbeOutcome::TcpReset,
-        35 | 51 | 58 | 59 | 60 | 77 | 80 | 83 | 90 | 91 | 95 | 96 => ProbeOutcome::TlsError { code: exit_code },
-        7 if stderr_low.contains("reset") || stderr_low.contains("refused") => ProbeOutcome::TcpReset,
-        other => ProbeOutcome::Failed {
-            code: other,
-            detail: stderr.lines().next().unwrap_or("").trim().to_owned(),
-        },
+        let next = AtomicUsize::new(0);
+        let results: Mutex<Vec<Option<ProbeOutcome>>> = Mutex::new(vec![None; reqs.len()]);
+        let workers = reqs.len().min(MAX_PARALLEL_PROBES);
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(|| {
+                    loop {
+                        let idx = next.fetch_add(1, Ordering::Relaxed);
+                        if idx >= reqs.len() {
+                            break;
+                        }
+                        let outcome = self.probe(&reqs[idx]);
+                        if let Ok(mut guard) = results.lock() {
+                            guard[idx] = Some(outcome);
+                        }
+                    }
+                });
+            }
+        });
+        results
+            .into_inner()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|opt| opt.unwrap_or(ProbeOutcome::Failed { code: -1, detail: "worker panic".to_owned() }))
+            .collect()
     }
 }
