@@ -4,6 +4,20 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-26
+
+### Added
+
+- **OS DNS & DoH/DoT Preset Manager (`src/tools/dns.rs` & Tab 5):** Added `zapret-rs dns <status|cloudflare|google|quad9|adguard|auto>` and Tab 5 `[n]`/`[a]` controls (with confirmation dialog) configuring Windows `netsh` DoH + DNS or Linux `systemd-resolved` DNS + DoT and reverting cleanly to DHCP (`auto`).
+- **One-Key Debug Report Export (`[d]` on Tab 5):** Added `zapret-rs-debug.txt` exporter (`src/tui/debug_report.rs`) capturing version, OS/arch, privileges, all component checks, counters, and trailing `Live Scan Log` / `Daemon Log` lines.
+- **Worker Telemetry & `curl` Exit Hints:** Strategy Finder now logs the active `WinDivert` filter or `NFQUEUE` queue at startup, counts captured packets and `rawsend` successes/errors (with `last_err`), and labels common `curl` exit codes (`code 6 [DNS resolve failed]`, `code 23 [output write error]`, etc.).
+
+### Fixed
+
+- **Windows Strategy Finder `curl` Sink & Filter:** Switched `curl.exe` output sink from `/dev/null` to `NUL` on Windows, restricted Strategy Finder's WinDivert filter to TCP `80, 443` and UDP `443` so UDP/53 DNS traffic is never intercepted, and updated `WinDivertRecvEx` to use `GetOverlappedResult` for transfer length and caller-owned `pAddrLen`.
+- **Windows `lua_init` Paths & Daemon Launch:** Stripped `\\?\` verbatim prefixes from `lua_init` paths, added exe-relative/CWD fallback for stale `zapret-*.lua` paths in `nfqws2.toml`, included `default_control_socket_path()` in non-Unix IPC discovery, resolved `nfqws2.exe`, and surfaced child `stderr` immediately if a Windows daemon fails during startup.
+- **TUI State Modularity:** Moved `set_active_toml` into `src/tui/state_tabs.rs` and restored clean multi-line formatting in `src/tui/state.rs`.
+
 ## [1.3.1] - 2026-11-26
 
 ### Fixed
