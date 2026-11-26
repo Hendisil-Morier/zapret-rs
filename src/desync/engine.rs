@@ -41,8 +41,11 @@ use crate::lua::{
 use crate::packet::constants::VERDICT_PASS;
 /// Dissected packet view and L3/L4 wire parser.
 use crate::packet::{DissectedPacket, dissect_packet};
-/// Abstract packet sender trait and real Linux raw socket implementation.
-use crate::rawsend::{PacketSender, RawSender};
+/// Abstract packet sender trait.
+use crate::rawsend::PacketSender;
+/// Real Linux raw socket packet sender implementation.
+#[cfg(target_os = "linux")]
+use crate::rawsend::RawSender;
 /// Monotonic boottime clock queried once per dispatched packet.
 use crate::timer::{MonotonicTime, boottime_now};
 
@@ -77,7 +80,8 @@ pub struct DesyncEngine {
 }
 
 impl DesyncEngine {
-    /// Constructs a [`DesyncEngine`] using a real Linux [`RawSender`].
+    /// Constructs a [`DesyncEngine`] using a real Linux `RawSender`.
+    #[cfg(target_os = "linux")]
     pub fn new(config: &AppConfig) -> Result<Self, LuaEngineError> {
         let sender: Rc<RefCell<dyn PacketSender>> =
             Rc::new(RefCell::new(RawSender::new(config.bind_fix4, config.bind_fix6)));

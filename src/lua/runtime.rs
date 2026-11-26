@@ -42,8 +42,11 @@ use crate::lua::rawsend_api::register_rawsend_functions;
 use crate::lua::system::register_system_functions;
 /// Scheduled timer pool and host bindings.
 use crate::lua::timer_api::register_timer_functions;
-/// Abstract packet sender trait and Linux raw socket sender implementation.
-use crate::rawsend::{PacketSender, RawSender};
+/// Abstract packet sender trait.
+use crate::rawsend::PacketSender;
+/// Linux raw socket sender implementation.
+#[cfg(target_os = "linux")]
+use crate::rawsend::RawSender;
 /// Scheduled timer pool managing active timers and deadlines.
 use crate::timer::pool::TimerPool;
 
@@ -66,7 +69,8 @@ pub struct LuaRuntime {
 }
 
 impl LuaRuntime {
-    /// Creates a new [`LuaRuntime`] backed by a real Linux [`RawSender`].
+    /// Creates a new [`LuaRuntime`] backed by a real Linux `RawSender`.
+    #[cfg(target_os = "linux")]
     pub fn new(config: LuaConfig) -> Result<Self, LuaEngineError> {
         let sender: Rc<RefCell<dyn PacketSender>> =
             Rc::new(RefCell::new(RawSender::new(config.bind_fix4, config.bind_fix6)));

@@ -81,7 +81,7 @@ pub enum Decision {
     Replace(Vec<u8>),
 }
 
-/// OS-agnostic packet interception loop contract implemented by platform drivers such as [`crate::intercepter::QueueCatcher`].
+/// OS-agnostic packet interception loop contract implemented by platform drivers such as `QueueCatcher`.
 pub trait PacketIntercepter {
     /// Runs the non-blocking interception loop until `stop` becomes `true`.
     fn run_until<F, T>(

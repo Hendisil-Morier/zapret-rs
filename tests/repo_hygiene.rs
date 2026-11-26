@@ -111,7 +111,10 @@ fn mod_rs_files_are_pure_facades() {
 
         for (idx, raw_line) in content.lines().enumerate() {
             let trimmed = raw_line.trim();
-            if trimmed.is_empty() || trimmed.starts_with("//") {
+            if trimmed.is_empty()
+                || trimmed.starts_with("//")
+                || (trimmed.starts_with("#[cfg(") && trimmed.ends_with(']'))
+            {
                 continue;
             }
             if in_pub_use {
