@@ -352,13 +352,13 @@ fn run() -> Result<(), DaemonError> {
     if let Some(guard) = pid_guard.as_mut() {
         guard.write_current_pid()?;
     }
-    let mut fw_guard = maybe_install_auto_nft(&config)?;
     let (hub, control_server) = maybe_start_control_server(
         control_socket_path.as_deref(),
         &config,
         &engine.borrow(),
         cli.config.as_deref(),
     )?;
+    let mut fw_guard = maybe_install_auto_nft(&config)?;
 
     let loop_result = catcher.run_until(
         quit_flag(),
