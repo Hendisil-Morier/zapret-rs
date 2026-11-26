@@ -11,8 +11,8 @@ use std::process::{Command, Stdio};
 /// Windows dynamic `WinDivert.dll` loader probe.
 #[cfg(windows)]
 use crate::intercepter::windivert_ffi::WinDivertApi;
-/// Lua script discovery and `curl` HTTP/3 probe backend.
-use crate::tools::{CurlProbeBackend, ProbeBackend, resolve_lua_scripts};
+/// Lua script discovery, OS DNS status probe, and `curl` HTTP/3 probe backend.
+use crate::tools::{CurlProbeBackend, ProbeBackend, detect_dns_status, resolve_lua_scripts};
 /// Control socket / loopback IPC auto-detection.
 use crate::tui::remote::detect_control_socket;
 /// Application state inspected during component status collection.
@@ -51,9 +51,38 @@ pub fn collect_component_statuses(state: &AppState) -> Vec<ComponentCheck> {
         check_packet_driver(state),
         check_lua_scripts(state),
         check_curl_probe(),
+        check_dns_resolver(state),
         check_config(state),
         check_daemon_ipc(state),
     ]
+}
+
+/// Checks the active OS DNS servers and displays the currently selected DNS preset.
+fn check_dns_resolver(state: &AppState) -> ComponentCheck {
+    let st = detect_dns_status();
+    let preset = state.dns_preset.label();
+    if st.servers.is_empty() {
+        return ComponentCheck {
+            name: "DNS Resolver",
+            health: ComponentHealth::Warn,
+            summary: format!("No DNS detected on {} (preset: {preset})", st.interface),
+            detail: format!(
+                "Could not detect configured DNS servers on {}. Press 'n' to cycle presets and 'a' to apply {preset}.",
+                st.interface
+            ),
+        };
+    }
+    let list = st.servers.join(", ");
+    let enc_suffix = st.encryption.as_deref().map_or_else(String::new, |e| format!(" | {e}"));
+    ComponentCheck {
+        name: "DNS Resolver",
+        health: ComponentHealth::Ok,
+        summary: format!("{list} on {}{enc_suffix}", st.interface),
+        detail: format!(
+            "Active DNS on {}: {list}{enc_suffix}. Selected preset: {preset} (press 'n' to cycle, 'a' to apply).",
+            st.interface
+        ),
+    }
 }
 
 /// Checks OS packet-capture privileges (`Administrator` on Windows, `CAP_NET_ADMIN` / `uid` on Linux).

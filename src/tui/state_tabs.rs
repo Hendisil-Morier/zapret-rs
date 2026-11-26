@@ -214,6 +214,20 @@ impl AppState {
                     Err(err) => format!("Debug export failed: {err}"),
                 };
             }
+            KeyCode::Char('n') => {
+                self.dns_preset = self.dns_preset.next();
+                self.refresh_status_checks();
+                self.status_banner = format!(
+                    "DNS preset: {} (press 'a' to apply)",
+                    self.dns_preset.label()
+                );
+            }
+            KeyCode::Char('a') => {
+                self.modal = Some(AuthModal::confirm(
+                    ModalPurpose::ConfirmApplyDns,
+                    self.dns_preset.command_preview(),
+                ));
+            }
             _ => {}
         }
         AppAction::None

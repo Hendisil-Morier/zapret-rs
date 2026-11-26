@@ -20,7 +20,7 @@ fn tab5_status_populates_checks_navigates_and_renders() {
         AppAction::None
     );
     assert_eq!(state.tab, ActiveTab::Status);
-    assert_eq!(state.status_checks.len(), 6);
+    assert_eq!(state.status_checks.len(), 7);
     assert_eq!(state.status_selected, 0);
 
     let names: Vec<&str> = state.status_checks.iter().map(|c| c.name).collect();
@@ -31,6 +31,7 @@ fn tab5_status_populates_checks_navigates_and_renders() {
             "Packet Driver",
             "Lua Scripts",
             "Probe (curl)",
+            "DNS Resolver",
             "Config",
             "Daemon & IPC",
         ]
@@ -41,7 +42,19 @@ fn tab5_status_populates_checks_navigates_and_renders() {
     state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
     assert_eq!(state.status_selected, 0);
     state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-    assert_eq!(state.status_checks.len(), 6);
+    assert_eq!(state.status_checks.len(), 7);
+
+    // Cycling DNS preset ('n') and opening confirm modal ('a') work cleanly.
+    let initial_preset = state.dns_preset;
+    state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    assert_ne!(state.dns_preset, initial_preset);
+    state.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert_eq!(
+        state.modal.as_ref().map(|m| m.purpose),
+        Some(zapret_rs::tui::ModalPurpose::ConfirmApplyDns)
+    );
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(state.modal.is_none());
 
     let backend = TestBackend::new(120, 34);
     let mut term = Terminal::new(backend).expect("create test terminal");

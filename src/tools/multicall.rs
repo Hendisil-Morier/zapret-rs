@@ -9,6 +9,8 @@ use std::process::ExitCode;
 
 /// Shared `nfqws2` daemon runner (`daemon` / `nfqws2`).
 use crate::tools::daemon::cli::run_nfqws2_cli;
+/// OS DNS/DoH preset management CLI runner (`dns`).
+use crate::tools::dns::run_dns_cli;
 /// Self-installer and uninstaller CLI runners (`install` / `uninstall`).
 use crate::tools::installer::{run_install_cli, run_uninstall_cli};
 /// Shared `ip2net` subnet aggregator runner.
@@ -35,6 +37,8 @@ pub enum MulticallApplet {
     Install,
     /// Uninstaller removing installed binaries, symlinks, and Lua scripts.
     Uninstall,
+    /// OS DNS/DoH preset status and configuration manager (`dns`).
+    Dns,
 }
 
 /// Normalizes an executable stem by taking its filename, stripping `.exe`, and lowercasing.
@@ -68,6 +72,7 @@ pub fn resolve_subcommand_applet(arg1: &OsStr) -> Option<MulticallApplet> {
         "mdig" => Some(MulticallApplet::Mdig),
         "install" => Some(MulticallApplet::Install),
         "uninstall" => Some(MulticallApplet::Uninstall),
+        "dns" => Some(MulticallApplet::Dns),
         _ => None,
     }
 }
@@ -95,6 +100,7 @@ where
             MulticallApplet::Mdig => "mdig",
             MulticallApplet::Install => "zapret-rs install",
             MulticallApplet::Uninstall => "zapret-rs uninstall",
+            MulticallApplet::Dns => "zapret-rs dns",
         };
         let mut forwarded = Vec::with_capacity(raw.len());
         forwarded.push(OsString::from(canonical));
@@ -121,5 +127,6 @@ where
         MulticallApplet::Mdig => Some(run_mdig_cli(forwarded)),
         MulticallApplet::Install => Some(run_install_cli(forwarded)),
         MulticallApplet::Uninstall => Some(run_uninstall_cli(forwarded)),
+        MulticallApplet::Dns => Some(run_dns_cli(forwarded)),
     }
 }

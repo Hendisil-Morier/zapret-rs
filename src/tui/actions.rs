@@ -236,6 +236,17 @@ pub(crate) fn submit_auth_modal(
         state.pending_caps_action = None;
         return false;
     }
+    if purpose == ModalPurpose::ConfirmApplyDns {
+        state.modal = None;
+        state.status_banner = match crate::tools::apply_dns_preset(state.dns_preset) {
+            Ok(msg) => {
+                state.refresh_status_checks();
+                msg
+            }
+            Err(err) => format!("DNS update failed: {err}"),
+        };
+        return false;
+    }
     if purpose == ModalPurpose::ConfirmMergeConfig {
         state.modal = None;
         if let Some((prev, new_toml)) = state.pending_merge.take() {
@@ -269,7 +280,8 @@ pub(crate) fn submit_auth_modal(
         }
         ModalPurpose::ConfirmStopDaemon
         | ModalPurpose::ConfirmSpeedTest
-        | ModalPurpose::ConfirmMergeConfig => Ok(()),
+        | ModalPurpose::ConfirmMergeConfig
+        | ModalPurpose::ConfirmApplyDns => Ok(()),
     };
 
     if let Some(ref mut secret) = pw_buf {
@@ -289,7 +301,8 @@ pub(crate) fn submit_auth_modal(
                 ModalPurpose::SudoForDaemon => try_start_or_attach(state, session_tab2),
                 ModalPurpose::ConfirmStopDaemon
                 | ModalPurpose::ConfirmSpeedTest
-                | ModalPurpose::ConfirmMergeConfig => {}
+                | ModalPurpose::ConfirmMergeConfig
+                | ModalPurpose::ConfirmApplyDns => {}
             }
         }
         Err(msg) => {

@@ -38,6 +38,8 @@ pub enum ModalPurpose {
     ConfirmSpeedTest,
     /// Confirm merging newly scanned profiles into existing `nfqws2.toml` rules.
     ConfirmMergeConfig,
+    /// Confirm changing OS DNS servers / encrypted DNS (DoH/DoT) to the selected preset.
+    ConfirmApplyDns,
 }
 
 /// Outcome produced by [`AuthModal::handle_key`].
@@ -232,6 +234,10 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
             " Merge Existing nfqws2.toml Profiles? ",
             "Existing profiles are loaded. Merge new strategy results instead of replacing them?",
         ),
+        ModalPurpose::ConfirmApplyDns => (
+            " Apply OS DNS Preset? ",
+            "Update system DNS servers (and DoH/DoT encryption where supported) on active network adapters?",
+        ),
     };
 
     let border_col = match modal.purpose {
@@ -239,7 +245,8 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         ModalPurpose::SudoForScan
         | ModalPurpose::SudoForDaemon
         | ModalPurpose::ConfirmSpeedTest
-        | ModalPurpose::ConfirmMergeConfig => t.warn,
+        | ModalPurpose::ConfirmMergeConfig
+        | ModalPurpose::ConfirmApplyDns => t.warn,
         ModalPurpose::GrantCaps => t.accent_bright,
     };
     let outer = Block::default()
@@ -278,6 +285,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         ModalPurpose::ConfirmStopDaemon
             | ModalPurpose::ConfirmSpeedTest
             | ModalPurpose::ConfirmMergeConfig
+            | ModalPurpose::ConfirmApplyDns
     ) {
         let prompt_msg = match modal.purpose {
             ModalPurpose::ConfirmSpeedTest => {
@@ -285,6 +293,9 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
             }
             ModalPurpose::ConfirmMergeConfig => {
                 " Enter: merge profiles | k: keep existing (do nothing) | Esc: replace with new scan."
+            }
+            ModalPurpose::ConfirmApplyDns => {
+                " Press Enter to apply this DNS configuration to the OS, or Esc to cancel."
             }
             _ => " Press Enter to stop the remote nfqws2 daemon, or Esc to keep it running.",
         };
@@ -340,6 +351,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         ModalPurpose::ConfirmMergeConfig => {
             "[Enter] Merge Profiles   [k] Keep Existing   [Esc] Replace Only"
         }
+        ModalPurpose::ConfirmApplyDns => "[Enter] Apply DNS   [Esc] Cancel",
     };
     frame.render_widget(
         Paragraph::new(Line::from(styled_key_hints(action_hint, t))),

@@ -134,7 +134,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
                 &mut lines,
                 "Status",
                 true,
-                &["[r/Enter] Refresh  [d] Export Debug Report  [Up/Down/j/k] Select  [Left/Right/h/l] Scroll"],
+                &["[r/Enter] Refresh  [n] DNS Preset  [a] Apply DNS  [d] Debug Report  [Up/Down/Left/Right]"],
                 t,
             );
         }

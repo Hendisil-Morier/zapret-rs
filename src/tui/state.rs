@@ -156,6 +156,8 @@ pub struct AppState {
     pub status_selected: usize,
     /// Horizontal scroll offset for the selected Tab 5 `Summary` cell.
     pub status_hscroll: usize,
+    /// Selected OS DNS/DoH preset cycled on Tab 5 (`n`) and applied on confirm (`a`).
+    pub dns_preset: crate::tools::DnsPreset,
 }
 
 impl AppState {
@@ -184,10 +186,7 @@ impl AppState {
             text_cursor: 0,
             text_scroll: 0,
             domains_input: String::new(),
-            proto_http: true,
-            proto_tls12: true,
-            proto_tls13: true,
-            proto_http3: true,
+            proto_http: true, proto_tls12: true, proto_tls13: true, proto_http3: true,
             ip_mode: IpMode::V4,
             level: ScanLevel::Quick,
             stop_on_first: true,
@@ -223,7 +222,7 @@ impl AppState {
             finder_hover: FinderHoverState::default(), focus: PanelFocusState::default(), theme,
             inspector: PacketInspectorState::default(), speed: SpeedState::default(),
             pending_merge: None, autohostlist_paths: Vec::new(), autohostlist_entries: Vec::new(),
-            status_checks: Vec::new(), status_selected: 0, status_hscroll: 0,
+            status_checks: Vec::new(), status_selected: 0, status_hscroll: 0, dns_preset: crate::tools::DnsPreset::Cloudflare,
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {

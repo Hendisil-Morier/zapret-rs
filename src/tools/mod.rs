@@ -2,6 +2,8 @@
 
 /// Daemon CLI dispatcher and Linux/Windows event-loop runtimes.
 pub mod daemon;
+/// OS-level DNS and encrypted DNS (DoH/DoT) preset manager and CLI (`dns`).
+pub mod dns;
 /// Self-installing CLI (`install` / `uninstall`) for binary, Lua scripts, caps, and systemd.
 pub mod installer;
 /// IPv4/IPv6 single-address and CIDR subnet aggregator (`zapret2/ip2net`).
@@ -21,6 +23,8 @@ pub mod strat;
 
 /// Public API re-export for the shared `nfqws2` daemon CLI entry point.
 pub use daemon::run_nfqws2_cli;
+/// Public API re-exports for OS DNS/DoH preset status, apply, and CLI runner.
+pub use dns::{DnsPreset, DnsStatus, apply_dns_preset, detect_dns_status, run_dns_cli};
 /// Public API re-exports for `install` / `uninstall` CLI commands and systemd unit rendering.
 pub use installer::{SYMLINK_NAMES, render_systemd_service, run_install_cli, run_uninstall_cli};
 /// Public API re-exports for `ip2net` configuration, validation, and streaming execution.
