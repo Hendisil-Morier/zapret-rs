@@ -42,12 +42,12 @@ fn change_cell(change: Change, t: &Theme) -> (String, Color) {
     }
 }
 
-/// Renders Tab 4: target summary bar, before/after comparison table, and inline key hints.
+/// Renders Tab 4: target summary bar and before/after comparison table inside the shared shell.
 pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = &state.theme;
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(6), Constraint::Length(1)])
+        .constraints([Constraint::Length(4), Constraint::Min(6)])
         .split(area);
 
     let phase = state.speed.phase;
@@ -137,12 +137,4 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             .block(panel_block(" Comparison Table ", t.accent_bright, t.info));
         frame.render_widget(table, rows[1]);
     }
-
-    frame.render_widget(
-        Paragraph::new(Line::from(styled_key_hints(
-            " [r] Run Speed Comparison  [x/Esc] Cancel  [c] Clear  [Up/Down/j/k] Select  [?] Keys",
-            t,
-        ))),
-        rows[2],
-    );
 }

@@ -1,7 +1,27 @@
-//! Top-level navigation tabs of the `zapret-rs` TUI.
+//! Top-level navigation tabs and shared metadata descriptors of the `zapret-rs` TUI.
 
 /// Serialization support for preserving the active tab across seamless `setcap` restarts.
 use serde::{Deserialize, Serialize};
+
+/// Shared header/popup descriptor defining one top-level tab in display order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TabSpec {
+    /// Target [`ActiveTab`] variant switched to on hotkey or header click.
+    pub tab: ActiveTab,
+    /// Leading numeric hotkey prefix rendered in the header (`" 1:"`, etc.).
+    pub num_prefix: &'static str,
+    /// Compact tab title rendered in the top bar (`" Strategy Finder "`, etc.).
+    pub short_label: &'static str,
+    /// Full section title rendered in the `?` keybindings popup.
+    pub full_title: &'static str,
+}
+
+impl TabSpec {
+    /// Total terminal cell width occupied by this tab inside the header `Tabs` widget.
+    pub const fn hit_width(self) -> u16 {
+        (self.num_prefix.len() + self.short_label.len()) as u16
+    }
+}
 
 /// Top-level navigation tabs in the `zapret-rs` TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -10,28 +30,63 @@ pub enum ActiveTab {
     Finder,
     /// Tab 2: live in-process `nfqws2` engine controller with real-time packet counters.
     Run,
-    /// Tab 3: scrollable `nfqws2.toml` viewer, `nftables` preview, and capability diagnostics.
+    /// Tab 3: scrollable `nfqws2.toml` viewer, `nftables` preview, and `Auto Hostlist` pane.
     Config,
     /// Tab 4: before/after speed comparison (daemon stopped vs. daemon running).
     Speed,
 }
 
 impl ActiveTab {
-    /// Every tab in header order, used to derive index, next and previous consistently.
-    const ORDER: [Self; 4] = [Self::Finder, Self::Run, Self::Config, Self::Speed];
+    /// Single source of truth for tab order, header widths, and keybind popup titles.
+    pub const SPECS: [TabSpec; 4] = [
+        TabSpec {
+            tab: Self::Finder,
+            num_prefix: " 1:",
+            short_label: " Strategy Finder ",
+            full_title: "1: Strategy Finder",
+        },
+        TabSpec {
+            tab: Self::Run,
+            num_prefix: " 2:",
+            short_label: " Run nfqws2 ",
+            full_title: "2: Run nfqws2",
+        },
+        TabSpec {
+            tab: Self::Config,
+            num_prefix: " 3:",
+            short_label: " Config & Diag ",
+            full_title: "3: Config & Diagnostics",
+        },
+        TabSpec {
+            tab: Self::Speed,
+            num_prefix: " 4:",
+            short_label: " Speed Test ",
+            full_title: "4: Speed Test",
+        },
+    ];
+
+    /// Returns the shared [`TabSpec`] metadata for `self`.
+    pub const fn spec(self) -> &'static TabSpec {
+        match self {
+            Self::Finder => &Self::SPECS[0],
+            Self::Run => &Self::SPECS[1],
+            Self::Config => &Self::SPECS[2],
+            Self::Speed => &Self::SPECS[3],
+        }
+    }
 
     /// Returns the 0-based tab index for `ratatui::widgets::Tabs`.
     pub fn index(self) -> usize {
-        Self::ORDER.iter().position(|t| *t == self).unwrap_or(0)
+        Self::SPECS.iter().position(|s| s.tab == self).unwrap_or(0)
     }
 
     /// Advances to the next tab cyclically.
     pub fn next(self) -> Self {
-        Self::ORDER[(self.index() + 1) % Self::ORDER.len()]
+        Self::SPECS[(self.index() + 1) % Self::SPECS.len()].tab
     }
 
     /// Moves to the previous tab cyclically.
     pub fn prev(self) -> Self {
-        Self::ORDER[(self.index() + Self::ORDER.len() - 1) % Self::ORDER.len()]
+        Self::SPECS[(self.index() + Self::SPECS.len() - 1) % Self::SPECS.len()].tab
     }
 }

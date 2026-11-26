@@ -13,14 +13,6 @@ use crate::tui::types::{
     adjust_pane_scroll,
 };
 
-/// Tab widths matching [`crate::tui::render::draw_header`] (`" 1: Strategy Finder "` etc.).
-const TAB_HIT_RANGES: &[(ActiveTab, u16)] = &[
-    (ActiveTab::Finder, 20),
-    (ActiveTab::Run, 15),
-    (ActiveTab::Config, 17),
-    (ActiveTab::Speed, 14),
-];
-
 /// Maps a left click or wheel scroll event at `(mouse.column, mouse.row)` onto `state`.
 ///
 /// Overlays (`modal`, `help_open`, and packet `detail_open`) are respected so background widgets
@@ -90,9 +82,10 @@ fn handle_header_click(state: &mut AppState, col: u16, header_area: Rect) {
         return;
     }
     let mut x = tabs_box.x + 1;
-    for &(tab, width) in TAB_HIT_RANGES {
+    for spec in &ActiveTab::SPECS {
+        let width = spec.hit_width();
         if col >= x && col < x + width {
-            state.tab = tab;
+            state.tab = spec.tab;
             state.editing_text = false;
             state.reset_finder_hover();
             return;
@@ -299,7 +292,7 @@ fn handle_speed_mouse(
 ) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(6), Constraint::Length(1)])
+        .constraints([Constraint::Length(4), Constraint::Min(6)])
         .split(body);
     if !rows[1].contains(pos) || state.speed.rows.is_empty() {
         return;

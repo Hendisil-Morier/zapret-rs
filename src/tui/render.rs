@@ -68,20 +68,15 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(40), Constraint::Length(36)])
         .split(area);
-    let tab_titles = [
-        (" 1:", " Strategy Finder "),
-        (" 2:", " Run nfqws2 "),
-        (" 3:", " Config & Diag "),
-        (" 4:", " Speed Test "),
-    ]
-    .into_iter()
-    .map(|(num, label)| {
-        Line::from(vec![
-            Span::styled(num, Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
-            Span::styled(label, Style::default().fg(t.info)),
-        ])
-    })
-    .collect::<Vec<_>>();
+    let tab_titles = ActiveTab::SPECS
+        .iter()
+        .map(|spec| {
+            Line::from(vec![
+                Span::styled(spec.num_prefix, Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
+                Span::styled(spec.short_label, Style::default().fg(t.info)),
+            ])
+        })
+        .collect::<Vec<_>>();
     let tabs = Tabs::new(tab_titles)
         .block(panel_block(
             format!(" zapret-rs v{} ", env!("CARGO_PKG_VERSION")),

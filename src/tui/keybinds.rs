@@ -61,12 +61,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
     };
     frame.render_widget(Clear, popup);
 
-    let tab_label = match state.tab {
-        ActiveTab::Finder => "1: Strategy Finder",
-        ActiveTab::Run => "2: Run nfqws2",
-        ActiveTab::Config => "3: Config & Diagnostics",
-        ActiveTab::Speed => "4: Speed Test",
-    };
+    let tab_label = state.tab.spec().full_title;
     // `panel_block` takes `&'static str`; leak the formatted title for the lifetime of this frame.
     let title = format!(" Keybindings \u{2014} {tab_label} [?] ");
     let outer = panel_block(Box::leak(title.into_boxed_str()), t.accent_bright, t.warn_bright);
