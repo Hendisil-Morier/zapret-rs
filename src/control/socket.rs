@@ -156,9 +156,19 @@ pub fn control_socket_candidates(configured: Option<&Path>) -> Vec<PathBuf> {
             out.push(p);
         }
     }
-    let sys = PathBuf::from(DEFAULT_SYSTEM_CONTROL_SOCKET);
-    if !out.contains(&sys) {
-        out.push(sys);
+    #[cfg(not(unix))]
+    {
+        let fallback = default_control_socket_path();
+        if !out.contains(&fallback) {
+            out.push(fallback);
+        }
+    }
+    #[cfg(unix)]
+    {
+        let sys = PathBuf::from(DEFAULT_SYSTEM_CONTROL_SOCKET);
+        if !out.contains(&sys) {
+            out.push(sys);
+        }
     }
     out
 }

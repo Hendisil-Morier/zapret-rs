@@ -77,11 +77,26 @@ pub fn detect_lua_dir(explicit_dir: Option<&Path>) -> Option<PathBuf> {
     })
 }
 
+/// Strips the Windows `\\?\` extended-length prefix from canonicalized paths when present.
+pub fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(s) = path.to_str()
+        && let Some(stripped) = s.strip_prefix(r"\\?\")
+        && !stripped.starts_with("UNC\\")
+    {
+        return PathBuf::from(stripped);
+    }
+    path
+}
+
 /// Returns canonical paths to `zapret-lib.lua` and `zapret-antidpi.lua` inside `dir`.
 fn canonical_pair(dir: &Path) -> Vec<PathBuf> {
     let lib = dir.join("zapret-lib.lua");
     let anti = dir.join("zapret-antidpi.lua");
-    vec![fs::canonicalize(&lib).unwrap_or(lib), fs::canonicalize(&anti).unwrap_or(anti)]
+    vec![
+        strip_windows_verbatim_prefix(fs::canonicalize(&lib).unwrap_or(lib)),
+        strip_windows_verbatim_prefix(fs::canonicalize(&anti).unwrap_or(anti)),
+    ]
 }
 
 /// Materializes all [`BUNDLED_LUA_SCRIPTS`] into `dir` without following symlinks.

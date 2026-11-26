@@ -3,7 +3,7 @@
 /// Interior mutability and single-thread sharing for injected packet senders and timestamps.
 use std::cell::{Cell, RefCell};
 /// Filesystem path handling for loading external Lua files.
-use std::path::Path;
+use std::path::{Path, PathBuf};
 /// Single-thread reference counting for passing [`PacketSender`] into Lua closures.
 use std::rc::Rc;
 
@@ -215,13 +215,44 @@ impl LuaRuntime {
 
     /// Reads and executes a Lua script file from `path` using the file path as the chunk name.
     pub fn exec_file(&self, path: &Path) -> Result<(), LuaEngineError> {
-        let source = std::fs::read(path)?;
+        let (resolved, source) = match std::fs::read(path) {
+            Ok(bytes) => (path.to_path_buf(), bytes),
+            Err(orig_err) if orig_err.kind() == std::io::ErrorKind::NotFound => {
+                if let Some((alt, bytes)) = fallback_lua_read(path) {
+                    (alt, bytes)
+                } else {
+                    return Err(orig_err.into());
+                }
+            }
+            Err(err) => return Err(err.into()),
+        };
         self.lua
             .load(&source)
-            .set_name(path.to_string_lossy())
+            .set_name(resolved.to_string_lossy())
             .exec()?;
         Ok(())
     }
+}
+
+/// Probes `./lua/<name>` and `<exe_dir>/lua/<name>` when a configured `zapret-*.lua` path moved.
+fn fallback_lua_read(missing: &Path) -> Option<(PathBuf, Vec<u8>)> {
+    let fname = missing.file_name()?.to_str()?;
+    if !fname.starts_with("zapret-") || !fname.ends_with(".lua") {
+        return None;
+    }
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.join("lua").join(fname));
+    }
+    candidates.push(PathBuf::from("lua").join(fname));
+    for cand in candidates {
+        if let Ok(bytes) = std::fs::read(&cand) {
+            return Some((cand, bytes));
+        }
+    }
+    None
 }
 
 impl Drop for LuaRuntime {

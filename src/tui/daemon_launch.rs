@@ -48,21 +48,25 @@ pub(crate) fn has_systemd_unit() -> bool {
 /// Searches sibling of current TUI binary, `/usr/local/bin`, and `PATH` for `nfqws2`,
 /// falling back to `(current_exe, Some("daemon"))` so single-binary installs work without symlinks.
 pub(crate) fn resolve_daemon_target() -> Option<(PathBuf, Option<&'static str>)> {
+    let bin_name = format!("nfqws2{}", std::env::consts::EXE_SUFFIX);
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
-        let sibling = dir.join("nfqws2");
+        let sibling = dir.join(&bin_name);
         if sibling.is_file() {
             return Some((sibling, None));
         }
     }
-    let system_bin = PathBuf::from("/usr/local/bin/nfqws2");
-    if system_bin.is_file() {
-        return Some((system_bin, None));
+    #[cfg(unix)]
+    {
+        let system_bin = PathBuf::from("/usr/local/bin/nfqws2");
+        if system_bin.is_file() {
+            return Some((system_bin, None));
+        }
     }
     if let Some(paths) = std::env::var_os("PATH")
         && let Some(found) = std::env::split_paths(&paths)
-            .map(|dir| dir.join("nfqws2"))
+            .map(|dir| dir.join(&bin_name))
             .find(|cand| cand.is_file())
     {
         return Some((found, None));
@@ -172,10 +176,41 @@ fn start_standalone_daemon(
             .arg(&sock_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        if let Err(err) = cmd.spawn() {
-            return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display()));
+            .stderr(Stdio::piped());
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(err) => {
+                return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display()));
+            }
+        };
+        let deadline = Instant::now() + DAEMON_START_TIMEOUT;
+        while Instant::now() < deadline {
+            if let Some(sock) = detect_control_socket(Some(&sock_path)) {
+                return if attach_to_socket(state, session_tab2, sock) {
+                    DaemonLaunchOutcome::Attached
+                } else {
+                    DaemonLaunchOutcome::Failed(state.status_banner.clone())
+                };
+            }
+            if let Ok(Some(status)) = child.try_wait() {
+                let mut err_buf = String::new();
+                if let Some(mut pipe) = child.stderr.take() {
+                    use std::io::Read as _;
+                    let _ = pipe.read_to_string(&mut err_buf);
+                }
+                let msg = err_buf.trim();
+                return DaemonLaunchOutcome::Failed(if msg.is_empty() {
+                    format!("Windows daemon exited with {status}")
+                } else {
+                    msg.to_owned()
+                });
+            }
+            thread::sleep(Duration::from_millis(50));
         }
+        return DaemonLaunchOutcome::Failed(format!(
+            "WinDivert daemon started, but control IPC at {} did not appear",
+            sock_path.display()
+        ));
     }
     #[cfg(not(windows))]
     {
@@ -220,20 +255,20 @@ fn start_standalone_daemon(
             }
             Err(err) => return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display())),
         }
-    }
 
-    match wait_for_control_socket(Some(&sock_path), DAEMON_START_TIMEOUT) {
-        Some(sock) => {
-            if attach_to_socket(state, session_tab2, sock) {
-                DaemonLaunchOutcome::Attached
-            } else {
-                DaemonLaunchOutcome::Failed(state.status_banner.clone())
+        match wait_for_control_socket(Some(&sock_path), DAEMON_START_TIMEOUT) {
+            Some(sock) => {
+                if attach_to_socket(state, session_tab2, sock) {
+                    DaemonLaunchOutcome::Attached
+                } else {
+                    DaemonLaunchOutcome::Failed(state.status_banner.clone())
+                }
             }
+            None => DaemonLaunchOutcome::Failed(format!(
+                "nfqws2 started, but control socket {} did not appear",
+                sock_path.display()
+            )),
         }
-        None => DaemonLaunchOutcome::Failed(format!(
-            "nfqws2 started, but control socket {} did not appear",
-            sock_path.display()
-        )),
     }
 }
 
