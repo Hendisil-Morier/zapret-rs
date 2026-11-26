@@ -13,9 +13,11 @@ use zapret_rs::tools::{
     parse_v6_threshold, run_ip2net,
 };
 
-/// Returns the compiled `ip2net` binary path supplied by Cargo.
-const fn ip2net_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_ip2net")
+/// Returns a `zapret-rs ip2net` command backed by the compiled unified binary.
+fn ip2net_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
+    cmd.arg("ip2net");
+    cmd
 }
 
 /// Runs `run_ip2net` on an arbitrary byte slice and returns UTF-8 stdout output.
@@ -28,7 +30,7 @@ fn run_bytes(cfg: &Ip2NetConfig, input: &[u8]) -> String {
 
 /// Spawns `ip2net` with `args`, feeds `stdin_bytes`, and returns `(code, stdout, stderr)`.
 fn exec_ip2net(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, String, String) {
-    let mut child = Command::new(ip2net_bin())
+    let mut child = ip2net_cmd()
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -41,8 +41,12 @@ use zapret_rs::runtime::{
 /// Monotonic boottime timestamps used to advance flow and cache expiry sweeps.
 use zapret_rs::timer::MonotonicTime;
 
-/// Path to compiled `nfqws2` test binary.
-const NFQWS2_BIN: &str = env!("CARGO_BIN_EXE_nfqws2");
+/// Returns a `zapret-rs daemon` command backed by the compiled unified binary.
+fn nfqws2_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
+    cmd.arg("daemon");
+    cmd
+}
 
 /// RAII temporary test directory removed on drop.
 struct TempDir(PathBuf);
@@ -140,7 +144,7 @@ fn writable_dir_refuses_symlink_in_custom_and_default_modes() {
     let default_target = resolve_default_writable_dir(Some(tmp_root.as_os_str()));
     symlink(&victim_dir, &default_target).expect("create default writable symlink");
 
-    let out = Command::new(NFQWS2_BIN)
+    let out = nfqws2_cmd()
         .env("TMPDIR", &tmp_root)
         .env_remove("WRITABLE")
         .args(["--intercept=0", "--writable"])
@@ -337,7 +341,7 @@ fn systemd_unit_template_enables_ambient_caps_and_auto_nft() {
 
     let path_unit = fs::read_to_string(systemd_dir.join("zapret-rs.path"))
         .expect("read contrib/systemd/zapret-rs.path");
-    assert!(path_unit.contains("PathChanged=__REPO__/target/release/nfqws2"));
+    assert!(path_unit.contains("PathChanged=__REPO__/target/release/zapret-rs"));
     assert!(path_unit.contains("Unit=zapret-rs-restart.service"));
 
     let restart_unit = fs::read_to_string(systemd_dir.join("zapret-rs-restart.service"))

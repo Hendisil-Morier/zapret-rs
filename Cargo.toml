@@ -5,22 +5,6 @@ edition = "2024"
 default-run = "zapret-rs"
 
 [[bin]]
-name = "nfqws2"
-path = "src/bin/nfqws2.rs"
-
-[[bin]]
-name = "ip2net"
-path = "src/bin/ip2net.rs"
-
-[[bin]]
-name = "mdig"
-path = "src/bin/mdig.rs"
-
-[[bin]]
-name = "strat_finder"
-path = "src/bin/strat_finder.rs"
-
-[[bin]]
 name = "zapret-rs"
 path = "src/bin/zapret_rs.rs"
 

@@ -23,9 +23,11 @@ use zapret_rs::tools::{
     read_and_parse_dns_reply, run_mdig_resolver,
 };
 
-/// Returns the compiled `mdig` binary path supplied by Cargo.
-const fn mdig_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_mdig")
+/// Returns a `zapret-rs mdig` command backed by the compiled unified binary.
+fn mdig_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
+    cmd.arg("mdig");
+    cmd
 }
 
 /// Creates a clean temporary directory scoped to the current test process and label.
@@ -38,7 +40,7 @@ fn fresh_temp_dir(label: &str) -> PathBuf {
 
 /// Spawns `mdig` with `args`, feeds `stdin_bytes`, and returns `(code, stdout, stderr)`.
 fn exec_mdig(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, Vec<u8>, String) {
-    let mut child = Command::new(mdig_bin())
+    let mut child = mdig_cmd()
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

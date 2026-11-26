@@ -38,8 +38,13 @@ use zapret_rs::runtime::{
 
 /// Path to `zapret2`'s unmodified `zapret-tests.lua`.
 const ZAPRET_TESTS_LUA: &str = "/home/morier/Documents/projects/zapret2/lua/zapret-tests.lua";
-/// Compiled `nfqws2` binary path supplied by Cargo during integration tests.
-const NFQWS2_BIN: &str = env!("CARGO_BIN_EXE_nfqws2");
+
+/// Returns a `zapret-rs daemon` command backed by the compiled unified binary.
+fn nfqws2_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
+    cmd.arg("daemon");
+    cmd
+}
 /// Unique temporary directory sequence counter.
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -337,7 +342,7 @@ fn writable_dir_config_cli_and_nfqws2_runtime_e2e() {
     let tmp_env = tmp.path().join("tmp_root");
     fs::create_dir_all(&tmp_env).unwrap();
     let zapret_lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../zapret2/lua/zapret-lib.lua");
-    let out1 = Command::new(NFQWS2_BIN)
+    let out1 = nfqws2_cmd()
         .env("TMPDIR", &tmp_env)
         .env_remove("WRITABLE")
         .args([
@@ -365,7 +370,7 @@ fn writable_dir_config_cli_and_nfqws2_runtime_e2e() {
 
     // Explicit `--writable=<path>`
     let explicit = tmp.path().join("explicit_writable");
-    let out2 = Command::new(NFQWS2_BIN)
+    let out2 = nfqws2_cmd()
         .env_remove("WRITABLE")
         .args([
             "--intercept=0",

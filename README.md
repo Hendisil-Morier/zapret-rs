@@ -2,21 +2,28 @@
 
 `zapret-rs` (`v1.1.0`) is a Linux Rust port of [`zapret2`](https://github.com/bol-van/zapret2), delivering a memory-safe `nfqws2` NFQUEUE DPI desync daemon, embedded LuaJIT runtime compatible with unmodified `zapret2/lua/*.lua` scripts, and the `ip2net` and `mdig` companion utilities.
 
-## Binaries & Workspace Layout
+## Single Multicall Binary & Workspace Layout
 
-- **`nfqws2`** ([src/bin/nfqws2.rs](src/bin/nfqws2.rs)): Main NFQUEUE packet interception and Lua desync daemon.
-- **`zapret-rs`** ([src/bin/zapret_rs.rs](src/bin/zapret_rs.rs)): Interactive `ratatui` TUI (default run target) wrapping strategy discovery, config editing, live engine control, and daemon attach monitoring.
-- **`ip2net`** ([src/bin/ip2net.rs](src/bin/ip2net.rs)): Streaming IPv4/IPv6 address and CIDR subnet aggregator.
-- **`mdig`** ([src/bin/mdig.rs](src/bin/mdig.rs)): Multi-threaded DNS resolver and raw RFC 1035 query/reply tool.
+`zapret-rs` builds one unified binary ([src/bin/zapret_rs.rs](src/bin/zapret_rs.rs)) that routes by subcommand or `argv[0]` symlink name and bundles all runtime `lua/*.lua` scripts:
+
+- **`zapret-rs`** (default): Interactive `ratatui` TUI wrapping strategy discovery, config editing, live engine control, and daemon attach monitoring.
+- **`zapret-rs daemon`** (or symlink `nfqws2`): Main NFQUEUE packet interception and Lua desync daemon.
+- **`zapret-rs scan`** (or symlink `strat_finder`): Interactive or automated DPI bypass strategy finder.
+- **`zapret-rs ip2net`** (or symlink `ip2net`): Streaming IPv4/IPv6 address and CIDR subnet aggregator.
+- **`zapret-rs mdig`** (or symlink `mdig`): Multi-threaded DNS resolver and raw RFC 1035 query/reply tool.
 
 Core library subsystems live under [src/](src): `packet`, `rawsend`, `intercepter`, `config`, `conntrack`, `protocol`, `lists`, `desync`, `crypto`, `lua`, `timer`, `runtime`, `telemetry`, `control`, `tools`, and `tui`.
 
-## Building & Running Tests
+## Building, Installation & Running Tests
 
-Build all release binaries (`target/release/{nfqws2,ip2net,mdig}`):
+Build the single release binary (`target/release/zapret-rs`) or install directly with Cargo/built-in installer:
 
 ```bash
 cargo build --release
+# Install binary (~/.local/bin/zapret-rs), extract bundled lua/*.lua, and grant network caps:
+./target/release/zapret-rs install
+# Or system-wide with compatibility symlinks (`nfqws2`, `ip2net`, `mdig`, `strat_finder`) and systemd unit:
+sudo ./target/release/zapret-rs install --symlinks --systemd
 ```
 
 Run static checks, offline unit/integration suites (including repository hygiene checks), and isolated live kernel namespace tests:
@@ -153,22 +160,17 @@ When a socket is present, launching `zapret-rs` (or `zapret-rs --control-socket 
 
 ### `systemd` Service (Unprivileged with Auto-Managed `nftables`)
 
-Unit templates live under `contrib/systemd/`. Running with `User=__USER__` and `AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW` lets `nfqws2 --nft` manage `table inet zapret_strat_finder` automatically, passes `SO_PEERCRED` same-UID verification for your `zapret-rs` TUI session, and exposes `/run/zapret-rs/control.sock`.
+Unit templates live under `contrib/systemd/`. Running with `User=__USER__` and `AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW` lets `zapret-rs daemon --nft` manage `table inet zapret_strat_finder` automatically, passes `SO_PEERCRED` same-UID verification for your `zapret-rs` TUI session, exposes `/run/zapret-rs/control.sock`, and skips launch until `~/.config/zapret-rs/nfqws2.toml` exists (`ConditionPathExists`).
 
-To deploy with a copied binary:
+To deploy cleanly with one command:
 
 ```bash
-sudo install -m 0755 target/release/nfqws2 /usr/local/bin/nfqws2
-sudo sed "s|__USER__|$USER|g; s|__HOME__|$HOME|g" contrib/systemd/zapret-rs.service \
-  | sudo tee /etc/systemd/system/zapret-rs.service >/dev/null
-sudo systemctl daemon-reload
-sudo systemctl enable --now zapret-rs.service
+sudo ./target/release/zapret-rs install --systemd
 ```
 
-To avoid `sudo install` on future rebuilds and restart automatically whenever `cargo build --release` updates `target/release/nfqws2`, symlink the binaries and enable the `systemd.path` watcher (`contrib/systemd/zapret-rs.path` + `contrib/systemd/zapret-rs-restart.service`):
+Or deploy via symlinks so `cargo build --release` automatically restarts the service via `contrib/systemd/zapret-rs.path` + `contrib/systemd/zapret-rs-restart.service`:
 
 ```bash
-sudo ln -sf "$PWD/target/release/nfqws2" /usr/local/bin/nfqws2
 sudo ln -sf "$PWD/target/release/zapret-rs" /usr/local/bin/zapret-rs
 sudo sed "s|__USER__|$USER|g; s|__HOME__|$HOME|g" contrib/systemd/zapret-rs.service \
   | sudo tee /etc/systemd/system/zapret-rs.service >/dev/null
@@ -184,6 +186,7 @@ sudo systemctl enable --now zapret-rs.service zapret-rs.path
 Description=zapret-rs nfqws2 DPI Desync Daemon
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=__HOME__/.config/zapret-rs/nfqws2.toml
 
 [Service]
 Type=simple
@@ -195,7 +198,7 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=yes
 LockPersonality=yes
 PrivateTmp=yes
-ExecStart=/usr/local/bin/nfqws2 --config __HOME__/.config/zapret-rs/nfqws2.toml --nft --control-socket /run/zapret-rs/control.sock
+ExecStart=/usr/local/bin/zapret-rs daemon --config __HOME__/.config/zapret-rs/nfqws2.toml --nft --control-socket /run/zapret-rs/control.sock
 Restart=on-failure
 RestartSec=3
 

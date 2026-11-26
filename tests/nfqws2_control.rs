@@ -12,8 +12,10 @@ use zapret_rs::control::{
     CONTROL_PROTOCOL_VERSION, Request, Response, read_message, write_message,
 };
 
-const fn nfqws2_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_nfqws2")
+fn daemon_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
+    cmd.arg("daemon");
+    cmd
 }
 
 fn fresh_temp_dir(label: &str) -> PathBuf {
@@ -81,7 +83,7 @@ fn real_nfqws2_control_socket_answers_status_reloads_and_stops_cleanly() {
     let sock_dir = dir.join("missing_parent");
     let sock = sock_dir.join("control.sock");
 
-    let raw_child = Command::new(nfqws2_bin())
+    let raw_child = daemon_cmd()
         .args([
             "--intercept=0",
             "--qnum",
@@ -186,7 +188,7 @@ fn real_nfqws2_control_socket_off_exits_without_binding() {
     let dir = fresh_temp_dir("disabled");
     let pidfile = dir.join("off.pid");
 
-    let out = Command::new(nfqws2_bin())
+    let out = daemon_cmd()
         .args([
             "--intercept=0",
             "--control-socket=off",

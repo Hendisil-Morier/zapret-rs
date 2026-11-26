@@ -16,9 +16,11 @@ use zapret_rs::runtime::{
     PidFileGuard, ProcessError, parse_uid_spec, resolve_identity, resolve_user_spec,
 };
 
-/// Returns the compiled `nfqws2` binary path supplied by Cargo.
-const fn nfqws2_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_nfqws2")
+/// Returns a `zapret-rs daemon` command backed by the compiled unified binary.
+fn daemon_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
+    cmd.arg("daemon");
+    cmd
 }
 
 /// Returns a unique temporary directory under `std::env::temp_dir()`, cleaning stale leftovers.
@@ -138,14 +140,14 @@ fn cli_version_and_dry_run_validate_config_and_reject_bad_inputs() {
     )
     .expect("write config.toml");
 
-    let ver = Command::new(nfqws2_bin())
+    let ver = daemon_cmd()
         .arg("--version")
         .output()
         .expect("run --version");
     assert!(ver.status.success());
     assert!(String::from_utf8_lossy(&ver.stdout).contains("nfqws2"));
 
-    let dry = Command::new(nfqws2_bin())
+    let dry = daemon_cmd()
         .args(["--config", toml_path.to_str().expect("utf8"), "--dry-run"])
         .output()
         .expect("run --dry-run");
@@ -156,19 +158,19 @@ fn cli_version_and_dry_run_validate_config_and_reject_bad_inputs() {
     );
     assert!(String::from_utf8_lossy(&dry.stdout).contains("configuration verified"));
 
-    let missing_lua = Command::new(nfqws2_bin())
+    let missing_lua = daemon_cmd()
         .args(["--dry-run", "--lua-init=@/nonexistent_zapret_script.lua"])
         .output()
         .expect("run missing lua-init");
     assert!(!missing_lua.status.success());
 
-    let bad_user = Command::new(nfqws2_bin())
+    let bad_user = daemon_cmd()
         .args(["--dry-run", "--user", "no_such_zapret_user_99999"])
         .output()
         .expect("run invalid user");
     assert!(!bad_user.status.success());
 
-    let bad_uid = Command::new(nfqws2_bin())
+    let bad_uid = daemon_cmd()
         .args(["--dry-run", "--uid", "abc:def"])
         .output()
         .expect("run invalid uid");
@@ -188,7 +190,7 @@ fn cli_intercept_zero_loads_zapret_lib_and_runs_inline_lua() {
         zapret_lib.display()
     );
 
-    let out = Command::new(nfqws2_bin())
+    let out = daemon_cmd()
         .current_dir(manifest_dir)
         .args([
             "--intercept=0",
@@ -218,7 +220,7 @@ fn cli_intercept_zero_executes_timers_and_removes_pidfile() {
     let pidfile = dir.join("nfqws2.pid");
 
     let start = Instant::now();
-    let out = Command::new(nfqws2_bin())
+    let out = daemon_cmd()
         .args([
             "--intercept=0",
             "--pidfile",
@@ -250,7 +252,7 @@ fn cli_sighup_is_nonfatal_and_sigterm_exits_cleanly_without_pidfile_leak() {
     let dir = fresh_temp_dir("sigterm");
     let pidfile = dir.join("daemon.pid");
 
-    let raw_child = Command::new(nfqws2_bin())
+    let raw_child = daemon_cmd()
         .args([
             "--intercept=0",
             "--pidfile",
@@ -288,7 +290,7 @@ fn cli_sigint_exits_cleanly_without_pidfile_leak() {
     let dir = fresh_temp_dir("sigint");
     let pidfile = dir.join("sigint.pid");
 
-    let raw_child = Command::new(nfqws2_bin())
+    let raw_child = daemon_cmd()
         .args([
             "--intercept=0",
             "--pidfile",
@@ -317,7 +319,7 @@ fn cli_chdir_resolves_relative_lua_init_script() {
     let dir = fresh_temp_dir("chdir");
     fs::write(dir.join("rel.lua"), r#"DLOG_CONDUP("chdir_ok")"#).expect("write rel.lua");
 
-    let out = Command::new(nfqws2_bin())
+    let out = daemon_cmd()
         .args([
             "--intercept=0",
             "--chdir",
@@ -385,7 +387,7 @@ fn live_nfqueue_daemon_starts_and_exits_on_sigterm() {
     let dir = fresh_temp_dir("live-nfq");
     let pidfile = dir.join("live.pid");
 
-    let raw_child = Command::new(nfqws2_bin())
+    let raw_child = daemon_cmd()
         .args([
             "--qnum",
             "299",
@@ -413,7 +415,7 @@ fn cli_dry_run_validates_lists_and_accepts_m3_flags() {
     let dir = fresh_temp_dir("m3-dryrun");
     let bad_cfg = dir.join("missing-list.toml");
     fs::write(&bad_cfg, "[[profiles]]\nhostlist = [\"does-not-exist.txt\"]\n").expect("write bad");
-    let fail = Command::new(nfqws2_bin())
+    let fail = daemon_cmd()
         .args(["--dry-run", "--config", bad_cfg.to_str().expect("utf8")])
         .output()
         .expect("run bad dry-run");
@@ -423,7 +425,7 @@ fn cli_dry_run_validates_lists_and_accepts_m3_flags() {
     let good_cfg = dir.join("valid-m3.toml");
     fs::write(&hl, "example.com\n").expect("write hosts.txt");
     fs::write(&good_cfg, format!("[[profiles]]\nhostlist = [\"{}\"]\n", hl.display())).expect("ok");
-    let ok = Command::new(nfqws2_bin())
+    let ok = daemon_cmd()
         .args([
             "--dry-run",
             "--config",

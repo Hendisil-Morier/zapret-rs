@@ -105,9 +105,9 @@ fn print_nft_perm_classifier_and_setcap_guidance() {
     assert!(!is_nft_perm_denied("Error: syntax error, unexpected newline"));
     assert_eq!(build_nft_cleanup_cmd(), "nft delete table inet zapret_strat_finder");
 
-    let nfqws2 = env!("CARGO_BIN_EXE_nfqws2");
-    let out = Command::new(nfqws2)
-        .args(["--strat-finder", "--print-nft", "--proto", "http,tls13,http3", "--qnum", "215"])
+    let bin = env!("CARGO_BIN_EXE_zapret-rs");
+    let out = Command::new(bin)
+        .args(["daemon", "--strat-finder", "--print-nft", "--proto", "http,tls13,http3", "--qnum", "215"])
         .output()
         .expect("run --print-nft");
     assert!(out.status.success());
@@ -119,8 +119,8 @@ fn print_nft_perm_classifier_and_setcap_guidance() {
 
     // Running without capabilities prints the one-time `setcap` instruction instead of crashing.
     if unsafe { libc::geteuid() } != 0 {
-        let missing = Command::new(nfqws2)
-            .args(["--strat-finder", "--domain", "example.com", "--no-nft"])
+        let missing = Command::new(bin)
+            .args(["daemon", "--strat-finder", "--domain", "example.com", "--no-nft"])
             .output()
             .expect("run without caps");
         assert!(!missing.status.success());

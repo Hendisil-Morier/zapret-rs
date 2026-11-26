@@ -275,14 +275,14 @@ fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt() {
 /// and `--list-strategies --write-config` without requiring root privileges.
 #[test]
 fn strat_finder_cli_version_help_invalid_and_list_write_config() {
-    let bin = env!("CARGO_BIN_EXE_strat_finder");
+    let bin = env!("CARGO_BIN_EXE_zapret-rs");
 
-    let ver = Command::new(bin).arg("--version").output().expect("run --version");
+    let ver = Command::new(bin).args(["scan", "--version"]).output().expect("run --version");
     assert!(ver.status.success());
     let ver_str = String::from_utf8_lossy(&ver.stdout);
     assert_eq!(ver_str.trim(), format!("strat_finder {}", env!("CARGO_PKG_VERSION")));
 
-    let help = Command::new(bin).arg("--help").output().expect("run --help");
+    let help = Command::new(bin).args(["scan", "--help"]).output().expect("run --help");
     assert!(help.status.success());
     let help_str = String::from_utf8_lossy(&help.stdout);
     assert!(help_str.contains("--domain"));
@@ -290,7 +290,7 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config() {
     assert!(help_str.contains("--list-strategies"));
 
     let bad = Command::new(bin)
-        .args(["--level", "invalid_level", "--list-strategies"])
+        .args(["scan", "--level", "invalid_level", "--list-strategies"])
         .output()
         .expect("run invalid --level");
     assert!(!bad.status.success());
@@ -305,6 +305,7 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config() {
 
     let list = Command::new(bin)
         .args([
+            "scan",
             "--list-strategies",
             "--level",
             "quick",
@@ -347,20 +348,20 @@ fn nfqws2_strat_finder_flag_and_interactive_wizard() {
     assert_eq!(extracted[1], "--level");
 
     // `nfqws2 --help` lists `--strat-finder`, and `nfqws2 --strat-finder --list-strategies` works offline.
-    let nfqws2 = env!("CARGO_BIN_EXE_nfqws2");
-    let main_help = Command::new(nfqws2).arg("--help").output().expect("nfqws2 --help");
+    let bin = env!("CARGO_BIN_EXE_zapret-rs");
+    let main_help = Command::new(bin).args(["daemon", "--help"]).output().expect("nfqws2 --help");
     assert!(main_help.status.success());
     assert!(String::from_utf8_lossy(&main_help.stdout).contains("--strat-finder"));
 
-    let sf_help = Command::new(nfqws2)
-        .args(["--strat-finder", "--help"])
+    let sf_help = Command::new(bin)
+        .args(["daemon", "--strat-finder", "--help"])
         .output()
         .expect("nfqws2 --strat-finder --help");
     assert!(sf_help.status.success());
     assert!(String::from_utf8_lossy(&sf_help.stdout).contains("--interactive"));
 
-    let sf_list = Command::new(nfqws2)
-        .args(["--strat-finder", "--list-strategies", "--level", "quick", "--proto", "tls13"])
+    let sf_list = Command::new(bin)
+        .args(["daemon", "--strat-finder", "--list-strategies", "--level", "quick", "--proto", "tls13"])
         .output()
         .expect("nfqws2 --strat-finder --list-strategies");
     assert!(sf_list.status.success());
