@@ -15,8 +15,8 @@ use crate::tui::render_finder::windowed_text;
 use crate::tui::state::AppState;
 /// Three-state health enum rendered as colored `[OK]` / `[WARN]` / `[ERR]` badges.
 use crate::tui::status_check::ComponentHealth;
-/// Shared panel border builder and `[key]` hint styling.
-use crate::tui::theme::{panel_block, styled_key_hints};
+/// Shared panel border builder for Tab 5 cards.
+use crate::tui::theme::panel_block;
 
 /// Builds one styled table row for a [`ComponentCheck`] item.
 fn build_status_row<'a>(
@@ -50,7 +50,7 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = &state.theme;
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(8), Constraint::Length(6)])
+        .constraints([Constraint::Min(8), Constraint::Length(5)])
         .split(area);
 
     let summary_width = rows[0].width.saturating_sub(32) as usize;
@@ -80,23 +80,17 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(table, rows[0]);
 
     let detail_lines = if let Some(sel) = state.status_checks.get(state.status_selected) {
-        vec![
-            Line::from(vec![
-                Span::styled(
-                    format!("{}: ", sel.name),
-                    Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(sel.detail.as_str(), Style::default().fg(t.text)),
-            ]),
-            Line::from(styled_key_hints(
-                "[r] Refresh  [n] DNS Preset  [a] Apply DNS  [d] Debug Report  [Up/Down/Left/Right]",
-                t,
-            )),
-        ]
+        vec![Line::from(vec![
+            Span::styled(
+                format!("{}: ", sel.name),
+                Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(sel.detail.as_str(), Style::default().fg(t.text)),
+        ])]
     } else {
-        vec![Line::from(styled_key_hints(
-            "Press [r] to run operational checks.",
-            t,
+        vec![Line::from(Span::styled(
+            "No operational checks collected yet.",
+            Style::default().fg(t.subtle),
         ))]
     };
     let detail = Paragraph::new(detail_lines)
