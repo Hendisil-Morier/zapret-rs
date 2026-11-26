@@ -79,19 +79,19 @@ fn wait_for_control_socket(configured: Option<&Path>, timeout: Duration) -> Opti
     }
 }
 
-/// Starts `zapret-rs.service` via `systemctl` (using cached `sudo -n` when non-root) and attaches.
+/// Starts (or restarts if still deactivating) `zapret-rs.service` via `systemctl` and attaches.
 fn start_via_systemd(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) -> DaemonLaunchOutcome {
     if state.uid != 0 && sudo_needs_password() {
-        return DaemonLaunchOutcome::NeedSudo("sudo systemctl start zapret-rs.service".to_owned());
+        return DaemonLaunchOutcome::NeedSudo("sudo systemctl restart zapret-rs.service".to_owned());
     }
     let output = if state.uid == 0 {
         Command::new("systemctl")
-            .args(["start", "zapret-rs.service"])
+            .args(["restart", "zapret-rs.service"])
             .stdin(Stdio::null())
             .output()
     } else {
         Command::new("sudo")
-            .args(["-n", "systemctl", "start", "zapret-rs.service"])
+            .args(["-n", "systemctl", "restart", "zapret-rs.service"])
             .stdin(Stdio::null())
             .output()
     };
@@ -100,7 +100,7 @@ fn start_via_systemd(state: &mut AppState, session_tab2: &mut Option<Tab2Session
         Ok(out) => {
             let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
             return DaemonLaunchOutcome::Failed(if err.is_empty() {
-                "systemctl start zapret-rs.service failed".to_owned()
+                "systemctl restart zapret-rs.service failed".to_owned()
             } else {
                 err
             });
