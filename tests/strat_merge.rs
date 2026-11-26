@@ -4,8 +4,9 @@
 use zapret_rs::config::AppConfig;
 /// Catalog and rendering primitives used to build realistic strategy TOML fixtures.
 use zapret_rs::tools::{
-    CoveredProfile, IpFamily, ProbeProtocol, ScanLevel, TomlRenderOptions, build_catalog,
-    extract_hostlist_domains, merge_nfqws2_toml, render_nfqws2_toml,
+    CoveredProfile, DEFAULT_AUTOHOSTLIST_FILE, DomainScope, IpFamily, ProbeProtocol, ScanLevel,
+    TomlRenderOptions, build_catalog, extract_hostlist_domains, merge_nfqws2_toml,
+    render_nfqws2_toml, render_nfqws2_toml_scoped,
 };
 
 #[test]
@@ -68,5 +69,29 @@ fn merge_preserves_existing_profiles_deduplicates_matching_and_replaces_conflict
     assert_eq!(
         extracted,
         vec!["youtube.com", "store.steampowered.com", "legacy.example", "discord.com"]
+    );
+}
+
+#[test]
+fn domain_scope_renders_catch_all_and_autohostlist_profiles_cleanly() {
+    let strat = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4)[0].clone();
+    let cover = vec![CoveredProfile {
+        strategy: strat,
+        domains: vec!["youtube.com".to_owned()],
+        avg_latency_ms: 40,
+    }];
+    let opts = TomlRenderOptions::default();
+
+    let all_toml = render_nfqws2_toml_scoped(&cover, &opts, DomainScope::AllDomains);
+    let all_cfg = AppConfig::from_toml_str(&all_toml, None).expect("valid catch-all TOML");
+    assert!(all_cfg.profiles[0].lists.hostlist_domains.is_empty());
+    assert!(all_cfg.profiles[0].lists.hostlist_auto.is_none());
+
+    let auto_toml = render_nfqws2_toml_scoped(&cover, &opts, DomainScope::AutoHostlist);
+    let auto_cfg = AppConfig::from_toml_str(&auto_toml, None).expect("valid autolist TOML");
+    assert_eq!(auto_cfg.profiles[0].lists.hostlist_domains, vec!["youtube.com"]);
+    assert_eq!(
+        auto_cfg.profiles[0].lists.hostlist_auto.as_deref(),
+        Some(std::path::Path::new(DEFAULT_AUTOHOSTLIST_FILE))
     );
 }

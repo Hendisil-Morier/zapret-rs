@@ -54,8 +54,9 @@ fn theme_syntax_highlighters_and_buffer_palette_apply_distinct_colors() {
     assert!(nft_lines[1].spans.iter().any(|s| s.content == "accept" && s.style.fg == Some(custom.ok_bright)));
 
     let mut state = AppState::new(None, None, false);
+    let before_theme = state.theme.name;
     state.handle_key(key(KeyCode::Char('t')));
-    assert_ne!(state.theme.name, Theme::default().name, "'t' must cycle built-in presets");
+    assert_ne!(state.theme.name, before_theme, "'t' must cycle built-in presets");
     state.tab = ActiveTab::Run;
     let backend = TestBackend::new(120, 32);
     let mut terminal = Terminal::new(backend).expect("create TestBackend terminal");

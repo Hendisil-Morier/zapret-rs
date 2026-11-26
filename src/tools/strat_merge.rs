@@ -2,9 +2,82 @@
 
 /// Case-insensitive duplicate filtering while merging profile domain arrays.
 use std::collections::HashSet;
+/// Writing scoped profile directives into rendered TOML strings cleanly.
+use std::fmt::Write as _;
+
+/// Serialization support so Tab 1's domain scope survives `setcap` `exec()` restarts.
+use serde::{Deserialize, Serialize};
 
 /// Parsed configuration model validated before returning merged TOML.
 use crate::config::AppConfig;
+/// Base strategy TOML renderer wrapped by [`render_nfqws2_toml_scoped`].
+use crate::tools::strat_toml::{CoveredProfile, TomlRenderOptions, render_nfqws2_toml};
+
+/// Default relative autohostlist file placed beside `nfqws2.toml`.
+pub const DEFAULT_AUTOHOSTLIST_FILE: &str = "autohostlist.txt";
+
+/// Controls whether generated profiles affect only scanned domains, all domains, or use autohostlist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DomainScope {
+    /// Restrict generated profiles to the scanned domains via `hostlist_domains`.
+    #[default]
+    ScannedOnly,
+    /// Omit `hostlist_domains` so generated profiles apply across all domains on that port/protocol.
+    AllDomains,
+    /// Emit `hostlist_auto` alongside `hostlist_domains` so failing domains are added dynamically.
+    AutoHostlist,
+}
+
+impl DomainScope {
+    /// Cycles `ScannedOnly -> AllDomains -> AutoHostlist -> ScannedOnly`.
+    pub const fn next(self) -> Self {
+        match self {
+            Self::ScannedOnly => Self::AllDomains,
+            Self::AllDomains => Self::AutoHostlist,
+            Self::AutoHostlist => Self::ScannedOnly,
+        }
+    }
+
+    /// Returns a compact display label for Tab 1's `Domain Scope` row.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::ScannedOnly => "Scanned Only",
+            Self::AllDomains => "All Domains (catch-all)",
+            Self::AutoHostlist => "Auto Hostlist",
+        }
+    }
+}
+
+/// Renders `profiles` with [`render_nfqws2_toml`] and rewrites per-profile domain scoping for `scope`.
+pub fn render_nfqws2_toml_scoped(
+    profiles: &[CoveredProfile],
+    opts: &TomlRenderOptions,
+    scope: DomainScope,
+) -> String {
+    let base = render_nfqws2_toml(profiles, opts);
+    match scope {
+        DomainScope::ScannedOnly => base,
+        DomainScope::AllDomains => {
+            let mut out = String::with_capacity(base.len());
+            for line in base.lines() {
+                if !line.starts_with("hostlist_domains = ") {
+                    let _ = writeln!(out, "{line}");
+                }
+            }
+            out
+        }
+        DomainScope::AutoHostlist => {
+            let mut out = String::with_capacity(base.len() + 64);
+            for line in base.lines() {
+                let _ = writeln!(out, "{line}");
+                if line.starts_with("filter_l7 = ") {
+                    let _ = writeln!(out, "hostlist_auto = \"{DEFAULT_AUTOHOSTLIST_FILE}\"");
+                }
+            }
+            out
+        }
+    }
+}
 
 /// Extracts unique, trimmed inline `hostlist_domains` entries across every profile in `cfg`.
 pub fn extract_hostlist_domains(cfg: &AppConfig) -> Vec<String> {

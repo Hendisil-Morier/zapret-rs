@@ -87,4 +87,7 @@ pub use strat_toml::{
     render_nfqws2_toml, select_minimal_cover, write_config_nofollow,
 };
 /// Public API re-exports for non-destructive `nfqws2.toml` merging and domain extraction.
-pub use strat_merge::{extract_hostlist_domains, merge_nfqws2_toml};
+pub use strat_merge::{
+    DEFAULT_AUTOHOSTLIST_FILE, DomainScope, extract_hostlist_domains, merge_nfqws2_toml,
+    render_nfqws2_toml_scoped,
+};
