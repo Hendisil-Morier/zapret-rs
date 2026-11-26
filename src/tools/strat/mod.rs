@@ -58,7 +58,7 @@ pub use probe::{CurlProbeBackend, ProbeBackend, ProbeRequest, format_resolve_arg
 /// Public API re-exports for `curl` probe outcomes and classifiers.
 pub use probe_classify::{PROBE_WRITE_OUT, ProbeOutcome, classify_curl_output, is_spoof_redirect};
 /// Public API re-exports for `strat_finder` multi-domain scan orchestration.
-pub use runner::{ProgressEvent, ScanConfig, ScanReport, TargetScanResult, run_scan};
+pub use runner::{ProgressEvent, ScanConfig, ScanReport, TargetScanResult, prioritize_sticky, run_scan};
 /// Public API re-exports for `strat_finder` in-process worker handle and applier trait.
 pub use worker::{InProcessWorkerHandle, StrategyApplier};
 /// Public API re-exports for `strat_finder` ranking, set cover, and TOML rendering.

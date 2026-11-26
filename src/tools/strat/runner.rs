@@ -116,7 +116,36 @@ pub enum ProgressEvent<'a> {
     },
 }
 
-/// Executes baseline checks, in-process strategy sweeps, ranking, and minimal cross-domain cover.
+/// Extracts the strategy suffix after `<proto>:<ipv>:` (e.g. `"tls13:ipv4:multisplit:1"` -> `"multisplit:1"`).
+fn strategy_suffix(id: &str) -> &str {
+    id.split_once(':').and_then(|(_, rest)| rest.split_once(':')).map_or(id, |(_, suffix)| suffix)
+}
+
+/// Promotes strategies that already worked on earlier targets to the front of `catalog`.
+///
+/// Exact `(ipv, suffix)` matches come first, followed by cross-family `suffix` matches, while
+/// preserving relative catalog order within each tier so final weight/latency ranking is unaffected.
+pub fn prioritize_sticky(catalog: Vec<StrategySpec>, sticky: &[(IpFamily, String)]) -> Vec<StrategySpec> {
+    if sticky.is_empty() {
+        return catalog;
+    }
+    let (mut same_family, mut cross_family, mut rest) = (Vec::new(), Vec::new(), Vec::new());
+    for spec in catalog {
+        let suffix = strategy_suffix(&spec.id);
+        if sticky.iter().any(|(ipv, s)| *ipv == spec.ipv && s == suffix) {
+            same_family.push(spec);
+        } else if sticky.iter().any(|(_, s)| s == suffix) {
+            cross_family.push(spec);
+        } else {
+            rest.push(spec);
+        }
+    }
+    same_family.extend(cross_family);
+    same_family.extend(rest);
+    same_family
+}
+
+/// Executes parallel baseline checks, sticky strategy sweeps, ranking, and minimal cross-domain cover.
 pub fn run_scan<P, A, F>(
     cfg: &ScanConfig,
     probe: &P,
@@ -139,75 +168,82 @@ where
         false
     };
 
-    let mut targets = Vec::new();
-    let mut domain_strategies = Vec::new();
-    let mut interrupted = false;
+    if stop.load(Ordering::Acquire) {
+        let _ = applier.clear();
+        return Ok(ScanReport { targets: Vec::new(), cover: Vec::new(), interrupted: true });
+    }
 
-    'outer: for domain in &cfg.domains {
+    let mut target_reqs = Vec::new();
+    for domain in &cfg.domains {
         for &ipv in &cfg.families {
             for &proto in &cfg.protos {
-                if proto == ProbeProtocol::Http3 && !http3_ok {
-                    continue;
-                }
-                if stop.load(Ordering::Acquire) {
-                    interrupted = true;
-                    break 'outer;
-                }
-
-                applier.clear()?;
-                let req = ProbeRequest {
-                    domain: domain.clone(),
-                    proto,
-                    ipv,
-                    timeout: cfg.timeout,
-                };
-                let baseline = probe.probe(&req);
-                on_event(ProgressEvent::Baseline { domain, proto, ipv, outcome: &baseline });
-
-                if baseline.is_success() && !cfg.force_blocked {
-                    targets.push(TargetScanResult {
-                        domain: domain.clone(), proto, ipv, baseline,
-                        skipped_unblocked: true, tested_count: 0, matches: Vec::new(),
-                    });
-                    continue;
-                }
-
-                let catalog = build_catalog(proto, cfg.level, ipv);
-                let total = catalog.len();
-                let mut matches = Vec::new();
-                let mut tested_count = 0usize;
-
-                for (idx, spec) in catalog.iter().enumerate() {
-                    if stop.load(Ordering::Acquire) {
-                        interrupted = true;
-                        break;
-                    }
-                    applier.apply_profiles(vec![spec.to_profile(1, &[])])?;
-                    let outcome = probe.probe(&req);
-                    tested_count += 1;
-                    on_event(ProgressEvent::Candidate { domain, index: idx + 1, total, strategy: spec, outcome: &outcome });
-                    if let Some(latency_ms) = outcome.latency_ms() {
-                        matches.push(StrategyMatch { strategy: spec.clone(), latency_ms });
-                        if cfg.stop_on_first {
-                            break;
-                        }
-                    }
-                }
-
-                let _ = applier.clear();
-                rank_matches(&mut matches);
-                if !matches.is_empty() {
-                    domain_strategies.push(DomainStrategies { domain: domain.clone(), proto, ipv, matches: matches.clone() });
-                }
-                targets.push(TargetScanResult {
-                    domain: domain.clone(), proto, ipv, baseline,
-                    skipped_unblocked: false, tested_count, matches,
-                });
-                if interrupted {
-                    break 'outer;
+                if proto != ProbeProtocol::Http3 || http3_ok {
+                    target_reqs.push(ProbeRequest { domain: domain.clone(), proto, ipv, timeout: cfg.timeout });
                 }
             }
         }
+    }
+
+    applier.clear()?;
+    let baselines = if target_reqs.is_empty() { Vec::new() } else { probe.probe_batch(&target_reqs) };
+
+    let mut targets = Vec::new();
+    let mut domain_strategies = Vec::new();
+    let mut sticky: Vec<(IpFamily, String)> = Vec::new();
+    let mut interrupted = false;
+
+    for (req, baseline) in target_reqs.into_iter().zip(baselines) {
+        on_event(ProgressEvent::Baseline { domain: &req.domain, proto: req.proto, ipv: req.ipv, outcome: &baseline });
+        if baseline.is_success() && !cfg.force_blocked {
+            targets.push(TargetScanResult {
+                domain: req.domain, proto: req.proto, ipv: req.ipv, baseline,
+                skipped_unblocked: true, tested_count: 0, matches: Vec::new(),
+            });
+            continue;
+        }
+        if interrupted || stop.load(Ordering::Acquire) {
+            interrupted = true;
+            break;
+        }
+
+        let catalog = prioritize_sticky(build_catalog(req.proto, cfg.level, req.ipv), &sticky);
+        let total = catalog.len();
+        let mut matches = Vec::new();
+        let mut tested_count = 0usize;
+
+        for (idx, spec) in catalog.iter().enumerate() {
+            if stop.load(Ordering::Acquire) {
+                interrupted = true;
+                break;
+            }
+            applier.apply_profiles(vec![spec.to_profile(1, &[])])?;
+            let outcome = probe.probe(&req);
+            tested_count += 1;
+            on_event(ProgressEvent::Candidate {
+                domain: &req.domain, index: idx + 1, total, strategy: spec, outcome: &outcome,
+            });
+            if let Some(latency_ms) = outcome.latency_ms() {
+                let entry = (spec.ipv, strategy_suffix(&spec.id).to_owned());
+                if !sticky.contains(&entry) {
+                    sticky.push(entry);
+                }
+                matches.push(StrategyMatch { strategy: spec.clone(), latency_ms });
+                if cfg.stop_on_first {
+                    break;
+                }
+            }
+        }
+
+        rank_matches(&mut matches);
+        if !matches.is_empty() {
+            domain_strategies.push(DomainStrategies {
+                domain: req.domain.clone(), proto: req.proto, ipv: req.ipv, matches: matches.clone(),
+            });
+        }
+        targets.push(TargetScanResult {
+            domain: req.domain, proto: req.proto, ipv: req.ipv, baseline,
+            skipped_unblocked: false, tested_count, matches,
+        });
     }
 
     let _ = applier.clear();
