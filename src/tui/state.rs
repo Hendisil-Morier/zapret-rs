@@ -14,8 +14,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::config::AppConfig;
 /// Default desync fwmark constant shared across tabs.
 use crate::intercepter::DEFAULT_DESYNC_FWMARK;
-/// Capability verification helper for the Diagnostics panel.
-use crate::runtime::{CAP_MASK_NET, has_effective_caps};
+/// OS-agnostic UID and packet-capture privilege helpers for the Diagnostics panel.
+use crate::runtime::{current_uid_or_zero, has_packet_capture_privileges};
 /// Lock-free packet counter type shared across Tab 2 sessions.
 use crate::telemetry::PacketCounters;
 /// Strategy catalog, scan level, and interactive path helpers.
@@ -163,9 +163,8 @@ impl AppState {
             .unwrap_or_else(default_output_config_path)
             .display()
             .to_string();
-        // SAFETY: `geteuid` takes no arguments and cannot fail.
-        let uid = unsafe { libc::geteuid() };
-        let has_net_caps = has_effective_caps(CAP_MASK_NET).unwrap_or(false);
+        let uid = current_uid_or_zero();
+        let has_net_caps = has_packet_capture_privileges().unwrap_or(false);
         let exe_path = std::env::current_exe()
             .ok()
             .map_or_else(|| "./target/release/zapret-rs".to_owned(), |p| p.display().to_string());

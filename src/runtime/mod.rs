@@ -5,11 +5,12 @@
 pub mod caps;
 /// Typed process lifecycle and privilege transition error enum.
 pub mod error;
+/// OS-agnostic runtime privilege checks and elevation-drop wrappers.
+pub mod privilege;
 /// UID/GID identity parsing, `getpwnam_r` resolution, `chdir`, PID file guard, and `daemonize`.
 #[cfg(target_os = "linux")]
 pub mod process;
-/// Async-signal-safe `SIGINT`, `SIGTERM`, and `SIGHUP` flags and `sigaction` installation.
-#[cfg(unix)]
+/// Async-signal-safe termination and reload flags with Unix/Windows handler installation.
 pub mod signals;
 /// Writable Lua directory preparation and `WRITABLE` environment export (`--writable`).
 pub mod writable;
@@ -22,14 +23,17 @@ pub use caps::{
 };
 /// Re-exported process lifecycle error type.
 pub use error::ProcessError;
+/// Re-exported OS-agnostic privilege checks and elevation-drop wrappers.
+pub use privilege::{
+    current_uid_or_zero, drop_elevated_root_if_needed, has_packet_capture_privileges,
+};
 /// Re-exported identity resolution, privilege drop, `chdir`, PID guard, and daemonization helpers.
 #[cfg(target_os = "linux")]
 pub use process::{
     IdentitySpec, PidFileGuard, apply_chdir, daemonize, drop_privileges, drop_privileges_for,
     drop_sudo_root_if_needed, parse_uid_spec, resolve_identity, resolve_user_spec,
 };
-/// Re-exported POSIX signal handler registration and atomic flag helpers.
-#[cfg(unix)]
+/// Re-exported signal handler registration and atomic flag helpers.
 pub use signals::{
     install_signal_handlers, quit_flag, reload_flag, reset_signal_flags, take_reload_requested,
 };

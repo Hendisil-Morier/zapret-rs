@@ -22,8 +22,8 @@ use ratatui::layout::Rect;
 
 /// Wire control request enum sent to an attached daemon socket.
 use crate::control::Request;
-/// Privilege checks and automatic `sudo` UID drop at TUI startup.
-use crate::runtime::{CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps};
+/// OS-agnostic privilege checks and automatic `sudo` UID drop at TUI startup.
+use crate::runtime::{drop_elevated_root_if_needed, has_packet_capture_privileges};
 /// Action executors coordinating scan workers, `sudo` modals, and daemon start/attach.
 use crate::tui::actions::{
     cancel_active_scan, poll_active_scan, submit_auth_modal, try_start_or_attach, try_start_scan,
@@ -77,7 +77,7 @@ pub struct TuiOptions {
 
 /// Executes the interactive `ratatui` TUI event loop until the user quits cleanly.
 pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
-    let _ = drop_sudo_root_if_needed();
+    let _ = drop_elevated_root_if_needed();
     let mut state = AppState::new(opts.config, opts.lua_dir, opts.no_nft);
     if let Some(ref theme_spec) = opts.theme {
         let (theme, warn) = resolve_theme(Some(theme_spec));
@@ -92,7 +92,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     }
     state.control_socket_override = opts.control_socket;
     state.detected_socket = detect_control_socket(state.control_socket_override.as_deref());
-    state.has_net_caps = has_effective_caps(CAP_MASK_NET).unwrap_or(false);
+    state.has_net_caps = has_packet_capture_privileges().unwrap_or(false);
     if !state.has_net_caps && state.detected_socket.is_none() {
         state.open_caps_modal();
     }

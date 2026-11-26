@@ -18,9 +18,10 @@ use clap::{Parser, error::ErrorKind};
 use crate::config::{AppConfig, LuaInitEntry, parse_u32_radix};
 /// Default desync fwmark constant shared with `nfqws2`.
 use crate::intercepter::DEFAULT_DESYNC_FWMARK;
-/// Least-privilege capability checks, `sudo` root drop, and POSIX signal handling.
+/// Least-privilege capability checks, elevation drop, and signal handling.
 use crate::runtime::{
-    CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps, install_signal_handlers, quit_flag,
+    drop_elevated_root_if_needed, has_packet_capture_privileges, install_signal_handlers,
+    quit_flag,
 };
 /// Strategy catalog types and expansion function.
 use crate::tools::strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, build_catalog};
@@ -229,10 +230,10 @@ fn run_list_mode(
 
 /// Ensures `CAP_NET_ADMIN|CAP_NET_RAW` are active, dropping `sudo` UID 0 first when present.
 fn ensure_least_privilege_net_caps() -> Result<(), String> {
-    if let Some((uid, gid)) = drop_sudo_root_if_needed().map_err(|err| format!("privilege drop failed: {err}"))? {
+    if let Some((uid, gid)) = drop_elevated_root_if_needed().map_err(|err| format!("privilege drop failed: {err}"))? {
         eprintln!("[sec] dropped root privileges to uid={uid}, gid={gid} (retaining only CAP_NET_ADMIN, CAP_NET_RAW)");
     }
-    if !has_effective_caps(CAP_MASK_NET).map_err(|err| format!("capability check failed: {err}"))? {
+    if !has_packet_capture_privileges().map_err(|err| format!("capability check failed: {err}"))? {
         let exe = std::env::current_exe()
             .ok()
             .map_or_else(|| "./target/release/nfqws2".to_owned(), |p| p.display().to_string());

@@ -258,7 +258,9 @@ impl NftFirewallBackend {
                 table_name: STRAT_FINDER_NFT_TABLE.to_owned(),
                 used_sudo: false,
             })),
-            Err((_, ref stderr)) if is_nft_perm_denied(stderr) && unsafe { libc::geteuid() } != 0 => {
+            Err((_, ref stderr))
+                if is_nft_perm_denied(stderr) && crate::runtime::current_uid_or_zero() != 0 =>
+            {
                 if sudo_needs_password() {
                     return Err(io::Error::new(
                         io::ErrorKind::PermissionDenied,
