@@ -31,6 +31,7 @@ impl AppState {
         if self.run_status == RunStatus::Attached {
             return match code {
                 KeyCode::Char('x') => AppAction::DetachDaemon,
+                KeyCode::Char('R') => AppAction::RestartDaemon,
                 KeyCode::Char('l') => AppAction::ReloadRemoteLists,
                 KeyCode::Char('S') => {
                     let pid_label = self
@@ -59,6 +60,7 @@ impl AppState {
                 }
             }
             KeyCode::Char('x') if self.run_status == RunStatus::Running => AppAction::StopDaemon,
+            KeyCode::Char('R') => AppAction::RestartDaemon,
             KeyCode::Char('l') => AppAction::ReloadConfig,
             KeyCode::Char('c') => {
                 self.counters.reset();

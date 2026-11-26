@@ -248,6 +248,8 @@ pub enum AppAction {
     ReloadRemoteLists,
     /// Request remote daemon shutdown over the control socket after user confirmation.
     StopRemoteDaemon,
+    /// Stop the running daemon, wait for it to exit, then start it again (`R` on Tab 2).
+    RestartDaemon,
     /// Reload `output_path` from disk into `active_toml`.
     ReloadConfig,
     /// Open `output_path` in `$VISUAL`/`$EDITOR` (seeding a starter file if missing), then reload.

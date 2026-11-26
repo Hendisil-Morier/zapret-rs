@@ -31,6 +31,8 @@ use crate::tui::tab2_session::{
     Tab2Session, attach_to_socket, execute_remote_stop, poll_tab2_session, push_config_to_daemon,
     stop_local_daemon,
 };
+/// Stop-then-start daemon restart job and its per-tick driver.
+use crate::tui::daemon_cycle::{DaemonCycle, begin_restart, poll_daemon_cycle};
 /// Remote daemon socket auto-detection helper.
 use crate::tui::remote::detect_control_socket;
 /// Pure TUI frame renderer.
@@ -108,12 +110,14 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
             _ => {}
         }
     }
+    let mut cycle: Option<DaemonCycle> = None;
     let mut probe_tick = 0u8;
     let mut reexec_after_exit = false;
 
     loop {
         poll_active_scan(&mut state, &mut active_scan, &mut session);
         poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick, active_scan.is_some());
+        poll_daemon_cycle(&mut cycle, &mut state, &mut tab2_session);
         state.poll_finder_hover(Instant::now());
 
         session
@@ -167,6 +171,15 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                     }
                 }
                 AppAction::StopRemoteDaemon => execute_remote_stop(&mut state, &mut tab2_session),
+                AppAction::RestartDaemon => {
+                    if active_scan.is_some() {
+                        state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
+                    } else if cycle.is_some() {
+                        state.status_banner = "A daemon restart is already in progress.".to_owned();
+                    } else {
+                        cycle = begin_restart(&mut state, &mut tab2_session, &mut session);
+                    }
+                }
                 AppAction::SubmitModal => {
                     if submit_auth_modal(&mut state, &mut active_scan, &mut tab2_session) {
                         reexec_after_exit = true;

@@ -2,6 +2,8 @@
 
 /// Side-effectful action executors bridging Tab 1/2/3 workers, `sudo` modals, and remote attach.
 pub mod actions;
+/// Stop-then-start daemon cycle behind the Tab 2 restart key.
+pub mod daemon_cycle;
 /// Detached background `nfqws2` and `systemd` daemon launcher for persistent Tab 2 starts.
 pub mod daemon_launch;
 /// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML builder for Tab 3.
