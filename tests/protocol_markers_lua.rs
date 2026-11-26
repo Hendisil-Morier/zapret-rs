@@ -14,9 +14,9 @@ use zapret_rs::protocol::{
 };
 
 /// Path to `zapret2`'s unmodified `zapret-lib.lua`.
-const ZAPRET_LIB_LUA: &str = "/home/morier/Documents/projects/zapret2/lua/zapret-lib.lua";
+const ZAPRET_LIB_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-lib.lua");
 /// Path to `zapret2`'s unmodified `zapret-tests.lua`.
-const ZAPRET_TESTS_LUA: &str = "/home/morier/Documents/projects/zapret2/lua/zapret-tests.lua";
+const ZAPRET_TESTS_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-tests.lua");
 
 /// Reads a binary test fixture from `zapret2/files/fake/`.
 fn read_fake_fixture(name: &str) -> Vec<u8> {

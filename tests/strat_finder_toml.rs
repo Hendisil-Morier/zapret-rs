@@ -309,7 +309,7 @@ fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing() {
 /// `zapret2/lua/zapret-antidpi.lua` script when present in the workspace.
 #[test]
 fn all_catalog_lua_callbacks_exist_in_zapret2_antidpi() {
-    let lua_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../zapret2/lua");
+    let lua_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("lua");
     let lib_lua = lua_dir.join("zapret-lib.lua");
     let antidpi_lua = lua_dir.join("zapret-antidpi.lua");
     if !lib_lua.is_file() || !antidpi_lua.is_file() {

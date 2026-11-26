@@ -25,7 +25,7 @@ use zapret_rs::crypto::{
 use zapret_rs::lua::{LuaConfig, LuaRuntime};
 
 /// Path to `zapret2`'s unmodified `zapret-tests.lua`.
-const ZAPRET_TESTS_LUA: &str = "/home/morier/Documents/projects/zapret2/lua/zapret-tests.lua";
+const ZAPRET_TESTS_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-tests.lua");
 
 /// Decodes a lowercase/uppercase hexadecimal string into raw bytes.
 fn hex(s: &str) -> Vec<u8> {

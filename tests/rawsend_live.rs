@@ -219,7 +219,7 @@ fn lua_live_rawsend_and_ipfrag2_deliver_through_kernel() {
         ..LuaConfig::default()
     };
     let rt = LuaRuntime::new(cfg).expect("LuaRuntime::new should initialize");
-    let zapret_lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../zapret2/lua/zapret-lib.lua");
+    let zapret_lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("lua/zapret-lib.lua");
     assert!(
         zapret_lib.exists(),
         "expected zapret-lib.lua at {}",

@@ -25,9 +25,9 @@ use zapret_rs::packet::dissecter::dissect_packet;
 use zapret_rs::rawsend::{PacketSender, RawSendError};
 
 /// Path to `zapret2`'s unmodified `zapret-lib.lua`.
-const ZAPRET_LIB_LUA: &str = "/home/morier/Documents/projects/zapret2/lua/zapret-lib.lua";
+const ZAPRET_LIB_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-lib.lua");
 /// Path to `zapret2`'s unmodified `zapret-tests.lua`.
-const ZAPRET_TESTS_LUA: &str = "/home/morier/Documents/projects/zapret2/lua/zapret-tests.lua";
+const ZAPRET_TESTS_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-tests.lua");
 
 /// One packet injection call captured by [`CapturingSender`].
 #[derive(Debug, Clone)]

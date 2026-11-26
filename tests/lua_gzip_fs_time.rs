@@ -37,7 +37,7 @@ use zapret_rs::runtime::{
 };
 
 /// Path to `zapret2`'s unmodified `zapret-tests.lua`.
-const ZAPRET_TESTS_LUA: &str = "/home/morier/Documents/projects/zapret2/lua/zapret-tests.lua";
+const ZAPRET_TESTS_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-tests.lua");
 
 /// Returns a `zapret-rs daemon` command backed by the compiled unified binary.
 fn nfqws2_cmd() -> Command {
@@ -341,7 +341,7 @@ fn writable_dir_config_cli_and_nfqws2_runtime_e2e() {
     // End-to-end `nfqws2 --intercept=0 --writable` under custom TMPDIR -> `<TMPDIR>/zapret-rs`
     let tmp_env = tmp.path().join("tmp_root");
     fs::create_dir_all(&tmp_env).unwrap();
-    let zapret_lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../zapret2/lua/zapret-lib.lua");
+    let zapret_lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("lua/zapret-lib.lua");
     let out1 = nfqws2_cmd()
         .env("TMPDIR", &tmp_env)
         .env_remove("WRITABLE")

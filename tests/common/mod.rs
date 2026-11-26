@@ -15,7 +15,7 @@ use zapret_rs::rawsend::{PacketSender, RawSendError};
 
 /// Path to `zapret2`'s unmodified `zapret-lib.lua`.
 #[allow(dead_code)]
-pub const ZAPRET_LIB_LUA: &str = "/home/morier/Documents/projects/zapret2/lua/zapret-lib.lua";
+pub const ZAPRET_LIB_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-lib.lua");
 
 /// One packet captured from Lua `rawsend` / `rawsend_dissect` during desync execution.
 #[derive(Debug, Clone)]

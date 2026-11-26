@@ -43,7 +43,7 @@ use zapret_rs::runtime::prepare_writable_dir;
 use zapret_rs::timer::{TimerPool, boottime_ms};
 
 /// Directory containing all unmodified `zapret2` Lua scripts.
-const ZAPRET2_LUA_DIR: &str = "/home/morier/Documents/projects/zapret2/lua";
+const ZAPRET2_LUA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua");
 /// Path to `zapret2`'s fake TLS ClientHello binary fixture.
 const TLS_HELLO_FIXTURE: &str =
     "/home/morier/Documents/projects/zapret2/files/fake/tls_clienthello_www_google_com.bin";

@@ -183,7 +183,7 @@ fn cli_version_and_dry_run_validate_config_and_reject_bad_inputs() {
 #[test]
 fn cli_intercept_zero_loads_zapret_lib_and_runs_inline_lua() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let zapret_lib = manifest_dir.join("../zapret2/lua/zapret-lib.lua");
+    let zapret_lib = manifest_dir.join("lua/zapret-lib.lua");
     assert!(
         zapret_lib.exists(),
         "expected zapret-lib.lua at {}",
@@ -194,7 +194,7 @@ fn cli_intercept_zero_loads_zapret_lib_and_runs_inline_lua() {
         .current_dir(manifest_dir)
         .args([
             "--intercept=0",
-            "--lua-init=@../zapret2/lua/zapret-lib.lua",
+            "--lua-init=@lua/zapret-lib.lua",
             "--lua-init=DLOG_CONDUP(\"ok\")",
         ])
         .output()
