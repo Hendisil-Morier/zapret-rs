@@ -161,7 +161,6 @@ fn run_timex(val: &Value, timefn: unsafe extern "C" fn(*mut libc::tm) -> libc::t
         return Ok(None);
     }
     #[allow(clippy::useless_conversion)]
-    #[allow(clippy::useless_conversion)]
     Ok(Some(i64::from(ts)))
 }
 
