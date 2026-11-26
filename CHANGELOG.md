@@ -4,6 +4,17 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-11-26
+
+### Fixed
+
+- **Windows Strategy Finder Overlapped I/O (`WinDivertRecvEx`):** Replaced synchronous blocking `WinDivertRecv` with overlapped `WinDivertRecvEx` + `WaitForSingleObject`, unblocking `WorkerCmd::Swap` acknowledgments during Strategy Finder sweeps even when no network traffic is present.
+- **Narrow-Terminal TUI Layout & Wrapping:** Added compact header tab labels (`1:Find`, `2:Run`, `3:Cfg`, `4:Spd`, `5:Stat`) on narrow terminals, auto-sized the Tab 2 controller height for wrapped profile lists, wrapped long `Live Scan Log` / `Daemon Log` lines, shortened Tab 5's `curl` summary, and added `Left`/`Right` (`h`/`l`) horizontal scrolling on Tab 5 `Summary` cells.
+
+### Docs
+
+- Updated [README.md](README.md) with Tab 5 (`Status`), prebuilt Linux/Windows GitHub Release archives, and Windows Terminal (Admin) launch instructions.
+
 ## [1.3.0] - 2026-11-26
 
 ### Added

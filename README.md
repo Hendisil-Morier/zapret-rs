@@ -1,6 +1,6 @@
 # zapret-rs
 
-`zapret-rs` (`v1.3.0`) is a fast, memory-safe DPI (Deep Packet Inspection) bypass tool and terminal UI written in Rust, compatible with [`zapret2`](https://github.com/bol-van/zapret2) Lua strategies.
+`zapret-rs` (`v1.3.1`) is a fast, memory-safe DPI (Deep Packet Inspection) bypass tool and terminal UI written in Rust, compatible with [`zapret2`](https://github.com/bol-van/zapret2) Lua strategies.
 
 It ships as a single executable (`zapret-rs`) with built-in Lua scripts, an interactive Strategy Finder, a live packet monitor, and `systemd` integration on Linux (plus experimental Windows 10/11 support via WinDivert).
 
@@ -8,7 +8,7 @@ It ships as a single executable (`zapret-rs`) with built-in Lua scripts, an inte
 
 ### 1. Download or Build
 
-Download `zapret-rs-v1.3.0-linux-x86_64.tar.gz` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it, or build from source:
+Download `zapret-rs-v1.3.1-linux-x86_64.tar.gz` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it, or build from source:
 
 ```bash
 cargo build --release
@@ -73,7 +73,7 @@ If you installed with `--symlinks`, you can also invoke `nfqws2`, `strat_finder`
 
 Windows 10 and 11 (`x64`) are supported via WinDivert:
 
-1. Download `zapret-rs-v1.3.0-windows-x86_64.zip` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it (`WinDivert.dll`, `WinDivert64.sys`, and `lua/` are already bundled alongside `zapret-rs.exe`).
+1. Download `zapret-rs-v1.3.1-windows-x86_64.zip` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it (`WinDivert.dll`, `WinDivert64.sys`, and `lua/` are already bundled alongside `zapret-rs.exe`).
    If building from source instead, copy `WinDivert.dll` and `WinDivert64.sys` from `WinDivert-2.2.2-A` (`x64/`) into the same folder as `zapret-rs.exe`.
 2. Open **Windows Terminal (Admin)** (`Win + X` -> **Terminal (Admin)**) in the extracted folder and launch the TUI:
 
