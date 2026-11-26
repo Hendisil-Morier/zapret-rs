@@ -188,11 +188,22 @@ impl AppState {
         match code {
             KeyCode::Up | KeyCode::Char('k') if len > 0 => {
                 self.status_selected = self.status_selected.saturating_sub(1);
+                self.status_hscroll = 0;
             }
             KeyCode::Down | KeyCode::Char('j') if len > 0 => {
                 self.status_selected = (self.status_selected + 1).min(len - 1);
+                self.status_hscroll = 0;
             }
-            KeyCode::Home => self.status_selected = 0,
+            KeyCode::Left | KeyCode::Char('h') => {
+                self.status_hscroll = self.status_hscroll.saturating_sub(4);
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                self.status_hscroll = self.status_hscroll.saturating_add(4);
+            }
+            KeyCode::Home => {
+                self.status_selected = 0;
+                self.status_hscroll = 0;
+            }
             KeyCode::Char('r') | KeyCode::Enter => {
                 self.refresh_status_checks();
                 self.status_banner = "Refreshed operational component checks.".to_owned();

@@ -134,7 +134,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
                 &mut lines,
                 "Status",
                 true,
-                &["[r/Enter] Refresh Checks  [Up/Down/j/k] Select Component"],
+                &["[r/Enter] Refresh Checks  [Up/Down/j/k] Select  [Left/Right/h/l] Scroll Summary"],
                 t,
             );
         }

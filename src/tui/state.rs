@@ -154,6 +154,8 @@ pub struct AppState {
     pub status_checks: Vec<crate::tui::status_check::ComponentCheck>,
     /// Selected row index inside Tab 5's component status table.
     pub status_selected: usize,
+    /// Horizontal scroll offset for the selected Tab 5 `Summary` cell.
+    pub status_hscroll: usize,
 }
 
 impl AppState {
@@ -221,7 +223,7 @@ impl AppState {
             finder_hover: FinderHoverState::default(), focus: PanelFocusState::default(), theme,
             inspector: PacketInspectorState::default(), speed: SpeedState::default(),
             pending_merge: None, autohostlist_paths: Vec::new(), autohostlist_entries: Vec::new(),
-            status_checks: Vec::new(), status_selected: 0,
+            status_checks: Vec::new(), status_selected: 0, status_hscroll: 0,
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {

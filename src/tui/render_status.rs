@@ -9,6 +9,8 @@ use ratatui::{
     widgets::{Cell, Paragraph, Row, Table, Wrap},
 };
 
+/// Shared horizontal scrolling window helper reused from Tab 1.
+use crate::tui::render_finder::windowed_text;
 /// Application state holding cached component checks and selected row index.
 use crate::tui::state::AppState;
 /// Three-state health enum rendered as colored `[OK]` / `[WARN]` / `[ERR]` badges.
@@ -24,6 +26,7 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         .constraints([Constraint::Min(8), Constraint::Length(6)])
         .split(area);
 
+    let summary_width = rows[0].width.saturating_sub(32) as usize;
     let table_rows: Vec<Row<'_>> = state
         .status_checks
         .iter()
@@ -40,13 +43,15 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             } else {
                 Style::default()
             };
+            let hscroll = if selected { state.status_hscroll } else { 0 };
+            let summary = windowed_text(item.summary.as_str(), None, hscroll, summary_width);
             Row::new(vec![
                 Cell::from(Span::styled(item.name, Style::default().fg(t.accent_bright))),
                 Cell::from(Span::styled(
                     badge,
                     Style::default().fg(badge_col).add_modifier(Modifier::BOLD),
                 )),
-                Cell::from(Span::styled(item.summary.as_str(), Style::default().fg(t.text))),
+                Cell::from(Span::styled(summary, Style::default().fg(t.text))),
             ])
             .style(row_style)
         })
@@ -76,7 +81,7 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
                 Span::styled(sel.detail.as_str(), Style::default().fg(t.text)),
             ]),
             Line::from(styled_key_hints(
-                "[r] Refresh Checks   [Up/Down] Select Component",
+                "[r] Refresh Checks   [Up/Down] Select   [Left/Right] Scroll Summary",
                 t,
             )),
         ]

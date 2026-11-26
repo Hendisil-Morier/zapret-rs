@@ -23,7 +23,7 @@ use crate::tui::types::{FinderField, FinderFocus, FinderStatus};
 /// Returns a display-width-limited window of `text` driven by active edit `cursor` or `scroll`.
 ///
 /// Unfocused fields pass `(None, 0)` so they anchor at start and ignore edits elsewhere.
-fn windowed_text(text: &str, cursor: Option<usize>, scroll: usize, max_chars: usize) -> String {
+pub(crate) fn windowed_text(text: &str, cursor: Option<usize>, scroll: usize, max_chars: usize) -> String {
     let char_count = text.chars().count();
     let cursor_char = cursor.map(|pos| text[..pos.min(text.len())].chars().count());
     let (win_start_char, win_end_char) = if char_count <= max_chars || max_chars < 4 {

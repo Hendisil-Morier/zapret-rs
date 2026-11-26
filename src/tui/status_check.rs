@@ -227,23 +227,26 @@ fn check_curl_probe() -> ComponentCheck {
     match ver_out {
         Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
-            let first_line = text.lines().next().unwrap_or("curl").trim().to_owned();
+            let first_line = text.lines().next().unwrap_or("curl").trim();
+            let short_ver = first_line.split(" (").next().unwrap_or(first_line).trim();
             let h3 = backend.supports_http3();
             if h3 {
                 ComponentCheck {
                     name: "Probe (curl)",
                     health: ComponentHealth::Ok,
-                    summary: format!("{first_line} (HTTP/3 ready)"),
-                    detail: "curl is available with HTTP/3 support for HTTP/1.1, TLS 1.2/1.3, and QUIC probes."
-                        .to_owned(),
+                    summary: format!("{short_ver} (HTTP/3 ready)"),
+                    detail: format!(
+                        "{first_line} — HTTP/1.1, TLS 1.2/1.3, and HTTP/3 probes are supported."
+                    ),
                 }
             } else {
                 ComponentCheck {
                     name: "Probe (curl)",
                     health: ComponentHealth::Warn,
-                    summary: format!("{first_line} (no HTTP/3)"),
-                    detail: "curl works for HTTP/1.1, TLS 1.2, and TLS 1.3, but lacks HTTP/3 (ngtcp2/quiche); HTTP/3 probes are skipped."
-                        .to_owned(),
+                    summary: format!("{short_ver} (no HTTP/3)"),
+                    detail: format!(
+                        "{first_line} — HTTP/1.1 and TLS 1.2/1.3 work, but HTTP/3 (ngtcp2/quiche) is unavailable and will be skipped."
+                    ),
                 }
             }
         }
