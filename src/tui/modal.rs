@@ -49,6 +49,8 @@ pub enum ModalKeyResult {
     Close,
     /// User pressed `Enter` to execute the privileged operation.
     Submit,
+    /// User chose `k` on [`ModalPurpose::ConfirmMergeConfig`] to keep the existing config untouched.
+    KeepExisting,
 }
 
 /// Overwrites all UTF-8 bytes of `secret` with zeros using volatile writes before clearing.
@@ -128,6 +130,11 @@ impl AuthModal {
                 ModalKeyResult::Close
             }
             KeyCode::Enter => ModalKeyResult::Submit,
+            KeyCode::Char('k' | 'K')
+                if !self.needs_password && self.purpose == ModalPurpose::ConfirmMergeConfig =>
+            {
+                ModalKeyResult::KeepExisting
+            }
             KeyCode::Backspace if self.needs_password => {
                 self.password.pop();
                 self.error = None;
@@ -277,7 +284,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
                 " Press Enter to stop nfqws2 briefly and run the before/after comparison, or Esc to cancel."
             }
             ModalPurpose::ConfirmMergeConfig => {
-                " Press Enter to merge new domains into existing profiles, or Esc to replace with new scan."
+                " Enter: merge profiles | k: keep existing (do nothing) | Esc: replace with new scan."
             }
             _ => " Press Enter to stop the remote nfqws2 daemon, or Esc to keep it running.",
         };
@@ -285,6 +292,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
             prompt_msg,
             Style::default().fg(t.warn_bright),
         )))
+        .wrap(Wrap { trim: true })
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
         frame.render_widget(prompt, rows[2]);
     } else if cfg!(windows) && modal.purpose == ModalPurpose::GrantCaps {
@@ -329,7 +337,9 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => "[Enter] Authenticate & Continue   [Esc] Cancel",
         ModalPurpose::ConfirmStopDaemon => "[Enter] Stop Remote Daemon   [Esc] Cancel",
         ModalPurpose::ConfirmSpeedTest => "[Enter] Run Speed Test   [Esc] Cancel",
-        ModalPurpose::ConfirmMergeConfig => "[Enter] Merge Profiles   [Esc] Replace Only",
+        ModalPurpose::ConfirmMergeConfig => {
+            "[Enter] Merge Profiles   [k] Keep Existing   [Esc] Replace Only"
+        }
     };
     frame.render_widget(
         Paragraph::new(Line::from(styled_key_hints(action_hint, t))),

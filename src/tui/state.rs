@@ -356,13 +356,17 @@ impl AppState {
                     self.reset_finder_hover();
                     AppAction::None
                 }
-                ModalKeyResult::Submit => {
-                    if purpose == ModalPurpose::ConfirmSpeedTest {
-                        self.modal = None;
-                        AppAction::RunSpeedTest
-                    } else {
-                        AppAction::SubmitModal
-                    }
+                ModalKeyResult::Submit if purpose == ModalPurpose::ConfirmSpeedTest => {
+                    self.modal = None;
+                    AppAction::RunSpeedTest
+                }
+                ModalKeyResult::Submit => AppAction::SubmitModal,
+                ModalKeyResult::KeepExisting => {
+                    self.modal = None;
+                    if let Some((prev, _)) = self.pending_merge.take() { self.set_active_toml(prev); }
+                    self.status_banner = "Kept existing config (discarded new scan).".to_owned();
+                    self.reset_finder_hover();
+                    AppAction::None
                 }
             };
         }

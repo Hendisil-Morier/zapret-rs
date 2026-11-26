@@ -123,6 +123,17 @@ fn scan_completion_stashes_pending_merge_and_esc_keeps_new_scan_only() {
     );
     assert!(state.pending_merge.is_none());
     assert_eq!(state.active_toml, rendered_new);
+
+    // Pressing 'k' on ConfirmMergeConfig restores the existing config and discards the new scan.
+    state.pending_merge = Some((prev.clone(), new_only));
+    state.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmMergeConfig, "merge".to_owned()));
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)),
+        AppAction::None
+    );
+    assert!(state.modal.is_none());
+    assert!(state.pending_merge.is_none());
+    assert_eq!(state.active_toml, existing);
 }
 
 #[test]

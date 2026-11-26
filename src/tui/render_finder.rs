@@ -108,7 +108,12 @@ pub(crate) fn draw_finder_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     };
     let gauge = Gauge::default()
         .block(panel_block(" Scan Progress ", gauge_border, t.info))
-        .gauge_style(Style::default().fg(gauge_color).add_modifier(Modifier::BOLD))
+        .gauge_style(
+            Style::default()
+                .fg(gauge_color)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
         .ratio(ratio)
         .label(state.progress_label.as_str());
     frame.render_widget(gauge, right[0]);
