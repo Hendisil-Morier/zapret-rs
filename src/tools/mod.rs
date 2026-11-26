@@ -1,5 +1,10 @@
-//! Companion CLI utilities ported from `zapret2` (`ip2net` and `mdig`).
+//! Companion CLI utilities and daemon/finder entry points (`nfqws2`, `ip2net`, `mdig`, `strat_finder`).
 
+/// Shared `nfqws2` daemon CLI runner (`run_nfqws2_cli`).
+pub mod daemon_cli;
+/// Linux `nfqws2` NFQUEUE daemon startup and event loop runtime.
+#[cfg(target_os = "linux")]
+pub mod daemon_runtime;
 /// OS-agnostic firewall rule backend contract and target port collector.
 pub mod firewall;
 /// IPv4/IPv6 single-address and CIDR subnet aggregator (`zapret2/ip2net`).
@@ -73,6 +78,8 @@ pub use lua_bundle::{
 };
 /// Public API re-exports for OS-agnostic firewall backend traits and port collection.
 pub use firewall::{FirewallBackend, FirewallHandle, collect_config_ports};
+/// Public API re-export for the shared `nfqws2` daemon CLI entry point.
+pub use daemon_cli::run_nfqws2_cli;
 /// Public API re-exports for `strat_finder` temporary `nftables` firewall management.
 pub use strat_nft::{
     NftFirewallBackend, NftQueueGuard, STRAT_FINDER_NFT_TABLE, build_nft_cleanup_cmd,
