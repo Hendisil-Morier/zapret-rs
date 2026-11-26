@@ -4,6 +4,24 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-26
+
+### Added
+
+- **Unified Multicall Binary & Built-in Installer:** Consolidated `nfqws2`, `strat_finder`, `ip2net`, `mdig`, and the TUI into a single `zapret-rs` executable with `argv[0]` symlink routing, bundled `lua/*.lua` XDG extraction, and `install` / `uninstall` subcommands (`--symlinks`, `--systemd`).
+- **Experimental Windows Support (WinDivert):** Added dynamic `LoadLibraryW` WinDivert 2.2 bindings (`WinDivertIntercepter`, `WinDivertSender`, `WinDivertFirewallBackend`), `SetConsoleCtrlHandler` signal handling, Win32 `TokenElevation` checks, loopback TCP control IPC, and `daemon` / `scan` / TUI wiring for `x86_64-pc-windows-gnu`.
+- **TUI Speed Test, Mouse Support, Domain Scope & Themes:** Added Tab 4 before/after `curl` speed comparison, mouse click and scroll wheel support across all four tabs, Tab 1 `Domain Scope` (`Scanned Only`, `All Domains`, `Auto Hostlist`) with non-destructive profile merging, Tab 3 live Auto Hostlist viewer, Tab 2 packet inspector `/` query filter, configurable themes, and `R` daemon restart.
+- **`systemd` Integration & `nftables` Improvements:** Added `contrib/systemd/` service and path-watcher units, ambient `CAP_NET_ADMIN` preservation for `--nft`, and `nft` forward-chain / `tailscale0` egress handling.
+
+### Changed
+
+- **OS-Agnostic Core & `src/tools/` Reorganization:** Decoupled `PacketIntercepter`, `PacketSender`, `FirewallBackend`, `ControlStream`, monotonic clock, writable directory, and privilege helpers from Linux-specific syscalls; grouped `src/tools/` into `daemon/`, `mdig/`, and `strat/` subdirectories.
+- **User-Focused README:** Rewrote [README.md](README.md) with quick-start install, TUI, CLI, and Windows instructions.
+
+### Fixed
+
+- **Daemon Startup & Restart Races:** Bound the control socket before installing auto-`nft` rules, switched `start_via_systemd` to `systemctl restart` to avoid `Type=simple` deactivation races, stopped active daemons before Strategy Finder scans, and deduplicated slot-wide `AllDomains`/`AutoHostlist` profiles.
+
 ## [1.1.0] - 2026-11-25
 
 ### Added
