@@ -20,11 +20,10 @@ use crate::tui::theme_config::Theme;
 /// Strategy Finder form descriptor, panel focus state, and scan lifecycle status.
 use crate::tui::types::{FinderField, FinderFocus, FinderStatus};
 
-/// Returns a display-width-limited window of `text`, tracking `cursor` only when active (`Some`).
+/// Returns a display-width-limited window of `text` driven by active edit `cursor` or `scroll`.
 ///
-/// Unfocused fields pass `cursor = None` so they anchor at byte 0 and never scroll when another
-/// field's cursor moves. Active fields insert the cursor marker at the exact cursor offset.
-fn windowed_text(text: &str, cursor: Option<usize>, max_chars: usize) -> String {
+/// Unfocused fields pass `(None, 0)` so they anchor at start and ignore edits elsewhere.
+fn windowed_text(text: &str, cursor: Option<usize>, scroll: usize, max_chars: usize) -> String {
     let char_count = text.chars().count();
     let cursor_char = cursor.map(|pos| text[..pos.min(text.len())].chars().count());
     let (win_start_char, win_end_char) = if char_count <= max_chars || max_chars < 4 {
@@ -33,7 +32,8 @@ fn windowed_text(text: &str, cursor: Option<usize>, max_chars: usize) -> String 
         let start = cc.saturating_sub(max_chars / 2).min(char_count - max_chars);
         (start, (start + max_chars).min(char_count))
     } else {
-        (0, max_chars)
+        let start = scroll.min(char_count - max_chars);
+        (start, (start + max_chars).min(char_count))
     };
     let byte_at = |ci: usize| text.char_indices().nth(ci).map(|(i, _)| i).unwrap_or(text.len());
     let start_byte = byte_at(win_start_char);
@@ -56,7 +56,7 @@ fn windowed_text(text: &str, cursor: Option<usize>, max_chars: usize) -> String 
     }
 }
 
-/// Builds a windowed span for one Tab 1 text field, isolating `state.text_cursor` to `focused`.
+/// Builds a windowed span for one Tab 1 text field, isolating cursor/scroll to `focused`.
 fn text_field_span(
     text: &str,
     state: &AppState,
@@ -64,8 +64,14 @@ fn text_field_span(
     color: Color,
     max_cols: usize,
 ) -> Span<'static> {
-    let cursor = if focused && state.editing_text { Some(state.text_cursor) } else { None };
-    Span::styled(windowed_text(text, cursor, max_cols), Style::default().fg(color))
+    let (cursor, scroll) = if focused && state.editing_text {
+        (Some(state.text_cursor), 0)
+    } else if focused {
+        (None, state.text_scroll)
+    } else {
+        (None, 0)
+    };
+    Span::styled(windowed_text(text, cursor, scroll, max_cols), Style::default().fg(color))
 }
 
 /// Renders Tab 1: left Setup form and right Progress / Results Table / Live Log stack.
@@ -137,16 +143,19 @@ fn checkbox_span(checked: bool, t: &Theme) -> Span<'static> {
 }
 
 /// Renders one formatted row for [`FinderField`] inside the left Setup card.
-fn format_form_row(state: &AppState, field: FinderField, focused: bool) -> ListItem<'static> {
+fn format_form_row(
+    state: &AppState,
+    field: FinderField,
+    focused: bool,
+    value_cols: usize,
+) -> ListItem<'static> {
     let t = &state.theme;
-    // Max display chars available for the value column; keeps long strings scrollable via arrow keys.
-    const VALUE_COLS: usize = 20;
     let (label, lbl_col, value_span) = match field {
         FinderField::Domains => {
             let span = if state.domains_input.is_empty() && !focused {
                 Span::styled("<press Enter to type domain(s)>", Style::default().fg(t.muted))
             } else {
-                text_field_span(&state.domains_input, state, focused, t.accent_bright, VALUE_COLS)
+                text_field_span(&state.domains_input, state, focused, t.accent_bright, value_cols)
             };
             ("Domains      ", t.accent_bright, span)
         }
@@ -161,12 +170,12 @@ fn format_form_row(state: &AppState, field: FinderField, focused: bool) -> ListI
         FinderField::LuaDir => (
             "Lua Dir      ",
             t.ok_bright,
-            text_field_span(&state.lua_dir_input, state, focused, t.info, VALUE_COLS),
+            text_field_span(&state.lua_dir_input, state, focused, t.info, value_cols),
         ),
         FinderField::OutputPath => (
             "Config Path  ",
             t.ok_bright,
-            text_field_span(&state.output_path, state, focused, t.info, VALUE_COLS),
+            text_field_span(&state.output_path, state, focused, t.info, value_cols),
         ),
     };
 
@@ -196,10 +205,13 @@ fn format_form_row(state: &AppState, field: FinderField, focused: bool) -> ListI
 fn draw_finder_form(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = &state.theme;
     let setup_focused = state.focus.finder == FinderFocus::Setup;
+    let value_cols = usize::from(area.width.saturating_sub(22)).max(16);
     let items: Vec<ListItem<'static>> = FinderField::ALL
         .iter()
         .enumerate()
-        .map(|(idx, &field)| format_form_row(state, field, setup_focused && idx == state.focus_idx))
+        .map(|(idx, &field)| {
+            format_form_row(state, field, setup_focused && idx == state.focus_idx, value_cols)
+        })
         .collect();
     let (title, border, title_col) = if state.editing_text {
         (" Strategy Setup [EDITING] ", t.warn, t.warn_bright)

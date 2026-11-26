@@ -172,11 +172,28 @@ impl AppState {
                     } else {
                         self.focus_idx - 1
                     };
+                    self.text_scroll = 0;
                     self.reset_finder_hover();
                     true
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     self.focus_idx = (self.focus_idx + 1) % FinderField::ALL.len();
+                    self.text_scroll = 0;
+                    self.reset_finder_hover();
+                    true
+                }
+                KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End
+                    if self.focused_field().is_text() =>
+                {
+                    let len = self.focused_text_buf_len();
+                    let cap = len.saturating_sub(16);
+                    match code {
+                        KeyCode::Left => self.text_scroll = self.text_scroll.saturating_sub(1),
+                        KeyCode::Right => self.text_scroll = (self.text_scroll + 1).min(cap),
+                        KeyCode::Home => self.text_scroll = 0,
+                        KeyCode::End => self.text_scroll = cap,
+                        _ => {}
+                    }
                     self.reset_finder_hover();
                     true
                 }
@@ -201,6 +218,16 @@ impl AppState {
             FinderFocus::Log => {
                 adjust_log_scroll(&mut self.focus.finder_log_scroll, self.finder_logs.len(), code)
             }
+        }
+    }
+
+    /// Returns character count of the currently focused text field (`0` for non-text fields).
+    fn focused_text_buf_len(&self) -> usize {
+        match self.focused_field() {
+            FinderField::Domains => self.domains_input.chars().count(),
+            FinderField::LuaDir => self.lua_dir_input.chars().count(),
+            FinderField::OutputPath => self.output_path.chars().count(),
+            _ => 0,
         }
     }
 

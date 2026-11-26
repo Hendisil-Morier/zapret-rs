@@ -52,6 +52,8 @@ pub struct AppState {
     pub editing_text: bool,
     /// Byte cursor position within the active text-field buffer (clamped to buffer length on each edit).
     pub text_cursor: usize,
+    /// Horizontal character scroll offset for browsing long unfocused/view-mode Tab 1 text fields.
+    pub text_scroll: usize,
     /// Comma/space-separated target domains input buffer.
     pub domains_input: String,
     /// Enabled HTTP (TCP 80) protocol checkbox.
@@ -169,6 +171,7 @@ impl AppState {
             focus_idx: 0,
             editing_text: false,
             text_cursor: 0,
+            text_scroll: 0,
             domains_input: String::new(),
             proto_http: true,
             proto_tls12: true,

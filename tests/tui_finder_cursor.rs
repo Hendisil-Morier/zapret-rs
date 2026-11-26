@@ -52,3 +52,30 @@ fn editing_domains_cursor_does_not_scroll_or_mark_config_path() {
     assert_eq!(cfg_before, cfg_after);
     assert!(line_with(&after_lines, "Domains").contains('|'));
 }
+
+#[test]
+fn arrow_keys_scroll_long_text_row_without_entering_edit_mode() {
+    let mut state = AppState::new(None, None, false);
+    state.domains_input = "alpha-first-domain.com,beta-second-domain.com,gamma-third.org".to_owned();
+    state.output_path = "/home/user/.config/zapret-rs/very-long-config-name.toml".to_owned();
+
+    let initial = render_lines(&state);
+    let dom0 = line_with(&initial, "Domains").to_owned();
+    let cfg0 = line_with(&initial, "Config Path").to_owned();
+    assert!(!state.editing_text);
+    assert!(dom0.contains("alpha-first"));
+
+    // Press Right / End in view mode to scroll the text horizontally without editing.
+    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let right1 = render_lines(&state);
+    assert!(line_with(&right1, "Domains").contains("◀"));
+    assert_eq!(line_with(&right1, "Config Path"), cfg0);
+
+    state.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    let at_end = render_lines(&state);
+    assert!(line_with(&at_end, "Domains").contains("gamma-third.org"));
+
+    state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    let at_home = render_lines(&state);
+    assert!(line_with(&at_home, "Domains").contains("alpha-first"));
+}
