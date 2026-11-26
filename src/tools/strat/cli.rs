@@ -31,14 +31,21 @@ use crate::tools::lua_bundle::{detect_lua_dir, resolve_lua_scripts};
 use crate::tools::strat::interactive::{
     InteractiveDefaults, expand_tilde, normalize_domain, prompt_interactive_wizard,
 };
-/// OS-agnostic firewall backend trait implemented by [`NftFirewallBackend`].
+/// OS-agnostic firewall backend selector and [`FirewallBackend`] trait.
+#[cfg(not(target_os = "linux"))]
+use crate::tools::strat::firewall::active_firewall_backend;
+/// Temporary `nftables` queue guard backend and ruleset printer on Linux.
+#[cfg(target_os = "linux")]
 use crate::tools::strat::firewall::FirewallBackend;
-/// Temporary `nftables` queue guard backend and ruleset printer.
+/// Temporary `nftables` queue guard backend and ruleset printer on Linux.
+#[cfg(target_os = "linux")]
 use crate::tools::strat::nft::{NftFirewallBackend, build_nft_cleanup_cmd};
 /// Live `curl` connectivity probe backend (runs children with zero capabilities).
 use crate::tools::strat::probe::CurlProbeBackend;
 /// In-process NFQUEUE worker thread and scan orchestrator.
-use crate::tools::strat::runner::{ProgressEvent, ScanConfig, ScanReport, run_scan};
+use crate::tools::strat::runner::{ProgressEvent, ScanConfig, run_scan};
+/// JSON and stdout scan report formatters.
+use crate::tools::strat::cli_report::{format_report_json, print_report_summary};
 /// In-process capture worker handle.
 use crate::tools::strat::worker::InProcessWorkerHandle;
 /// Minimal profile cover and symlink-safe `nfqws2.toml` serializer.
@@ -144,59 +151,6 @@ where
     if found { Some(out) } else { None }
 }
 
-/// Escapes a string literal for JSON output using `serde_json`.
-fn json_quote(raw: &str) -> String {
-    serde_json::to_string(raw).unwrap_or_else(|_| "\"\"".to_owned())
-}
-
-/// Formats `report` as JSON printed to stdout when `--json` is set.
-fn format_report_json(report: &ScanReport) -> String {
-    let mut out = format!("{{\n  \"interrupted\": {},\n  \"targets\": [\n", report.interrupted);
-    for (i, t) in report.targets.iter().enumerate() {
-        let sep = if i + 1 < report.targets.len() { "," } else { "" };
-        let best = t.matches.first().map_or_else(|| "null".to_owned(), |m| json_quote(&m.strategy.id));
-        out.push_str(&format!(
-            "    {{\"domain\": {}, \"proto\": {}, \"ipv\": {}, \"baseline\": {}, \"skipped_unblocked\": {}, \"tested\": {}, \"matches\": {}, \"best\": {}}}{sep}\n",
-            json_quote(&t.domain), json_quote(t.proto.as_str()), json_quote(t.ipv.as_str()),
-            json_quote(&t.baseline.summary()), t.skipped_unblocked, t.tested_count, t.matches.len(), best,
-        ));
-    }
-    out.push_str("  ],\n  \"cover\": [\n");
-    for (i, c) in report.cover.iter().enumerate() {
-        let sep = if i + 1 < report.cover.len() { "," } else { "" };
-        let doms: Vec<String> = c.domains.iter().map(|d| json_quote(d)).collect();
-        out.push_str(&format!(
-            "    {{\"strategy\": {}, \"weight\": {}, \"avg_latency_ms\": {}, \"domains\": [{}]}}{sep}\n",
-            json_quote(&c.strategy.id), c.strategy.weight, c.avg_latency_ms, doms.join(", "),
-        ));
-    }
-    out.push_str("  ]\n}\n");
-    out
-}
-
-/// Prints a concise human-readable scan summary to stdout.
-fn print_report_summary(report: &ScanReport) {
-    println!("\n=== strat_finder summary ===");
-    if report.interrupted {
-        println!("Note: scan interrupted early; showing partial results.");
-    }
-    for t in &report.targets {
-        if t.skipped_unblocked {
-            println!("- {} ({}/{}): reachable directly [{}]", t.domain, t.proto, t.ipv, t.baseline.summary());
-        } else if let Some(best) = t.matches.first() {
-            println!("- {} ({}/{}): {} working (best: {}, {} ms; tested {})", t.domain, t.proto, t.ipv, t.matches.len(), best.strategy.id, best.latency_ms, t.tested_count);
-        } else {
-            println!("- {} ({}/{}): no working strategy found (baseline: {}; tested {})", t.domain, t.proto, t.ipv, t.baseline.summary(), t.tested_count);
-        }
-    }
-    if !report.cover.is_empty() {
-        println!("\nSelected minimal profile set ({}):", report.cover.len());
-        for c in &report.cover {
-            println!("  * {} (weight {}, avg {} ms) -> {}", c.strategy.id, c.strategy.weight, c.avg_latency_ms, c.domains.join(", "));
-        }
-    }
-}
-
 /// Handles `--list-strategies` offline preview and optional sample `--write-config`.
 fn run_list_mode(
     cli: &StratFinderCli,
@@ -229,21 +183,30 @@ fn run_list_mode(
     Ok(())
 }
 
-/// Ensures `CAP_NET_ADMIN|CAP_NET_RAW` are active, dropping `sudo` UID 0 first when present.
+/// Ensures packet capture privileges are active (`CAP_NET_ADMIN|CAP_NET_RAW` on Linux, Admin on Windows).
 fn ensure_least_privilege_net_caps() -> Result<(), String> {
     if let Some((uid, gid)) = drop_elevated_root_if_needed().map_err(|err| format!("privilege drop failed: {err}"))? {
         eprintln!("[sec] dropped root privileges to uid={uid}, gid={gid} (retaining only CAP_NET_ADMIN, CAP_NET_RAW)");
     }
     if !has_packet_capture_privileges().map_err(|err| format!("capability check failed: {err}"))? {
-        let exe = std::env::current_exe()
-            .ok()
-            .map_or_else(|| "./target/release/nfqws2".to_owned(), |p| p.display().to_string());
-        return Err(format!(
-            "missing CAP_NET_ADMIN / CAP_NET_RAW capabilities.\n\
-             Grant only network capabilities once (no sudo needed at runtime):\n  \
-             sudo setcap cap_net_admin,cap_net_raw+ep {exe}\n\
-             Then re-run without sudo."
-        ));
+        #[cfg(target_os = "linux")]
+        {
+            let exe = std::env::current_exe()
+                .ok()
+                .map_or_else(|| "./target/release/nfqws2".to_owned(), |p| p.display().to_string());
+            return Err(format!(
+                "missing CAP_NET_ADMIN / CAP_NET_RAW capabilities.\n\
+                 Grant only network capabilities once (no sudo needed at runtime):\n  \
+                 sudo setcap cap_net_admin,cap_net_raw+ep {exe}\n\
+                 Then re-run without sudo."
+            ));
+        }
+        #[cfg(windows)]
+        return Err(
+            "missing Administrator privileges.\nRight-click zapret-rs.exe and choose 'Run as administrator'.".to_owned(),
+        );
+        #[cfg(not(any(target_os = "linux", windows)))]
+        return Err("packet capture is not supported on this operating system".to_owned());
     }
     Ok(())
 }
@@ -273,8 +236,16 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
     if cli.print_nft {
         let dummy = ScanConfig { domains: Vec::new(), protos, families, level, timeout: Duration::from_secs(1), stop_on_first: false, force_blocked: false };
         let (tcp, udp) = dummy.required_ports();
-        print!("{}", NftFirewallBackend::build_nft_script(cli.qnum, fwmark, &tcp, &udp));
-        println!("# Cleanup: sudo {}", build_nft_cleanup_cmd());
+        #[cfg(target_os = "linux")]
+        {
+            print!("{}", NftFirewallBackend::build_nft_script(cli.qnum, fwmark, &tcp, &udp));
+            println!("# Cleanup: sudo {}", build_nft_cleanup_cmd());
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let backend = active_firewall_backend();
+            println!("{}", backend.preview_filter(cli.qnum, fwmark, &tcp, &udp));
+        }
         return Ok(());
     }
     if cli.list_strategies {
@@ -322,17 +293,28 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
         timeout: Duration::from_secs_f64(cli.timeout.clamp(0.2, 60.0)), force_blocked: cli.force_blocked,
     };
 
-    // Spawn NFQUEUE worker before installing nftables rules so Drop tears down nftables first.
+    // Spawn packet worker before installing firewall rules so Drop tears down rules first.
     let mut worker = InProcessWorkerHandle::spawn(base_cfg, quit_flag())?;
     let (tcp_ports, udp_ports) = scan_cfg.required_ports();
     let _fw_guard = if cli.no_nft {
         None
     } else {
-        Some(
-            NftFirewallBackend::new(cli.nft_bin)
-                .install(cli.qnum, fwmark, &tcp_ports, &udp_ports)
-                .map_err(|err| format!("{err}"))?,
-        )
+        #[cfg(target_os = "linux")]
+        {
+            Some(
+                NftFirewallBackend::new(cli.nft_bin)
+                    .install(cli.qnum, fwmark, &tcp_ports, &udp_ports)
+                    .map_err(|err| format!("{err}"))?,
+            )
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Some(
+                active_firewall_backend()
+                    .install(cli.qnum, fwmark, &tcp_ports, &udp_ports)
+                    .map_err(|err| format!("{err}"))?,
+            )
+        }
     };
 
     let probe = CurlProbeBackend::new(cli.curl_bin);

@@ -4,6 +4,8 @@
 pub mod catalog;
 /// Shared CLI runner powering both `nfqws2 --strat-finder` and the standalone `strat_finder` binary.
 pub mod cli;
+/// JSON and stdout summary formatters for `strat_finder` reports.
+pub mod cli_report;
 /// OS-agnostic firewall rule backend contract and target port collector.
 pub mod firewall;
 /// Interactive terminal setup wizard for `strat_finder`.
