@@ -1,6 +1,7 @@
 //! In-process NFQUEUE desync worker thread and multi-domain strategy scan orchestrator.
 
 /// Single-threaded interior mutability sharing [`DesyncEngine`] between poll callbacks.
+#[cfg(target_os = "linux")]
 use std::cell::RefCell;
 /// Deduplicated port collection helpers when installing temporary firewall rules.
 use std::collections::BTreeSet;
@@ -18,8 +19,10 @@ use std::time::Duration;
 /// Application and profile configuration types applied to the in-process engine.
 use crate::config::{AppConfig, DesyncProfile};
 /// Stateful DPI desync engine whose profiles are hot-swapped between candidates.
+#[cfg(target_os = "linux")]
 use crate::desync::DesyncEngine;
 /// Tuned Linux NFQUEUE catcher bound once for the entire scan session.
+#[cfg(target_os = "linux")]
 use crate::intercepter::QueueCatcher;
 /// Strategy catalog definitions and expansion function.
 use crate::tools::strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
@@ -31,6 +34,7 @@ use crate::tools::strat_toml::{
 };
 
 /// Poll wakeup interval used by the worker thread to service profile-swap commands promptly.
+#[cfg(target_os = "linux")]
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(15);
 
 /// Control commands delivered from the scan coordinator to the NFQUEUE worker thread.
@@ -132,6 +136,8 @@ impl Drop for InProcessWorkerHandle {
 }
 
 /// Executes the single-threaded NFQUEUE capture + LuaJIT desync loop inside the worker thread.
+/// Runs the Linux NFQUEUE worker loop servicing profile-swap commands.
+#[cfg(target_os = "linux")]
 fn run_worker_thread(
     base_config: AppConfig,
     cmd_rx: Receiver<WorkerCmd>,
@@ -185,6 +191,15 @@ fn run_worker_thread(
         },
         |pkt| engine.borrow().process_packet(pkt),
     );
+}
+
+/// Non-Linux stub reporting that live packet interception is not yet implemented.
+#[cfg(not(target_os = "linux"))]
+fn run_worker_thread(
+    _base: AppConfig, _rx: Receiver<WorkerCmd>, ready_tx: SyncSender<Result<(), String>>,
+    _wstop: Arc<AtomicBool>, _gstop: &'static AtomicBool,
+) {
+    let _ = ready_tx.send(Err("live packet interception is not yet implemented on this OS".to_owned()));
 }
 
 /// Configuration controlling a multi-domain strategy discovery run.

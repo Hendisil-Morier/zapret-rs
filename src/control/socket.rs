@@ -8,6 +8,7 @@ use std::ffi::CString;
 /// Scoped socket bind serialization so process-wide `umask(0177)` has no concurrent races.
 use std::fs::{self, DirBuilder};
 /// File type and permission error matching when probing pre-existing socket paths.
+#[cfg(unix)]
 use std::io::ErrorKind;
 /// Loopback TCP listener used on non-Unix targets.
 #[cfg(not(unix))]

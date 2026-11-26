@@ -11,13 +11,16 @@ use std::sync::mpsc::{self, Receiver};
 /// Background worker threads for strategy scanning and live `nfqws2` packet processing.
 use std::thread::{self, JoinHandle};
 /// Poll interval for the live `nfqws2` daemon loop.
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 /// Configuration models parsed for live scanning and live `nfqws2` execution.
 use crate::config::{AppConfig, LuaInitEntry};
 /// Core stateful DPI desync engine and packet loop bound by Tab 2.
+#[cfg(target_os = "linux")]
 use crate::desync::DesyncEngine;
 /// NFQUEUE catcher bound by the live Tab 2 daemon thread.
+#[cfg(target_os = "linux")]
 use crate::intercepter::QueueCatcher;
 /// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
 use crate::tools::{
@@ -25,8 +28,11 @@ use crate::tools::{
     TomlRenderOptions, collect_config_ports, render_nfqws2_toml_scoped, resolve_lua_scripts,
     run_scan,
 };
-/// Shared telemetry counters, serializable packet record, verdict tag, and decoder.
-use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record};
+/// Shared telemetry counters and serializable packet record.
+use crate::telemetry::{PacketCounters, PacketRecord};
+/// Verdict tag and packet record builder used by the live Linux loop.
+#[cfg(target_os = "linux")]
+use crate::telemetry::{PacketVerdict, build_packet_record};
 /// Application state read/updated when spawning workers.
 use crate::tui::state::AppState;
 /// Status and scan event types.
@@ -212,31 +218,41 @@ where
     let join = thread::Builder::new()
         .name("tui-nfqws2-live".to_owned())
         .spawn(move || {
-            let mut catcher = match QueueCatcher::bind(cfg.to_queue_config()) {
-                Ok(c) => c,
-                Err(err) => { let _ = ready_tx.send(Err(format!("NFQUEUE bind failed: {err}"))); return; }
-            };
-            let engine = match DesyncEngine::new(&cfg) {
-                Ok(e) => e,
-                Err(err) => { let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}"))); return; }
-            };
-            let _ = ready_tx.send(Ok(()));
-            let _ = catcher.run_until(
-                &stop_bg,
-                || Some(Duration::from_millis(50)),
-                |pkt| {
-                    let (decision, outcome) = engine.process_packet_traced(pkt);
-                    let (seq, verdict) = counters.record_outcome(&outcome);
-                    // Route `REASM`/`MODIFY`/`DESYNC` to a dedicated channel so `PASS` bursts never drop them.
-                    let record = build_packet_record(seq, pkt, &outcome);
-                    if verdict != PacketVerdict::Pass {
-                        let _ = desync_tx.try_send(record);
-                    } else {
-                        let _ = pkt_tx.try_send(record);
-                    }
-                    decision
-                },
-            );
+            #[cfg(target_os = "linux")]
+            {
+                let mut catcher = match QueueCatcher::bind(cfg.to_queue_config()) {
+                    Ok(c) => c,
+                    Err(err) => { let _ = ready_tx.send(Err(format!("NFQUEUE bind failed: {err}"))); return; }
+                };
+                let engine = match DesyncEngine::new(&cfg) {
+                    Ok(e) => e,
+                    Err(err) => { let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}"))); return; }
+                };
+                let _ = ready_tx.send(Ok(()));
+                let _ = catcher.run_until(
+                    &stop_bg,
+                    || Some(Duration::from_millis(50)),
+                    |pkt| {
+                        let (decision, outcome) = engine.process_packet_traced(pkt);
+                        let (seq, verdict) = counters.record_outcome(&outcome);
+                        // Route `REASM`/`MODIFY`/`DESYNC` to a dedicated channel so `PASS` bursts never drop them.
+                        let record = build_packet_record(seq, pkt, &outcome);
+                        if verdict != PacketVerdict::Pass {
+                            let _ = desync_tx.try_send(record);
+                        } else {
+                            let _ = pkt_tx.try_send(record);
+                        }
+                        decision
+                    },
+                );
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (&cfg, &stop_bg, &counters, &pkt_tx, &desync_tx);
+                let _ = ready_tx.send(Err(
+                    "live packet interception is not yet implemented on this OS".to_owned(),
+                ));
+            }
         })
         .map_err(|err| format!("failed to spawn live daemon thread: {err}"))?;
 
