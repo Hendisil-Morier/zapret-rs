@@ -182,6 +182,32 @@ impl AppState {
         }
     }
 
+    /// Updates `active_toml` and refreshes `parsed_profiles` and `toml_error` validation state.
+    pub fn set_active_toml(&mut self, toml: String) {
+        if toml.trim().is_empty() {
+            self.parsed_profiles.clear();
+            self.toml_error = None;
+        } else {
+            match AppConfig::from_toml_str(&toml, None) {
+                Ok(cfg) => {
+                    self.parsed_profiles = cfg
+                        .profiles
+                        .iter()
+                        .map(|p| p.name.clone().unwrap_or_else(|| format!("profile #{}", p.index)))
+                        .collect();
+                    self.toml_error = None;
+                }
+                Err(err) => {
+                    self.parsed_profiles.clear();
+                    self.toml_error = Some(err.to_string());
+                }
+            }
+        }
+        self.active_toml = toml;
+        self.toml_scroll = 0;
+        self.refresh_autohostlist();
+    }
+
     /// Handles navigation and refresh (`r`) keys on Tab 5 (`Status`).
     pub(crate) fn handle_status_key(&mut self, code: KeyCode) -> AppAction {
         let len = self.status_checks.len();

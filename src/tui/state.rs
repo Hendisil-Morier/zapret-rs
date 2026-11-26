@@ -10,8 +10,6 @@ use std::sync::Arc;
 /// Keyboard event primitives handled by [`AppState::handle_key`].
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// Validated `nfqws2` configuration model loaded by the Run and Config tabs.
-use crate::config::AppConfig;
 /// Default desync fwmark constant shared across tabs.
 use crate::intercepter::DEFAULT_DESYNC_FWMARK;
 /// OS-agnostic UID and packet-capture privilege helpers for the Diagnostics panel.
@@ -186,7 +184,10 @@ impl AppState {
             text_cursor: 0,
             text_scroll: 0,
             domains_input: String::new(),
-            proto_http: true, proto_tls12: true, proto_tls13: true, proto_http3: true,
+            proto_http: true,
+            proto_tls12: true,
+            proto_tls13: true,
+            proto_http3: true,
             ip_mode: IpMode::V4,
             level: ScanLevel::Quick,
             stop_on_first: true,
@@ -217,12 +218,23 @@ impl AppState {
             toml_scroll: 0,
             uid,
             has_net_caps,
-            exe_path, status_banner: "Ready. Press '?' for keybindings.".to_owned(),
-            modal: None, help_open: false, pending_caps_action: None,
-            finder_hover: FinderHoverState::default(), focus: PanelFocusState::default(), theme,
-            inspector: PacketInspectorState::default(), speed: SpeedState::default(),
-            pending_merge: None, autohostlist_paths: Vec::new(), autohostlist_entries: Vec::new(),
-            status_checks: Vec::new(), status_selected: 0, status_hscroll: 0, dns_preset: crate::tools::DnsPreset::Cloudflare,
+            exe_path,
+            status_banner: "Ready. Press '?' for keybindings.".to_owned(),
+            modal: None,
+            help_open: false,
+            pending_caps_action: None,
+            finder_hover: FinderHoverState::default(),
+            focus: PanelFocusState::default(),
+            theme,
+            inspector: PacketInspectorState::default(),
+            speed: SpeedState::default(),
+            pending_merge: None,
+            autohostlist_paths: Vec::new(),
+            autohostlist_entries: Vec::new(),
+            status_checks: Vec::new(),
+            status_selected: 0,
+            status_hscroll: 0,
+            dns_preset: crate::tools::DnsPreset::Cloudflare,
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
@@ -295,32 +307,6 @@ impl AppState {
             return (s0, s1, s2, s3, s4);
         }
         (s0 - b0, s1 - b1, s2 - b2, s3 - b3, s4 - b4)
-    }
-
-    /// Updates `active_toml` and refreshes `parsed_profiles` and `toml_error` validation state.
-    pub fn set_active_toml(&mut self, toml: String) {
-        if toml.trim().is_empty() {
-            self.parsed_profiles.clear();
-            self.toml_error = None;
-        } else {
-            match AppConfig::from_toml_str(&toml, None) {
-                Ok(cfg) => {
-                    self.parsed_profiles = cfg
-                        .profiles
-                        .iter()
-                        .map(|p| p.name.clone().unwrap_or_else(|| format!("profile #{}", p.index)))
-                        .collect();
-                    self.toml_error = None;
-                }
-                Err(err) => {
-                    self.parsed_profiles.clear();
-                    self.toml_error = Some(err.to_string());
-                }
-            }
-        }
-        self.active_toml = toml;
-        self.toml_scroll = 0;
-        self.refresh_autohostlist();
     }
 
     /// Opens the centered floating modal for granting `CAP_NET_ADMIN|CAP_NET_RAW`.
