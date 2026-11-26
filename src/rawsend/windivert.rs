@@ -71,6 +71,19 @@ fn resolve_best_if_idx(dst: IpAddr) -> u32 {
     if rc == 0 { best_idx } else { 0 }
 }
 
+/// Parses `"IfIdx"` or `"IfIdx.SubIfIdx"` into `(if_idx, sub_if_idx)` when `if_idx > 0`.
+pub fn parse_ifout_indices(ifout: Option<&str>) -> Option<(u32, u32)> {
+    let raw = ifout?.trim();
+    if let Some((idx_s, sub_s)) = raw.split_once('.') {
+        let if_idx = idx_s.parse::<u32>().ok().filter(|&v| v > 0)?;
+        let sub_if_idx = sub_s.parse::<u32>().ok()?;
+        Some((if_idx, sub_if_idx))
+    } else {
+        let if_idx = raw.parse::<u32>().ok().filter(|&v| v > 0)?;
+        Some((if_idx, 0))
+    }
+}
+
 impl PacketSender for WinDivertSender {
     /// Injects one raw IPv4 or IPv6 packet via WinDivert's `SEND_ONLY` handle.
     fn send(
@@ -80,15 +93,11 @@ impl PacketSender for WinDivertSender {
         ifout: Option<&str>,
         packet: &[u8],
     ) -> Result<(), RawSendError> {
-        let if_idx = ifout
-            .and_then(|s| s.parse::<u32>().ok())
-            .filter(|&idx| idx > 0)
-            .unwrap_or_else(|| resolve_best_if_idx(dst));
-        let mut addr = WinDivertAddress::outbound(if_idx, dst.is_ipv6());
-        let mut buf = packet.to_vec();
+        let (if_idx, sub_if_idx) =
+            parse_ifout_indices(ifout).unwrap_or_else(|| (resolve_best_if_idx(dst), 0));
+        let addr = WinDivertAddress::outbound(if_idx, sub_if_idx, dst.is_ipv6());
         let handle = self.ensure_handle()?;
-        handle.calc_checksums(&mut buf, &mut addr);
-        handle.send(&buf, &addr)?;
+        handle.send(packet, &addr)?;
         Ok(())
     }
 }

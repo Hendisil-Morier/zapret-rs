@@ -11,8 +11,8 @@ use std::ptr;
 
 /// WinDivert `NETWORK` layer identifier (`WINDIVERT_LAYER_NETWORK`).
 pub(crate) const WINDIVERT_LAYER_NETWORK: i32 = 0;
-/// WinDivert flag opening a send-only handle (`WINDIVERT_FLAG_SEND_ONLY`).
-pub(crate) const WINDIVERT_FLAG_SEND_ONLY: u64 = 4;
+/// WinDivert flag opening a send-only handle (`WINDIVERT_FLAG_SEND_ONLY = 0x0008`; `0x0004` is `RECV_ONLY`).
+pub const WINDIVERT_FLAG_SEND_ONLY: u64 = 0x0008;
 /// WinDivert `SHUTDOWN_BOTH` mode passed to `WinDivertShutdown`.
 pub(crate) const WINDIVERT_SHUTDOWN_BOTH: i32 = 3;
 /// Win32 `INVALID_HANDLE_VALUE` sentinel returned by `WinDivertOpen` on error.
@@ -21,15 +21,15 @@ const INVALID_HANDLE_VALUE: isize = -1;
 /// Raw WinDivert 2.2 `WINDIVERT_ADDRESS` metadata struct (80 bytes, `#[repr(C)]`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct WinDivertAddress {
+pub struct WinDivertAddress {
     /// Capture timestamp in WinDivert ticks.
-    pub(crate) timestamp: i64,
+    pub timestamp: i64,
     /// Packed `Layer` (bits 0..8), `Event` (8..16), `Sniffed`/`Outbound`/`Loopback`/`Impostor`/IP flags.
-    pub(crate) layer_event_flags: u32,
+    pub layer_event_flags: u32,
     /// Reserved alignment padding.
-    pub(crate) reserved2: u32,
+    pub reserved2: u32,
     /// Union payload (`Network.IfIdx` at bytes `0..4`, `Network.SubIfIdx` at bytes `4..8`).
-    pub(crate) union_bytes: [u8; 64],
+    pub union_bytes: [u8; 64],
 }
 
 impl Default for WinDivertAddress {
@@ -45,13 +45,23 @@ impl Default for WinDivertAddress {
 }
 
 impl WinDivertAddress {
-    /// Constructs an outbound `WINDIVERT_ADDRESS` for raw L3 injection on `if_idx`.
-    pub(crate) fn outbound(if_idx: u32, is_ipv6: bool) -> Self {
-        let mut addr = Self::default();
-        // Bit 17 = Outbound (0x0002_0000), Bit 19 = Impostor (0x0008_0000), Bit 20 = IPv6 (0x0010_0000).
-        addr.layer_event_flags = (1 << 17) | (1 << 19) | if is_ipv6 { 1 << 20 } else { 0 };
-        addr.union_bytes[0..4].copy_from_slice(&if_idx.to_ne_bytes());
-        addr
+    /// Constructs an outbound `WINDIVERT_ADDRESS` for raw L3 injection on `(if_idx, sub_if_idx)`.
+    pub fn outbound(if_idx: u32, sub_if_idx: u32, is_ipv6: bool) -> Self {
+        let mut union_bytes = [0u8; 64];
+        union_bytes[0..4].copy_from_slice(&if_idx.to_ne_bytes());
+        union_bytes[4..8].copy_from_slice(&sub_if_idx.to_ne_bytes());
+        // Bit 17 = Outbound (0x0002_0000), Bit 19 = Impostor (0x0008_0000), Bit 20 = IPv6 (0x0010_0000),
+        // Bits 21..23 = IPChecksum | TCPChecksum | UDPChecksum (0x00E0_0000, matching `darkmagic.c`).
+        Self {
+            layer_event_flags: (1 << 17)
+                | (1 << 19)
+                | if is_ipv6 { 1 << 20 } else { 0 }
+                | (1 << 21)
+                | (1 << 22)
+                | (1 << 23),
+            union_bytes,
+            ..Self::default()
+        }
     }
 
     /// Returns `true` when the `Outbound` bit (bit 17) is set in `layer_event_flags`.
@@ -60,7 +70,7 @@ impl WinDivertAddress {
     }
 
     /// Reads `Network.IfIdx` from the address union.
-    pub(crate) fn if_idx(&self) -> u32 {
+    pub fn if_idx(&self) -> u32 {
         u32::from_ne_bytes([
             self.union_bytes[0],
             self.union_bytes[1],

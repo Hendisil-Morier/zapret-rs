@@ -96,7 +96,7 @@ fn handle_header_click(state: &mut AppState, col: u16, header_area: Rect) {
         let width = spec.hit_width(compact);
         if col >= x && col < x + width {
             state.tab = spec.tab;
-            if spec.tab == ActiveTab::Status && state.status_checks.is_empty() {
+            if spec.tab == ActiveTab::Status {
                 state.refresh_status_checks();
             }
             state.editing_text = false;

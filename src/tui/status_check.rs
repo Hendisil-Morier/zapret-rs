@@ -13,6 +13,8 @@ use std::process::{Command, Stdio};
 use crate::intercepter::windivert_ffi::WinDivertApi;
 /// Lua script discovery, OS DNS status probe, and `curl` HTTP/3 probe backend.
 use crate::tools::{CurlProbeBackend, ProbeBackend, detect_dns_status, resolve_lua_scripts};
+/// Live Tab 1 (`Strategy Scan`) and Tab 4 (`Speed Test`) summary rows reused from the report module.
+use crate::tui::debug_report::{check_finder_summary, check_speed_summary};
 /// Control socket / loopback IPC auto-detection.
 use crate::tui::remote::detect_control_socket;
 /// Application state inspected during component status collection.
@@ -44,7 +46,7 @@ pub struct ComponentCheck {
     pub detail: String,
 }
 
-/// Collects live operational status across privileges, driver, Lua, `curl`, config, and daemon IPC.
+/// Collects live operational status across privileges, driver, Lua, `curl`, DNS, config, IPC, scan, and speed test.
 pub fn collect_component_statuses(state: &AppState) -> Vec<ComponentCheck> {
     vec![
         check_privileges(state),
@@ -54,6 +56,8 @@ pub fn collect_component_statuses(state: &AppState) -> Vec<ComponentCheck> {
         check_dns_resolver(state),
         check_config(state),
         check_daemon_ipc(state),
+        check_finder_summary(state),
+        check_speed_summary(state),
     ]
 }
 

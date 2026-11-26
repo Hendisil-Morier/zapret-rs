@@ -4,6 +4,21 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-11-26
+
+### Added
+
+- **Expanded Tab 5 Status & Debug Report Diagnostics:** Added `Strategy Scan` and `Speed Test` summary rows to Tab 5 (`Status`), refreshed Tab 5 checks automatically whenever switching to Tab 5, and expanded `zapret-rs-debug.txt` (`[d]`) with live component checks, `DNS Preset`, attached `Daemon Info`, `Speed Test Results`, `Strategy Finder Results` (with covered profiles), and `Active Config (nfqws2.toml)`.
+
+### Fixed
+
+- **Windows WinDivert Raw Injection (`SEND_ONLY` Flag & Checksums):** Fixed `WINDIVERT_FLAG_SEND_ONLY` from `0x0004` (`WINDIVERT_FLAG_RECV_ONLY`) to `0x0008` in `src/intercepter/windivert_ffi.rs` so `WinDivertSender` no longer fails all raw packet sends with `os error 87` (`ERROR_INVALID_PARAMETER`). Updated `WinDivertAddress::outbound` with `SubIfIdx` and `IPChecksum`/`TCPChecksum`/`UDPChecksum` flags, supported `"IfIdx.SubIfIdx"` in `parse_ifout_indices`, and skipped `calc_checksums` on `WinDivertSender::send` so `badsum` fake packets keep intentionally invalid checksums.
+- **Tab 5 Inline Hint Bar Cleanup & Regression Guards:** Removed the duplicate inline `styled_key_hints` row from Tab 5's `Component Details` pane (`src/tui/render_status.rs`) and added structural and render assertions in `tests/repo_hygiene.rs` and `tests/tui_status.rs` preventing inline keybind bars inside tab panels.
+
+### Docs
+
+- Updated [README.md](README.md) with `v1.4.2` download artifacts and expanded Tab 5 diagnostic rows.
+
 ## [1.4.0] - 2026-11-26
 
 ### Added

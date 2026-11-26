@@ -49,10 +49,10 @@ impl AppState {
         Some(AppAction::None)
     }
 
-    /// Switches top-level tab and resets the Tab 1 tooltip dwell timer cleanly.
+    /// Switches top-level tab, refreshing Tab 5 component diagnostics and resetting tooltips cleanly.
     fn switch_tab(&mut self, tab: ActiveTab) -> AppAction {
         self.tab = tab;
-        if tab == ActiveTab::Status && self.status_checks.is_empty() {
+        if tab == ActiveTab::Status {
             self.refresh_status_checks();
         }
         self.reset_finder_hover();
