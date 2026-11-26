@@ -16,6 +16,8 @@ pub mod inspect_ui;
 pub mod keybinds;
 /// Centered floating modal popup for capability grants, `sudo` auth, and confirmations.
 pub mod modal;
+/// Mouse click and scroll wheel hit-testing aligned to the `ratatui` panel layouts.
+pub mod mouse;
 /// Control socket auto-detection and remote daemon telemetry client for Tab 2 attach mode.
 pub mod remote;
 /// Pure `ratatui` layout and widget renderer for all three tabs.

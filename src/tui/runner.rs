@@ -17,6 +17,8 @@ use crossterm::{
     execute,
     terminal::{LeaveAlternateScreen, disable_raw_mode},
 };
+/// Terminal frame geometry passed to mouse hit-testing.
+use ratatui::layout::Rect;
 
 /// Wire control request enum sent to an attached daemon socket.
 use crate::control::Request;
@@ -26,6 +28,8 @@ use crate::runtime::{CAP_MASK_NET, drop_sudo_root_if_needed, has_effective_caps}
 use crate::tui::actions::{
     cancel_active_scan, poll_active_scan, submit_auth_modal, try_start_or_attach, try_start_scan,
 };
+/// Mouse click and scroll wheel handler aligned to `ratatui` panel layouts.
+use crate::tui::mouse::handle_mouse_event;
 /// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
 use crate::tui::tab2_session::{
     Tab2Session, attach_to_socket, execute_remote_stop, poll_tab2_session, push_config_to_daemon,
@@ -139,11 +143,14 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
             .draw(|f| draw_app(f, &state))
             .map_err(|err| format!("terminal draw failed: {err}"))?;
 
-        if event::poll(UI_TICK).map_err(|err| format!("event poll failed: {err}"))?
-            && let Event::Key(key) = event::read().map_err(|err| format!("event read failed: {err}"))?
-            && key.kind == KeyEventKind::Press
-        {
-            match state.handle_key(key) {
+        if event::poll(UI_TICK).map_err(|err| format!("event poll failed: {err}"))? {
+            match event::read().map_err(|err| format!("event read failed: {err}"))? {
+                Event::Mouse(mouse) => {
+                    if let Ok(sz) = session.terminal.size() {
+                        handle_mouse_event(&mut state, mouse, Rect::new(0, 0, sz.width, sz.height));
+                    }
+                }
+                Event::Key(key) if key.kind == KeyEventKind::Press => match state.handle_key(key) {
                 AppAction::None => {}
                 AppAction::Quit => break,
                 AppAction::StartScan => {
@@ -210,6 +217,8 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                         break;
                     }
                 }
+                },
+                Event::Key(_) | Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }
         }
     }
