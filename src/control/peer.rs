@@ -1,9 +1,7 @@
 //! `SO_PEERCRED` peer credential extraction and UID authorization checks for Unix sockets.
 
-/// Raw descriptor access for issuing `getsockopt(SOL_SOCKET, SO_PEERCRED)`.
-use std::os::fd::AsRawFd;
-/// Connected Unix domain stream socket inspected for peer credentials.
-use std::os::unix::net::UnixStream;
+/// Connected control stream inspected for peer credentials.
+use crate::control::transport::ControlStream;
 
 /// Kernel-verified identity of a connected local Unix socket peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +37,7 @@ pub fn same_uid(peer_uid: u32, daemon_uid: u32) -> bool {
 
 /// Queries the kernel for `SO_PEERCRED` credentials of `stream` on Linux.
 #[cfg(target_os = "linux")]
-pub fn peer_credentials(stream: &UnixStream) -> std::io::Result<PeerCredentials> {
+pub fn peer_credentials(stream: &ControlStream) -> std::io::Result<PeerCredentials> {
     // SAFETY: `libc::ucred` is a plain C struct fully initialized by `getsockopt`.
     let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
     let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
@@ -72,7 +70,7 @@ pub fn peer_credentials(stream: &UnixStream) -> std::io::Result<PeerCredentials>
     target_os = "netbsd",
     target_os = "macos"
 ))]
-pub fn peer_credentials(stream: &UnixStream) -> std::io::Result<PeerCredentials> {
+pub fn peer_credentials(stream: &ControlStream) -> std::io::Result<PeerCredentials> {
     let mut uid: libc::uid_t = 0;
     let mut gid: libc::gid_t = 0;
     // SAFETY: `stream` owns a live AF_UNIX socket fd and `uid`/`gid` are valid stack pointers.
@@ -91,7 +89,7 @@ pub fn peer_credentials(stream: &UnixStream) -> std::io::Result<PeerCredentials>
     target_os = "netbsd",
     target_os = "macos"
 )))]
-pub fn peer_credentials(_stream: &UnixStream) -> std::io::Result<PeerCredentials> {
+pub fn peer_credentials(_stream: &ControlStream) -> std::io::Result<PeerCredentials> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "peer credentials unsupported on this OS",

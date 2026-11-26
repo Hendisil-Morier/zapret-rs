@@ -4,10 +4,6 @@
 use std::io::ErrorKind;
 /// Half-shutdown used to drop rejected or over-limit client streams cleanly.
 use std::net::Shutdown;
-/// Raw FD access for applying optional `SO_SNDBUF` limits in tests.
-use std::os::fd::AsRawFd;
-/// Unix domain stream connections accepted from local peers.
-use std::os::unix::net::UnixStream;
 /// Filesystem socket path owned by [`ControlServer`].
 use std::path::{Path, PathBuf};
 /// Atomic lifecycle state and monotonically unique client IDs.
@@ -31,11 +27,10 @@ use crate::control::hub::TelemetryHub;
 use crate::control::peer::{PeerUidCheck, current_euid, peer_credentials, same_uid};
 /// Control wire protocol response types for broadcast and rejection replies.
 use crate::control::protocol::{ControlErrorCode, CountersSnapshot, Response};
-/// Safe `0600` socket binding, stale-socket replacement, poll helper, and shutdown unlink.
-use crate::control::socket::{
-    BoundSocket, ControlServerError, bind_control_socket, poll_listener_readable,
-    unlink_if_same_socket,
-};
+/// Safe `0600` socket binding and stale-socket replacement.
+use crate::control::socket::{BoundSocket, ControlServerError, bind_control_socket};
+/// Cross-platform control IPC stream wrapper.
+use crate::control::transport::ControlStream;
 /// Verdict check so `PASS` sampling preferences can apply per subscriber.
 use crate::telemetry::PacketVerdict;
 
@@ -160,7 +155,8 @@ impl Drop for ControlServer {
 }
 
 /// Applies an optional `SO_SNDBUF` hint on an accepted socket when configured in tests.
-fn apply_optional_sndbuf(stream: &UnixStream, sndbuf: Option<i32>) {
+#[cfg(unix)]
+fn apply_optional_sndbuf(stream: &ControlStream, sndbuf: Option<i32>) {
     if let Some(bytes) = sndbuf {
         // SAFETY: `stream` owns a valid socket descriptor and `bytes` points to an initialized `c_int`.
         unsafe {
@@ -175,7 +171,11 @@ fn apply_optional_sndbuf(stream: &UnixStream, sndbuf: Option<i32>) {
     }
 }
 
-/// Accepts local Unix peers, enforces `SO_PEERCRED` UID authorization, and cleans up socket on exit.
+/// No-op `SO_SNDBUF` test hint on non-Unix targets.
+#[cfg(not(unix))]
+fn apply_optional_sndbuf(_stream: &ControlStream, _sndbuf: Option<i32>) {}
+
+/// Accepts local peers, enforces UID authorization, and cleans up socket on exit.
 fn run_accept_loop(
     bound: BoundSocket,
     config: ControlServerConfig,
@@ -187,12 +187,12 @@ fn run_accept_loop(
     let next_id = AtomicU64::new(1);
 
     while !stop.load(Ordering::Acquire) {
-        if !poll_listener_readable(&bound.listener, ACCEPT_POLL_MS) {
+        if !bound.poll_readable(ACCEPT_POLL_MS) {
             continue;
         }
         loop {
-            let stream = match bound.listener.accept() {
-                Ok((stream, _addr)) => stream,
+            let stream = match bound.accept() {
+                Ok(stream) => stream,
                 Err(err) if err.kind() == ErrorKind::WouldBlock => break,
                 Err(_) => break,
             };
@@ -225,12 +225,11 @@ fn run_accept_loop(
         }
     }
 
-    drop(bound.listener);
-    unlink_if_same_socket(&bound.path, bound.dev, bound.ino);
+    bound.cleanup();
 }
 
 /// Writes a single error line to a rejected extra client before dropping its stream.
-fn write_error_and_close(mut stream: UnixStream, code: ControlErrorCode, message: &str) {
+fn write_error_and_close(mut stream: ControlStream, code: ControlErrorCode, message: &str) {
     let _ = stream.set_write_timeout(Some(REJECT_WRITE_TIMEOUT));
     let _ = write_message(&mut stream, &Response::Error { code, message: message.to_owned() });
     let _ = stream.shutdown(Shutdown::Both);

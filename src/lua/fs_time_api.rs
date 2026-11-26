@@ -281,7 +281,17 @@ pub fn register_fs_time_functions(lua: &Lua) -> mlua::Result<()> {
         "timelocal",
         lua.create_function(|_, args: Variadic<Value>| {
             check_argc("timelocal", &args, 1)?;
-            run_timex(&args[0], libc::mktime)
+            #[cfg(unix)]
+            {
+                run_timex(&args[0], libc::mktime)
+            }
+            #[cfg(windows)]
+            {
+                unsafe extern "C" {
+                    fn _mktime64(tm: *mut libc::tm) -> libc::time_t;
+                }
+                run_timex(&args[0], _mktime64)
+            }
         })?,
     )?;
 

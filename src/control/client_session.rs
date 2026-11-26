@@ -4,8 +4,8 @@
 use std::io::{BufReader, ErrorKind};
 /// Bidirectional stream shutdown used to cleanly disconnect stalled or closed peers.
 use std::net::Shutdown;
-/// Authenticated peer Unix domain stream socket.
-use std::os::unix::net::UnixStream;
+/// Authenticated peer control stream.
+use crate::control::transport::ControlStream;
 /// Cooperative liveness flag tracking client disconnects and server shutdown.
 use std::sync::atomic::{AtomicBool, Ordering};
 /// Bounded outbound event queue and one-shot command reply channels.
@@ -39,7 +39,7 @@ const COMMAND_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
 /// Runs dedicated reader + writer tasks for one UID-authenticated control socket client.
 pub(crate) fn serve_client(
     id: u64,
-    stream: UnixStream,
+    stream: ControlStream,
     config: ControlServerConfig,
     hub: Arc<TelemetryHub>,
     server_stop: Arc<AtomicBool>,
@@ -111,7 +111,7 @@ fn handle_client_request(
     hub: &Arc<TelemetryHub>,
     out_tx: &SyncSender<Response>,
     client_alive: &Arc<AtomicBool>,
-    stream_ref: &UnixStream,
+    stream_ref: &ControlStream,
 ) -> bool {
     if !*handshaked {
         return handle_pre_handshake(req, handshaked, config, out_tx);
@@ -208,7 +208,7 @@ fn register_subscriber(
     hub: &TelemetryHub,
     out_tx: &SyncSender<Response>,
     client_alive: &Arc<AtomicBool>,
-    stream_ref: &UnixStream,
+    stream_ref: &ControlStream,
 ) -> bool {
     let shutdown_ref = stream_ref.try_clone().ok();
     let alive_flag = Arc::clone(client_alive);
@@ -273,7 +273,7 @@ fn send_or_close(out_tx: &SyncSender<Response>, resp: Response) -> bool {
 
 /// Drains `out_rx` into `stream` until the session drops `out_tx` or `alive` clears.
 fn run_client_writer(
-    mut stream: UnixStream,
+    mut stream: ControlStream,
     out_rx: Receiver<Response>,
     alive: Arc<AtomicBool>,
 ) {

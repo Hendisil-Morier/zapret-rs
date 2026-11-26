@@ -296,7 +296,10 @@ impl FirewallBackend for NftFirewallBackend {
     ) -> io::Result<Box<dyn FirewallHandle>> {
         match self.install_non_interactive(qnum, fwmark, tcp_ports, udp_ports) {
             Ok(guard) => Ok(guard),
-            Err(err) if err.kind() == io::ErrorKind::PermissionDenied && unsafe { libc::geteuid() } != 0 => {
+            Err(err)
+                if err.kind() == io::ErrorKind::PermissionDenied
+                    && crate::runtime::current_uid_or_zero() != 0 =>
+            {
                 let script = Self::build_nft_script(qnum, fwmark, tcp_ports, udp_ports);
                 eprintln!(
                     "[nft] elevating only `nft` via sudo to install temporary table inet {STRAT_FINDER_NFT_TABLE}"

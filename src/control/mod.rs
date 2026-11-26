@@ -14,6 +14,8 @@ pub mod protocol;
 pub mod server;
 /// Symlink-safe, umask-0177 socket binder, stale-socket prober, and poll helpers.
 pub mod socket;
+/// Cross-platform control IPC stream transport (`ControlStream`).
+pub mod transport;
 
 /// Re-exported framing constants, typed codec error, and stream read/write helpers.
 pub use codec::{
@@ -36,3 +38,5 @@ pub use socket::{
     ControlServerError, DEFAULT_SYSTEM_CONTROL_SOCKET, control_socket_candidates,
     default_control_socket_path, prepare_control_socket_dir, resolve_control_socket_path,
 };
+/// Re-exported cross-platform IPC stream and live-endpoint prober.
+pub use transport::{ControlStream, is_live_control_socket};

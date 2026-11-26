@@ -4,10 +4,6 @@
 use std::io::{BufReader, ErrorKind};
 /// Bidirectional socket shutdown used to wake the background reader on detach.
 use std::net::Shutdown;
-/// Socket metadata checks avoiding symlinks before connecting.
-use std::os::unix::fs::FileTypeExt;
-/// Unix domain client stream transport.
-use std::os::unix::net::UnixStream;
 /// Candidate socket path inspection and storage.
 use std::path::{Path, PathBuf};
 /// Cooperative reader loop stop signaling.
@@ -23,8 +19,8 @@ use std::time::Duration;
 
 /// Control socket candidate discovery, protocol messages, and bounded codec helpers.
 use crate::control::{
-    CONTROL_PROTOCOL_VERSION, CodecError, ControlErrorCode, DaemonStatus, Request, Response,
-    control_socket_candidates, read_message, write_message,
+    CONTROL_PROTOCOL_VERSION, CodecError, ControlErrorCode, ControlStream, DaemonStatus, Request,
+    Response, control_socket_candidates, is_live_control_socket, read_message, write_message,
 };
 /// Lock-free packet counters and serializable packet record model.
 use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict};
@@ -79,7 +75,7 @@ pub struct AttachedDaemon {
     /// Cooperative shutdown flag stopping the background reader thread.
     stop: Arc<AtomicBool>,
     /// Shared socket handle used to send synchronous control commands (`reload_lists`, `stop`, ...).
-    writer: Arc<Mutex<UnixStream>>,
+    writer: Arc<Mutex<ControlStream>>,
     /// Bounded stream of sampled `PASS` packet records.
     pub(crate) pkt_rx: Receiver<PacketRecord>,
     /// Dedicated bounded stream of `REASM`/`MODIFY`/`DESYNC` packet records.
@@ -137,20 +133,11 @@ impl Drop for AttachedDaemon {
     }
 }
 
-/// Probes candidate paths and returns the first live non-symlink Unix control socket.
+/// Probes candidate paths and returns the first live non-symlink control endpoint.
 pub fn detect_control_socket(configured: Option<&Path>) -> Option<PathBuf> {
-    for candidate in control_socket_candidates(configured) {
-        let Ok(meta) = std::fs::symlink_metadata(&candidate) else {
-            continue;
-        };
-        if meta.file_type().is_symlink() || !meta.file_type().is_socket() {
-            continue;
-        }
-        if UnixStream::connect(&candidate).is_ok() {
-            return Some(candidate);
-        }
-    }
-    None
+    control_socket_candidates(configured)
+        .into_iter()
+        .find(|candidate| is_live_control_socket(candidate))
 }
 
 /// Connects to `socket_path`, validates protocol `hello`, queries `status`, subscribes, and starts streaming.
@@ -158,7 +145,7 @@ pub fn connect_remote_daemon(
     socket_path: PathBuf,
     counters: Arc<PacketCounters>,
 ) -> Result<(AttachedDaemon, RemoteDaemonMeta), String> {
-    let stream = UnixStream::connect(&socket_path)
+    let stream = ControlStream::connect(&socket_path)
         .map_err(|err| format!("cannot connect to {}: {err}", socket_path.display()))?;
     let _ = stream.set_read_timeout(Some(CONNECT_TIMEOUT));
     let _ = stream.set_write_timeout(Some(CONNECT_TIMEOUT));
@@ -212,7 +199,7 @@ pub fn connect_remote_daemon(
 }
 
 /// Executes the `hello` handshake and translates version skew into a clear user message.
-fn perform_hello(reader: &mut BufReader<UnixStream>) -> Result<String, String> {
+fn perform_hello(reader: &mut BufReader<ControlStream>) -> Result<String, String> {
     write_message(reader.get_mut(), &Request::Hello { version: CONTROL_PROTOCOL_VERSION })
         .map_err(|err| format!("failed sending hello: {err}"))?;
     match read_message::<_, Response>(reader) {
@@ -235,7 +222,7 @@ fn perform_hello(reader: &mut BufReader<UnixStream>) -> Result<String, String> {
 }
 
 /// Sends `status` and reads the daemon's [`DaemonStatus`] reply.
-fn fetch_initial_status(reader: &mut BufReader<UnixStream>) -> Result<DaemonStatus, String> {
+fn fetch_initial_status(reader: &mut BufReader<ControlStream>) -> Result<DaemonStatus, String> {
     write_message(reader.get_mut(), &Request::Status)
         .map_err(|err| format!("failed requesting status: {err}"))?;
     match read_message::<_, Response>(reader) {
@@ -248,7 +235,7 @@ fn fetch_initial_status(reader: &mut BufReader<UnixStream>) -> Result<DaemonStat
 }
 
 /// Sends `subscribe` and awaits the initial acknowledgment before starting the reader thread.
-fn send_subscribe(reader: &mut BufReader<UnixStream>) -> Result<(), String> {
+fn send_subscribe(reader: &mut BufReader<ControlStream>) -> Result<(), String> {
     write_message(reader.get_mut(), &Request::Subscribe { pass_sample_rate: None })
         .map_err(|err| format!("failed subscribing to telemetry: {err}"))?;
     match read_message::<_, Response>(reader) {
@@ -262,7 +249,7 @@ fn send_subscribe(reader: &mut BufReader<UnixStream>) -> Result<(), String> {
 
 /// Continuously decodes streamed server frames into shared counters and inspector queues.
 fn run_remote_reader(
-    mut reader: BufReader<UnixStream>,
+    mut reader: BufReader<ControlStream>,
     counters: Arc<PacketCounters>,
     pkt_tx: mpsc::SyncSender<PacketRecord>,
     desync_tx: mpsc::SyncSender<PacketRecord>,

@@ -3,26 +3,37 @@
 /// Runtime directory creation (`$XDG_RUNTIME_DIR/zapret-rs`) and environment lookup.
 use std::env;
 /// C path encoding for symlink-safe parent directory validation via `open(O_NOFOLLOW)`.
+#[cfg(unix)]
 use std::ffi::CString;
 /// Scoped socket bind serialization so process-wide `umask(0177)` has no concurrent races.
 use std::fs::{self, DirBuilder};
 /// File type and permission error matching when probing pre-existing socket paths.
 use std::io::ErrorKind;
+/// Loopback TCP listener used on non-Unix targets.
+#[cfg(not(unix))]
+use std::net::TcpListener;
 /// Raw FD access for polling the listening socket and `fchown`/`fstat` directory hardening.
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 /// Raw path bytes passed safely to `libc::open`.
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 /// Unix-specific socket file detection, inode metadata, and permission bits (`0600` / `0700`).
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 /// Unix domain listener binding and liveness probing via `connect`.
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 /// Filesystem path handling for binding and unlinking the control socket.
 use std::path::{Path, PathBuf};
 /// Global mutex serializing temporary `umask(0177)` changes during socket bind.
+#[cfg(unix)]
 use std::sync::Mutex;
 
 /// Configuration enum deciding whether and where `nfqws2` binds its control socket.
 use crate::config::ControlSocketConfig;
+/// Cross-platform IPC stream wrapper.
+use crate::control::transport::ControlStream;
 
 /// Relative control socket suffix created under `$XDG_RUNTIME_DIR` when available.
 pub const DEFAULT_CONTROL_SOCKET_SUBPATH: &str = "zapret-rs/control.sock";
@@ -30,18 +41,65 @@ pub const DEFAULT_CONTROL_SOCKET_SUBPATH: &str = "zapret-rs/control.sock";
 pub const DEFAULT_SYSTEM_CONTROL_SOCKET: &str = "/run/zapret-rs/control.sock";
 
 /// Global mutex ensuring two concurrent [`bind_control_socket`] calls never clobber umask.
+#[cfg(unix)]
 static UMASK_LOCK: Mutex<()> = Mutex::new(());
 
-/// Bound control socket listener paired with its owning `(st_dev, st_ino)` identity.
+/// Bound control listener paired with its path and (on Unix) owning `(st_dev, st_ino)` identity.
 pub(crate) struct BoundSocket {
     /// Listening Unix domain stream socket configured with `0600` permissions.
+    #[cfg(unix)]
     pub(crate) listener: UnixListener,
-    /// Socket path retained for safe cleanup on shutdown.
+    /// Listening loopback TCP socket on non-Unix targets.
+    #[cfg(not(unix))]
+    pub(crate) listener: TcpListener,
+    /// Socket/rendezvous path retained for safe cleanup on shutdown.
     pub(crate) path: PathBuf,
     /// Device ID of the newly bound socket file for safe shutdown unlink checks.
+    #[cfg(unix)]
     pub(crate) dev: u64,
     /// Inode number of the newly bound socket file for safe shutdown unlink checks.
+    #[cfg(unix)]
     pub(crate) ino: u64,
+}
+
+impl BoundSocket {
+    /// Waits up to `timeout_ms` for a pending connection.
+    pub(crate) fn poll_readable(&self, timeout_ms: i32) -> bool {
+        #[cfg(unix)]
+        {
+            poll_listener_readable(&self.listener, timeout_ms)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = timeout_ms;
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            true
+        }
+    }
+
+    /// Accepts one pending client stream in non-blocking mode.
+    pub(crate) fn accept(&self) -> std::io::Result<ControlStream> {
+        #[cfg(unix)]
+        {
+            self.listener.accept().map(|(s, _)| ControlStream::from_unix(s))
+        }
+        #[cfg(not(unix))]
+        {
+            self.listener.accept().map(|(s, _)| ControlStream::from_tcp(s))
+        }
+    }
+
+    /// Drops the listener and removes the socket/rendezvous file safely.
+    pub(crate) fn cleanup(self) {
+        let path = self.path;
+        #[cfg(unix)]
+        let (dev, ino) = (self.dev, self.ino);
+        drop(self.listener);
+        #[cfg(unix)]
+        unlink_if_same_socket(&path, dev, ino);
+        #[cfg(not(unix))]
+        let _ = fs::remove_file(&path);
+    }
 }
 
 /// Typed errors returned when binding or running the Unix control socket server.
@@ -67,12 +125,19 @@ pub enum ControlServerError {
     },
 }
 
-/// Returns the default control socket path (`$XDG_RUNTIME_DIR/zapret-rs/control.sock` or `/run/zapret-rs/control.sock`).
+/// Returns the default control socket path (`$XDG_RUNTIME_DIR/zapret-rs/control.sock` on Unix, or `temp_dir` elsewhere).
 pub fn default_control_socket_path() -> PathBuf {
-    if let Some(xdg) = env::var_os("XDG_RUNTIME_DIR").filter(|val| !val.is_empty()) {
-        return PathBuf::from(xdg).join(DEFAULT_CONTROL_SOCKET_SUBPATH);
+    #[cfg(unix)]
+    {
+        if let Some(xdg) = env::var_os("XDG_RUNTIME_DIR").filter(|val| !val.is_empty()) {
+            return PathBuf::from(xdg).join(DEFAULT_CONTROL_SOCKET_SUBPATH);
+        }
+        PathBuf::from(DEFAULT_SYSTEM_CONTROL_SOCKET)
     }
-    PathBuf::from(DEFAULT_SYSTEM_CONTROL_SOCKET)
+    #[cfg(not(unix))]
+    {
+        env::temp_dir().join(DEFAULT_CONTROL_SOCKET_SUBPATH)
+    }
 }
 
 /// Returns ordered, deduplicated control socket candidates checked when auto-attaching.
@@ -107,7 +172,8 @@ pub fn resolve_control_socket_path(
     }
 }
 
-/// Ensures the parent directory of `socket_path` exists (`0700`), rejects symlinks, and chowns to `target_uid`.
+/// Ensures the parent directory of `socket_path` exists (`0700` on Unix), rejects symlinks, and chowns to `target_uid`.
+#[cfg(unix)]
 pub fn prepare_control_socket_dir(
     socket_path: &Path,
     target_uid: Option<u32>,
@@ -155,7 +221,27 @@ pub fn prepare_control_socket_dir(
     Ok(())
 }
 
+/// Ensures the parent directory of `socket_path` exists on non-Unix targets.
+#[cfg(not(unix))]
+pub fn prepare_control_socket_dir(
+    socket_path: &Path,
+    _target_uid: Option<u32>,
+    _target_gid: Option<u32>,
+) -> Result<(), ControlServerError> {
+    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+    if !parent.exists() {
+        DirBuilder::new()
+            .recursive(true)
+            .create(parent)
+            .map_err(|source| ControlServerError::Io { path: parent.to_path_buf(), source })?;
+    }
+    Ok(())
+}
+
 /// Validates any pre-existing file at `path`, removing only confirmed stale sockets (`ECONNREFUSED`).
+#[cfg(unix)]
 fn prepare_socket_path(path: &Path) -> Result<(), ControlServerError> {
     match fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -190,6 +276,7 @@ fn prepare_socket_path(path: &Path) -> Result<(), ControlServerError> {
 }
 
 /// Binds a `0600` non-blocking Unix domain listener at `path`, replacing stale sockets safely.
+#[cfg(unix)]
 pub(crate) fn bind_control_socket(path: &Path) -> Result<BoundSocket, ControlServerError> {
     prepare_socket_path(path)?;
 
@@ -223,6 +310,7 @@ pub(crate) fn bind_control_socket(path: &Path) -> Result<BoundSocket, ControlSer
 }
 
 /// Removes `path` on shutdown only when its current `(dev, ino)` still matches our bound socket.
+#[cfg(unix)]
 pub(crate) fn unlink_if_same_socket(path: &Path, expected_dev: u64, expected_ino: u64) {
     if let Ok(meta) = fs::symlink_metadata(path)
         && meta.file_type().is_socket()
@@ -234,6 +322,7 @@ pub(crate) fn unlink_if_same_socket(path: &Path, expected_dev: u64, expected_ino
 }
 
 /// Waits up to `timeout_ms` for `listener` to report a pending connection via `poll(2)`.
+#[cfg(unix)]
 pub(crate) fn poll_listener_readable(listener: &UnixListener, timeout_ms: i32) -> bool {
     let mut pfd = libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
     loop {
@@ -248,4 +337,30 @@ pub(crate) fn poll_listener_readable(listener: &UnixListener, timeout_ms: i32) -
         }
         return rc > 0 && (pfd.revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP)) != 0;
     }
+}
+
+/// Binds a non-blocking loopback TCP listener on non-Unix targets and writes its port to `path`.
+#[cfg(not(unix))]
+pub(crate) fn bind_control_socket(path: &Path) -> Result<BoundSocket, ControlServerError> {
+    if let Ok(meta) = fs::symlink_metadata(path) {
+        if meta.file_type().is_symlink() {
+            return Err(ControlServerError::SymlinkNotAllowed(path.to_path_buf()));
+        }
+        if crate::control::transport::is_live_control_socket(path) {
+            return Err(ControlServerError::AlreadyRunning(path.to_path_buf()));
+        }
+        let _ = fs::remove_file(path);
+    }
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|source| ControlServerError::Io { path: path.to_path_buf(), source })?;
+    let port = listener
+        .local_addr()
+        .map_err(|source| ControlServerError::Io { path: path.to_path_buf(), source })?
+        .port();
+    listener
+        .set_nonblocking(true)
+        .map_err(|source| ControlServerError::Io { path: path.to_path_buf(), source })?;
+    fs::write(path, port.to_string())
+        .map_err(|source| ControlServerError::Io { path: path.to_path_buf(), source })?;
+    Ok(BoundSocket { listener, path: path.to_path_buf() })
 }
