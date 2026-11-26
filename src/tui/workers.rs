@@ -162,8 +162,9 @@ where
                 Ok(w) => w,
                 Err(err) => { let _ = tx.send(ScanUiEvent::Failed(err)); return; }
             };
+            let _ = tx.send(ScanUiEvent::Notice(format!("[worker] {}", worker.capture_spec())));
             let probe = CurlProbeBackend::default();
-            match run_scan(&scan_cfg, &probe, &mut worker, &stop_bg, |ev| match ev {
+            let scan_res = run_scan(&scan_cfg, &probe, &mut worker, &stop_bg, |ev| match ev {
                 ProgressEvent::Http3Unavailable => {
                     let _ = tx.send(ScanUiEvent::Notice("[warn] curl lacks HTTP3 support; skipping http3".to_owned()));
                 }
@@ -179,7 +180,9 @@ where
                         strategy_id: strategy.id.clone(), passed: outcome.is_success(), summary: outcome.summary(),
                     });
                 }
-            }) {
+            });
+            let _ = tx.send(ScanUiEvent::Notice(format!("[worker] {}", worker.stats_summary())));
+            match scan_res {
                 Ok(report) => {
                     let rendered_toml = if report.cover.is_empty() {
                         String::new()

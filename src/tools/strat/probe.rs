@@ -52,6 +52,21 @@ pub enum ProbeOutcome {
     },
 }
 
+/// Maps common `curl` non-zero exit codes to concise human-readable diagnostic hints.
+fn curl_exit_hint(code: i32) -> Option<&'static str> {
+    match code {
+        6 => Some("DNS resolve failed"),
+        7 => Some("connect failed"),
+        23 => Some("output write error"),
+        28 => Some("timeout"),
+        35 => Some("TLS handshake error"),
+        52 => Some("empty reply"),
+        56 => Some("recv/reset error"),
+        60 => Some("TLS cert verify failed"),
+        _ => None,
+    }
+}
+
 impl ProbeOutcome {
     /// Returns `true` when the probe reached the target server cleanly.
     pub const fn is_success(&self) -> bool {
@@ -75,10 +90,14 @@ impl ProbeOutcome {
             Self::TcpReset => "TCP_RESET".to_owned(),
             Self::TlsError { code } => format!("TLS_ERROR (curl {code})"),
             Self::Failed { code, detail } => {
+                let tag = match curl_exit_hint(*code) {
+                    Some(hint) => format!("code {code} [{hint}]"),
+                    None => format!("code {code}"),
+                };
                 if detail.is_empty() {
-                    format!("FAILED (code {code})")
+                    format!("FAILED ({tag})")
                 } else {
-                    format!("FAILED (code {code}: {detail})")
+                    format!("FAILED ({tag}: {detail})")
                 }
             }
         }

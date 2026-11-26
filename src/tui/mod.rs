@@ -6,6 +6,8 @@ pub mod actions;
 pub mod daemon_cycle;
 /// Detached background `nfqws2` and `systemd` daemon launcher for persistent Tab 2 starts.
 pub mod daemon_launch;
+/// Plain-text diagnostic report exporter (`zapret-rs-debug.txt`) bound to `[d]` on Tab 5.
+pub mod debug_report;
 /// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML builder for Tab 3.
 pub mod editor;
 /// Live packet inspector record decoding, state, and verdict filter model.

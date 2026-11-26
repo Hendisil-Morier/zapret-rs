@@ -208,6 +208,12 @@ impl AppState {
                 self.refresh_status_checks();
                 self.status_banner = "Refreshed operational component checks.".to_owned();
             }
+            KeyCode::Char('d') => {
+                self.status_banner = match crate::tui::debug_report::export_debug_report(self) {
+                    Ok(path) => format!("Exported debug report to {}", path.display()),
+                    Err(err) => format!("Debug export failed: {err}"),
+                };
+            }
             _ => {}
         }
         AppAction::None

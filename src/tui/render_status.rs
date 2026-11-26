@@ -89,7 +89,7 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
                 Span::styled(sel.detail.as_str(), Style::default().fg(t.text)),
             ]),
             Line::from(styled_key_hints(
-                "[r] Refresh Checks   [Up/Down] Select   [Left/Right] Scroll Summary",
+                "[r] Refresh   [d] Export Debug Report   [Up/Down] Select   [Left/Right] Scroll",
                 t,
             )),
         ]

@@ -58,3 +58,39 @@ fn tab5_status_populates_checks_navigates_and_renders() {
     assert!(rendered.contains("Component Details"));
     assert!(rendered.contains("Packet Driver"));
 }
+
+#[test]
+fn tab5_debug_report_exports_checks_logs_and_curl_exit_hints() {
+    use zapret_rs::tools::ProbeOutcome;
+    use zapret_rs::tui::debug_report::debug_report_path;
+
+    let dns_err = ProbeOutcome::Failed {
+        code: 6,
+        detail: "Could not resolve host".to_owned(),
+    };
+    assert!(dns_err.summary().contains("DNS resolve failed"));
+
+    let write_err = ProbeOutcome::Failed {
+        code: 23,
+        detail: "Failed writing body".to_owned(),
+    };
+    assert!(write_err.summary().contains("output write error"));
+
+    let dir = std::env::temp_dir().join(format!("zapret-debug-export-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let cfg_path = dir.join("nfqws2.toml");
+
+    let mut state = AppState::new(Some(cfg_path), None, false);
+    state.push_finder_log("[worker] test-filter");
+    state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+    let report_file = debug_report_path(&state.output_path);
+    let body = std::fs::read_to_string(&report_file).expect("read exported debug report");
+    assert!(body.contains("=== zapret-rs Debug Report ==="));
+    assert!(body.contains("=== Operational Component Checks ==="));
+    assert!(body.contains("[worker] test-filter"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
