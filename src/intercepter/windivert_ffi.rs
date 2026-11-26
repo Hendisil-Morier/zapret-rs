@@ -70,11 +70,38 @@ impl WinDivertAddress {
     }
 }
 
+/// Win32 `OVERLAPPED` struct passed to `WinDivertRecvEx` for non-blocking timeout waits.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Overlapped {
+    /// Internal status (`ULONG_PTR`).
+    pub(crate) internal: usize,
+    /// Internal transferred count (`ULONG_PTR`).
+    pub(crate) internal_high: usize,
+    /// Low file offset (unused for WinDivert, must be `0`).
+    pub(crate) offset: u32,
+    /// High file offset (unused for WinDivert, must be `0`).
+    pub(crate) offset_high: u32,
+    /// Manual-reset Win32 event handle signaled on completion.
+    pub(crate) h_event: isize,
+}
+
 /// Function pointer type for `WinDivertOpen`.
 type WinDivertOpenFn = unsafe extern "system" fn(*const c_char, i32, i16, u64) -> isize;
 /// Function pointer type for `WinDivertRecv`.
 type WinDivertRecvFn =
     unsafe extern "system" fn(isize, *mut c_void, u32, *mut u32, *mut WinDivertAddress) -> i32;
+/// Function pointer type for `WinDivertRecvEx`.
+type WinDivertRecvExFn = unsafe extern "system" fn(
+    isize,
+    *mut c_void,
+    u32,
+    *mut u32,
+    u64,
+    *mut WinDivertAddress,
+    *mut u32,
+    *mut Overlapped,
+) -> i32;
 /// Function pointer type for `WinDivertSend`.
 type WinDivertSendFn =
     unsafe extern "system" fn(isize, *const c_void, u32, *mut u32, *const WinDivertAddress) -> i32;
@@ -94,6 +121,8 @@ pub(crate) struct WinDivertApi {
     open_fn: WinDivertOpenFn,
     /// `WinDivertRecv` entry point.
     recv_fn: WinDivertRecvFn,
+    /// `WinDivertRecvEx` entry point.
+    recv_ex_fn: WinDivertRecvExFn,
     /// `WinDivertSend` entry point.
     send_fn: WinDivertSendFn,
     /// `WinDivertShutdown` entry point.
@@ -141,6 +170,7 @@ impl WinDivertApi {
                 _module: module,
                 open_fn: load_sym(module, b"WinDivertOpen\0")?,
                 recv_fn: load_sym(module, b"WinDivertRecv\0")?,
+                recv_ex_fn: load_sym(module, b"WinDivertRecvEx\0")?,
                 send_fn: load_sym(module, b"WinDivertSend\0")?,
                 shutdown_fn: load_sym(module, b"WinDivertShutdown\0")?,
                 close_fn: load_sym(module, b"WinDivertClose\0")?,
@@ -182,7 +212,53 @@ unsafe impl Send for WinDivertHandle {}
 unsafe impl Sync for WinDivertHandle {}
 
 impl WinDivertHandle {
+    /// Returns the raw Win32 handle for `GetOverlappedResult` / `CancelIoEx`.
+    pub(crate) const fn raw_handle(&self) -> isize {
+        self.handle
+    }
+
+    /// Starts an overlapped receive via `WinDivertRecvEx`, returning `Ok(Some(len))` on immediate
+    /// completion or `Ok(None)` when `ERROR_IO_PENDING` (`997`) is returned.
+    ///
+    /// # Safety
+    /// While `Ok(None)` is pending, `buf`, `addr`, and `overlapped` must remain pinned/unmoved and
+    /// untouched until `GetOverlappedResult` (wait=TRUE) completes.
+    pub(crate) unsafe fn start_recv_ex(
+        &self,
+        buf: &mut [u8],
+        addr: &mut WinDivertAddress,
+        overlapped: &mut Overlapped,
+    ) -> io::Result<Option<usize>> {
+        /// Win32 `ERROR_IO_PENDING` (`997`).
+        const ERROR_IO_PENDING: i32 = 997;
+        let mut read_len = 0u32;
+        let cap = u32::try_from(buf.len()).unwrap_or(u32::MAX);
+        // SAFETY: Caller guarantees `buf`, `addr`, and `overlapped` stay valid until completion.
+        let ok = unsafe {
+            (self.api.recv_ex_fn)(
+                self.handle,
+                buf.as_mut_ptr().cast(),
+                cap,
+                &raw mut read_len,
+                0,
+                ptr::from_mut(addr),
+                ptr::null_mut(),
+                ptr::from_mut(overlapped),
+            )
+        };
+        if ok != 0 {
+            return Ok(Some(read_len as usize));
+        }
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() == Some(ERROR_IO_PENDING) {
+            Ok(None)
+        } else {
+            Err(err)
+        }
+    }
+
     /// Receives one packet into `buf` and populates `addr`, returning the byte count read.
+    #[allow(dead_code)]
     pub(crate) fn recv(&self, buf: &mut [u8], addr: &mut WinDivertAddress) -> io::Result<usize> {
         let mut read_len = 0u32;
         let cap = u32::try_from(buf.len()).unwrap_or(u32::MAX);
