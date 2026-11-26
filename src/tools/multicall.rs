@@ -9,6 +9,8 @@ use std::process::ExitCode;
 
 /// Shared `nfqws2` daemon runner (`daemon` / `nfqws2`).
 use crate::tools::daemon_cli::run_nfqws2_cli;
+/// Self-installer and uninstaller CLI runners (`install` / `uninstall`).
+use crate::tools::installer::{run_install_cli, run_uninstall_cli};
 /// Shared `ip2net` subnet aggregator runner.
 use crate::tools::ip2net_cli::run_ip2net_cli;
 /// Shared `mdig` multi-threaded DNS resolver runner.
@@ -29,6 +31,10 @@ pub enum MulticallApplet {
     Ip2Net,
     /// Multi-threaded DNS resolver and raw query helper (`mdig`).
     Mdig,
+    /// Self-installer deploying binary, Lua scripts, capabilities, and optional systemd unit.
+    Install,
+    /// Uninstaller removing installed binaries, symlinks, and Lua scripts.
+    Uninstall,
 }
 
 /// Normalizes an executable stem by taking its filename, stripping `.exe`, and lowercasing.
@@ -53,13 +59,15 @@ pub fn resolve_argv0_applet(arg0: &OsStr) -> Option<MulticallApplet> {
     }
 }
 
-/// Resolves an explicit first subcommand token (`daemon`, `scan`, `ip2net`, `mdig`).
+/// Resolves an explicit first subcommand token (`daemon`, `scan`, `ip2net`, `mdig`, `install`, `uninstall`).
 pub fn resolve_subcommand_applet(arg1: &OsStr) -> Option<MulticallApplet> {
     match arg1.to_string_lossy().as_ref() {
         "daemon" | "nfqws2" => Some(MulticallApplet::Daemon),
         "scan" | "strat-finder" | "strat_finder" => Some(MulticallApplet::Scan),
         "ip2net" => Some(MulticallApplet::Ip2Net),
         "mdig" => Some(MulticallApplet::Mdig),
+        "install" => Some(MulticallApplet::Install),
+        "uninstall" => Some(MulticallApplet::Uninstall),
         _ => None,
     }
 }
@@ -85,6 +93,8 @@ where
             MulticallApplet::Scan => "strat_finder",
             MulticallApplet::Ip2Net => "ip2net",
             MulticallApplet::Mdig => "mdig",
+            MulticallApplet::Install => "zapret-rs install",
+            MulticallApplet::Uninstall => "zapret-rs uninstall",
         };
         let mut forwarded = Vec::with_capacity(raw.len());
         forwarded.push(OsString::from(canonical));
@@ -94,7 +104,7 @@ where
     (MulticallApplet::Tui, raw)
 }
 
-/// Dispatches non-TUI applets (`Daemon`, `Scan`, `Ip2Net`, `Mdig`), returning `Some(exit_code)`.
+/// Dispatches non-TUI applets (`Daemon`, `Scan`, `Ip2Net`, `Mdig`, `Install`, `Uninstall`), returning `Some(exit_code)`.
 ///
 /// Returns `None` when [`MulticallApplet::Tui`] should handle the invocation.
 pub fn dispatch_headless_applet<I, T>(args: I) -> Option<ExitCode>
@@ -109,5 +119,7 @@ where
         MulticallApplet::Scan => Some(run_strat_finder_cli(forwarded)),
         MulticallApplet::Ip2Net => Some(run_ip2net_cli(forwarded)),
         MulticallApplet::Mdig => Some(run_mdig_cli(forwarded)),
+        MulticallApplet::Install => Some(run_install_cli(forwarded)),
+        MulticallApplet::Uninstall => Some(run_uninstall_cli(forwarded)),
     }
 }

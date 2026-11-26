@@ -20,7 +20,9 @@ Subcommands:
   daemon (nfqws2)  Run the NFQUEUE DPI desync daemon
   scan             Run the CLI strategy finder (strat_finder)
   ip2net           Group IPs into covering CIDR subnets
-  mdig             Multi-threaded DNS lookup tool";
+  mdig             Multi-threaded DNS lookup tool
+  install          Install binary, Lua scripts, capabilities, and optional systemd unit
+  uninstall        Remove installed zapret-rs binary, symlinks, and Lua scripts";
 
 /// Command-line options for the `zapret-rs` interactive TUI and multicall entry point.
 #[derive(Debug, Parser)]

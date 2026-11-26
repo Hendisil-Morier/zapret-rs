@@ -7,6 +7,8 @@ pub mod daemon_cli;
 pub mod daemon_runtime;
 /// OS-agnostic firewall rule backend contract and target port collector.
 pub mod firewall;
+/// Self-installing CLI (`install` / `uninstall`) for binary, Lua scripts, caps, and systemd.
+pub mod installer;
 /// IPv4/IPv6 single-address and CIDR subnet aggregator (`zapret2/ip2net`).
 pub mod ip2net;
 /// Shared `ip2net` CLI runner (`run_ip2net_cli`).
@@ -42,6 +44,10 @@ pub mod strat_toml;
 /// Non-destructive `nfqws2.toml` profile merging and hostlist domain extraction helpers.
 pub mod strat_merge;
 
+/// Public API re-exports for self-installation (`install` / `uninstall`) and systemd rendering.
+pub use installer::{
+    SYMLINK_NAMES, render_systemd_service, run_install_cli, run_uninstall_cli,
+};
 /// Public API re-exports for `ip2net` configuration, validation, and streaming execution.
 pub use ip2net::{
     Ip2NetConfig, Ip2NetError, Ip2NetFamily, parse_prefix_length, parse_v4_threshold,

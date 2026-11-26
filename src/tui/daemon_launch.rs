@@ -45,24 +45,29 @@ pub(crate) fn has_systemd_unit() -> bool {
         || Path::new("/usr/lib/systemd/system/zapret-rs.service").is_file()
 }
 
-/// Searches sibling of current TUI binary, `/usr/local/bin`, and `PATH` for `nfqws2`.
-pub(crate) fn resolve_nfqws2_binary() -> Option<PathBuf> {
+/// Searches sibling of current TUI binary, `/usr/local/bin`, and `PATH` for `nfqws2`,
+/// falling back to `(current_exe, Some("daemon"))` so single-binary installs work without symlinks.
+pub(crate) fn resolve_daemon_target() -> Option<(PathBuf, Option<&'static str>)> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
         let sibling = dir.join("nfqws2");
         if sibling.is_file() {
-            return Some(sibling);
+            return Some((sibling, None));
         }
     }
     let system_bin = PathBuf::from("/usr/local/bin/nfqws2");
     if system_bin.is_file() {
-        return Some(system_bin);
+        return Some((system_bin, None));
     }
-    let paths = std::env::var_os("PATH")?;
-    std::env::split_paths(&paths)
-        .map(|dir| dir.join("nfqws2"))
-        .find(|cand| cand.is_file())
+    if let Some(paths) = std::env::var_os("PATH")
+        && let Some(found) = std::env::split_paths(&paths)
+            .map(|dir| dir.join("nfqws2"))
+            .find(|cand| cand.is_file())
+    {
+        return Some((found, None));
+    }
+    std::env::current_exe().ok().map(|exe| (exe, Some("daemon")))
 }
 
 /// Polls `detect_control_socket` until a live daemon socket appears or `timeout` elapses.
@@ -122,9 +127,10 @@ fn start_via_systemd(state: &mut AppState, session_tab2: &mut Option<Tab2Session
     }
 }
 
-/// Spawns standalone `nfqws2 --daemon` detached from the TUI process and attaches over IPC.
+/// Spawns standalone `nfqws2 --daemon` (or `zapret-rs daemon --daemon`) detached and attaches over IPC.
 fn start_standalone_daemon(
     bin: &Path,
+    subcmd: Option<&str>,
     state: &mut AppState,
     session_tab2: &mut Option<Tab2Session>,
 ) -> DaemonLaunchOutcome {
@@ -148,19 +154,28 @@ fn start_standalone_daemon(
         .unwrap_or_else(default_control_socket_path);
     let nft_flag = if state.no_nft { "--no-nft" } else { "--nft" };
     let uid_arg = state.uid.to_string();
+    let sub_prefix = subcmd.map_or_else(String::new, |s| format!("{s} "));
 
     if state.uid != 0 && sudo_needs_password() {
         return DaemonLaunchOutcome::NeedSudo(format!(
-            "sudo {} --daemon --config {} {nft_flag}",
+            "sudo {} {sub_prefix}--daemon --config {} {nft_flag}",
             bin.display(),
             cfg_path.display()
         ));
     }
     let mut cmd = if state.uid == 0 {
-        Command::new(bin)
+        let mut direct = Command::new(bin);
+        if let Some(sub) = subcmd {
+            direct.arg(sub);
+        }
+        direct
     } else {
         let mut s = Command::new("sudo");
-        s.args(["-n", "--"]).arg(bin).args(["--uid", &uid_arg]);
+        s.args(["-n", "--"]).arg(bin);
+        if let Some(sub) = subcmd {
+            s.arg(sub);
+        }
+        s.args(["--uid", &uid_arg]);
         s
     };
     cmd.args(["--daemon", "--config"])
@@ -206,8 +221,8 @@ pub(crate) fn launch_external_daemon(
     if has_systemd_unit() {
         return start_via_systemd(state, session_tab2);
     }
-    if let Some(bin) = resolve_nfqws2_binary() {
-        return start_standalone_daemon(&bin, state, session_tab2);
+    if let Some((bin, subcmd)) = resolve_daemon_target() {
+        return start_standalone_daemon(&bin, subcmd, state, session_tab2);
     }
     DaemonLaunchOutcome::Unavailable
 }

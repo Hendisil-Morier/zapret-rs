@@ -2,6 +2,7 @@
 Description=zapret-rs nfqws2 DPI Desync Daemon
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=__HOME__/.config/zapret-rs/nfqws2.toml
 
 [Service]
 Type=simple
@@ -14,7 +15,7 @@ CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=yes
 LockPersonality=yes
 PrivateTmp=yes
-ExecStart=/usr/local/bin/nfqws2 --config __HOME__/.config/zapret-rs/nfqws2.toml --nft --control-socket /run/zapret-rs/control.sock
+ExecStart=/usr/local/bin/zapret-rs daemon --config __HOME__/.config/zapret-rs/nfqws2.toml --nft --control-socket /run/zapret-rs/control.sock
 Restart=on-failure
 RestartSec=3
 
