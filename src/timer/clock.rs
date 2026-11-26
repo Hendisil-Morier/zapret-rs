@@ -2,6 +2,9 @@
 
 /// Standard duration representation for deadline math.
 use std::time::Duration;
+/// Portable monotonic epoch fallback used on non-Linux targets.
+#[cfg(not(target_os = "linux"))]
+use std::{sync::OnceLock, time::Instant};
 
 /// Nanosecond-precision monotonic timestamp matching Linux `struct timespec`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -35,6 +38,7 @@ impl MonotonicTime {
 ///
 /// Under Linux, `clock_gettime(CLOCK_BOOTTIME, ...)` continues advancing while suspended,
 /// matching `zapret2`'s `CLOCK_BOOT_OR_UPTIME`.
+#[cfg(target_os = "linux")]
 pub fn boottime_now() -> MonotonicTime {
     let mut ts = libc::timespec {
         tv_sec: 0,
@@ -57,6 +61,17 @@ pub fn boottime_now() -> MonotonicTime {
         }
     } else {
         MonotonicTime::default()
+    }
+}
+
+/// Reads elapsed monotonic time since first call using `std::time::Instant` on non-Linux targets.
+#[cfg(not(target_os = "linux"))]
+pub fn boottime_now() -> MonotonicTime {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    let elapsed = EPOCH.get_or_init(Instant::now).elapsed();
+    MonotonicTime {
+        sec: i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX),
+        nsec: i64::from(elapsed.subsec_nanos()),
     }
 }
 
