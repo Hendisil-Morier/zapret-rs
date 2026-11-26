@@ -1,6 +1,7 @@
 //! HTTP/TLS/QUIC connectivity probe backends (`curl` + mockable [`ProbeBackend`] trait).
 
 /// Unix `pre_exec` extension stripping all Linux capabilities before spawning `curl`.
+#[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt as _;
 /// Filesystem paths for the external `curl` executable.
 use std::path::{Path, PathBuf};
@@ -10,6 +11,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 /// Async-signal-safe child privilege stripper (`capset(0)` + `PR_SET_NO_NEW_PRIVS`).
+#[cfg(target_os = "linux")]
 use crate::runtime::clear_child_privileges;
 /// Target protocol and IP family enums shared with the strategy catalog.
 use crate::tools::strat_catalog::{IpFamily, ProbeProtocol};
@@ -179,9 +181,10 @@ impl CurlProbeBackend {
     }
 
     /// Creates a [`Command`] for `self.curl_bin` that drops all Linux capabilities and sets
-    /// `PR_SET_NO_NEW_PRIVS` in the child before `execve`.
+    /// `PR_SET_NO_NEW_PRIVS` in the child before `execve` on Linux.
     pub(crate) fn unprivileged_command(&self) -> Command {
         let mut cmd = Command::new(&self.curl_bin);
+        #[cfg(target_os = "linux")]
         // SAFETY: `clear_child_privileges` invokes only async-signal-safe `prctl` and `SYS_capset`.
         unsafe {
             cmd.pre_exec(clear_child_privileges);

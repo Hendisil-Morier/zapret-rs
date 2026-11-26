@@ -1,6 +1,7 @@
 //! Unprivileged `$VISUAL`/`$EDITOR` launcher and starter `nfqws2.toml` generator for Tab 3.
 
 /// Unix `pre_exec` hook clearing capabilities before spawning an external text editor.
+#[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt as _;
 /// Filesystem path inspection for locating fallback editors in `PATH`.
 use std::path::{Path, PathBuf};
@@ -8,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
 /// Least-privilege helper stripping `CAP_NET_ADMIN`/`CAP_NET_RAW` from child processes.
+#[cfg(target_os = "linux")]
 use crate::runtime::clear_child_privileges;
 /// Lua script discovery helper for populating `lua_init` in newly seeded starter configs.
 use crate::tools::resolve_lua_scripts;
@@ -81,6 +83,7 @@ pub fn spawn_unprivileged_editor(cmd_parts: &[String], path: &Path) -> Result<Ex
     };
     let mut cmd = Command::new(prog);
     cmd.args(args).arg(path);
+    #[cfg(target_os = "linux")]
     // SAFETY: `clear_child_privileges` invokes only async-signal-safe `prctl`/`capset` syscalls.
     unsafe {
         cmd.pre_exec(clear_child_privileges);

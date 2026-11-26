@@ -3,11 +3,15 @@
 /// Buffered line reading and file seeking for transparent gzip/plain format detection.
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 /// Unix stat nanosecond mtime extraction matching `zapret2`'s `file_mod_signature`.
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 /// Filesystem handles and paths for list loading and autohostlist writes.
 use std::fs::{File, OpenOptions};
 /// Path reference for list files and debug log outputs.
 use std::path::Path;
+/// Portable wall-clock fallback when Unix `localtime_r` / `MetadataExt` are unavailable.
+#[cfg(not(unix))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Multi-member gzip decoder handling concatenated `.gz` hostlist/ipset files.
 use flate2::read::MultiGzDecoder;
@@ -37,11 +41,30 @@ impl FileModSig {
     /// Reads the current metadata signature for `path` via `stat` (`file_mod_signature`).
     pub fn read(path: &Path) -> std::io::Result<Self> {
         let meta = std::fs::metadata(path)?;
+        let (mtime_sec, mtime_nsec) = read_mtime_parts(&meta);
         Ok(Self {
-            mtime_sec: meta.mtime(),
-            mtime_nsec: meta.mtime_nsec(),
+            mtime_sec,
+            mtime_nsec,
             size: meta.len(),
         })
+    }
+}
+
+/// Extracts `(seconds, nanoseconds)` modification time from Unix `stat` metadata.
+#[cfg(unix)]
+fn read_mtime_parts(meta: &std::fs::Metadata) -> (i64, i64) {
+    (meta.mtime(), meta.mtime_nsec())
+}
+
+/// Extracts `(seconds, nanoseconds)` modification time from `std::fs::Metadata::modified` on non-Unix targets.
+#[cfg(not(unix))]
+fn read_mtime_parts(meta: &std::fs::Metadata) -> (i64, i64) {
+    match meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()) {
+        Some(dur) => (
+            i64::try_from(dur.as_secs()).unwrap_or(i64::MAX),
+            i64::from(dur.subsec_nanos()),
+        ),
+        None => (0, 0),
     }
 }
 
@@ -175,11 +198,12 @@ pub fn append_to_list_file(path: &Path, entry: &str) -> std::io::Result<()> {
     writeln!(file, "{entry}")
 }
 
-/// Appends one local-time stamped debug line to `--hostlist-auto-debug` (`LOG_APPEND` in `params.c:254`).
-pub fn append_timestamped_debug_log(path: &Path, message: &str) -> std::io::Result<()> {
+/// Formats the current local timestamp on Unix via `localtime_r`.
+#[cfg(unix)]
+fn format_debug_timestamp() -> String {
     let now = unsafe { libc::time(std::ptr::null_mut()) };
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let ts = if !unsafe { libc::localtime_r(&raw const now, &raw mut tm) }.is_null() {
+    if !unsafe { libc::localtime_r(&raw const now, &raw mut tm) }.is_null() {
         format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
             tm.tm_year + 1900,
@@ -191,8 +215,20 @@ pub fn append_timestamped_debug_log(path: &Path, message: &str) -> std::io::Resu
         )
     } else {
         now.to_string()
-    };
+    }
+}
 
+/// Formats the current UTC epoch seconds on non-Unix targets.
+#[cfg(not(unix))]
+fn format_debug_timestamp() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or_else(|_| "0".to_owned(), |dur| dur.as_secs().to_string())
+}
+
+/// Appends one local-time stamped debug line to `--hostlist-auto-debug` (`LOG_APPEND` in `params.c:254`).
+pub fn append_timestamped_debug_log(path: &Path, message: &str) -> std::io::Result<()> {
+    let ts = format_debug_timestamp();
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(file, "{ts} : {message}")
 }

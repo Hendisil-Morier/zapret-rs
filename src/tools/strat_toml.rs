@@ -9,6 +9,7 @@ use std::fs::OpenOptions;
 /// Standard I/O errors and byte writing for TOML config files.
 use std::io::{self, Write as _};
 /// Unix open flag extension enabling `O_NOFOLLOW` on generated config writes.
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
 /// Filesystem paths for `lua_init` entries and generated `nfqws2.toml` destinations.
 use std::path::{Path, PathBuf};
@@ -383,11 +384,10 @@ pub fn write_config_nofollow(path: &Path, content: &str) -> io::Result<()> {
     {
         std::fs::create_dir_all(parent)?;
     }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    opts.custom_flags(libc::O_NOFOLLOW);
+    let mut file = opts.open(path)?;
     file.write_all(content.as_bytes())
 }

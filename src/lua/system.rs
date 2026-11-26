@@ -1,6 +1,7 @@
 //! Logging, OS metadata, clock, and kernel route/interface inspection Lua bindings.
 
 /// C string parsing for `libc::uname` fields.
+#[cfg(unix)]
 use std::ffi::CStr;
 /// IP address types for `get_source_ip` argument decoding.
 #[cfg(target_os = "linux")]
@@ -39,6 +40,7 @@ fn check_log_string(val: &Value) -> mlua::Result<String> {
 }
 
 /// Converts a fixed `c_char` buffer from `libc::utsname` into an owned UTF-8 lossy string.
+#[cfg(unix)]
 fn c_buf_to_string(buf: &[libc::c_char]) -> String {
     // SAFETY: `libc::uname` NUL-terminates every string field inside its fixed-size array.
     let cstr = unsafe { CStr::from_ptr(buf.as_ptr()) };
@@ -96,35 +98,9 @@ pub fn register_system_functions(lua: &Lua, config: &LuaConfig) -> mlua::Result<
         })?,
     )?;
 
-    globals.set(
-        "gettid",
-        lua.create_function(|_, args: Variadic<Value>| {
-            check_argc("gettid", &args, 0)?;
-            // SAFETY: `SYS_gettid` takes no arguments and always returns the calling thread ID on Linux.
-            let tid = unsafe { libc::syscall(libc::SYS_gettid) };
-            Ok(tid as i64)
-        })?,
-    )?;
+    globals.set("gettid", lua.create_function(lua_gettid)?)?;
 
-    globals.set(
-        "uname",
-        lua.create_function(|lua, args: Variadic<Value>| {
-            check_argc("uname", &args, 0)?;
-            // SAFETY: `libc::utsname` is a plain C struct populated completely on `uname(...) == 0`.
-            let mut uts: libc::utsname = unsafe { std::mem::zeroed() };
-            // SAFETY: `uts` points to writable stack storage of type `libc::utsname`.
-            if unsafe { libc::uname(&raw mut uts) } != 0 {
-                return Ok(Value::Nil);
-            }
-            let tbl = lua.create_table_with_capacity(0, 5)?;
-            tbl.raw_set("sysname", c_buf_to_string(&uts.sysname))?;
-            tbl.raw_set("nodename", c_buf_to_string(&uts.nodename))?;
-            tbl.raw_set("release", c_buf_to_string(&uts.release))?;
-            tbl.raw_set("version", c_buf_to_string(&uts.version))?;
-            tbl.raw_set("machine", c_buf_to_string(&uts.machine))?;
-            Ok(Value::Table(tbl))
-        })?,
-    )?;
+    globals.set("uname", lua.create_function(lua_uname)?)?;
 
     globals.set(
         "clock_gettime",
@@ -235,4 +211,52 @@ fn lua_get_ifaddrs(lua: &Lua, args: Variadic<Value>) -> mlua::Result<Value> {
 fn lua_get_ifaddrs(_lua: &Lua, args: Variadic<Value>) -> mlua::Result<Value> {
     check_argc("get_ifaddrs", &args, 0)?;
     Ok(Value::Nil)
+}
+
+/// Returns the calling kernel thread ID on Linux via `SYS_gettid`.
+#[cfg(target_os = "linux")]
+fn lua_gettid(_lua: &Lua, args: Variadic<Value>) -> mlua::Result<i64> {
+    check_argc("gettid", &args, 0)?;
+    // SAFETY: `SYS_gettid` takes no arguments and always returns the calling thread ID on Linux.
+    let tid = unsafe { libc::syscall(libc::SYS_gettid) };
+    Ok(tid as i64)
+}
+
+/// Non-Linux fallback for `gettid` returning `0`.
+#[cfg(not(target_os = "linux"))]
+fn lua_gettid(_lua: &Lua, args: Variadic<Value>) -> mlua::Result<i64> {
+    check_argc("gettid", &args, 0)?;
+    Ok(0)
+}
+
+/// Returns `utsname` metadata via `libc::uname` on Unix targets.
+#[cfg(unix)]
+fn lua_uname(lua: &Lua, args: Variadic<Value>) -> mlua::Result<Value> {
+    check_argc("uname", &args, 0)?;
+    // SAFETY: `libc::utsname` is a plain C struct populated completely on `uname(...) == 0`.
+    let mut uts: libc::utsname = unsafe { std::mem::zeroed() };
+    // SAFETY: `uts` points to writable stack storage of type `libc::utsname`.
+    if unsafe { libc::uname(&raw mut uts) } != 0 {
+        return Ok(Value::Nil);
+    }
+    let tbl = lua.create_table_with_capacity(0, 5)?;
+    tbl.raw_set("sysname", c_buf_to_string(&uts.sysname))?;
+    tbl.raw_set("nodename", c_buf_to_string(&uts.nodename))?;
+    tbl.raw_set("release", c_buf_to_string(&uts.release))?;
+    tbl.raw_set("version", c_buf_to_string(&uts.version))?;
+    tbl.raw_set("machine", c_buf_to_string(&uts.machine))?;
+    Ok(Value::Table(tbl))
+}
+
+/// Non-Unix fallback for `uname` using Rust compile-time target constants.
+#[cfg(not(unix))]
+fn lua_uname(lua: &Lua, args: Variadic<Value>) -> mlua::Result<Value> {
+    check_argc("uname", &args, 0)?;
+    let tbl = lua.create_table_with_capacity(0, 5)?;
+    tbl.raw_set("sysname", std::env::consts::OS)?;
+    tbl.raw_set("nodename", "")?;
+    tbl.raw_set("release", "")?;
+    tbl.raw_set("version", "")?;
+    tbl.raw_set("machine", std::env::consts::ARCH)?;
+    Ok(Value::Table(tbl))
 }
