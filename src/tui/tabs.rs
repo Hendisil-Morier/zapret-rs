@@ -15,14 +15,17 @@ pub struct TabSpec {
     pub num_prefix: &'static str,
     /// Compact tab title rendered in the top bar (`" Strategy Finder "`, etc.).
     pub short_label: &'static str,
+    /// Ultra-compact tab title used when the terminal is too narrow for full tab labels.
+    pub compact_label: &'static str,
     /// Full section title rendered in the `?` keybindings popup.
     pub full_title: &'static str,
 }
 
 impl TabSpec {
     /// Total terminal cell width occupied by this tab inside the header `Tabs` widget.
-    pub const fn hit_width(self) -> u16 {
-        (self.num_prefix.len() + self.short_label.len()) as u16
+    pub const fn hit_width(self, compact: bool) -> u16 {
+        let label = if compact { self.compact_label } else { self.short_label };
+        (self.num_prefix.len() + label.len()) as u16
     }
 }
 
@@ -48,33 +51,43 @@ impl ActiveTab {
             tab: Self::Finder,
             num_prefix: " 1:",
             short_label: " Strategy Finder ",
+            compact_label: "Find ",
             full_title: "1: Strategy Finder",
         },
         TabSpec {
             tab: Self::Run,
             num_prefix: " 2:",
             short_label: if cfg!(windows) { " Run WinDivert " } else { " Run nfqws2 " },
+            compact_label: "Run ",
             full_title: if cfg!(windows) { "2: Run WinDivert" } else { "2: Run nfqws2" },
         },
         TabSpec {
             tab: Self::Config,
             num_prefix: " 3:",
             short_label: " Config & Diag ",
+            compact_label: "Cfg ",
             full_title: "3: Config & Diagnostics",
         },
         TabSpec {
             tab: Self::Speed,
             num_prefix: " 4:",
             short_label: " Speed Test ",
+            compact_label: "Spd ",
             full_title: "4: Speed Test",
         },
         TabSpec {
             tab: Self::Status,
             num_prefix: " 5:",
             short_label: " Status ",
+            compact_label: "Stat ",
             full_title: "5: Status",
         },
     ];
+
+    /// Returns `true` when `tabs_box_width` is too narrow to show full tab titles cleanly.
+    pub fn use_compact_labels(tabs_box_width: u16) -> bool {
+        tabs_box_width < 68
+    }
 
     /// Returns the shared [`TabSpec`] metadata for `self`.
     pub const fn spec(self) -> &'static TabSpec {

@@ -81,15 +81,19 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) {
 fn handle_header_click(state: &mut AppState, col: u16, header_area: Rect) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(40), Constraint::Length(36)])
+        .constraints([
+            Constraint::Min(40),
+            Constraint::Length(if header_area.width < 100 { 30 } else { 36 }),
+        ])
         .split(header_area);
     let tabs_box = cols[0];
     if col <= tabs_box.x || col + 1 >= tabs_box.right() {
         return;
     }
+    let compact = ActiveTab::use_compact_labels(tabs_box.width);
     let mut x = tabs_box.x + 1;
     for spec in &ActiveTab::SPECS {
-        let width = spec.hit_width();
+        let width = spec.hit_width(compact);
         if col >= x && col < x + width {
             state.tab = spec.tab;
             if spec.tab == ActiveTab::Status && state.status_checks.is_empty() {

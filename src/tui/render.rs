@@ -69,14 +69,19 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = &state.theme;
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(40), Constraint::Length(36)])
+        .constraints([
+            Constraint::Min(40),
+            Constraint::Length(if area.width < 100 { 30 } else { 36 }),
+        ])
         .split(area);
+    let compact = ActiveTab::use_compact_labels(cols[0].width);
     let tab_titles = ActiveTab::SPECS
         .iter()
         .map(|spec| {
+            let label = if compact { spec.compact_label } else { spec.short_label };
             Line::from(vec![
                 Span::styled(spec.num_prefix, Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
-                Span::styled(spec.short_label, Style::default().fg(t.info)),
+                Span::styled(label, Style::default().fg(t.info)),
             ])
         })
         .collect::<Vec<_>>();
@@ -207,13 +212,20 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
 /// Renders Tab 2: active config summary, live packet telemetry cards, and daemon log.
 fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = &state.theme;
+    let ctrl_lines = run_controller_lines(state);
+    let inner_w = usize::from(area.width.saturating_sub(2)).max(1);
+    let ctrl_wrapped: usize = ctrl_lines
+        .iter()
+        .map(|l| l.width().max(1).div_ceil(inner_w))
+        .sum();
+    let ctrl_h = u16::try_from(ctrl_wrapped + 2).unwrap_or(8).clamp(6, 9);
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(6),
+            Constraint::Length(ctrl_h),
             Constraint::Length(3),
             Constraint::Min(6),
-            Constraint::Length(4),
+            Constraint::Length(5),
         ])
         .split(area);
 
@@ -224,7 +236,7 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         RunStatus::Stopped => t.frame,
     };
     let ctrl_title = if cfg!(windows) { " Live WinDivert Controller " } else { " Live nfqws2 Controller " };
-    let info = Paragraph::new(run_controller_lines(state))
+    let info = Paragraph::new(ctrl_lines)
         .wrap(Wrap { trim: true })
         .block(panel_block(ctrl_title, ctrl_border, t.accent_bright));
     frame.render_widget(info, rows[0]);
@@ -281,16 +293,35 @@ pub(crate) fn draw_log_list(
     t: &Theme,
 ) {
     let capacity = usize::from(area.height.saturating_sub(2)).max(1);
-    let max_scroll = logs.len().saturating_sub(capacity);
+    let inner_w = usize::from(area.width.saturating_sub(2)).max(1);
+    let mut wrapped_items: Vec<ListItem> = Vec::new();
+    for raw in logs {
+        let char_count = raw.chars().count();
+        if char_count <= inner_w {
+            wrapped_items.push(ListItem::new(log_line_spans(raw, t)));
+        } else {
+            let mut boundaries: Vec<usize> =
+                raw.char_indices().map(|(b, _)| b).collect();
+            boundaries.push(raw.len());
+            for (idx, start_c) in (0..char_count).step_by(inner_w).enumerate() {
+                let end_c = (start_c + inner_w).min(char_count);
+                let slice = &raw[boundaries[start_c]..boundaries[end_c]];
+                if idx == 0 {
+                    wrapped_items.push(ListItem::new(log_line_spans(slice, t)));
+                } else {
+                    wrapped_items.push(ListItem::new(Line::from(Span::styled(
+                        slice,
+                        Style::default().fg(t.subtle),
+                    ))));
+                }
+            }
+        }
+    }
+    let max_scroll = wrapped_items.len().saturating_sub(capacity);
     let clamped = usize::from(scroll).min(max_scroll);
-    let end = logs.len().saturating_sub(clamped);
+    let end = wrapped_items.len().saturating_sub(clamped);
     let start = end.saturating_sub(capacity);
-    let items: Vec<ListItem> = logs
-        .iter()
-        .skip(start)
-        .take(end - start)
-        .map(|line| ListItem::new(log_line_spans(line, t)))
-        .collect();
+    let items: Vec<ListItem> = wrapped_items.drain(start..end).collect();
     let heading = if clamped > 0 {
         format!("{}(+{clamped}) ", title.trim_end())
     } else {
