@@ -21,6 +21,8 @@ pub mod toml;
 /// Windows WinDivert filter-expression [`FirewallBackend`] implementation.
 #[cfg(windows)]
 pub mod windivert;
+/// In-process packet-interception worker thread and [`StrategyApplier`] handle.
+pub mod worker;
 
 /// Public API re-exports for `strat_finder` strategy catalog expansion.
 pub use catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
@@ -51,11 +53,10 @@ pub use probe::{
     CurlProbeBackend, PROBE_WRITE_OUT, ProbeBackend, ProbeOutcome, ProbeRequest,
     classify_curl_output, is_spoof_redirect,
 };
-/// Public API re-exports for `strat_finder` NFQUEUE worker and multi-domain scan orchestration.
-pub use runner::{
-    InProcessWorkerHandle, ProgressEvent, ScanConfig, ScanReport, StrategyApplier,
-    TargetScanResult, run_scan,
-};
+/// Public API re-exports for `strat_finder` multi-domain scan orchestration.
+pub use runner::{ProgressEvent, ScanConfig, ScanReport, TargetScanResult, run_scan};
+/// Public API re-exports for `strat_finder` in-process worker handle and applier trait.
+pub use worker::{InProcessWorkerHandle, StrategyApplier};
 /// Public API re-exports for `strat_finder` ranking, set cover, and TOML rendering.
 pub use toml::{
     CoveredProfile, DomainStrategies, StrategyMatch, TomlRenderOptions, rank_matches,

@@ -156,46 +156,67 @@ fn start_standalone_daemon(
     let uid_arg = state.uid.to_string();
     let sub_prefix = subcmd.map_or_else(String::new, |s| format!("{s} "));
 
-    if state.uid != 0 && sudo_needs_password() {
-        return DaemonLaunchOutcome::NeedSudo(format!(
-            "sudo {} {sub_prefix}--daemon --config {} {nft_flag}",
-            bin.display(),
-            cfg_path.display()
-        ));
+    #[cfg(windows)]
+    {
+        let _ = (sub_prefix, nft_flag, uid_arg);
+        let mut cmd = Command::new(bin);
+        if let Some(sub) = subcmd {
+            cmd.arg(sub);
+        }
+        cmd.args(["--config"])
+            .arg(&cfg_path)
+            .arg("--control-socket")
+            .arg(&sock_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Err(err) = cmd.spawn() {
+            return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display()));
+        }
     }
-    let mut cmd = if state.uid == 0 {
-        let mut direct = Command::new(bin);
-        if let Some(sub) = subcmd {
-            direct.arg(sub);
+    #[cfg(not(windows))]
+    {
+        if state.uid != 0 && sudo_needs_password() {
+            return DaemonLaunchOutcome::NeedSudo(format!(
+                "sudo {} {sub_prefix}--daemon --config {} {nft_flag}",
+                bin.display(),
+                cfg_path.display()
+            ));
         }
-        direct
-    } else {
-        let mut s = Command::new("sudo");
-        s.args(["-n", "--"]).arg(bin);
-        if let Some(sub) = subcmd {
-            s.arg(sub);
-        }
-        s.args(["--uid", &uid_arg]);
-        s
-    };
-    cmd.args(["--daemon", "--config"])
-        .arg(&cfg_path)
-        .arg("--control-socket")
-        .arg(&sock_path)
-        .arg(nft_flag)
-        .stdin(Stdio::null());
+        let mut cmd = if state.uid == 0 {
+            let mut direct = Command::new(bin);
+            if let Some(sub) = subcmd {
+                direct.arg(sub);
+            }
+            direct
+        } else {
+            let mut s = Command::new("sudo");
+            s.args(["-n", "--"]).arg(bin);
+            if let Some(sub) = subcmd {
+                s.arg(sub);
+            }
+            s.args(["--uid", &uid_arg]);
+            s
+        };
+        cmd.args(["--daemon", "--config"])
+            .arg(&cfg_path)
+            .arg("--control-socket")
+            .arg(&sock_path)
+            .arg(nft_flag)
+            .stdin(Stdio::null());
 
-    match cmd.output() {
-        Ok(out) if out.status.success() => {}
-        Ok(out) => {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
-            return DaemonLaunchOutcome::Failed(if err.is_empty() {
-                "nfqws2 --daemon failed to start".to_owned()
-            } else {
-                err
-            });
+        match cmd.output() {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+                return DaemonLaunchOutcome::Failed(if err.is_empty() {
+                    "nfqws2 --daemon failed to start".to_owned()
+                } else {
+                    err
+                });
+            }
+            Err(err) => return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display())),
         }
-        Err(err) => return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display())),
     }
 
     match wait_for_control_socket(Some(&sock_path), DAEMON_START_TIMEOUT) {

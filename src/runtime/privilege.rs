@@ -33,13 +33,64 @@ pub fn current_uid_or_zero() -> u32 {
     }
 }
 
+/// Returns `true` when the current Windows process token has elevated Administrator privileges.
+#[cfg(windows)]
+fn is_windows_admin() -> bool {
+    /// Win32 `TOKEN_QUERY` access right.
+    const TOKEN_QUERY: u32 = 0x0008;
+    /// Win32 `TOKEN_INFORMATION_CLASS::TokenElevation` (`20`).
+    const TOKEN_ELEVATION_CLASS: u32 = 20;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn CloseHandle(h_object: isize) -> i32;
+    }
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn OpenProcessToken(process_handle: isize, desired_access: u32, token_handle: *mut isize) -> i32;
+        fn GetTokenInformation(
+            token_handle: isize,
+            token_information_class: u32,
+            token_information: *mut u32,
+            token_information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    let mut token: isize = 0;
+    // SAFETY: `GetCurrentProcess` returns a pseudo-handle and `token` is valid stack storage.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token) } == 0 {
+        return false;
+    }
+    let mut elevation: u32 = 0;
+    let mut ret_len: u32 = 0;
+    // SAFETY: `elevation` is a 4-byte `TOKEN_ELEVATION` struct (`DWORD TokenIsElevated`).
+    let ok = unsafe {
+        GetTokenInformation(
+            token,
+            TOKEN_ELEVATION_CLASS,
+            &raw mut elevation,
+            std::mem::size_of::<u32>() as u32,
+            &raw mut ret_len,
+        )
+    };
+    // SAFETY: `token` was opened by `OpenProcessToken`.
+    let _ = unsafe { CloseHandle(token) };
+    ok != 0 && elevation != 0
+}
+
 /// Returns `true` when the current process holds packet capture/injection privileges.
 pub fn has_packet_capture_privileges() -> Result<bool, ProcessError> {
     #[cfg(target_os = "linux")]
     {
         has_effective_caps(CAP_MASK_NET)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        Ok(is_windows_admin())
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         Ok(false)
     }

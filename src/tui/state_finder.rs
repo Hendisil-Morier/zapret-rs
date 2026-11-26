@@ -6,8 +6,11 @@ use std::time::{Duration, Instant};
 /// Keyboard key codes handled inside the Strategy Finder form and text editor.
 use crossterm::event::KeyCode;
 
-/// Strategy catalog, `nftables` preview generator, scan settings, and domain normalization.
-use crate::tools::{NftFirewallBackend, ProbeProtocol, ScanConfig, ScanLevel, normalize_domain};
+/// Strategy catalog, scan settings, and domain normalization.
+use crate::tools::{ProbeProtocol, ScanConfig, ScanLevel, normalize_domain};
+/// `nftables` preview generator on non-Windows targets.
+#[cfg(not(windows))]
+use crate::tools::NftFirewallBackend;
 /// Application state updated by Strategy Finder actions and worker progress events.
 use crate::tui::state::AppState;
 /// Navigation, form descriptors, dwell delay, action results, and background scan events.
@@ -72,7 +75,14 @@ impl AppState {
             force_blocked: false,
         };
         let (tcp, udp) = cfg.required_ports();
-        NftFirewallBackend::build_nft_script(self.finder_qnum, self.fwmark, &tcp, &udp)
+        #[cfg(windows)]
+        {
+            crate::tools::build_windivert_filter(&tcp, &udp)
+        }
+        #[cfg(not(windows))]
+        {
+            NftFirewallBackend::build_nft_script(self.finder_qnum, self.fwmark, &tcp, &udp)
+        }
     }
 
     /// Applies one background [`ScanUiEvent`] to live progress, results table, logs, and TOML.

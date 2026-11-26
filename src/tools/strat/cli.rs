@@ -38,9 +38,9 @@ use crate::tools::strat::nft::{NftFirewallBackend, build_nft_cleanup_cmd};
 /// Live `curl` connectivity probe backend (runs children with zero capabilities).
 use crate::tools::strat::probe::CurlProbeBackend;
 /// In-process NFQUEUE worker thread and scan orchestrator.
-use crate::tools::strat::runner::{
-    InProcessWorkerHandle, ProgressEvent, ScanConfig, ScanReport, run_scan,
-};
+use crate::tools::strat::runner::{ProgressEvent, ScanConfig, ScanReport, run_scan};
+/// In-process capture worker handle.
+use crate::tools::strat::worker::InProcessWorkerHandle;
 /// Minimal profile cover and symlink-safe `nfqws2.toml` serializer.
 use crate::tools::strat::toml::{
     CoveredProfile, TomlRenderOptions, render_nfqws2_toml, write_config_nofollow,
