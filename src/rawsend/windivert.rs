@@ -39,6 +39,38 @@ impl WinDivertSender {
     }
 }
 
+/// Resolves the outbound Windows interface index for `dst` via `GetBestInterfaceEx` when `ifout` is absent.
+fn resolve_best_if_idx(dst: IpAddr) -> u32 {
+    /// Win32 `AF_INET` address family (`2`).
+    const AF_INET: u16 = 2;
+    /// Win32 `AF_INET6` address family (`23`).
+    const AF_INET6: u16 = 23;
+
+    #[link(name = "iphlpapi")]
+    unsafe extern "system" {
+        fn GetBestInterfaceEx(dest_addr: *const u8, best_if_index: *mut u32) -> u32;
+    }
+
+    let mut best_idx = 0u32;
+    let rc = match dst {
+        IpAddr::V4(v4) => {
+            let mut sa = [0u8; 16];
+            sa[0..2].copy_from_slice(&AF_INET.to_ne_bytes());
+            sa[4..8].copy_from_slice(&v4.octets());
+            // SAFETY: `sa` is a 16-byte `SOCKADDR_IN` and `best_idx` is valid writable `DWORD`.
+            unsafe { GetBestInterfaceEx(sa.as_ptr(), &raw mut best_idx) }
+        }
+        IpAddr::V6(v6) => {
+            let mut sa = [0u8; 28];
+            sa[0..2].copy_from_slice(&AF_INET6.to_ne_bytes());
+            sa[8..24].copy_from_slice(&v6.octets());
+            // SAFETY: `sa` is a 28-byte `SOCKADDR_IN6` and `best_idx` is valid writable `DWORD`.
+            unsafe { GetBestInterfaceEx(sa.as_ptr(), &raw mut best_idx) }
+        }
+    };
+    if rc == 0 { best_idx } else { 0 }
+}
+
 impl PacketSender for WinDivertSender {
     /// Injects one raw IPv4 or IPv6 packet via WinDivert's `SEND_ONLY` handle.
     fn send(
@@ -48,10 +80,15 @@ impl PacketSender for WinDivertSender {
         ifout: Option<&str>,
         packet: &[u8],
     ) -> Result<(), RawSendError> {
-        let if_idx = ifout.and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-        let addr = WinDivertAddress::outbound(if_idx, dst.is_ipv6());
+        let if_idx = ifout
+            .and_then(|s| s.parse::<u32>().ok())
+            .filter(|&idx| idx > 0)
+            .unwrap_or_else(|| resolve_best_if_idx(dst));
+        let mut addr = WinDivertAddress::outbound(if_idx, dst.is_ipv6());
+        let mut buf = packet.to_vec();
         let handle = self.ensure_handle()?;
-        handle.send(packet, &addr)?;
+        handle.calc_checksums(&mut buf, &mut addr);
+        handle.send(&buf, &addr)?;
         Ok(())
     }
 }
