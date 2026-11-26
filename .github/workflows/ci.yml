@@ -19,6 +19,9 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux
+          cache-on-failure: true
       - uses: taiki-e/install-action@nextest
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
@@ -33,6 +36,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+          cache-on-failure: true
       - name: Check Windows build
         run: cargo check --all-targets
 
@@ -46,6 +52,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+      - name: Cache WinDivert archive
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/WinDivert-2.2.2-A.zip
+          key: windivert-2.2.2-A
       - name: Build release binary
         run: cargo build --release
       - name: Package Windows release with WinDivert
@@ -61,7 +74,9 @@ jobs:
 
           $wdZip = "$env:TEMP/WinDivert-2.2.2-A.zip"
           $wdDir = "$env:TEMP/WinDivert-2.2.2-A"
-          Invoke-WebRequest -Uri "https://reqrypt.org/download/WinDivert-2.2.2-A.zip" -OutFile $wdZip
+          if (-not (Test-Path $wdZip)) {
+            Invoke-WebRequest -Uri "https://reqrypt.org/download/WinDivert-2.2.2-A.zip" -OutFile $wdZip
+          }
           Expand-Archive -Path $wdZip -DestinationPath $env:TEMP -Force
           Copy-Item "$wdDir/x64/WinDivert.dll" "$stage/WinDivert.dll"
           Copy-Item "$wdDir/x64/WinDivert64.sys" "$stage/WinDivert64.sys"
