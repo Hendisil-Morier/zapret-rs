@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -34,3 +35,42 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check Windows build
         run: cargo check --all-targets
+
+  release-windows:
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --release
+      - name: Package Windows release with WinDivert
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $stage = "dist"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target/release/zapret-rs.exe" "$stage/zapret-rs.exe"
+          Copy-Item "README.md" "$stage/README.md"
+          Copy-Item "CHANGELOG.md" "$stage/CHANGELOG.md"
+          Copy-Item -Recurse "lua" "$stage/lua"
+
+          $wdZip = "$env:TEMP/WinDivert-2.2.2-A.zip"
+          $wdDir = "$env:TEMP/WinDivert-2.2.2-A"
+          Invoke-WebRequest -Uri "https://reqrypt.org/download/WinDivert-2.2.2-A.zip" -OutFile $wdZip
+          Expand-Archive -Path $wdZip -DestinationPath $env:TEMP -Force
+          Copy-Item "$wdDir/x64/WinDivert.dll" "$stage/WinDivert.dll"
+          Copy-Item "$wdDir/x64/WinDivert64.sys" "$stage/WinDivert64.sys"
+          Copy-Item "$wdDir/LICENSE" "$stage/WinDivert-LICENSE.txt"
+
+          $archive = "zapret-rs-$tag-windows-x86_64.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $archive -Force
+      - name: Upload Windows release archive
+        uses: softprops/action-gh-release@v2
+        with:
+          files: zapret-rs-${{ github.ref_name }}-windows-x86_64.zip
+          generate_release_notes: true
