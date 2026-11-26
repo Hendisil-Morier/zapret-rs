@@ -282,6 +282,32 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     );
 }
 
+/// Pushes `raw` wrapped to `inner_w` into `out`, preserving log coloring on the first line.
+fn push_wrapped_log<'a>(
+    out: &mut Vec<ListItem<'a>>,
+    raw: &'a str,
+    inner_w: usize,
+    t: &Theme,
+) {
+    let char_count = raw.chars().count();
+    if char_count <= inner_w {
+        out.push(ListItem::new(log_line_spans(raw, t)));
+        return;
+    }
+    let mut boundaries: Vec<usize> = raw.char_indices().map(|(b, _)| b).collect();
+    boundaries.push(raw.len());
+    for (idx, start_c) in (0..char_count).step_by(inner_w).enumerate() {
+        let end_c = (start_c + inner_w).min(char_count);
+        let slice = &raw[boundaries[start_c]..boundaries[end_c]];
+        let line = if idx == 0 {
+            log_line_spans(slice, t)
+        } else {
+            Line::from(Span::styled(slice, Style::default().fg(t.subtle)))
+        };
+        out.push(ListItem::new(line));
+    }
+}
+
 /// Renders a bounded scrolling log widget with optional history offset (`scroll = 0` follows tail).
 pub(crate) fn draw_log_list(
     frame: &mut Frame,
@@ -296,26 +322,7 @@ pub(crate) fn draw_log_list(
     let inner_w = usize::from(area.width.saturating_sub(2)).max(1);
     let mut wrapped_items: Vec<ListItem> = Vec::new();
     for raw in logs {
-        let char_count = raw.chars().count();
-        if char_count <= inner_w {
-            wrapped_items.push(ListItem::new(log_line_spans(raw, t)));
-        } else {
-            let mut boundaries: Vec<usize> =
-                raw.char_indices().map(|(b, _)| b).collect();
-            boundaries.push(raw.len());
-            for (idx, start_c) in (0..char_count).step_by(inner_w).enumerate() {
-                let end_c = (start_c + inner_w).min(char_count);
-                let slice = &raw[boundaries[start_c]..boundaries[end_c]];
-                if idx == 0 {
-                    wrapped_items.push(ListItem::new(log_line_spans(slice, t)));
-                } else {
-                    wrapped_items.push(ListItem::new(Line::from(Span::styled(
-                        slice,
-                        Style::default().fg(t.subtle),
-                    ))));
-                }
-            }
-        }
+        push_wrapped_log(&mut wrapped_items, raw, inner_w, t);
     }
     let max_scroll = wrapped_items.len().saturating_sub(capacity);
     let clamped = usize::from(scroll).min(max_scroll);

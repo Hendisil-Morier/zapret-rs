@@ -18,6 +18,33 @@ use crate::tui::status_check::ComponentHealth;
 /// Shared panel border builder and `[key]` hint styling.
 use crate::tui::theme::{panel_block, styled_key_hints};
 
+/// Builds one styled table row for a [`ComponentCheck`] item.
+fn build_status_row<'a>(
+    item: &'a crate::tui::status_check::ComponentCheck,
+    selected: bool,
+    hscroll: usize,
+    summary_width: usize,
+    t: &crate::tui::theme_config::Theme,
+) -> Row<'a> {
+    let (badge, badge_col) = match item.health {
+        ComponentHealth::Ok => ("[OK]", t.ok_bright),
+        ComponentHealth::Warn => ("[WARN]", t.warn_bright),
+        ComponentHealth::Err => ("[ERR]", t.err_bright),
+    };
+    let row_style = if selected {
+        Style::default().bg(t.highlight_bg).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let summary = windowed_text(item.summary.as_str(), None, hscroll, summary_width);
+    Row::new(vec![
+        Cell::from(Span::styled(item.name, Style::default().fg(t.accent_bright))),
+        Cell::from(Span::styled(badge, Style::default().fg(badge_col).add_modifier(Modifier::BOLD))),
+        Cell::from(Span::styled(summary, Style::default().fg(t.text))),
+    ])
+    .style(row_style)
+}
+
 /// Renders Tab 5: operational component table and selected-row remediation/detail panel.
 pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     let t = &state.theme;
@@ -32,28 +59,9 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         .iter()
         .enumerate()
         .map(|(idx, item)| {
-            let (badge, badge_col) = match item.health {
-                ComponentHealth::Ok => ("[OK]", t.ok_bright),
-                ComponentHealth::Warn => ("[WARN]", t.warn_bright),
-                ComponentHealth::Err => ("[ERR]", t.err_bright),
-            };
             let selected = idx == state.status_selected;
-            let row_style = if selected {
-                Style::default().bg(t.highlight_bg).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
             let hscroll = if selected { state.status_hscroll } else { 0 };
-            let summary = windowed_text(item.summary.as_str(), None, hscroll, summary_width);
-            Row::new(vec![
-                Cell::from(Span::styled(item.name, Style::default().fg(t.accent_bright))),
-                Cell::from(Span::styled(
-                    badge,
-                    Style::default().fg(badge_col).add_modifier(Modifier::BOLD),
-                )),
-                Cell::from(Span::styled(summary, Style::default().fg(t.text))),
-            ])
-            .style(row_style)
+            build_status_row(item, selected, hscroll, summary_width, t)
         })
         .collect();
 
