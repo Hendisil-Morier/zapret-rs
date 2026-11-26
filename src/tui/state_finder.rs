@@ -102,6 +102,12 @@ impl AppState {
                 self.finder_status = FinderStatus::Done;
                 self.progress_done = self.progress_total;
                 if !rendered_toml.is_empty() {
+                    if !self.parsed_profiles.is_empty() && self.toml_error.is_none() {
+                        self.pending_merge =
+                            Some((self.active_toml.clone(), rendered_toml.clone()));
+                    } else {
+                        self.pending_merge = None;
+                    }
                     self.set_active_toml(rendered_toml);
                 }
                 self.progress_label = if report.interrupted {

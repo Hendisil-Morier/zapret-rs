@@ -40,7 +40,7 @@ use crate::tui::render::draw_app;
 /// Terminal RAII session wrapper, seamless re-exec snapshot, and TOML file I/O helpers.
 use crate::tui::session::{
     REEXEC_STATE_ENV, ReexecSnapshot, SEAMLESS_REEXEC_ENV, TerminalSession, drop_fw_tui,
-    edit_config_in_editor, reload_toml_from_disk, save_toml_to_disk,
+    edit_config_in_editor, reload_toml_from_disk, save_toml_to_disk, seed_domains_on_startup,
 };
 /// Tab 4 speed comparison job and its per-tick driver.
 use crate::tui::speed_runner::{SpeedJob, begin_speed_test, poll_speed_test};
@@ -83,6 +83,9 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
         }
     }
     let (from_reexec, pending_action) = ReexecSnapshot::restore_from_env(&mut state);
+    if !from_reexec {
+        seed_domains_on_startup(&mut state);
+    }
     state.control_socket_override = opts.control_socket;
     state.detected_socket = detect_control_socket(state.control_socket_override.as_deref());
     state.has_net_caps = has_effective_caps(CAP_MASK_NET).unwrap_or(false);

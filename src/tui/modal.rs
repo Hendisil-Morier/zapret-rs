@@ -36,6 +36,8 @@ pub enum ModalPurpose {
     ConfirmStopDaemon,
     /// Confirm briefly stopping `nfqws2` to measure baseline speed, then restarting and re-testing.
     ConfirmSpeedTest,
+    /// Confirm merging newly scanned profiles into existing `nfqws2.toml` rules.
+    ConfirmMergeConfig,
 }
 
 /// Outcome produced by [`AuthModal::handle_key`].
@@ -215,13 +217,18 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
             " Confirm Before/After Speed Check ",
             "Temporarily stops nfqws2 to measure unprotected baseline, then restarts it and re-tests.",
         ),
+        ModalPurpose::ConfirmMergeConfig => (
+            " Merge Existing nfqws2.toml Profiles? ",
+            "Existing profiles are loaded. Merge new strategy results instead of replacing them?",
+        ),
     };
 
     let border_col = match modal.purpose {
         ModalPurpose::ConfirmStopDaemon => t.err,
-        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon | ModalPurpose::ConfirmSpeedTest => {
-            t.warn
-        }
+        ModalPurpose::SudoForScan
+        | ModalPurpose::SudoForDaemon
+        | ModalPurpose::ConfirmSpeedTest
+        | ModalPurpose::ConfirmMergeConfig => t.warn,
         ModalPurpose::GrantCaps => t.accent_bright,
     };
     let outer = Block::default()
@@ -255,11 +262,20 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         rows[1],
     );
 
-    if matches!(modal.purpose, ModalPurpose::ConfirmStopDaemon | ModalPurpose::ConfirmSpeedTest) {
-        let prompt_msg = if modal.purpose == ModalPurpose::ConfirmSpeedTest {
-            " Press Enter to stop nfqws2 briefly and run the before/after comparison, or Esc to cancel."
-        } else {
-            " Press Enter to stop the remote nfqws2 daemon, or Esc to keep it running."
+    if matches!(
+        modal.purpose,
+        ModalPurpose::ConfirmStopDaemon
+            | ModalPurpose::ConfirmSpeedTest
+            | ModalPurpose::ConfirmMergeConfig
+    ) {
+        let prompt_msg = match modal.purpose {
+            ModalPurpose::ConfirmSpeedTest => {
+                " Press Enter to stop nfqws2 briefly and run the before/after comparison, or Esc to cancel."
+            }
+            ModalPurpose::ConfirmMergeConfig => {
+                " Press Enter to merge new domains into existing profiles, or Esc to replace with new scan."
+            }
+            _ => " Press Enter to stop the remote nfqws2 daemon, or Esc to keep it running.",
         };
         let prompt = Paragraph::new(Line::from(Span::styled(
             prompt_msg,
@@ -301,6 +317,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => "[Enter] Authenticate & Continue   [Esc] Cancel",
         ModalPurpose::ConfirmStopDaemon => "[Enter] Stop Remote Daemon   [Esc] Cancel",
         ModalPurpose::ConfirmSpeedTest => "[Enter] Run Speed Test   [Esc] Cancel",
+        ModalPurpose::ConfirmMergeConfig => "[Enter] Merge Profiles   [Esc] Replace Only",
     };
     frame.render_widget(
         Paragraph::new(Line::from(styled_key_hints(action_hint, t))),

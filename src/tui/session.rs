@@ -4,6 +4,8 @@
 use std::fs;
 /// Standard stdout stream wrapped by the `ratatui` `CrosstermBackend`.
 use std::io::{self, Stdout};
+/// Path resolution for the sibling domain history file beside `nfqws2.toml`.
+use std::path::PathBuf;
 
 /// `crossterm` terminal raw-mode and alternate-screen lifecycle commands.
 use crossterm::{
@@ -15,8 +17,12 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 /// Serialization helpers for preserving TUI form state across seamless `setcap` restarts.
 use serde::{Deserialize, Serialize};
 
-/// Symlink-safe TOML writer, `~/` expansion, scan level enum, and `nftables` guard cleanup.
-use crate::tools::{FirewallHandle, ScanLevel, expand_tilde, write_config_nofollow};
+/// Validated `AppConfig` parser used to extract `hostlist_domains` when seeding Tab 1.
+use crate::config::AppConfig;
+/// Symlink-safe TOML writer, `~/` expansion, scan level enum, and domain extractor.
+use crate::tools::{
+    FirewallHandle, ScanLevel, expand_tilde, extract_hostlist_domains, write_config_nofollow,
+};
 /// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML template generator.
 use crate::tui::editor::{build_starter_toml, resolve_editor_command, spawn_unprivileged_editor};
 /// Application state read and updated around external editing.
@@ -218,12 +224,52 @@ pub(crate) fn edit_config_in_editor(state: &mut AppState, session: &mut Terminal
     }
 }
 
+/// Returns the sibling `.zapret-domains` history path beside `state.output_path`.
+pub fn domains_history_path(output_path: &str) -> PathBuf {
+    let cfg = expand_tilde(output_path);
+    cfg.with_file_name("domains")
+}
+
+/// Persists non-empty Tab 1 `domains_input` alongside `nfqws2.toml` cleanly via `O_NOFOLLOW`.
+pub fn save_domains_history(state: &AppState) {
+    let trimmed = state.domains_input.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let path = domains_history_path(&state.output_path);
+    let _ = write_config_nofollow(&path, trimmed);
+}
+
+/// Seeds empty `state.domains_input` from saved domain history or `hostlist_domains` in `active_toml`.
+pub fn seed_domains_on_startup(state: &mut AppState) {
+    if !state.domains_input.trim().is_empty() {
+        return;
+    }
+    let hist = domains_history_path(&state.output_path);
+    if let Ok(saved) = fs::read_to_string(hist) {
+        let trimmed = saved.trim();
+        if !trimmed.is_empty() {
+            state.domains_input = trimmed.to_owned();
+            return;
+        }
+    }
+    if !state.active_toml.trim().is_empty()
+        && let Ok(cfg) = AppConfig::from_toml_str(&state.active_toml, None)
+    {
+        let domains = extract_hostlist_domains(&cfg);
+        if !domains.is_empty() {
+            state.domains_input = domains.join(", ");
+        }
+    }
+}
+
 /// Saves `state.active_toml` cleanly to `state.output_path` without following symlinks.
 pub(crate) fn save_toml_to_disk(state: &mut AppState) {
     if state.active_toml.trim().is_empty() {
         state.status_banner = "Nothing to save yet.".to_owned();
         return;
     }
+    save_domains_history(state);
     let path = expand_tilde(&state.output_path);
     match write_config_nofollow(&path, &state.active_toml) {
         Ok(()) => state.status_banner = format!("Saved {}", path.display()),
@@ -237,6 +283,7 @@ pub(crate) fn reload_toml_from_disk(state: &mut AppState) {
     match fs::read_to_string(&path) {
         Ok(text) => {
             state.set_active_toml(text);
+            seed_domains_on_startup(state);
             state.status_banner = match &state.toml_error {
                 Some(err) => format!("Loaded with TOML error: {}", err.lines().next().unwrap_or(err)),
                 None => format!("Loaded {} ({} profiles)", path.display(), state.parsed_profiles.len()),

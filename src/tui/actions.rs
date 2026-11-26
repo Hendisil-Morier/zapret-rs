@@ -3,14 +3,14 @@
 /// I/O error kind inspection for detecting `PermissionDenied` from non-interactive `nftables` installs.
 use std::io;
 
-/// Symlink-safe TOML writer, `~/` expansion, and non-interactive `nftables` helpers.
-use crate::tools::{FirewallHandle, NftFirewallBackend, STRAT_FINDER_NFT_TABLE};
+/// Symlink-safe TOML writer, `~/` expansion, non-interactive `nftables`, and TOML merge helpers.
+use crate::tools::{FirewallHandle, NftFirewallBackend, STRAT_FINDER_NFT_TABLE, merge_nfqws2_toml};
 /// Floating authentication modal helpers and silent `sudo` executor.
 use crate::tui::modal::{AuthModal, ModalPurpose, run_sudo_silent, zeroize_string};
 /// Detached `systemd` / standalone `nfqws2 --daemon` background launcher.
 use crate::tui::daemon_launch::{DaemonLaunchOutcome, launch_external_daemon};
-/// Terminal RAII session wrapper and external `$EDITOR` invocation.
-use crate::tui::session::{TerminalSession, drop_fw_tui};
+/// Terminal RAII session wrapper, external `$EDITOR`, and Tab 1 domain history persistence.
+use crate::tui::session::{TerminalSession, drop_fw_tui, save_domains_history};
 /// Mutable TUI application state.
 use crate::tui::state::AppState;
 /// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
@@ -61,7 +61,10 @@ pub(crate) fn try_start_scan(state: &mut AppState, active_scan: &mut Option<Acti
         return;
     }
     match res {
-        Ok(scan) => *active_scan = Some(scan),
+        Ok(scan) => {
+            save_domains_history(state);
+            *active_scan = Some(scan);
+        }
         Err(err) => state.apply_scan_event(ScanUiEvent::Failed(err)),
     }
 }
@@ -135,6 +138,22 @@ pub(crate) fn submit_auth_modal(
         execute_remote_stop(state, session_tab2);
         return false;
     }
+    if purpose == ModalPurpose::ConfirmMergeConfig {
+        state.modal = None;
+        if let Some((prev, new_toml)) = state.pending_merge.take() {
+            match merge_nfqws2_toml(&prev, &new_toml) {
+                Ok(merged) => {
+                    state.set_active_toml(merged);
+                    state.status_banner = format!(
+                        "Merged into {} profile(s). Press 's' to save.",
+                        state.parsed_profiles.len()
+                    );
+                }
+                Err(err) => state.status_banner = format!("Merge failed (kept new scan): {err}"),
+            }
+        }
+        return false;
+    }
 
     let mut pw_buf = if modal.needs_password {
         Some(modal.take_password())
@@ -150,7 +169,9 @@ pub(crate) fn submit_auth_modal(
         ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => {
             run_sudo_silent(&["-v"], pw_ref)
         }
-        ModalPurpose::ConfirmStopDaemon | ModalPurpose::ConfirmSpeedTest => Ok(()),
+        ModalPurpose::ConfirmStopDaemon
+        | ModalPurpose::ConfirmSpeedTest
+        | ModalPurpose::ConfirmMergeConfig => Ok(()),
     };
 
     if let Some(ref mut secret) = pw_buf {
@@ -168,7 +189,9 @@ pub(crate) fn submit_auth_modal(
                 }
                 ModalPurpose::SudoForScan => try_start_scan(state, active_scan),
                 ModalPurpose::SudoForDaemon => try_start_or_attach(state, session_tab2),
-                ModalPurpose::ConfirmStopDaemon | ModalPurpose::ConfirmSpeedTest => {}
+                ModalPurpose::ConfirmStopDaemon
+                | ModalPurpose::ConfirmSpeedTest
+                | ModalPurpose::ConfirmMergeConfig => {}
             }
         }
         Err(msg) => {
@@ -202,6 +225,14 @@ pub(crate) fn poll_active_scan(
     }
     if finished && let Some(mut done_scan) = active_scan.take() {
         done_scan.shutdown(|g| drop_fw_tui(session, g));
+        if state.pending_merge.is_some() && state.modal.is_none() {
+            let preview = format!(
+                "merge {} new profile(s) into existing {}",
+                state.parsed_profiles.len(),
+                state.output_path
+            );
+            state.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmMergeConfig, preview));
+        }
     }
 }
 

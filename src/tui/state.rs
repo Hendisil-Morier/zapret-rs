@@ -140,6 +140,8 @@ pub struct AppState {
     pub inspector: PacketInspectorState,
     /// Before/after speed comparison results and phase on Tab 4.
     pub speed: SpeedState,
+    /// Stashed `(previous_toml, scan_toml)` awaiting user merge confirmation after a scan.
+    pub pending_merge: Option<(String, String)>,
 }
 
 impl AppState {
@@ -211,6 +213,7 @@ impl AppState {
             theme,
             inspector: PacketInspectorState::default(),
             speed: SpeedState::default(),
+            pending_merge: None,
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
@@ -325,16 +328,21 @@ impl AppState {
     /// Processes a terminal key press and returns any side-effect [`AppAction`] for the runner.
     pub fn handle_key(&mut self, key: KeyEvent) -> AppAction {
         if let Some(modal) = self.modal.as_mut() {
+            let purpose = modal.purpose;
             return match modal.handle_key(key) {
                 ModalKeyResult::KeepOpen => AppAction::None,
                 ModalKeyResult::Close => {
                     self.modal = None;
                     self.pending_caps_action = None;
+                    if purpose == ModalPurpose::ConfirmMergeConfig {
+                        self.pending_merge = None;
+                        self.status_banner = "Kept new scan config only (press 's' to save).".to_owned();
+                    }
                     self.reset_finder_hover();
                     AppAction::None
                 }
                 ModalKeyResult::Submit => {
-                    if modal.purpose == ModalPurpose::ConfirmSpeedTest {
+                    if purpose == ModalPurpose::ConfirmSpeedTest {
                         self.modal = None;
                         AppAction::RunSpeedTest
                     } else {
