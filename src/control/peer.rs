@@ -19,10 +19,17 @@ pub struct PeerCredentials {
 /// Predicate determining whether a peer UID is authorized to access `daemon_uid`'s socket.
 pub type PeerUidCheck = fn(peer_uid: u32, daemon_uid: u32) -> bool;
 
-/// Returns the current process effective UID (`geteuid`).
+/// Returns the current process effective UID (`geteuid` on Unix, `0` elsewhere).
+#[cfg(unix)]
 pub fn current_euid() -> u32 {
     // SAFETY: `geteuid()` takes no arguments and always succeeds.
     unsafe { libc::geteuid() }
+}
+
+/// Returns `0` on non-Unix platforms lacking POSIX `geteuid`.
+#[cfg(not(unix))]
+pub fn current_euid() -> u32 {
+    0
 }
 
 /// Default authorization check allowing only peers running as the exact daemon UID.
@@ -30,7 +37,8 @@ pub fn same_uid(peer_uid: u32, daemon_uid: u32) -> bool {
     peer_uid == daemon_uid
 }
 
-/// Queries the kernel for `SO_PEERCRED` credentials of `stream`.
+/// Queries the kernel for `SO_PEERCRED` credentials of `stream` on Linux.
+#[cfg(target_os = "linux")]
 pub fn peer_credentials(stream: &UnixStream) -> std::io::Result<PeerCredentials> {
     // SAFETY: `libc::ucred` is a plain C struct fully initialized by `getsockopt`.
     let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
@@ -55,4 +63,37 @@ pub fn peer_credentials(stream: &UnixStream) -> std::io::Result<PeerCredentials>
         ));
     }
     Ok(PeerCredentials { uid: cred.uid, gid: cred.gid, pid: cred.pid })
+}
+
+/// Queries the kernel for peer UID/GID via `getpeereid` on BSD and macOS.
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "macos"
+))]
+pub fn peer_credentials(stream: &UnixStream) -> std::io::Result<PeerCredentials> {
+    let mut uid: libc::uid_t = 0;
+    let mut gid: libc::gid_t = 0;
+    // SAFETY: `stream` owns a live AF_UNIX socket fd and `uid`/`gid` are valid stack pointers.
+    let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &raw mut uid, &raw mut gid) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(PeerCredentials { uid, gid, pid: 0 })
+}
+
+/// Returns `Unsupported` on platforms without `SO_PEERCRED` or `getpeereid`.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "macos"
+)))]
+pub fn peer_credentials(_stream: &UnixStream) -> std::io::Result<PeerCredentials> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "peer credentials unsupported on this OS",
+    ))
 }
