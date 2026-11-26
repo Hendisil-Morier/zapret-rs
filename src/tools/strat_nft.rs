@@ -164,13 +164,30 @@ impl NftFirewallBackend {
 
     /// Appends `queue num {qnum} bypass` NFQUEUE rules for `tcp dport` and `udp dport` to `script`.
     ///
-    /// Skips each direction when the corresponding port slice is empty.
-    fn write_dport_queue_rules(script: &mut String, qnum: u16, tcp_ports: &[u16], udp_ports: &[u16]) {
+    /// `prefix` holds an optional leading match expression (e.g., `oifname != "tailscale0" `).
+    fn write_dport_queue_rules(
+        script: &mut String,
+        prefix: &str,
+        qnum: u16,
+        tcp_ports: &[u16],
+        udp_ports: &[u16],
+    ) {
         if !tcp_ports.is_empty() {
-            let _ = writeln!(script, "    tcp dport {} queue num {qnum} bypass", Self::fmt_port_set(tcp_ports));
+            let _ = writeln!(script, "    {prefix}tcp dport {} queue num {qnum} bypass", Self::fmt_port_set(tcp_ports));
         }
         if !udp_ports.is_empty() {
-            let _ = writeln!(script, "    udp dport {} queue num {qnum} bypass", Self::fmt_port_set(udp_ports));
+            let _ = writeln!(script, "    {prefix}udp dport {} queue num {qnum} bypass", Self::fmt_port_set(udp_ports));
+        }
+    }
+
+    /// Appends an early server-reply conntrack queue rule (`ct original packets 1-6`) to `script`.
+    fn write_sport_reply_rule(script: &mut String, prefix: &str, qnum: u16, tcp_ports: &[u16]) {
+        if !tcp_ports.is_empty() {
+            let _ = writeln!(
+                script,
+                "    {prefix}tcp sport {} ct original packets 1-6 queue num {qnum} bypass",
+                Self::fmt_port_set(tcp_ports)
+            );
         }
     }
 
@@ -178,11 +195,12 @@ impl NftFirewallBackend {
     ///
     /// Three chains are installed:
     /// - `output`: locally-originated packets leaving this machine.
-    /// - `forward`: packets routed through this machine (e.g. Tailscale exit-node clients).
-    /// - `input`: early inbound responses for conntrack-based reply interception.
+    /// - `forward`: outbound client traffic (`oifname != "tailscale0"`) and early inbound server
+    ///   replies (`iifname != "tailscale0"`) routed through this exit node.
+    /// - `input`: early inbound responses for locally-terminated connections.
     ///
-    /// All chains skip packets already marked with `fwmark` to prevent modified/injected
-    /// packets from being re-queued after `nfqws2` sends them back into the stack.
+    /// Outbound hooks skip packets already marked with `fwmark` to prevent re-injected packets
+    /// from looping back through NFQUEUE.
     pub fn build_nft_script(qnum: u16, fwmark: u32, tcp_ports: &[u16], udp_ports: &[u16]) -> String {
         let mut script = String::new();
         let _ = writeln!(script, "table inet {STRAT_FINDER_NFT_TABLE} {{");
@@ -191,28 +209,29 @@ impl NftFirewallBackend {
         script.push_str("  chain output {\n");
         script.push_str("    type filter hook output priority mangle; policy accept;\n");
         let _ = writeln!(script, "    meta mark & 0x{fwmark:x} != 0 accept");
-        Self::write_dport_queue_rules(&mut script, qnum, tcp_ports, udp_ports);
+        Self::write_dport_queue_rules(&mut script, "", qnum, tcp_ports, udp_ports);
         script.push_str("  }\n");
 
-        // Forwarded packets routed through this machine (Tailscale exit node, subnet router, etc.).
-        // The fwmark bypass prevents nfqws2's re-injected raw packets from being re-queued.
+        // Forwarded exit-node traffic: desync outbound WAN requests (excluding packets re-entering
+        // tailscale0) and capture early WAN server replies returning to Tailscale clients.
         script.push_str("  chain forward {\n");
         script.push_str("    type filter hook forward priority mangle; policy accept;\n");
         let _ = writeln!(script, "    meta mark & 0x{fwmark:x} != 0 accept");
-        Self::write_dport_queue_rules(&mut script, qnum, tcp_ports, udp_ports);
+        Self::write_dport_queue_rules(
+            &mut script,
+            "oifname != \"tailscale0\" ",
+            qnum,
+            tcp_ports,
+            udp_ports,
+        );
+        Self::write_sport_reply_rule(&mut script, "iifname != \"tailscale0\" ", qnum, tcp_ports);
         script.push_str("  }\n");
 
-        // Early inbound response packets: conntrack match on the first few packets of the reply
-        // stream so nfqws2 can inspect server hellos and RSTs without full bidirectional capture.
+        // Early inbound response packets: conntrack match on the first few packets of local
+        // reply streams so nfqws2 inspects server hellos and RSTs without full bulk capture.
         script.push_str("  chain input {\n");
         script.push_str("    type filter hook input priority mangle; policy accept;\n");
-        if !tcp_ports.is_empty() {
-            let _ = writeln!(
-                script,
-                "    tcp sport {} ct original packets 1-6 queue num {qnum} bypass",
-                Self::fmt_port_set(tcp_ports)
-            );
-        }
+        Self::write_sport_reply_rule(&mut script, "", qnum, tcp_ports);
         script.push_str("  }\n");
 
         script.push_str("}\n");

@@ -136,11 +136,15 @@ fn nft_script_renders_multiline_bypass_queue_and_fwmark_guard() {
     assert!(script.contains("tcp dport { 80, 443 } queue num 210 bypass"));
     assert!(script.contains("udp dport { 443 } queue num 210 bypass"));
     assert!(script.contains("tcp sport { 80, 443 } ct original packets 1-6 queue num 210 bypass"));
-    // forward chain must carry the same dport rules as output.
+    // forward chain excludes tunnel egress for dport rules and captures early WAN replies.
     let forward_start = script.find("chain forward {").expect("forward chain missing");
-    let forward_block = &script[forward_start..];
-    assert!(forward_block.contains("tcp dport { 80, 443 } queue num 210 bypass"));
-    assert!(forward_block.contains("udp dport { 443 } queue num 210 bypass"));
+    let input_start = script.find("chain input {").expect("input chain missing");
+    let forward_block = &script[forward_start..input_start];
+    assert!(forward_block.contains("oifname != \"tailscale0\" tcp dport { 80, 443 } queue num 210 bypass"));
+    assert!(forward_block.contains("oifname != \"tailscale0\" udp dport { 443 } queue num 210 bypass"));
+    assert!(forward_block.contains(
+        "iifname != \"tailscale0\" tcp sport { 80, 443 } ct original packets 1-6 queue num 210 bypass"
+    ));
 }
 
 /// Verifies baseline skipping for unblocked sites, spoof-redirect rejection during sweeps,
