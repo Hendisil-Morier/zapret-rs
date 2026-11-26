@@ -106,11 +106,32 @@ enum RecvStep {
     Stopped,
 }
 
+/// Completes a signaled/finished overlapped receive and returns its transferred byte count.
+fn finish_overlapped(
+    handle: &WinDivertHandle,
+    ov: &Overlapped,
+    stop: &AtomicBool,
+) -> Result<RecvStep, IntercepterError> {
+    let mut xfer = 0u32;
+    // SAFETY: `ov` has completed (either synchronously or via `WAIT_OBJECT_0`).
+    let ok = unsafe { GetOverlappedResult(handle.raw_handle(), &raw const *ov, &raw mut xfer, 1) };
+    if ok != 0 {
+        return Ok(RecvStep::Ready(xfer as usize));
+    }
+    if stop.load(Ordering::Acquire) {
+        Ok(RecvStep::Stopped)
+    } else {
+        Err(IntercepterError::Io(std::io::Error::last_os_error()))
+    }
+}
+
 /// Advances an overlapped `WinDivertRecvEx` state machine by one step (<= `wait_ms`).
+#[allow(clippy::too_many_arguments)]
 fn poll_recv_ex(
     handle: &WinDivertHandle,
     buf: &mut [u8],
     addr: &mut WinDivertAddress,
+    addr_len: &mut u32,
     ov: &mut Overlapped,
     pending: &mut bool,
     wait_ms: u32,
@@ -122,10 +143,10 @@ fn poll_recv_ex(
             let _ = ResetEvent(ov.h_event);
             *ov = Overlapped { h_event: ov.h_event, ..Overlapped::default() };
         }
-        // SAFETY: Caller cancels and drains `ov` before `buf`, `addr`, or `ov` are dropped.
-        match unsafe { handle.start_recv_ex(buf, addr, ov) } {
-            Ok(Some(n)) => return Ok(RecvStep::Ready(n)),
-            Ok(None) => {
+        // SAFETY: Caller cancels and drains `ov` before `buf`, `addr`, `addr_len`, or `ov` drop.
+        match unsafe { handle.start_recv_ex(buf, addr, addr_len, ov) } {
+            Ok(true) => return finish_overlapped(handle, ov, stop),
+            Ok(false) => {
                 *pending = true;
                 return Ok(RecvStep::TimedOut);
             }
@@ -146,17 +167,7 @@ fn poll_recv_ex(
         return Err(IntercepterError::Io(std::io::Error::last_os_error()));
     }
     *pending = false;
-    let mut xfer = 0u32;
-    // SAFETY: `ov` completed because `ov.h_event` is signaled.
-    let ok = unsafe { GetOverlappedResult(handle.raw_handle(), &raw const *ov, &raw mut xfer, 1) };
-    if ok != 0 {
-        return Ok(RecvStep::Ready(xfer as usize));
-    }
-    if stop.load(Ordering::Acquire) {
-        Ok(RecvStep::Stopped)
-    } else {
-        Err(IntercepterError::Io(std::io::Error::last_os_error()))
-    }
+    finish_overlapped(handle, ov, stop)
 }
 
 impl PacketIntercepter for WinDivertIntercepter {
@@ -173,6 +184,7 @@ impl PacketIntercepter for WinDivertIntercepter {
     {
         let event = Win32Event::new()?;
         let mut addr = WinDivertAddress::default();
+        let mut addr_len = 0u32;
         let mut ov = Overlapped { h_event: event.0, ..Overlapped::default() };
         let mut pending = false;
         let mut seq = 0u32;
@@ -189,6 +201,7 @@ impl PacketIntercepter for WinDivertIntercepter {
                 &self.handle,
                 &mut self.buf,
                 &mut addr,
+                &mut addr_len,
                 &mut ov,
                 &mut pending,
                 wait_ms,

@@ -217,41 +217,45 @@ impl WinDivertHandle {
         self.handle
     }
 
-    /// Starts an overlapped receive via `WinDivertRecvEx`, returning `Ok(Some(len))` on immediate
-    /// completion or `Ok(None)` when `ERROR_IO_PENDING` (`997`) is returned.
+    /// Starts an overlapped receive via `WinDivertRecvEx`, returning `Ok(true)` on immediate
+    /// completion or `Ok(false)` when `ERROR_IO_PENDING` (`997`) is returned.
+    ///
+    /// Callers retrieve the exact byte count via `GetOverlappedResult` so no stack-local
+    /// `pRecvLen` pointer is ever handed to asynchronous kernel I/O.
     ///
     /// # Safety
-    /// While `Ok(None)` is pending, `buf`, `addr`, and `overlapped` must remain pinned/unmoved and
-    /// untouched until `GetOverlappedResult` (wait=TRUE) completes.
+    /// While `Ok(false)` is pending, `buf`, `addr`, `addr_len`, and `overlapped` must remain
+    /// pinned/unmoved and untouched until `GetOverlappedResult` (wait=TRUE) completes.
     pub(crate) unsafe fn start_recv_ex(
         &self,
         buf: &mut [u8],
         addr: &mut WinDivertAddress,
+        addr_len: &mut u32,
         overlapped: &mut Overlapped,
-    ) -> io::Result<Option<usize>> {
+    ) -> io::Result<bool> {
         /// Win32 `ERROR_IO_PENDING` (`997`).
         const ERROR_IO_PENDING: i32 = 997;
-        let mut read_len = 0u32;
         let cap = u32::try_from(buf.len()).unwrap_or(u32::MAX);
-        // SAFETY: Caller guarantees `buf`, `addr`, and `overlapped` stay valid until completion.
+        *addr_len = u32::try_from(std::mem::size_of::<WinDivertAddress>()).unwrap_or(80);
+        // SAFETY: Caller guarantees `buf`, `addr`, `addr_len`, and `overlapped` stay valid until completion.
         let ok = unsafe {
             (self.api.recv_ex_fn)(
                 self.handle,
                 buf.as_mut_ptr().cast(),
                 cap,
-                &raw mut read_len,
+                ptr::null_mut(),
                 0,
                 ptr::from_mut(addr),
-                ptr::null_mut(),
+                ptr::from_mut(addr_len),
                 ptr::from_mut(overlapped),
             )
         };
         if ok != 0 {
-            return Ok(Some(read_len as usize));
+            return Ok(true);
         }
         let err = io::Error::last_os_error();
         if err.raw_os_error() == Some(ERROR_IO_PENDING) {
-            Ok(None)
+            Ok(false)
         } else {
             Err(err)
         }

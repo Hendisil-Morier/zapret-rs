@@ -196,7 +196,13 @@ fn run_worker_thread(
     };
     #[cfg(windows)]
     let mut catcher = {
-        let (tcp, udp) = crate::tools::strat::firewall::collect_config_ports(&base_config);
+        let (mut tcp, mut udp) = crate::tools::strat::firewall::collect_config_ports(&base_config);
+        // Strategy Finder starts with an empty profile list; restrict capture to HTTP/TLS/QUIC
+        // probe ports so WinDivert never intercepts DNS (UDP/53) or unrelated host traffic.
+        if tcp.is_empty() && udp.is_empty() {
+            tcp = vec![80, 443];
+            udp = vec![443];
+        }
         let filter = crate::tools::strat::windivert::build_windivert_filter(&tcp, &udp);
         match WinDivertIntercepter::bind(&filter) {
             Ok(c) => c,

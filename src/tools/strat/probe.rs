@@ -151,10 +151,11 @@ impl CurlProbeBackend {
         write_out: &str,
     ) -> Vec<String> {
         let secs = timeout.as_secs().max(1).to_string();
+        let null_sink = if cfg!(windows) { "NUL" } else { "/dev/null" };
         let mut args = vec![
             "-sS".to_owned(),
             "-o".to_owned(),
-            "/dev/null".to_owned(),
+            null_sink.to_owned(),
             "--noproxy".to_owned(),
             "*".to_owned(),
             "--connect-timeout".to_owned(),
