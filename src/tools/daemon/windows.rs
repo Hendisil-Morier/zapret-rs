@@ -27,9 +27,9 @@ use crate::telemetry::{PacketCounters, build_packet_record};
 /// Monotonic clock, scheduled timer pool, and `--intercept=0` execution loop.
 use crate::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_callbacks};
 /// Target port collector and WinDivert filter-expression builder.
-use crate::tools::firewall::collect_config_ports;
+use crate::tools::strat::firewall::collect_config_ports;
 /// WinDivert filter string generator matching configured TCP/UDP ports.
-use crate::tools::strat_windivert::build_windivert_filter;
+use crate::tools::strat::windivert::build_windivert_filter;
 
 /// Maximum timer/command poll slice when control IPC is active.
 const CONTROL_LOOP_TIMEOUT_CAP: Duration = Duration::from_millis(50);

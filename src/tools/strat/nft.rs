@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// OS-agnostic firewall backend traits implemented by [`NftFirewallBackend`] and [`NftQueueGuard`].
-use crate::tools::firewall::{FirewallBackend, FirewallHandle};
+use crate::tools::strat::firewall::{FirewallBackend, FirewallHandle};
 
 /// Dedicated `nftables` table name created and deleted by [`NftFirewallBackend`].
 pub const STRAT_FINDER_NFT_TABLE: &str = "zapret_strat_finder";

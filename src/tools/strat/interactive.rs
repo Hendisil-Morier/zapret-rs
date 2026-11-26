@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 /// XDG application directory helper shared between config and Lua data path lookups.
 use crate::tools::lua_bundle::xdg_zapret_dir;
 /// Strategy finder protocol, IP family, and scan level types selected by the wizard.
-use crate::tools::strat_catalog::{IpFamily, ProbeProtocol, ScanLevel};
+use crate::tools::strat::catalog::{IpFamily, ProbeProtocol, ScanLevel};
 
 /// Pre-filled defaults passed into [`prompt_interactive_wizard`].
 #[derive(Debug, Clone)]

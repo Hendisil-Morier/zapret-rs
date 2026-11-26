@@ -4,9 +4,9 @@
 use std::time::{Duration, Instant};
 
 /// Target IP family selector shared with the strategy catalog.
-use crate::tools::strat_catalog::IpFamily;
+use crate::tools::strat::catalog::IpFamily;
 /// Reused `curl` runner, outcome classification, and argument builder from the strategy scanner.
-use crate::tools::strat_probe::{CurlProbeBackend, ProbeOutcome, classify_curl_output};
+use crate::tools::strat::probe::{CurlProbeBackend, ProbeOutcome, classify_curl_output};
 
 /// Hostname of the unaffected control target used to expose queue overhead separately.
 pub const CONTROL_HOST: &str = "speed.cloudflare.com";

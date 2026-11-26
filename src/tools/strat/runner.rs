@@ -25,11 +25,11 @@ use crate::desync::DesyncEngine;
 #[cfg(target_os = "linux")]
 use crate::intercepter::QueueCatcher;
 /// Strategy catalog definitions and expansion function.
-use crate::tools::strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
+use crate::tools::strat::catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
 /// Connectivity probe traits and classified outcomes.
-use crate::tools::strat_probe::{ProbeBackend, ProbeOutcome, ProbeRequest};
+use crate::tools::strat::probe::{ProbeBackend, ProbeOutcome, ProbeRequest};
 /// Ranking and minimal cross-domain set cover types and algorithms.
-use crate::tools::strat_toml::{
+use crate::tools::strat::toml::{
     CoveredProfile, DomainStrategies, StrategyMatch, rank_matches, select_minimal_cover,
 };
 

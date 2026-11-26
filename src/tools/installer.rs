@@ -18,9 +18,9 @@ use clap::Parser;
 /// Bundled Lua script extraction into `<prefix>/share/zapret-rs/lua`.
 use crate::tools::lua_bundle::extract_bundled_lua;
 /// Current invoking user's real home directory resolution (handling `sudo`).
-use crate::tools::strat_interactive::resolve_user_home;
+use crate::tools::strat::interactive::resolve_user_home;
 /// Symlink-safe unit file write helper using `O_NOFOLLOW`.
-use crate::tools::strat_toml::write_config_nofollow;
+use crate::tools::strat::toml::write_config_nofollow;
 
 /// Compatibility symlink names optionally linked to `zapret-rs` inside `<prefix>/bin`.
 pub const SYMLINK_NAMES: &[&str] = &["nfqws2", "strat_finder", "ip2net", "mdig"];

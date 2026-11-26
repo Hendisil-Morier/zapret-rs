@@ -15,11 +15,11 @@ use std::process::ExitCode;
 use clap::Parser;
 
 /// `mdig` DNS configuration validation and `libc::getaddrinfo` resolver backend.
-use crate::tools::mdig_backend::{LibcResolver, MdigConfig};
+use crate::tools::mdig::backend::{LibcResolver, MdigConfig};
 /// `mdig` RFC 1035 binary query constructor and reply parser helpers.
-use crate::tools::mdig_dns::{MdigDnsError, build_dns_query, read_and_parse_dns_reply};
+use crate::tools::mdig::dns::{MdigDnsError, build_dns_query, read_and_parse_dns_reply};
 /// `mdig` multi-threaded domain resolution worker pool and synchronized output writers.
-use crate::tools::mdig_resolver::{MdigOutputs, run_mdig_resolver};
+use crate::tools::mdig::resolver::{MdigOutputs, run_mdig_resolver};
 
 /// Command-line flags accepted by the `mdig` companion utility.
 #[derive(Debug, Parser)]

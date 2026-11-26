@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 /// Core config models serialized back into `nfqws2.toml`.
 use crate::config::{DesyncAction, L7Payload, PacketPos, PacketPosMode, PacketRange};
 /// Strategy catalog types ranked, covered, and rendered into TOML profiles.
-use crate::tools::strat_catalog::{IpFamily, ProbeProtocol, StrategySpec};
+use crate::tools::strat::catalog::{IpFamily, ProbeProtocol, StrategySpec};
 
 /// One successful probe pairing a [`StrategySpec`] with its observed round-trip latency.
 #[derive(Debug, Clone, PartialEq, Eq)]

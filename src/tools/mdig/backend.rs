@@ -16,7 +16,7 @@ use std::net::ToSocketAddrs;
 use thiserror::Error;
 
 /// Shared family configuration parsed alongside resolver options.
-use crate::tools::mdig_dns::MdigFamily;
+use crate::tools::mdig::dns::MdigFamily;
 
 /// Default worker thread count (`1`).
 pub const DEFAULT_MDIG_THREADS: usize = 1;

@@ -46,9 +46,9 @@ use crate::telemetry::{PacketCounters, build_packet_record};
 /// Monotonic boottime clock, scheduled timer pool, and `--intercept=0` execution loop.
 use crate::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_callbacks};
 /// OS-agnostic firewall handle, nftables backend, and port collection helpers.
-use crate::tools::firewall::{FirewallBackend, FirewallHandle, collect_config_ports};
+use crate::tools::strat::firewall::{FirewallBackend, FirewallHandle, collect_config_ports};
 /// Temporary `nftables` firewall guard backend used by `--nft`.
-use crate::tools::strat_nft::NftFirewallBackend;
+use crate::tools::strat::nft::NftFirewallBackend;
 
 /// Maximum poll timeout when the control socket is active so commands execute promptly.
 const CONTROL_LOOP_TIMEOUT_CAP: Duration = Duration::from_millis(50);

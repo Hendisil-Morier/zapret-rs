@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// Parsed configuration model validated before returning merged TOML.
 use crate::config::AppConfig;
 /// Base strategy TOML renderer wrapped by [`render_nfqws2_toml_scoped`].
-use crate::tools::strat_toml::{CoveredProfile, TomlRenderOptions, render_nfqws2_toml};
+use crate::tools::strat::toml::{CoveredProfile, TomlRenderOptions, render_nfqws2_toml};
 
 /// Default relative autohostlist file placed beside `nfqws2.toml`.
 pub const DEFAULT_AUTOHOSTLIST_FILE: &str = "autohostlist.txt";

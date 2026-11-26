@@ -12,12 +12,12 @@ use clap::Parser;
 use crate::config::CliArgs;
 /// Linux daemon runtime startup and event loop runner.
 #[cfg(target_os = "linux")]
-use crate::tools::daemon_runtime::run_daemon_linux;
+use crate::tools::daemon::linux::run_daemon_linux;
 /// Windows WinDivert daemon runtime startup and event loop runner.
 #[cfg(windows)]
-use crate::tools::daemon_windows::run_daemon_windows;
+use crate::tools::daemon::windows::run_daemon_windows;
 /// Shared strategy finder CLI dispatch (`--strat-finder`).
-use crate::tools::strat_cli::{extract_strat_finder_args, run_strat_finder_cli};
+use crate::tools::strat::cli::{extract_strat_finder_args, run_strat_finder_cli};
 
 /// Executes the `nfqws2` daemon or `--strat-finder` CLI from an arbitrary argument list.
 pub fn run_nfqws2_cli<I, T>(args: I) -> ExitCode

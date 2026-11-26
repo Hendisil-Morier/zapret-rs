@@ -4,7 +4,7 @@
 use std::io;
 
 /// OS-agnostic firewall backend traits implemented here.
-use crate::tools::firewall::{FirewallBackend, FirewallHandle};
+use crate::tools::strat::firewall::{FirewallBackend, FirewallHandle};
 
 /// No-op RAII handle returned by [`WinDivertFirewallBackend`] (filtering happens inside WinDivert).
 pub struct WinDivertFilterGuard {

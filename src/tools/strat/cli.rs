@@ -24,25 +24,25 @@ use crate::runtime::{
     quit_flag,
 };
 /// Strategy catalog types and expansion function.
-use crate::tools::strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, build_catalog};
+use crate::tools::strat::catalog::{IpFamily, ProbeProtocol, ScanLevel, build_catalog};
 /// Embedded Lua script discovery and fallback extractor.
 use crate::tools::lua_bundle::{detect_lua_dir, resolve_lua_scripts};
 /// Interactive terminal setup wizard and domain/tilde helpers.
-use crate::tools::strat_interactive::{
+use crate::tools::strat::interactive::{
     InteractiveDefaults, expand_tilde, normalize_domain, prompt_interactive_wizard,
 };
 /// OS-agnostic firewall backend trait implemented by [`NftFirewallBackend`].
-use crate::tools::firewall::FirewallBackend;
+use crate::tools::strat::firewall::FirewallBackend;
 /// Temporary `nftables` queue guard backend and ruleset printer.
-use crate::tools::strat_nft::{NftFirewallBackend, build_nft_cleanup_cmd};
+use crate::tools::strat::nft::{NftFirewallBackend, build_nft_cleanup_cmd};
 /// Live `curl` connectivity probe backend (runs children with zero capabilities).
-use crate::tools::strat_probe::CurlProbeBackend;
+use crate::tools::strat::probe::CurlProbeBackend;
 /// In-process NFQUEUE worker thread and scan orchestrator.
-use crate::tools::strat_runner::{
+use crate::tools::strat::runner::{
     InProcessWorkerHandle, ProgressEvent, ScanConfig, ScanReport, run_scan,
 };
 /// Minimal profile cover and symlink-safe `nfqws2.toml` serializer.
-use crate::tools::strat_toml::{
+use crate::tools::strat::toml::{
     CoveredProfile, TomlRenderOptions, render_nfqws2_toml, write_config_nofollow,
 };
 

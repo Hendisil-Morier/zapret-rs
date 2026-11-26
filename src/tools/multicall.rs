@@ -8,15 +8,15 @@ use std::path::Path;
 use std::process::ExitCode;
 
 /// Shared `nfqws2` daemon runner (`daemon` / `nfqws2`).
-use crate::tools::daemon_cli::run_nfqws2_cli;
+use crate::tools::daemon::cli::run_nfqws2_cli;
 /// Self-installer and uninstaller CLI runners (`install` / `uninstall`).
 use crate::tools::installer::{run_install_cli, run_uninstall_cli};
 /// Shared `ip2net` subnet aggregator runner.
 use crate::tools::ip2net_cli::run_ip2net_cli;
 /// Shared `mdig` multi-threaded DNS resolver runner.
-use crate::tools::mdig_cli::run_mdig_cli;
+use crate::tools::mdig::cli::run_mdig_cli;
 /// Shared `strat_finder` CLI runner (`scan` / `strat_finder`).
-use crate::tools::strat_cli::run_strat_finder_cli;
+use crate::tools::strat::cli::run_strat_finder_cli;
 
 /// Resolved multicall applet together with the canonical binary name for `argv[0]` forwarding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

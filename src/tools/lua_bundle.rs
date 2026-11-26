@@ -6,9 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// User home directory lookup and tilde expansion shared with config path resolution.
-use crate::tools::strat_interactive::{expand_tilde, resolve_user_home};
+use crate::tools::strat::interactive::{expand_tilde, resolve_user_home};
 /// Symlink-safe file writer using `O_NOFOLLOW` so pre-existing symlinks are never overwritten.
-use crate::tools::strat_toml::write_config_nofollow;
+use crate::tools::strat::toml::write_config_nofollow;
 
 /// Core Lua script library embedded into the binary so installations work without an external repo.
 pub const BUNDLED_LUA_SCRIPTS: &[(&str, &str)] = &[

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 #[cfg(target_os = "linux")]
 use crate::runtime::clear_child_privileges;
 /// Target protocol and IP family enums shared with the strategy catalog.
-use crate::tools::strat_catalog::{IpFamily, ProbeProtocol};
+use crate::tools::strat::catalog::{IpFamily, ProbeProtocol};
 
 /// `curl -w` format read by [`classify_curl_output`]: status code, redirect target, total seconds.
 pub const PROBE_WRITE_OUT: &str = "%{http_code}\n%{redirect_url}\n%{time_total}\n";

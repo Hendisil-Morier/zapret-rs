@@ -10,11 +10,11 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 /// Resolver backend trait, validated config, and domain validation helpers.
-use crate::tools::mdig_backend::{
+use crate::tools::mdig::backend::{
     DnsResolver, MdigConfig, beautify_invalid_domain, is_valid_domain,
 };
 /// Address family filtering helpers for literal IPs and CIDRs.
-use crate::tools::mdig_dns::MdigFamily;
+use crate::tools::mdig::dns::MdigFamily;
 
 /// Synchronized output sinks written by `mdig` worker threads.
 pub struct MdigOutputs<'a> {
