@@ -176,3 +176,28 @@ fn src_contains_no_inline_tests_or_unwrap_expect() {
         violations.join("\n")
     );
 }
+
+/// Ensures tab panel renderers do not duplicate keybind bars (keybindings belong in `[?] Keys`).
+#[test]
+fn no_inline_keybind_bars_in_tab_panels() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let checked = [
+        "src/tui/render_config.rs",
+        "src/tui/render_status.rs",
+        "src/tui/inspect_ui.rs",
+    ];
+    let mut violations = Vec::new();
+    for rel in checked {
+        let content = fs::read_to_string(root.join(rel)).expect("UTF-8 Rust source file");
+        for (idx, line) in content.lines().enumerate() {
+            if line.contains("styled_key_hints(") {
+                violations.push(format!("{rel}:{}: inline styled_key_hints() inside tab panel", idx + 1));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "tab panels must not render inline keybind rows:\n{}",
+        violations.join("\n")
+    );
+}

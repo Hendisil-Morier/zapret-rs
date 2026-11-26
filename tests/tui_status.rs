@@ -70,6 +70,8 @@ fn tab5_status_populates_checks_navigates_and_renders() {
     assert!(rendered.contains("Operational Component Status"));
     assert!(rendered.contains("Component Details"));
     assert!(rendered.contains("Packet Driver"));
+    assert!(!rendered.contains("[r] Refresh"));
+    assert!(!rendered.contains("[d] Debug Report"));
 }
 
 #[test]
