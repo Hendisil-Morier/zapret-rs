@@ -1,6 +1,6 @@
 # zapret-rs
 
-`zapret-rs` (`v1.2.0`) is a fast, memory-safe DPI (Deep Packet Inspection) bypass tool and terminal UI written in Rust, compatible with [`zapret2`](https://github.com/bol-van/zapret2) Lua strategies.
+`zapret-rs` (`v1.2.1`) is a fast, memory-safe DPI (Deep Packet Inspection) bypass tool and terminal UI written in Rust, compatible with [`zapret2`](https://github.com/bol-van/zapret2) Lua strategies.
 
 It ships as a single executable (`zapret-rs`) with built-in Lua scripts, an interactive Strategy Finder, a live packet monitor, and `systemd` integration on Linux (plus experimental Windows 10/11 support via WinDivert).
 

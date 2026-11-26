@@ -4,6 +4,19 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-11-26
+
+### Added
+
+- **Loopback IPC Token Authentication:** Added per-session 32-character hex token authentication with constant-time XOR verification for non-Unix (Windows) loopback control connections.
+- **GitHub Actions CI:** Added `.github/workflows/ci.yml` running Linux `clippy`, `--no-default-features`, `nextest`, and Windows `x86_64-pc-windows-gnu` build checks.
+
+### Fixed
+
+- **Windows TUI Privilege & Firewall Flow:** Replaced Linux `sudo` / `nftables` prompts and `sudo setcap` modals on Windows with `WinDivertFirewallBackend` and an Administrator privileges notice.
+- **WinDivert Clean Shutdown:** Implemented `Sync` on `WinDivertHandle` and added a scoped stop-watcher to unblock `WinDivertRecv` during shutdown.
+- **Installer Symlink Replacement & Test Stability:** Fixed `zapret-rs install` to replace pre-existing destination symlinks before `setcap`, stabilized `mdig` passthrough output ordering in tests, and resolved bundled `lua/` test paths via `CARGO_MANIFEST_DIR`.
+
 ## [1.2.0] - 2026-11-26
 
 ### Added
