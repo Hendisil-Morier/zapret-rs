@@ -183,6 +183,7 @@ impl CurlProbeBackend {
     /// Creates a [`Command`] for `self.curl_bin` that drops all Linux capabilities and sets
     /// `PR_SET_NO_NEW_PRIVS` in the child before `execve` on Linux.
     pub(crate) fn unprivileged_command(&self) -> Command {
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
         let mut cmd = Command::new(&self.curl_bin);
         #[cfg(target_os = "linux")]
         // SAFETY: `clear_child_privileges` invokes only async-signal-safe `prctl` and `SYS_capset`.

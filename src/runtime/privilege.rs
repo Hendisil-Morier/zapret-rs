@@ -9,6 +9,17 @@ use crate::runtime::caps::{CAP_MASK_NET, has_effective_caps};
 #[cfg(target_os = "linux")]
 use crate::runtime::process::drop_sudo_root_if_needed;
 
+/// Resolved target UID, optional username for `initgroups`, and primary/supplementary GID list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentitySpec {
+    /// Target numeric user ID.
+    pub uid: u32,
+    /// Optional system username passed to `initgroups(3)` when resolving `--user`.
+    pub user: Option<String>,
+    /// Target group list (`gids[0]` becomes primary GID; remaining entries apply to `setgroups`).
+    pub gids: Vec<u32>,
+}
+
 /// Returns the calling effective user ID on Unix, or `0` on non-Unix targets.
 pub fn current_uid_or_zero() -> u32 {
     #[cfg(unix)]

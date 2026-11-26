@@ -63,7 +63,7 @@ pub fn normalize_domain(raw: &str) -> Option<String> {
     if host.is_empty() { None } else { Some(host.to_ascii_lowercase()) }
 }
 
-/// Resolves the invoking user's home directory (`$HOME`, falling back to `getpwuid_r`).
+/// Resolves the invoking user's home directory (`$HOME`/`%USERPROFILE%`, falling back to `getpwuid_r` on Unix).
 pub(crate) fn resolve_user_home() -> Option<PathBuf> {
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
         // When invoked via `sudo`, prefer the dropped UID's passwd home over `/root`.
@@ -72,21 +72,28 @@ pub(crate) fn resolve_user_home() -> Option<PathBuf> {
             return Some(PathBuf::from(home));
         }
     }
-    // SAFETY: `geteuid` takes no arguments and cannot fail.
-    let uid = std::env::var("SUDO_UID")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or_else(|| unsafe { libc::geteuid() });
-    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
-    let mut buf = vec![0u8; 4096];
-    let mut res: *mut libc::passwd = std::ptr::null_mut();
-    // SAFETY: `pwd`, `buf`, and `res` are valid writable buffers matching `getpwuid_r` ABI.
-    let rc = unsafe { libc::getpwuid_r(uid, &raw mut pwd, buf.as_mut_ptr().cast(), buf.len(), &raw mut res) };
-    if rc == 0 && !res.is_null() && !pwd.pw_dir.is_null() {
-        // SAFETY: `pw_dir` points to a NUL-terminated string inside `buf`.
-        let cstr = unsafe { std::ffi::CStr::from_ptr(pwd.pw_dir) };
-        if let Ok(s) = cstr.to_str() && !s.is_empty() {
-            return Some(PathBuf::from(s));
+    #[cfg(windows)]
+    if let Some(home) = std::env::var_os("USERPROFILE").filter(|h| !h.is_empty()) {
+        return Some(PathBuf::from(home));
+    }
+    #[cfg(unix)]
+    {
+        // SAFETY: `geteuid` takes no arguments and cannot fail.
+        let uid = std::env::var("SUDO_UID")
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or_else(|| unsafe { libc::geteuid() });
+        let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+        let mut buf = vec![0u8; 4096];
+        let mut res: *mut libc::passwd = std::ptr::null_mut();
+        // SAFETY: `pwd`, `buf`, and `res` are valid writable buffers matching `getpwuid_r` ABI.
+        let rc = unsafe { libc::getpwuid_r(uid, &raw mut pwd, buf.as_mut_ptr().cast(), buf.len(), &raw mut res) };
+        if rc == 0 && !res.is_null() && !pwd.pw_dir.is_null() {
+            // SAFETY: `pw_dir` points to a NUL-terminated string inside `buf`.
+            let cstr = unsafe { std::ffi::CStr::from_ptr(pwd.pw_dir) };
+            if let Ok(s) = cstr.to_str() && !s.is_empty() {
+                return Some(PathBuf::from(s));
+            }
         }
     }
     std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)

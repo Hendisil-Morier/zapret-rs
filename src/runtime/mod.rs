@@ -25,12 +25,12 @@ pub use caps::{
 pub use error::ProcessError;
 /// Re-exported OS-agnostic privilege checks and elevation-drop wrappers.
 pub use privilege::{
-    current_uid_or_zero, drop_elevated_root_if_needed, has_packet_capture_privileges,
+    IdentitySpec, current_uid_or_zero, drop_elevated_root_if_needed, has_packet_capture_privileges,
 };
 /// Re-exported identity resolution, privilege drop, `chdir`, PID guard, and daemonization helpers.
 #[cfg(target_os = "linux")]
 pub use process::{
-    IdentitySpec, PidFileGuard, apply_chdir, daemonize, drop_privileges, drop_privileges_for,
+    PidFileGuard, apply_chdir, daemonize, drop_privileges, drop_privileges_for,
     drop_sudo_root_if_needed, parse_uid_spec, resolve_identity, resolve_user_spec,
 };
 /// Re-exported signal handler registration and atomic flag helpers.

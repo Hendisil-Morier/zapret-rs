@@ -1,9 +1,16 @@
 //! `mdig` runtime configuration, domain validation helpers, and `libc::getaddrinfo` backend.
 
 /// C string conversion for nul-terminated `getaddrinfo` hostnames.
+#[cfg(unix)]
 use std::ffi::CString;
 /// Parsed IPv4 and IPv6 host address types returned from OS lookups.
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
+/// Explicit IPv4/IPv6 constructors used by the Unix `libc::getaddrinfo` decoder.
+#[cfg(unix)]
+use std::net::{Ipv4Addr, Ipv6Addr};
+/// Portable standard-library DNS lookup used on non-Unix targets.
+#[cfg(not(unix))]
+use std::net::ToSocketAddrs;
 
 /// Typed error derivation for invalid `mdig` configuration flags.
 use thiserror::Error;
@@ -142,25 +149,41 @@ pub struct ResolveError {
 impl ResolveError {
     /// Returns `true` when the failure is temporary (`EAI_AGAIN`) and eligible for retry.
     pub const fn is_again(self) -> bool {
-        self.code == libc::EAI_AGAIN
+        #[cfg(unix)]
+        {
+            self.code == libc::EAI_AGAIN
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = self.code;
+            false
+        }
     }
 
     /// Maps a `libc::EAI_*` error code to the symbolic string printed by `mdig.c`.
     pub const fn eai_name(self) -> &'static str {
-        match self.code {
-            libc::EAI_NONAME => "EAI_NONAME",
-            libc::EAI_AGAIN => "EAI_AGAIN",
-            #[cfg(all(target_os = "linux", target_env = "gnu"))]
-            GLIBC_EAI_ADDRFAMILY => "EAI_ADDRFAMILY",
-            libc::EAI_NODATA => "EAI_NODATA",
-            libc::EAI_BADFLAGS => "EAI_BADFLAGS",
-            libc::EAI_FAIL => "EAI_FAIL",
-            libc::EAI_MEMORY => "EAI_MEMORY",
-            libc::EAI_FAMILY => "EAI_FAMILY",
-            libc::EAI_SERVICE => "EAI_SERVICE",
-            libc::EAI_SOCKTYPE => "EAI_SOCKTYPE",
-            libc::EAI_SYSTEM => "EAI_SYSTEM",
-            _ => "UNKNOWN",
+        #[cfg(unix)]
+        {
+            match self.code {
+                libc::EAI_NONAME => "EAI_NONAME",
+                libc::EAI_AGAIN => "EAI_AGAIN",
+                #[cfg(all(target_os = "linux", target_env = "gnu"))]
+                GLIBC_EAI_ADDRFAMILY => "EAI_ADDRFAMILY",
+                libc::EAI_NODATA => "EAI_NODATA",
+                libc::EAI_BADFLAGS => "EAI_BADFLAGS",
+                libc::EAI_FAIL => "EAI_FAIL",
+                libc::EAI_MEMORY => "EAI_MEMORY",
+                libc::EAI_FAMILY => "EAI_FAMILY",
+                libc::EAI_SERVICE => "EAI_SERVICE",
+                libc::EAI_SOCKTYPE => "EAI_SOCKTYPE",
+                libc::EAI_SYSTEM => "EAI_SYSTEM",
+                _ => "UNKNOWN",
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = self.code;
+            "EAI_FAIL"
         }
     }
 }
@@ -171,12 +194,14 @@ pub trait DnsResolver: Send + Sync {
     fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError>;
 }
 
-/// Production DNS resolver backed by POSIX `libc::getaddrinfo`.
+/// Production DNS resolver backed by POSIX `libc::getaddrinfo` on Unix or `ToSocketAddrs` elsewhere.
 pub struct LibcResolver;
 
 /// RAII guard invoking `libc::freeaddrinfo` on a non-null `addrinfo` linked list.
+#[cfg(unix)]
 struct AddrInfoGuard(*mut libc::addrinfo);
 
+#[cfg(unix)]
 impl Drop for AddrInfoGuard {
     fn drop(&mut self) {
         if !self.0.is_null() {
@@ -185,6 +210,7 @@ impl Drop for AddrInfoGuard {
     }
 }
 
+#[cfg(unix)]
 impl DnsResolver for LibcResolver {
     fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError> {
         let Ok(c_dom) = CString::new(domain) else {
@@ -228,6 +254,28 @@ impl DnsResolver for LibcResolver {
                 }
             }
             cur = info.ai_next;
+        }
+        Ok(addrs)
+    }
+}
+
+#[cfg(not(unix))]
+impl DnsResolver for LibcResolver {
+    fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError> {
+        let Ok(iter) = (domain, 0_u16).to_socket_addrs() else {
+            return Err(ResolveError { code: -1 });
+        };
+        let mut addrs = Vec::new();
+        for sock in iter {
+            let ip = sock.ip();
+            let keep = match family {
+                MdigFamily::Ipv4 => ip.is_ipv4(),
+                MdigFamily::Ipv6 => ip.is_ipv6(),
+                MdigFamily::Ipv46 => true,
+            };
+            if keep && !addrs.contains(&ip) {
+                addrs.push(ip);
+            }
         }
         Ok(addrs)
     }

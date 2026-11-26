@@ -3,6 +3,7 @@
 /// Standard stdout/I/O error handling for crossterm event polling.
 use std::io;
 /// Unix `exec()` extension for seamlessly restarting the TUI after granting file capabilities.
+#[cfg(unix)]
 use std::os::unix::process::CommandExt as _;
 /// Path type for optional startup config, control socket, and Lua directory flags.
 use std::path::PathBuf;
@@ -265,7 +266,13 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
         if let Some(encoded) = ReexecSnapshot::capture(&state).encode() {
             cmd.env(REEXEC_STATE_ENV, encoded);
         }
+        #[cfg(unix)]
         let err = cmd.exec();
+        #[cfg(not(unix))]
+        let err = match cmd.status() {
+            Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+            Err(err) => err,
+        };
         let _ = disable_raw_mode();
         let _ = execute!(io::stdout(), LeaveAlternateScreen);
         return Err(format!("failed to restart {}: {err}", exe.display()));

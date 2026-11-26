@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 use crate::runtime::caps::{SECBIT_NO_SETUID_FIXUP, retain_net_capabilities_for};
 /// Typed process lifecycle errors returned to the CLI binary or caller.
 use crate::runtime::error::ProcessError;
+/// Target UID/GID identity specification shared with `writable`.
+use crate::runtime::privilege::IdentitySpec;
 
 /// Maximum supplementary GIDs accepted in `--uid` specifications (`MAX_GIDS` in `nfqws.c`).
 const MAX_GIDS: usize = 64;
@@ -24,17 +26,6 @@ const DEFAULT_UNPRIVILEGED_GID: libc::gid_t = 0x7FFF_FFFF;
 const DEFAULT_GETPW_BUF_LEN: usize = 16 * 1024;
 /// Maximum buffer-doubling attempts if `getpwnam_r` reports `ERANGE`.
 const MAX_GETPW_ATTEMPTS: usize = 4;
-
-/// Resolved target UID, optional username for `initgroups`, and primary/supplementary GID list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IdentitySpec {
-    /// Target POSIX numeric user ID.
-    pub uid: libc::uid_t,
-    /// Optional system username passed to `initgroups(3)` when resolving `--user`.
-    pub user: Option<String>,
-    /// Target group list (`gids[0]` becomes primary GID; remaining entries apply to `setgroups`).
-    pub gids: Vec<libc::gid_t>,
-}
 
 /// Parses a numeric `--uid` specification of the form `uid[:gid1,gid2,...]`.
 ///

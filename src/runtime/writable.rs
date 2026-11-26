@@ -33,7 +33,7 @@ use crate::config::WritableDirConfig;
 /// Typed process lifecycle error surfaced when directory creation or verification fails.
 use crate::runtime::error::ProcessError;
 /// Target UID specification used to chown newly prepared directories before dropping root.
-use crate::runtime::process::IdentitySpec;
+use crate::runtime::privilege::IdentitySpec;
 
 /// Default subdirectory appended under `$TMPDIR` or `/tmp` when `--writable` omits a path.
 pub const DEFAULT_WRITABLE_SUBDIR: &str = "zapret-rs";
