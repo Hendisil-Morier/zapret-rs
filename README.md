@@ -1,43 +1,86 @@
 # zapret-rs
 
-`zapret-rs` (`v1.1.0`) is a Linux Rust port of [`zapret2`](https://github.com/bol-van/zapret2), delivering a memory-safe `nfqws2` NFQUEUE DPI desync daemon, embedded LuaJIT runtime compatible with unmodified `zapret2/lua/*.lua` scripts, and the `ip2net` and `mdig` companion utilities.
+`zapret-rs` (`v1.1.0`) is a fast, memory-safe DPI (Deep Packet Inspection) bypass tool and terminal UI written in Rust, compatible with [`zapret2`](https://github.com/bol-van/zapret2) Lua strategies.
 
-## Single Multicall Binary & Workspace Layout
+It ships as a single executable (`zapret-rs`) with built-in Lua scripts, an interactive Strategy Finder, a live packet monitor, and `systemd` integration on Linux (plus experimental Windows 10/11 support via WinDivert).
 
-`zapret-rs` builds one unified binary ([src/bin/zapret_rs.rs](src/bin/zapret_rs.rs)) that routes by subcommand or `argv[0]` symlink name and bundles all runtime `lua/*.lua` scripts:
+## Quick Start (Linux)
 
-- **`zapret-rs`** (default): Interactive `ratatui` TUI wrapping strategy discovery, config editing, live engine control, and daemon attach monitoring.
-- **`zapret-rs daemon`** (or symlink `nfqws2`): Main NFQUEUE packet interception and Lua desync daemon.
-- **`zapret-rs scan`** (or symlink `strat_finder`): Interactive or automated DPI bypass strategy finder.
-- **`zapret-rs ip2net`** (or symlink `ip2net`): Streaming IPv4/IPv6 address and CIDR subnet aggregator.
-- **`zapret-rs mdig`** (or symlink `mdig`): Multi-threaded DNS resolver and raw RFC 1035 query/reply tool.
-
-Core library subsystems live under [src/](src): `packet`, `rawsend`, `intercepter`, `config`, `conntrack`, `protocol`, `lists`, `desync`, `crypto`, `lua`, `timer`, `runtime`, `telemetry`, `control`, `tools`, and `tui`.
-
-## Building, Installation & Running Tests
-
-Build the single release binary (`target/release/zapret-rs`) or install directly with Cargo/built-in installer:
+### 1. Build and Install
 
 ```bash
 cargo build --release
-# Install binary (~/.local/bin/zapret-rs), extract bundled lua/*.lua, and grant network caps:
+```
+
+Install for your current user (places the binary in `~/.local/bin/zapret-rs`, extracts bundled Lua scripts, and grants network permissions):
+
+```bash
 ./target/release/zapret-rs install
-# Or system-wide with compatibility symlinks (`nfqws2`, `ip2net`, `mdig`, `strat_finder`) and systemd unit:
+```
+
+Or install system-wide with compatibility symlinks (`nfqws2`, `strat_finder`, `ip2net`, `mdig`) and a `systemd` background service:
+
+```bash
 sudo ./target/release/zapret-rs install --symlinks --systemd
 ```
 
-Run static checks, offline unit/integration suites (including repository hygiene checks), and isolated live kernel namespace tests:
+To remove it later, run `zapret-rs uninstall` (or `sudo zapret-rs uninstall --systemd`).
+
+### 2. Launch the Interactive TUI
+
+Run `zapret-rs` in your terminal:
 
 ```bash
-cargo clippy --all-targets -- -D warnings
-cargo nextest run
-cargo bench
-unshare -r -n bash -c 'ip link set lo up && cargo nextest run --run-ignored only'
+zapret-rs
 ```
 
-## `nfqws2` Configuration & Usage
+The TUI has four tabs:
 
-`nfqws2` uses a strict TOML configuration file (`#[serde(deny_unknown_fields)]`) whose fields map directly to CLI overrides. Example `nfqws2.toml`:
+1. **Strategy Finder (`1`):** Enter one or more blocked domains, choose a scan level, and run the finder to automatically discover working bypass rules and save `~/.config/zapret-rs/nfqws2.toml`.
+2. **Run `nfqws2` (`2`):** Start (`r`), stop (`S`), or restart (`R`) the daemon, watch live packet counters, and inspect intercepted traffic. Press `x` to detach and leave the daemon running in the background.
+3. **Config & Diag (`3`):** View or edit `nfqws2.toml`, push profile changes to the running daemon (`p`), or grant network capabilities (`g`) if needed.
+4. **Speed Test (`4`):** Measure connection speed before and after enabling your active bypass rules.
+
+Press `?` at any time to see the keybindings for the current tab.
+
+## Command-Line Mode
+
+If you prefer running without the TUI (or want to script it), `zapret-rs` exposes subcommands for every tool:
+
+```bash
+# Find working bypass strategies automatically and write nfqws2.toml
+zapret-rs scan --domain example.com --level quick --write-config ~/.config/zapret-rs/nfqws2.toml
+
+# Run the DPI bypass daemon with automatic temporary nftables rules
+zapret-rs daemon --config ~/.config/zapret-rs/nfqws2.toml --nft
+
+# Validate a config file without intercepting packets
+zapret-rs daemon --config ~/.config/zapret-rs/nfqws2.toml --dry-run
+
+# Collapse IP lists into CIDR subnets (ip2net)
+zapret-rs ip2net -4 --prefix-length=22-30 < ips.txt > subnets.txt
+
+# Multi-threaded DNS lookup (mdig)
+zapret-rs mdig --family=46 --threads=30 < domains.txt > ips.txt
+```
+
+If you installed with `--symlinks`, you can also invoke `nfqws2`, `strat_finder`, `ip2net`, and `mdig` directly by name.
+
+## Windows (Experimental)
+
+Windows 10 and 11 (`x64`) are supported via WinDivert:
+
+1. Download `WinDivert-2.2.2-A.zip` from [reqrypt.org/windivert.html](https://reqrypt.org/windivert.html) or [github.com/basil00/WinDivert/releases](https://github.com/basil00/WinDivert/releases).
+2. Copy `WinDivert.dll` and `WinDivert64.sys` from the `x64` folder into the same folder as `zapret-rs.exe`.
+3. Open an **Administrator** terminal and run:
+
+```powershell
+.\zapret-rs.exe daemon --config nfqws2.toml
+```
+
+## Configuration (`nfqws2.toml`)
+
+`zapret-rs` uses a TOML config file (generated automatically by `zapret-rs scan` or written by hand):
 
 ```toml
 qnum = 200
@@ -57,151 +100,39 @@ payload = ["tls_client_hello"]
 args = { blob = "fake_default_tls", badsum = true, repeats = 2 }
 ```
 
-Common CLI invocations:
+### Permissions & `systemd` Service (Linux)
+
+On Linux, packet interception needs only `CAP_NET_ADMIN` and `CAP_NET_RAW` instead of running the whole daemon as `root`. `zapret-rs install` sets these capabilities on the binary automatically, or you can grant them manually:
 
 ```bash
-# Validate TOML configuration and Lua scripts without intercepting packets
-nfqws2 --config /etc/zapret/nfqws2.toml --dry-run
-
-# Run startup Lua scripts and timer callbacks without opening NFQUEUE
-nfqws2 --intercept=0 --lua-init=@lua/zapret-lib.lua --lua-init='DLOG_CONDUP("ok")'
-
-# Run daemonized, drop privileges after pre-initialization, and reload lists on SIGHUP
-nfqws2 --config /etc/zapret/nfqws2.toml --user nobody --daemon --pidfile /run/nfqws2.pid
-kill -HUP "$(cat /run/nfqws2.pid)"
-
-# Run with automatic temporary nftables rule creation (`inet zapret_strat_finder`) and cleanup on exit
-nfqws2 --config ~/.config/zapret-rs/nfqws2.toml --nft
+sudo setcap cap_net_admin,cap_net_raw+ep ~/.local/bin/zapret-rs
 ```
 
-## Linux Capabilities
+When installed with `--systemd`, `zapret-rs.service` runs under your user account with `AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW`, manages its own temporary `nftables` table (`--nft`), and exposes a same-UID control socket at `/run/zapret-rs/control.sock` (or `$XDG_RUNTIME_DIR/zapret-rs/control.sock` when run manually) so the TUI can attach and reload configs without root prompts.
 
-Packet interception and raw L3 reinjection require Linux `CAP_NET_ADMIN` (for NFQUEUE binding) and `CAP_NET_RAW` (for `SOCK_RAW` injection), either by starting as `root` before dropping privileges via `--user`/`--uid` or by granting capabilities to the binary:
+---
+
+## For Developers
+
+### Project Layout
+
+Core subsystems live under [src/](src): `packet`, `rawsend`, `intercepter`, `config`, `conntrack`, `protocol`, `lists`, `desync`, `crypto`, `lua`, `timer`, `runtime`, `telemetry`, `control`, `tools` (`daemon/`, `mdig/`, `strat/`), and `tui`.
+
+### Running Checks & Tests
 
 ```bash
-sudo setcap cap_net_admin,cap_net_raw+ep target/release/zapret-rs
+cargo clippy --all-targets -- -D warnings
+cargo nextest run
+cargo bench
+unshare -r -n bash -c 'ip link set lo up && cargo nextest run --run-ignored only'
 ```
 
-## Companion Tools
+### Cross-Compiling for Windows from Linux
+
+With the `x86_64-pc-windows-gnu` Rust target and `mingw-w64-gcc` installed:
 
 ```bash
-# Collapse IPv4 hosts into /22../30 subnets at >= 3/4 fill ratio (or -6 for IPv6)
-ip2net -4 --prefix-length=22-30 --v4-threshold=3/4 < ips.txt > subnets.txt
-ip2net -6 --prefix-length=56-64 --v6-threshold=5 < ip6s.txt > subnets6.txt
-
-# Multi-threaded DNS lookup with EAI_AGAIN retries and progress stats
-mdig --family=46 --threads=30 --eagain=10 --stats=1000 < domains.txt > ips.txt
-
-# Raw RFC 1035 DNS query generation and reply parsing (e.g., over DoH)
-mdig --family=6 --dns-make-query=example.com \
-  | curl -s --data-binary @- -H "Content-Type: application/dns-message" https://cloudflare-dns.com/dns-query \
-  | mdig --dns-parse-query
+cargo build --target x86_64-pc-windows-gnu --release
 ```
 
-### Interactive TUI (`zapret-rs`)
-
-For an all-in-one terminal UI covering strategy discovery, live `nfqws2` execution with real-time packet counters, `~/.config/zapret-rs/nfqws2.toml` preview/saving, and privilege diagnostics, run the `zapret-rs` binary directly:
-
-```bash
-# Launch the interactive TUI as your normal user
-./target/release/zapret-rs
-```
-
-If network capabilities are not set yet (for example right after rebuilding), press `g` inside the TUI to run `sudo setcap cap_net_admin,cap_net_raw+ep` on the binary and restart seamlessly with capabilities active. To avoid re-granting capabilities across dev rebuilds, copy the binary to `~/.local/bin/zapret-rs` once and `setcap` that installed copy.
-
-### Strategy Finder (`zapret-rs scan` / `strat_finder`)
-
-`zapret-rs scan` (also available via the `strat_finder` symlink or `nfqws2 --strat-finder`) replaces `zapret2/blockcheck2.sh` with a single-process, least-privilege Rust scanner. Grant only `CAP_NET_ADMIN` and `CAP_NET_RAW` once so you never run `nfqws2`, LuaJIT, `curl`, or config file writes as root:
-
-```bash
-# One-time setup: grant only network capabilities to the binary
-sudo setcap cap_net_admin,cap_net_raw+ep ./target/release/zapret-rs
-
-# Run the interactive wizard as your normal user (elevates only `nft` via sudo for the temporary table)
-./target/release/zapret-rs scan
-
-# Or manage the temporary nftables rules manually (zero sudo calls inside zapret-rs)
-./target/release/zapret-rs scan --print-nft
-./target/release/zapret-rs scan --no-nft
-
-# Preview the expanded strategy catalog offline (no capabilities required)
-./target/release/zapret-rs scan --list-strategies --level quick --proto http,tls13,http3
-
-# Non-interactive scan writing a minimal nfqws2.toml in ~/.config/zapret-rs/
-./target/release/zapret-rs scan \
-  --domain blocked1.example,blocked2.example \
-  --level quick \
-  --stop-on-first \
-  --lua-dir ./lua \
-  --write-config ~/.config/zapret-rs/nfqws2.toml
-
-# Run the daemon as your normal user with the generated config
-./target/release/zapret-rs daemon --config ~/.config/zapret-rs/nfqws2.toml
-```
-
-Every `curl` probe child clears all Linux capabilities and enables `PR_SET_NO_NEW_PRIVS` before `exec`, and `--write-config` refuses symlinks via `O_NOFOLLOW`. If invoked under `sudo`, `nfqws2 --strat-finder` automatically drops UID 0 back to `SUDO_UID`/`SUDO_GID` at startup.
-
-## Daemon Control Socket & TUI Attach Mode
-
-When intercepting packets, `nfqws2` exposes a local Unix domain stream socket (mode `0600`, verified via `SO_PEERCRED` so only the same user UID can connect). Resolution order:
-
-1. `--control-socket <PATH>` (CLI) or `control_socket` (TOML). Use `--control-socket=off` (or `control_socket = false`) to disable.
-2. `$XDG_RUNTIME_DIR/zapret-rs/control.sock` when `XDG_RUNTIME_DIR` is set.
-3. `/run/zapret-rs/control.sock` otherwise.
-
-Missing parent directories are created (`0700`) and chowned to `--user`/`--uid` prior to dropping privileges. Non-`PASS` verdicts (`REASM`, `MODIFY`, `DESYNC`) are always streamed to attached subscribers while `PASS` packets are sampled (`--control-pass-sample N` / `control_pass_sample`, default `20`, `0` disables `PASS` streaming).
-
-When a socket is present, launching `zapret-rs` (or `zapret-rs --control-socket <PATH>`) lets Tab 2 (`r`) attach without creating duplicate `nftables` rules:
-
-- `x` detaches while leaving `nfqws2` running.
-- `l` reloads daemon hostlist/ipset files.
-- `S` opens a confirmation prompt to stop the daemon cleanly.
-- `p` on Tab 3 pushes validated TOML profile changes live (`qnum`/`fwmark` changes are rejected with a restart prompt).
-
-### `systemd` Service (Unprivileged with Auto-Managed `nftables`)
-
-Unit templates live under `contrib/systemd/`. Running with `User=__USER__` and `AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW` lets `zapret-rs daemon --nft` manage `table inet zapret_strat_finder` automatically, passes `SO_PEERCRED` same-UID verification for your `zapret-rs` TUI session, exposes `/run/zapret-rs/control.sock`, and skips launch until `~/.config/zapret-rs/nfqws2.toml` exists (`ConditionPathExists`).
-
-To deploy cleanly with one command:
-
-```bash
-sudo ./target/release/zapret-rs install --systemd
-```
-
-Or deploy via symlinks so `cargo build --release` automatically restarts the service via `contrib/systemd/zapret-rs.path` + `contrib/systemd/zapret-rs-restart.service`:
-
-```bash
-sudo ln -sf "$PWD/target/release/zapret-rs" /usr/local/bin/zapret-rs
-sudo sed "s|__USER__|$USER|g; s|__HOME__|$HOME|g" contrib/systemd/zapret-rs.service \
-  | sudo tee /etc/systemd/system/zapret-rs.service >/dev/null
-sudo sed "s|__REPO__|$PWD|g" contrib/systemd/zapret-rs.path \
-  | sudo tee /etc/systemd/system/zapret-rs.path >/dev/null
-sudo cp contrib/systemd/zapret-rs-restart.service /etc/systemd/system/zapret-rs-restart.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now zapret-rs.service zapret-rs.path
-```
-
-```ini
-[Unit]
-Description=zapret-rs nfqws2 DPI Desync Daemon
-After=network-online.target
-Wants=network-online.target
-ConditionPathExists=__HOME__/.config/zapret-rs/nfqws2.toml
-
-[Service]
-Type=simple
-User=__USER__
-RuntimeDirectory=zapret-rs
-RuntimeDirectoryMode=0700
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
-NoNewPrivileges=yes
-LockPersonality=yes
-PrivateTmp=yes
-ExecStart=/usr/local/bin/zapret-rs daemon --config __HOME__/.config/zapret-rs/nfqws2.toml --nft --control-socket /run/zapret-rs/control.sock
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-```
+The resulting executable is written to `target/x86_64-pc-windows-gnu/release/zapret-rs.exe`.
