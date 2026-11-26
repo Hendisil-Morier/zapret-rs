@@ -9,8 +9,11 @@ use std::fs;
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 /// Destination prefix and installed binary/share path construction.
 use std::path::{Path, PathBuf};
-/// Subprocess execution for `setcap` and `systemctl`, plus clean exit status reporting.
-use std::process::{Command, ExitCode};
+/// Subprocess execution for `setcap` and `systemctl` on Linux.
+#[cfg(target_os = "linux")]
+use std::process::Command;
+/// Clean exit status reporting.
+use std::process::ExitCode;
 
 /// CLI flag parsing for `install` and `uninstall` subcommands.
 use clap::Parser;
@@ -20,6 +23,7 @@ use crate::tools::lua_bundle::extract_bundled_lua;
 /// Current invoking user's real home directory resolution (handling `sudo`).
 use crate::tools::strat::interactive::resolve_user_home;
 /// Symlink-safe unit file write helper using `O_NOFOLLOW`.
+#[cfg(target_os = "linux")]
 use crate::tools::strat::toml::write_config_nofollow;
 
 /// Compatibility symlink names optionally linked to `zapret-rs` inside `<prefix>/bin`.
@@ -28,6 +32,7 @@ pub const SYMLINK_NAMES: &[&str] = &["nfqws2", "strat_finder", "ip2net", "mdig"]
 /// Systemd unit template embedded so `zapret-rs install --systemd` works outside the repo.
 const SYSTEMD_SERVICE_TEMPLATE: &str = include_str!("../../contrib/systemd/zapret-rs.service");
 /// Path where `zapret-rs install --systemd` installs the system service unit.
+#[cfg(target_os = "linux")]
 const SYSTEMD_SERVICE_DEST: &str = "/etc/systemd/system/zapret-rs.service";
 
 /// Command-line options for `zapret-rs install`.
@@ -85,6 +90,7 @@ fn current_euid() -> u32 {
 }
 
 /// Resolves the target operator username and home directory even when invoked via `sudo`.
+#[cfg(target_os = "linux")]
 fn resolve_operator_identity() -> (String, PathBuf) {
     let user = std::env::var("SUDO_USER")
         .ok()

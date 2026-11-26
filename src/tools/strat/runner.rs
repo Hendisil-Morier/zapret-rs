@@ -38,6 +38,7 @@ use crate::tools::strat::toml::{
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(15);
 
 /// Control commands delivered from the scan coordinator to the NFQUEUE worker thread.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 enum WorkerCmd {
     /// Atomically replace active engine profiles and clear conntrack/ipcache, then reply on `ack`.
     Swap {
