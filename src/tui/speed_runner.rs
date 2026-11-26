@@ -16,7 +16,7 @@ use crate::tui::remote::detect_control_socket;
 use crate::tui::session::TerminalSession;
 use crate::tui::speed::{Side, SpeedPhase, build_targets, effective_speed_domains};
 use crate::tui::state::AppState;
-use crate::tui::tab2_session::{Tab2Session, attach_to_socket, execute_remote_stop, stop_local_daemon};
+use crate::tui::tab2_session::{Tab2Session, attach_and_stop_active_daemon};
 use crate::tui::types::RunStatus;
 
 /// Settle delay after daemon startup so `nftables` rules and conntrack are active before probing.
@@ -101,16 +101,8 @@ pub(crate) fn begin_speed_test(
     session_tab2: &mut Option<Tab2Session>,
     session: &mut TerminalSession,
 ) -> Option<SpeedJob> {
-    if session_tab2.is_none()
-        && let Some(sock) = state.detected_socket.clone()
-        && !attach_to_socket(state, session_tab2, sock)
-    {
+    if !attach_and_stop_active_daemon(state, session_tab2, session) {
         return None;
-    }
-    match session_tab2 {
-        Some(Tab2Session::Remote(_)) => execute_remote_stop(state, session_tab2),
-        Some(Tab2Session::Local(_)) => stop_local_daemon(state, session_tab2, session),
-        None => {}
     }
     let eff = effective_speed_domains(&state.domains_input, &state.active_toml);
     let targets = build_targets(&eff);

@@ -1,7 +1,8 @@
 //! Theme-driven panel builders, `[key]` badge styling, log tagging, and TOML/`nftables` highlighters.
 
-/// `ratatui` color, text modifier, and styling primitives.
+/// `ratatui` layout, color, text modifier, and styling primitives.
 use ratatui::{
+    layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders},
@@ -9,6 +10,16 @@ use ratatui::{
 
 /// Active configurable color palette slots.
 use crate::tui::theme_config::Theme;
+
+/// Computes a centered [`Rect`] of size `(width, height)` inside `area`.
+pub fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
 
 /// Builds a bordered [`Block`] with colored border lines and a bold colored title.
 pub fn panel_block(title: impl Into<String>, border: Color, title_color: Color) -> Block<'static> {

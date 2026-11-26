@@ -238,3 +238,25 @@ pub(crate) fn stop_local_daemon(
         state.status_banner = "nfqws2 stopped cleanly.".to_owned();
     }
 }
+
+/// Attaches to a visible control socket when unattached, then stops whichever daemon is active.
+///
+/// Returns `false` if a visible control socket could not be attached to (so stop could not proceed).
+pub(crate) fn attach_and_stop_active_daemon(
+    state: &mut AppState,
+    session_tab2: &mut Option<Tab2Session>,
+    session: &mut TerminalSession,
+) -> bool {
+    if session_tab2.is_none()
+        && let Some(sock) = state.detected_socket.clone()
+        && !attach_to_socket(state, session_tab2, sock)
+    {
+        return false;
+    }
+    match session_tab2 {
+        Some(Tab2Session::Remote(_)) => execute_remote_stop(state, session_tab2),
+        Some(Tab2Session::Local(_)) => stop_local_daemon(state, session_tab2, session),
+        None => {}
+    }
+    true
+}

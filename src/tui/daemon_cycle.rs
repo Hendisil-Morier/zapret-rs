@@ -9,8 +9,8 @@ use crate::tui::remote::detect_control_socket;
 use crate::tui::actions::try_start_or_attach;
 /// Mutable application state receiving banners and run log lines.
 use crate::tui::state::AppState;
-/// Session type plus the stop and attach helpers for remote and in-process daemons.
-use crate::tui::tab2_session::{Tab2Session, attach_to_socket, execute_remote_stop, stop_local_daemon};
+/// Session type plus the shared attach-and-stop helper for remote and in-process daemons.
+use crate::tui::tab2_session::{Tab2Session, attach_and_stop_active_daemon};
 /// Terminal wrapper required to tear down an in-process firewall guard while stopping.
 use crate::tui::session::TerminalSession;
 /// Run lifecycle status inspected to detect a failed start.
@@ -91,16 +91,8 @@ pub(crate) fn begin_restart(
     session_tab2: &mut Option<Tab2Session>,
     session: &mut TerminalSession,
 ) -> Option<DaemonCycle> {
-    if session_tab2.is_none()
-        && let Some(sock) = state.detected_socket.clone()
-        && !attach_to_socket(state, session_tab2, sock)
-    {
+    if !attach_and_stop_active_daemon(state, session_tab2, session) {
         return None;
-    }
-    match session_tab2 {
-        Some(Tab2Session::Remote(_)) => execute_remote_stop(state, session_tab2),
-        Some(Tab2Session::Local(_)) => stop_local_daemon(state, session_tab2, session),
-        None => {}
     }
     state.status_banner = "Restarting daemon...".to_owned();
     Some(DaemonCycle { phase: CyclePhase::Stopping, started: Instant::now() })

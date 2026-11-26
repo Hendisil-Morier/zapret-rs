@@ -20,8 +20,8 @@ pub use autohostlist::{
 };
 
 pub use file_loader::{
-    FileModSig, append_timestamped_debug_log, append_to_list_file, file_is_readable,
-    parse_list_line_token, read_list_lines,
+    FileModSig, append_timestamped_debug_log, append_to_list_file, detect_gzip_and_rewind,
+    file_is_readable, parse_list_line_token, read_list_lines,
 };
 pub use hostlist::{
     EMPTY_AUTOLIST_SENTINEL, HOSTLIST_FLAG_EXEMPT, HOSTLIST_FLAG_STRICT_MATCH,

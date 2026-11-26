@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 /// Filesystem probing, gzip magic verification, and creatable/writable autohostlist verification.
 use std::fs::OpenOptions;
-/// Error classification and fixed-size read for gzip checks on autohostlist files.
-use std::io::{ErrorKind, Read};
+/// Error classification for gzip checks on autohostlist files.
+use std::io::ErrorKind;
 /// Standard IPv4/IPv6 endpoint representation forwarded into [`IpsetCollection::check`].
 use std::net::IpAddr;
 /// Owned and borrowed filesystem path types.
@@ -22,12 +22,10 @@ use crate::conntrack::CtrackEntry;
 /// Domain hostlists, CIDR ipsets, and time-windowed autohostlist failure counter pools.
 use crate::lists::{
     HostFailPool, HostlistCollection, HostlistFile, HostlistRef, IpsetCollection, IpsetFile,
+    detect_gzip_and_rewind,
 };
 /// Precomputed `<func>_<profile_n>_<func_n>` action instance name helper (`desync_instance`).
 use crate::lua::desync_encode::desync_instance_name;
-
-/// Gzip header bytes disallowed for append-only writable `--hostlist-auto` files.
-const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 
 /// Process-wide cache of deduplicated hostlist and ipset files supporting startup validation and `SIGHUP`.
 #[derive(Debug, Default)]
@@ -262,16 +260,7 @@ fn verify_autolist_writable_plain(path: &Path) -> std::io::Result<()> {
         .append(true)
         .read(true)
         .open(path)?;
-    let mut magic = [0u8; 2];
-    let mut read_total = 0usize;
-    while read_total < magic.len() {
-        let n = file.read(&mut magic[read_total..])?;
-        if n == 0 {
-            break;
-        }
-        read_total += n;
-    }
-    if read_total == 2 && magic == GZIP_MAGIC {
+    if detect_gzip_and_rewind(&mut file)? {
         return Err(std::io::Error::new(
             ErrorKind::InvalidData,
             "gzipped auto hostlists are not supported",

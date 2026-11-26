@@ -16,8 +16,8 @@ use ratatui::{
 use crate::telemetry::{PacketRecord, PacketVerdict};
 /// Live inspector state rendered here.
 use crate::tui::inspect::PacketInspectorState;
-/// Shared theme panel border builders.
-use crate::tui::theme::panel_block;
+/// Shared theme panel border and centered modal rect builders.
+use crate::tui::theme::{centered_rect, panel_block};
 /// Configurable TUI color palette.
 use crate::tui::theme_config::Theme;
 
@@ -203,12 +203,7 @@ pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord, theme: &T
     let area = frame.area();
     let w = 82u16.min(area.width.saturating_sub(4)).max(40.min(area.width));
     let h = 20u16.min(area.height.saturating_sub(2)).max(12.min(area.height));
-    let popup = Rect {
-        x: area.x + area.width.saturating_sub(w) / 2,
-        y: area.y + area.height.saturating_sub(h) / 2,
-        width: w,
-        height: h,
-    };
+    let popup = centered_rect(area, w, h);
     frame.render_widget(Clear, popup);
 
     let v_col = verdict_color(rec.verdict, theme);

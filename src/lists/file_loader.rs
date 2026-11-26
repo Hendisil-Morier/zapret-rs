@@ -88,7 +88,7 @@ pub fn parse_list_line_token(line: &str) -> Option<&str> {
 }
 
 /// Detects whether an open file begins with the gzip magic bytes, rewinding the cursor to offset `0`.
-fn detect_gzip_and_rewind(file: &mut File) -> std::io::Result<bool> {
+pub fn detect_gzip_and_rewind(file: &mut File) -> std::io::Result<bool> {
     let mut magic = [0u8; 2];
     let mut read_total = 0usize;
     while read_total < magic.len() {

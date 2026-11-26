@@ -3,7 +3,7 @@
 /// `ratatui` overlay (`Clear`), layout, styling, and widget primitives.
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph, Wrap},
@@ -11,8 +11,8 @@ use ratatui::{
 
 /// Application state inspected to determine the active tab and daemon lifecycle status.
 use crate::tui::state::AppState;
-/// Shared keycap styling helper and bordered panel builders.
-use crate::tui::theme::{panel_block, styled_key_hints};
+/// Shared keycap styling helper, centered modal rect, and bordered panel builders.
+use crate::tui::theme::{centered_rect, panel_block, styled_key_hints};
 /// Configurable TUI color palette.
 use crate::tui::theme_config::Theme;
 /// Active tab and daemon lifecycle status used to select the correct binding section.
@@ -53,12 +53,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
     let w = 84u16.min(area.width.saturating_sub(4)).max(44.min(area.width));
     let h = 14u16.min(area.height.saturating_sub(2)).max(8.min(area.height));
-    let popup = Rect {
-        x: area.x + area.width.saturating_sub(w) / 2,
-        y: area.y + area.height.saturating_sub(h) / 2,
-        width: w,
-        height: h,
-    };
+    let popup = centered_rect(area, w, h);
     frame.render_widget(Clear, popup);
 
     let tab_label = state.tab.spec().full_title;
