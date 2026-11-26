@@ -2,9 +2,13 @@
 
 /// I/O error kind inspection for detecting `PermissionDenied` from non-interactive `nftables` installs.
 use std::io;
+/// Timestamp tracking when waiting for a running `nfqws2` daemon to stop before scanning.
+use std::time::Instant;
 
 /// Symlink-safe TOML writer, `~/` expansion, non-interactive `nftables`, and TOML merge helpers.
 use crate::tools::{FirewallHandle, NftFirewallBackend, STRAT_FINDER_NFT_TABLE, merge_nfqws2_toml};
+/// Shared stop-wait state machine reused when halting `nfqws2` prior to starting a scan.
+use crate::tui::daemon_cycle::{CycleInputs, CyclePhase, CycleStep, next_step};
 /// Floating authentication modal helpers and silent `sudo` executor.
 use crate::tui::modal::{AuthModal, ModalPurpose, run_sudo_silent, zeroize_string};
 /// Detached `systemd` / standalone `nfqws2 --daemon` background launcher.
@@ -14,11 +18,13 @@ use crate::tui::session::{TerminalSession, drop_fw_tui, save_domains_history};
 /// Mutable TUI application state.
 use crate::tui::state::AppState;
 /// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
-use crate::tui::tab2_session::{Tab2Session, attach_to_socket, execute_remote_stop};
+use crate::tui::tab2_session::{
+    Tab2Session, attach_and_stop_active_daemon, attach_to_socket, execute_remote_stop,
+};
 /// Navigation and worker event enums.
 use crate::tui::types::{FinderStatus, PostCapsAction, ScanUiEvent};
-/// Background scan and live local `nfqws2` NFQUEUE worker handles.
-use crate::tui::workers::{ActiveScan, start_finder_scan, start_live_daemon};
+/// Background scan, prerequisite validator, and live local `nfqws2` NFQUEUE worker handles.
+use crate::tui::workers::{ActiveScan, start_finder_scan, start_live_daemon, validate_scan_prereqs};
 /// Control socket auto-detection used to probe for an existing daemon before local launch.
 use crate::tui::remote::detect_control_socket;
 
@@ -40,6 +46,78 @@ fn install_nft_non_interactive(
         *need_sudo = true;
     }
     res
+}
+
+/// Queued Tab 1 scan launch waiting for an active `nfqws2` daemon to stop and release its queue.
+pub(crate) struct PendingScanStart {
+    /// Timestamp when the daemon stop was initiated so a hung daemon aborts cleanly after timeout.
+    started: Instant,
+}
+
+/// Validates prerequisites, stops any active `nfqws2` daemon, and either scans right away or waits.
+///
+/// Local in-process daemons tear down synchronously and launch immediately; socket-attached remote
+/// daemons return `Some(PendingScanStart)` until [`poll_pending_scan`] sees the socket vanish.
+pub(crate) fn begin_scan_stopping_daemon(
+    state: &mut AppState,
+    active_scan: &mut Option<ActiveScan>,
+    session_tab2: &mut Option<Tab2Session>,
+    session: &mut TerminalSession,
+) -> Option<PendingScanStart> {
+    if !state.has_net_caps {
+        state.open_caps_modal_for(Some(PostCapsAction::StartScan));
+        return None;
+    }
+    if let Err(err) = validate_scan_prereqs(state) {
+        state.apply_scan_event(ScanUiEvent::Failed(err));
+        return None;
+    }
+    if !attach_and_stop_active_daemon(state, session_tab2, session) {
+        return None;
+    }
+    if session_tab2.is_none()
+        && detect_control_socket(state.control_socket_override.as_deref()).is_none()
+    {
+        try_start_scan(state, active_scan);
+        return None;
+    }
+    state.finder_status = FinderStatus::Scanning;
+    state.progress_label = "Stopping running nfqws2 daemon...".to_owned();
+    state.status_banner = "Stopping nfqws2 before strategy scan...".to_owned();
+    Some(PendingScanStart { started: Instant::now() })
+}
+
+/// Polls an in-flight pre-scan daemon shutdown and launches the scan once the queue is clear.
+pub(crate) fn poll_pending_scan(
+    pending_scan: &mut Option<PendingScanStart>,
+    state: &mut AppState,
+    active_scan: &mut Option<ActiveScan>,
+    session_tab2: &Option<Tab2Session>,
+) {
+    let Some(pending) = pending_scan.as_ref() else {
+        return;
+    };
+    let inputs = CycleInputs {
+        session_active: session_tab2.is_some(),
+        socket_present: detect_control_socket(state.control_socket_override.as_deref()).is_some(),
+        modal_open: false,
+        run_errored: false,
+        elapsed: pending.started.elapsed(),
+    };
+    match next_step(CyclePhase::Stopping, &inputs) {
+        CycleStep::WaitStop | CycleStep::WaitStart => {}
+        CycleStep::StartNow | CycleStep::Finished => {
+            *pending_scan = None;
+            state.push_run_log("[scan] nfqws2 stopped; starting strategy scan.");
+            try_start_scan(state, active_scan);
+        }
+        CycleStep::Failed(_) => {
+            *pending_scan = None;
+            let msg = "Strategy scan aborted: nfqws2 did not stop in time.".to_owned();
+            state.push_run_log(format!("[error] {msg}"));
+            state.apply_scan_event(ScanUiEvent::Failed(msg));
+        }
+    }
 }
 
 /// Attempts to start a strategy scan; opens the floating auth modal if caps or `sudo` auth are missing.

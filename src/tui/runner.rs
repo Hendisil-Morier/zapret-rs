@@ -26,7 +26,8 @@ use crate::control::Request;
 use crate::runtime::{drop_elevated_root_if_needed, has_packet_capture_privileges};
 /// Action executors coordinating scan workers, `sudo` modals, and daemon start/attach.
 use crate::tui::actions::{
-    cancel_active_scan, poll_active_scan, submit_auth_modal, try_start_or_attach, try_start_scan,
+    PendingScanStart, begin_scan_stopping_daemon, cancel_active_scan, poll_active_scan,
+    poll_pending_scan, submit_auth_modal, try_start_or_attach,
 };
 /// Mouse click and scroll wheel handler aligned to `ratatui` panel layouts.
 use crate::tui::mouse::handle_mouse_event;
@@ -99,6 +100,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
 
     let mut session = TerminalSession::enter()?;
     let mut active_scan: Option<ActiveScan> = None;
+    let mut pending_scan: Option<PendingScanStart> = None;
     let mut tab2_session: Option<Tab2Session> = None;
     if let Some(sock) = state.detected_socket.clone()
         && attach_to_socket(&mut state, &mut tab2_session, sock)
@@ -109,9 +111,12 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     if state.has_net_caps {
         match pending_action {
             Some(PostCapsAction::StartScan) => {
-                if !matches!(tab2_session, Some(Tab2Session::Local(_))) {
-                    try_start_scan(&mut state, &mut active_scan);
-                }
+                pending_scan = begin_scan_stopping_daemon(
+                    &mut state,
+                    &mut active_scan,
+                    &mut tab2_session,
+                    &mut session,
+                );
             }
             Some(PostCapsAction::StartDaemon) if tab2_session.is_none() => {
                 try_start_or_attach(&mut state, &mut tab2_session);
@@ -128,6 +133,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     loop {
         poll_active_scan(&mut state, &mut active_scan, &mut session);
         poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick, active_scan.is_some());
+        poll_pending_scan(&mut pending_scan, &mut state, &mut active_scan, &tab2_session);
         if state.tab == crate::tui::ActiveTab::Config {
             autolist_tick = autolist_tick.wrapping_add(1);
             if autolist_tick.is_multiple_of(16) {
@@ -154,19 +160,33 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 AppAction::None => {}
                 AppAction::Quit => break,
                 AppAction::StartScan => {
-                    if matches!(tab2_session, Some(Tab2Session::Local(_))) {
-                        state.status_banner = "Stop live nfqws2 on Tab 2 before scanning.".to_owned();
-                    } else if active_scan.is_none() {
-                        try_start_scan(&mut state, &mut active_scan);
+                    if cycle.is_some() || speed_job.is_some() {
+                        state.status_banner =
+                            "Wait for the active daemon cycle or speed test to finish.".to_owned();
+                    } else if active_scan.is_none() && pending_scan.is_none() {
+                        pending_scan = begin_scan_stopping_daemon(
+                            &mut state,
+                            &mut active_scan,
+                            &mut tab2_session,
+                            &mut session,
+                        );
                     }
                 }
-                AppAction::StopScan => cancel_active_scan(&mut state, &mut active_scan, &mut session),
+                AppAction::StopScan => {
+                    if pending_scan.take().is_some() {
+                        state.finder_status = crate::tui::FinderStatus::Done;
+                        state.status_banner =
+                            "Cancelled strategy scan while stopping nfqws2.".to_owned();
+                    } else {
+                        cancel_active_scan(&mut state, &mut active_scan, &mut session);
+                    }
+                }
                 AppAction::SaveConfig => save_toml_to_disk(&mut state),
                 AppAction::ReloadConfig => reload_toml_from_disk(&mut state),
                 AppAction::EditConfig => edit_config_in_editor(&mut state, &mut session),
                 AppAction::PushConfigToDaemon => push_config_to_daemon(&mut state, &tab2_session),
                 AppAction::StartDaemon => {
-                    if active_scan.is_some() {
+                    if active_scan.is_some() || pending_scan.is_some() {
                         state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
                     } else if tab2_session.is_none() {
                         try_start_or_attach(&mut state, &mut tab2_session);
@@ -193,7 +213,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 }
                 AppAction::StopRemoteDaemon => execute_remote_stop(&mut state, &mut tab2_session),
                 AppAction::RestartDaemon => {
-                    if active_scan.is_some() {
+                    if active_scan.is_some() || pending_scan.is_some() {
                         state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
                     } else if cycle.is_some() || speed_job.is_some() {
                         state.status_banner = "A daemon cycle is already in progress.".to_owned();
@@ -202,7 +222,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                     }
                 }
                 AppAction::RunSpeedTest => {
-                    if active_scan.is_some() {
+                    if active_scan.is_some() || pending_scan.is_some() {
                         state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
                     } else if cycle.is_some() || speed_job.is_some() {
                         state.status_banner = "A speed check or restart is already running.".to_owned();

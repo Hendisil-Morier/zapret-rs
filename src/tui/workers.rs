@@ -21,8 +21,9 @@ use crate::desync::DesyncEngine;
 use crate::intercepter::QueueCatcher;
 /// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
 use crate::tools::{
-    CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, TomlRenderOptions,
-    collect_config_ports, render_nfqws2_toml_scoped, resolve_lua_scripts, run_scan,
+    CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, ScanConfig,
+    TomlRenderOptions, collect_config_ports, render_nfqws2_toml_scoped, resolve_lua_scripts,
+    run_scan,
 };
 /// Shared telemetry counters, serializable packet record, verdict tag, and decoder.
 use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record};
@@ -83,11 +84,8 @@ impl ActiveDaemon {
     }
 }
 
-/// Starts a background strategy finder scan, invoking `install_fw` when `nftables` is enabled.
-pub(crate) fn start_finder_scan<F>(state: &mut AppState, install_fw: F) -> Result<ActiveScan, String>
-where
-    F: FnOnce(u16, u32, &[u16], &[u16]) -> std::io::Result<Box<dyn FirewallHandle>>,
-{
+/// Validates network capabilities, scan domains/options, and Lua script discovery before launching a scan.
+pub(crate) fn validate_scan_prereqs(state: &AppState) -> Result<(ScanConfig, Vec<PathBuf>), String> {
     if !state.has_net_caps {
         return Err(format!(
             "missing CAP_NET_ADMIN/CAP_NET_RAW (run: sudo setcap cap_net_admin,cap_net_raw+ep {})",
@@ -101,6 +99,15 @@ where
         Some(PathBuf::from(state.lua_dir_input.trim()))
     };
     let lua_scripts = resolve_lua_scripts(lua_opt.as_deref())?;
+    Ok((scan_cfg, lua_scripts))
+}
+
+/// Starts a background strategy finder scan, invoking `install_fw` when `nftables` is enabled.
+pub(crate) fn start_finder_scan<F>(state: &mut AppState, install_fw: F) -> Result<ActiveScan, String>
+where
+    F: FnOnce(u16, u32, &[u16], &[u16]) -> std::io::Result<Box<dyn FirewallHandle>>,
+{
+    let (scan_cfg, lua_scripts) = validate_scan_prereqs(state)?;
 
     let (tcp_ports, udp_ports) = scan_cfg.required_ports();
     let fw_guard = if state.no_nft {

@@ -248,10 +248,15 @@ pub(crate) fn attach_and_stop_active_daemon(
     session: &mut TerminalSession,
 ) -> bool {
     if session_tab2.is_none()
-        && let Some(sock) = state.detected_socket.clone()
-        && !attach_to_socket(state, session_tab2, sock)
+        && let Some(sock) = state
+            .detected_socket
+            .clone()
+            .or_else(|| detect_control_socket(state.control_socket_override.as_deref()))
     {
-        return false;
+        state.detected_socket = Some(sock.clone());
+        if !attach_to_socket(state, session_tab2, sock) {
+            return false;
+        }
     }
     match session_tab2 {
         Some(Tab2Session::Remote(_)) => execute_remote_stop(state, session_tab2),
