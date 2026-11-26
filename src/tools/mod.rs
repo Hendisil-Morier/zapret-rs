@@ -8,6 +8,8 @@ pub mod mdig_backend;
 pub mod mdig_dns;
 /// Multi-threaded domain resolver worker pool, IP/CIDR filter, and stats tracking for `mdig`.
 pub mod mdig_resolver;
+/// Timed `curl` samples (connect, first byte, throughput) for before/after speed comparison.
+pub mod speed_probe;
 /// Strategy candidate catalog ported from `zapret2/blockcheck2.d/standard/*.sh`.
 pub mod strat_catalog;
 /// Shared CLI runner powering both `nfqws2 --strat-finder` and the standalone `strat_finder` binary.
@@ -41,6 +43,11 @@ pub use mdig_dns::{
 };
 /// Public API re-exports for `mdig` multi-threaded domain resolution and synchronized outputs.
 pub use mdig_resolver::{MdigOutputs, run_mdig_resolver};
+/// Public API re-exports for timed speed samples and their fixed control target.
+pub use speed_probe::{
+    CONTROL_HOST, SpeedSample, SpeedTarget, control_target, domain_target, measure,
+    parse_timing_lines,
+};
 /// Public API re-exports for `strat_finder` strategy catalog expansion.
 pub use strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalog};
 /// Public API re-exports for `strat_finder` CLI entry point and `nfqws2 --strat-finder` dispatch.
@@ -60,8 +67,8 @@ pub use strat_nft::{
 };
 /// Public API re-exports for `strat_finder` connectivity probes and outcome classification.
 pub use strat_probe::{
-    CurlProbeBackend, ProbeBackend, ProbeOutcome, ProbeRequest, classify_curl_output,
-    is_spoof_redirect,
+    CurlProbeBackend, PROBE_WRITE_OUT, ProbeBackend, ProbeOutcome, ProbeRequest,
+    classify_curl_output, is_spoof_redirect,
 };
 /// Public API re-exports for `strat_finder` NFQUEUE worker and multi-domain scan orchestration.
 pub use strat_runner::{

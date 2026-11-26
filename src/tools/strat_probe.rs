@@ -14,6 +14,9 @@ use crate::runtime::clear_child_privileges;
 /// Target protocol and IP family enums shared with the strategy catalog.
 use crate::tools::strat_catalog::{IpFamily, ProbeProtocol};
 
+/// `curl -w` format read by [`classify_curl_output`]: status code, redirect target, total seconds.
+pub const PROBE_WRITE_OUT: &str = "%{http_code}\n%{redirect_url}\n%{time_total}\n";
+
 /// Outcome of probing one domain over a specific protocol and IP family.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeOutcome {
@@ -129,9 +132,23 @@ impl CurlProbeBackend {
 
     /// Builds the `curl` argument list for `req` (separated for deterministic unit testing).
     pub fn build_args(req: &ProbeRequest) -> Vec<String> {
-        let secs = req.timeout.as_secs().max(1).to_string();
         let scheme = if req.proto == ProbeProtocol::Http { "http" } else { "https" };
         let url = format!("{scheme}://{}/", req.domain);
+        Self::build_url_args(&url, Some(req.proto), req.ipv, req.timeout, PROBE_WRITE_OUT)
+    }
+
+    /// Builds `curl` arguments fetching `url` and printing `write_out` after the transfer.
+    ///
+    /// `proto = None` leaves TLS and HTTP version negotiation to `curl` (used by speed checks that
+    /// must behave like ordinary browsing); `Some` pins the version exactly as strategy scans do.
+    pub fn build_url_args(
+        url: &str,
+        proto: Option<ProbeProtocol>,
+        ipv: IpFamily,
+        timeout: Duration,
+        write_out: &str,
+    ) -> Vec<String> {
+        let secs = timeout.as_secs().max(1).to_string();
         let mut args = vec![
             "-sS".to_owned(),
             "-o".to_owned(),
@@ -142,26 +159,28 @@ impl CurlProbeBackend {
             secs.clone(),
             "--max-time".to_owned(),
             secs,
-            if req.ipv == IpFamily::V4 { "-4" } else { "-6" }.to_owned(),
+            if ipv == IpFamily::V4 { "-4" } else { "-6" }.to_owned(),
             "-w".to_owned(),
-            "%{http_code}\n%{redirect_url}\n%{time_total}\n".to_owned(),
+            write_out.to_owned(),
         ];
-        match req.proto {
-            ProbeProtocol::Http => args.push("--http1.1".to_owned()),
-            ProbeProtocol::Tls12 => {
+        match proto {
+            None => {}
+            Some(ProbeProtocol::Http) => args.push("--http1.1".to_owned()),
+            Some(ProbeProtocol::Tls12) => {
                 args.push("--tlsv1.2".to_owned());
                 args.push("--tls-max".to_owned());
                 args.push("1.2".to_owned());
             }
-            ProbeProtocol::Tls13 => args.push("--tlsv1.3".to_owned()),
-            ProbeProtocol::Http3 => args.push("--http3-only".to_owned()),
+            Some(ProbeProtocol::Tls13) => args.push("--tlsv1.3".to_owned()),
+            Some(ProbeProtocol::Http3) => args.push("--http3-only".to_owned()),
         }
-        args.push(url);
+        args.push(url.to_owned());
         args
     }
+
     /// Creates a [`Command`] for `self.curl_bin` that drops all Linux capabilities and sets
     /// `PR_SET_NO_NEW_PRIVS` in the child before `execve`.
-    fn unprivileged_command(&self) -> Command {
+    pub(crate) fn unprivileged_command(&self) -> Command {
         let mut cmd = Command::new(&self.curl_bin);
         // SAFETY: `clear_child_privileges` invokes only async-signal-safe `prctl` and `SYS_capset`.
         unsafe {
