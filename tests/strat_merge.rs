@@ -89,7 +89,7 @@ fn domain_scope_renders_catch_all_and_autohostlist_profiles_cleanly() {
 
     let auto_toml = render_nfqws2_toml_scoped(&cover, &opts, DomainScope::AutoHostlist);
     let auto_cfg = AppConfig::from_toml_str(&auto_toml, None).expect("valid autolist TOML");
-    assert_eq!(auto_cfg.profiles[0].lists.hostlist_domains, vec!["youtube.com"]);
+    assert!(auto_cfg.profiles[0].lists.hostlist_domains.is_empty());
     assert_eq!(
         auto_cfg.profiles[0].lists.hostlist_auto.as_deref(),
         Some(std::path::Path::new(DEFAULT_AUTOHOSTLIST_FILE))

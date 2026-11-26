@@ -14,7 +14,10 @@ use zapret_rs::tools::{
     render_nfqws2_toml,
 };
 /// TUI session domain persistence and state machine types under test.
-use zapret_rs::tui::session::{domains_history_path, save_domains_history, seed_domains_on_startup};
+use zapret_rs::tui::session::{
+    domains_history_path, save_domains_history, seed_autohostlists_from_domains,
+    seed_domains_on_startup,
+};
 use zapret_rs::tui::{
     AppAction, AppState, AuthModal, FinderField, ModalPurpose, ScanUiEvent, draw_app,
 };
@@ -156,8 +159,6 @@ fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains() {
     let dir = temp_cfg_dir("autolist-ui");
     let cfg_path = dir.join("nfqws2.toml");
     let autolist_path = dir.join("autohostlist.txt");
-    fs::write(&autolist_path, "# auto\nblocked-one.example\nblocked-two.example\n")
-        .expect("write autohostlist");
 
     let strat = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4)[0].clone();
     let cfg_toml = render_nfqws2_toml_scoped(
@@ -172,6 +173,8 @@ fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains() {
     fs::write(&cfg_path, &cfg_toml).expect("write nfqws2.toml");
 
     let mut state = AppState::new(Some(cfg_path), None, false);
+    state.domains_input = "blocked-one.example, blocked-two.example".to_owned();
+    seed_autohostlists_from_domains(&mut state);
     state.tab = ActiveTab::Config;
     assert_eq!(state.autohostlist_paths, vec![autolist_path]);
     assert_eq!(

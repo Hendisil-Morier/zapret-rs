@@ -24,7 +24,7 @@ pub enum DomainScope {
     ScannedOnly,
     /// Omit `hostlist_domains` so generated profiles apply across all domains on that port/protocol.
     AllDomains,
-    /// Emit `hostlist_auto` alongside `hostlist_domains` so failing domains are added dynamically.
+    /// Omit `hostlist_domains` and use `hostlist_auto` so scanned/blocked domains live in the list file.
     AutoHostlist,
 }
 
@@ -55,28 +55,20 @@ pub fn render_nfqws2_toml_scoped(
     scope: DomainScope,
 ) -> String {
     let base = render_nfqws2_toml(profiles, opts);
-    match scope {
-        DomainScope::ScannedOnly => base,
-        DomainScope::AllDomains => {
-            let mut out = String::with_capacity(base.len());
-            for line in base.lines() {
-                if !line.starts_with("hostlist_domains = ") {
-                    let _ = writeln!(out, "{line}");
-                }
-            }
-            out
+    if scope == DomainScope::ScannedOnly {
+        return base;
+    }
+    let mut out = String::with_capacity(base.len() + 64);
+    for line in base.lines() {
+        if line.starts_with("hostlist_domains = ") {
+            continue;
         }
-        DomainScope::AutoHostlist => {
-            let mut out = String::with_capacity(base.len() + 64);
-            for line in base.lines() {
-                let _ = writeln!(out, "{line}");
-                if line.starts_with("filter_l7 = ") {
-                    let _ = writeln!(out, "hostlist_auto = \"{DEFAULT_AUTOHOSTLIST_FILE}\"");
-                }
-            }
-            out
+        let _ = writeln!(out, "{line}");
+        if scope == DomainScope::AutoHostlist && line.starts_with("filter_l7 = ") {
+            let _ = writeln!(out, "hostlist_auto = \"{DEFAULT_AUTOHOSTLIST_FILE}\"");
         }
     }
+    out
 }
 
 /// Extracts unique, trimmed inline `hostlist_domains` entries across every profile in `cfg`.
@@ -119,10 +111,7 @@ fn filter_signature(prof: &toml::Table) -> (Vec<String>, Vec<String>, Vec<String
 
 /// Returns `true` when `prof` acts as a catch-all without hostlist or ipset scoping.
 fn is_catch_all(prof: &toml::Table) -> bool {
-    !prof.contains_key("hostlist_domains")
-        && !prof.contains_key("hostlist")
-        && !prof.contains_key("ipset")
-        && !prof.contains_key("ipset_domains")
+    !prof.contains_key("hostlist_domains") && !has_other_lists(prof)
 }
 
 /// Returns `true` if `prof` still references list/ipset sources after inline domains are removed.

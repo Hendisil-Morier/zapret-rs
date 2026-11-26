@@ -22,7 +22,7 @@ use crate::config::AppConfig;
 /// Symlink-safe TOML writer, `~/` expansion, scan level enum, and domain extractor.
 use crate::tools::{
     DomainScope, FirewallHandle, ScanLevel, expand_tilde, extract_hostlist_domains,
-    write_config_nofollow,
+    normalize_domain, write_config_nofollow,
 };
 /// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML template generator.
 use crate::tui::editor::{build_starter_toml, resolve_editor_command, spawn_unprivileged_editor};
@@ -269,6 +269,43 @@ pub fn seed_domains_on_startup(state: &mut AppState) {
     }
 }
 
+/// Ensures any configured `hostlist_auto` file contains the scanned `domains_input` hostnames.
+pub fn seed_autohostlists_from_domains(state: &mut AppState) {
+    if state.autohostlist_paths.is_empty() || state.domains_input.trim().is_empty() {
+        return;
+    }
+    let domains: Vec<String> = state
+        .domains_input
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter_map(normalize_domain)
+        .collect();
+    if domains.is_empty() {
+        return;
+    }
+    for path in &state.autohostlist_paths {
+        let existing = fs::read_to_string(path).unwrap_or_default();
+        let mut out = existing.clone();
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        let mut changed = false;
+        for d in &domains {
+            let already = existing
+                .lines()
+                .any(|l| l.trim().eq_ignore_ascii_case(d));
+            if !already && !out.lines().any(|l| l.trim().eq_ignore_ascii_case(d)) {
+                out.push_str(d);
+                out.push('\n');
+                changed = true;
+            }
+        }
+        if changed || !path.exists() {
+            let _ = write_config_nofollow(path, &out);
+        }
+    }
+    state.refresh_autohostlist();
+}
+
 /// Saves `state.active_toml` cleanly to `state.output_path` without following symlinks.
 pub(crate) fn save_toml_to_disk(state: &mut AppState) {
     if state.active_toml.trim().is_empty() {
@@ -276,6 +313,7 @@ pub(crate) fn save_toml_to_disk(state: &mut AppState) {
         return;
     }
     save_domains_history(state);
+    seed_autohostlists_from_domains(state);
     let path = expand_tilde(&state.output_path);
     match write_config_nofollow(&path, &state.active_toml) {
         Ok(()) => state.status_banner = format!("Saved {}", path.display()),
