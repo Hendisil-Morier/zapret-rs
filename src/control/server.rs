@@ -23,14 +23,20 @@ use crate::control::client_session::serve_client;
 use crate::control::codec::write_message;
 /// Telemetry hub driving subscriber fanout and status snapshots.
 use crate::control::hub::TelemetryHub;
-/// Peer UID authorization via `SO_PEERCRED` with injectable test predicate.
-use crate::control::peer::{PeerUidCheck, current_euid, peer_credentials, same_uid};
+/// Peer UID authorization predicate type.
+use crate::control::peer::{PeerUidCheck, same_uid};
+/// Unix peer UID extraction via `SO_PEERCRED` / `getpeereid`.
+#[cfg(unix)]
+use crate::control::peer::{current_euid, peer_credentials};
 /// Control wire protocol response types for broadcast and rejection replies.
 use crate::control::protocol::{ControlErrorCode, CountersSnapshot, Response};
 /// Safe `0600` socket binding and stale-socket replacement.
 use crate::control::socket::{BoundSocket, ControlServerError, bind_control_socket};
 /// Cross-platform control IPC stream wrapper.
 use crate::control::transport::ControlStream;
+/// Loopback TCP session token verifier on non-Unix targets.
+#[cfg(not(unix))]
+use crate::control::transport::verify_loopback_token;
 /// Verdict check so `PASS` sampling preferences can apply per subscriber.
 use crate::telemetry::PacketVerdict;
 
@@ -183,6 +189,7 @@ fn run_accept_loop(
     stop: Arc<AtomicBool>,
     client_joins: Arc<Mutex<Vec<JoinHandle<()>>>>,
 ) {
+    #[cfg(unix)]
     let expected_uid = config.expected_uid.unwrap_or_else(current_euid);
     let next_id = AtomicU64::new(1);
 
@@ -191,15 +198,19 @@ fn run_accept_loop(
             continue;
         }
         loop {
-            let stream = match bound.accept() {
+            #[cfg_attr(unix, allow(unused_mut))]
+            let mut stream = match bound.accept() {
                 Ok(stream) => stream,
                 Err(err) if err.kind() == ErrorKind::WouldBlock => break,
                 Err(_) => break,
             };
+            #[cfg(unix)]
             let allowed = match peer_credentials(&stream) {
                 Ok(creds) => (config.uid_check)(creds.uid, expected_uid),
                 Err(_) => false,
             };
+            #[cfg(not(unix))]
+            let allowed = verify_loopback_token(&mut stream, &bound.auth_token);
             if !allowed {
                 let _ = stream.shutdown(Shutdown::Both);
                 continue;

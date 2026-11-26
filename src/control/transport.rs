@@ -61,11 +61,20 @@ impl ControlStream {
         #[cfg(not(unix))]
         {
             let raw = std::fs::read_to_string(path)?;
-            let port: u16 = raw
+            let mut lines = raw.lines();
+            let port: u16 = lines
+                .next()
+                .unwrap_or("")
                 .trim()
                 .parse()
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid control port"))?;
-            TcpStream::connect(("127.0.0.1", port)).map(|inner| Self { inner })
+            let token = lines.next().unwrap_or("").trim();
+            if token.len() != 32 {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid control token"));
+            }
+            let mut stream = TcpStream::connect(("127.0.0.1", port))?;
+            stream.write_all(format!("{token}\n").as_bytes())?;
+            Ok(Self { inner: stream })
         }
     }
 
@@ -123,4 +132,21 @@ pub fn is_live_control_socket(path: &Path) -> bool {
         return false;
     }
     ControlStream::connect(path).is_ok()
+}
+
+/// Verifies the 32-byte hex session token sent by a connecting loopback TCP client on non-Unix.
+#[cfg(not(unix))]
+pub(crate) fn verify_loopback_token(stream: &mut ControlStream, expected: &str) -> bool {
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
+    let mut buf = [0u8; 33];
+    let ok = stream.read_exact(&mut buf).is_ok()
+        && buf[32] == b'\n'
+        && expected.len() == 32
+        && buf[..32]
+            .iter()
+            .zip(expected.as_bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0;
+    let _ = stream.set_read_timeout(None);
+    ok
 }

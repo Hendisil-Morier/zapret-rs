@@ -53,6 +53,9 @@ pub(crate) struct BoundSocket {
     /// Listening loopback TCP socket on non-Unix targets.
     #[cfg(not(unix))]
     pub(crate) listener: TcpListener,
+    /// Random per-session hex token required from loopback TCP peers on non-Unix targets.
+    #[cfg(not(unix))]
+    pub(crate) auth_token: String,
     /// Socket/rendezvous path retained for safe cleanup on shutdown.
     pub(crate) path: PathBuf,
     /// Device ID of the newly bound socket file for safe shutdown unlink checks.
@@ -361,7 +364,8 @@ pub(crate) fn bind_control_socket(path: &Path) -> Result<BoundSocket, ControlSer
     listener
         .set_nonblocking(true)
         .map_err(|source| ControlServerError::Io { path: path.to_path_buf(), source })?;
-    fs::write(path, port.to_string())
+    let auth_token = format!("{:032x}", rand::random::<u128>());
+    fs::write(path, format!("{port}\n{auth_token}"))
         .map_err(|source| ControlServerError::Io { path: path.to_path_buf(), source })?;
-    Ok(BoundSocket { listener, path: path.to_path_buf() })
+    Ok(BoundSocket { listener, auth_token, path: path.to_path_buf() })
 }
