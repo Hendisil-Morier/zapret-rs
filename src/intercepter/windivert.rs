@@ -14,6 +14,8 @@ use crate::intercepter::windivert_ffi::{
     WINDIVERT_LAYER_NETWORK, WinDivertAddress, WinDivertApi, WinDivertHandle,
 };
 
+/// Scoped stop-watcher wakeup polling interval.
+const STOP_WATCH_POLL: Duration = Duration::from_millis(25);
 /// Maximum single-packet capture buffer size matching IPv4/IPv6 jumbo limits.
 const CAPTURE_BUF_LEN: usize = 65_536;
 
@@ -54,40 +56,63 @@ impl PacketIntercepter for WinDivertIntercepter {
         F: FnMut(&QueuedPacket<'_>) -> Decision,
         T: FnMut() -> Option<Duration>,
     {
-        let mut seq = 0u32;
-        while !stop.load(Ordering::Acquire) {
-            let _ = next_timeout();
-            let mut addr = WinDivertAddress::default();
-            let read_len = match self.handle.recv(&mut self.buf, &mut addr) {
-                Ok(n) => n,
-                Err(err) => {
+        let done = AtomicBool::new(false);
+        let handle = &self.handle;
+        let buf = &mut self.buf;
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !done.load(Ordering::Acquire) {
                     if stop.load(Ordering::Acquire) {
+                        handle.shutdown();
                         break;
                     }
-                    return Err(IntercepterError::Io(err));
+                    std::thread::sleep(STOP_WATCH_POLL);
                 }
-            };
-            seq = seq.wrapping_add(1);
-            let if_idx_str = addr.if_idx().to_string();
-            let if_name = (addr.if_idx() > 0).then_some(if_idx_str.as_str());
-            let pkt = QueuedPacket {
-                packet_id: seq,
-                mark: 0,
-                ifin: if addr.is_outbound() { None } else { if_name },
-                ifout: if addr.is_outbound() { if_name } else { None },
-                payload: &self.buf[..read_len],
-            };
-            match on_packet(&pkt) {
-                Decision::Pass => {
-                    self.handle.send(&self.buf[..read_len], &addr)?;
+            });
+
+            let mut seq = 0u32;
+            let mut result = Ok(());
+            while !stop.load(Ordering::Acquire) {
+                let _ = next_timeout();
+                let mut addr = WinDivertAddress::default();
+                let read_len = match handle.recv(buf, &mut addr) {
+                    Ok(n) => n,
+                    Err(err) => {
+                        if !stop.load(Ordering::Acquire) {
+                            result = Err(IntercepterError::Io(err));
+                        }
+                        break;
+                    }
+                };
+                seq = seq.wrapping_add(1);
+                let if_idx_str = addr.if_idx().to_string();
+                let if_name = (addr.if_idx() > 0).then_some(if_idx_str.as_str());
+                let pkt = QueuedPacket {
+                    packet_id: seq,
+                    mark: 0,
+                    ifin: if addr.is_outbound() { None } else { if_name },
+                    ifout: if addr.is_outbound() { if_name } else { None },
+                    payload: &buf[..read_len],
+                };
+                match on_packet(&pkt) {
+                    Decision::Pass => {
+                        if let Err(err) = handle.send(&buf[..read_len], &addr) {
+                            result = Err(IntercepterError::Io(err));
+                            break;
+                        }
+                    }
+                    Decision::Replace(mut modified) => {
+                        handle.calc_checksums(&mut modified, &mut addr);
+                        if let Err(err) = handle.send(&modified, &addr) {
+                            result = Err(IntercepterError::Io(err));
+                            break;
+                        }
+                    }
+                    Decision::Drop => {}
                 }
-                Decision::Replace(mut modified) => {
-                    self.handle.calc_checksums(&mut modified, &mut addr);
-                    self.handle.send(&modified, &addr)?;
-                }
-                Decision::Drop => {}
             }
-        }
-        Ok(())
+            done.store(true, Ordering::Release);
+            result
+        })
     }
 }

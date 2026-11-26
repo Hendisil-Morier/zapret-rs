@@ -178,6 +178,8 @@ pub(crate) struct WinDivertHandle {
 
 // SAFETY: WinDivert handles are thread-safe kernel handles (`WinDivertShutdown` from another thread).
 unsafe impl Send for WinDivertHandle {}
+// SAFETY: Concurrent `WinDivertShutdown` with `WinDivertRecv` is thread-safe per WinDivert docs.
+unsafe impl Sync for WinDivertHandle {}
 
 impl WinDivertHandle {
     /// Receives one packet into `buf` and populates `addr`, returning the byte count read.
