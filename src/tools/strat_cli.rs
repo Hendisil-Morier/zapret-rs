@@ -29,8 +29,10 @@ use crate::tools::strat_interactive::{
     InteractiveDefaults, detect_lua_dir, expand_tilde, normalize_domain, prompt_interactive_wizard,
     resolve_lua_scripts,
 };
+/// OS-agnostic firewall backend trait implemented by [`NftFirewallBackend`].
+use crate::tools::firewall::FirewallBackend;
 /// Temporary `nftables` queue guard backend and ruleset printer.
-use crate::tools::strat_nft::{FirewallBackend, NftFirewallBackend, build_nft_cleanup_cmd};
+use crate::tools::strat_nft::{NftFirewallBackend, build_nft_cleanup_cmd};
 /// Live `curl` connectivity probe backend (runs children with zero capabilities).
 use crate::tools::strat_probe::CurlProbeBackend;
 /// In-process NFQUEUE worker thread and scan orchestrator.

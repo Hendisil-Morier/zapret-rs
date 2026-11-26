@@ -1,5 +1,7 @@
 //! Companion CLI utilities ported from `zapret2` (`ip2net` and `mdig`).
 
+/// OS-agnostic firewall rule backend contract and target port collector.
+pub mod firewall;
 /// IPv4/IPv6 single-address and CIDR subnet aggregator (`zapret2/ip2net`).
 pub mod ip2net;
 /// `mdig` configuration, domain validation helpers, and `libc::getaddrinfo` backend.
@@ -62,10 +64,12 @@ pub use strat_interactive::{
     InteractiveDefaults, InteractiveSelections, default_output_config_path, detect_lua_dir,
     expand_tilde, normalize_domain, prompt_interactive_wizard, resolve_lua_scripts,
 };
+/// Public API re-exports for OS-agnostic firewall backend traits and port collection.
+pub use firewall::{FirewallBackend, FirewallHandle, collect_config_ports};
 /// Public API re-exports for `strat_finder` temporary `nftables` firewall management.
 pub use strat_nft::{
-    FirewallBackend, FirewallHandle, NftFirewallBackend, NftQueueGuard, STRAT_FINDER_NFT_TABLE,
-    build_nft_cleanup_cmd, collect_config_ports, is_nft_perm_denied, sudo_needs_password,
+    NftFirewallBackend, NftQueueGuard, STRAT_FINDER_NFT_TABLE, build_nft_cleanup_cmd,
+    is_nft_perm_denied, sudo_needs_password,
 };
 /// Public API re-exports for `strat_finder` connectivity probes and outcome classification.
 pub use strat_probe::{
