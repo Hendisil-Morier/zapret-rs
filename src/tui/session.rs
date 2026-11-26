@@ -163,6 +163,21 @@ pub(crate) struct TerminalSession {
 impl TerminalSession {
     /// Enters raw mode, alternate screen buffer, and mouse capture.
     pub(crate) fn enter() -> Result<Self, String> {
+        #[cfg(windows)]
+        {
+            /// Windows UTF-8 console code page (`CP_UTF8`).
+            const CP_UTF8: u32 = 65_001;
+            #[link(name = "kernel32")]
+            unsafe extern "system" {
+                fn SetConsoleOutputCP(code_page_id: u32) -> i32;
+                fn SetConsoleCP(code_page_id: u32) -> i32;
+            }
+            // SAFETY: Switching console input/output code pages to UTF-8 is process-local and safe.
+            unsafe {
+                let _ = SetConsoleOutputCP(CP_UTF8);
+                let _ = SetConsoleCP(CP_UTF8);
+            }
+        }
         let seamless = std::env::var_os(SEAMLESS_REEXEC_ENV).is_some();
         enable_raw_mode().map_err(|err| format!("failed to enable terminal raw mode: {err}"))?;
         let mut stdout = io::stdout();

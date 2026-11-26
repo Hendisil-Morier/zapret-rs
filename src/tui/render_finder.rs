@@ -48,10 +48,11 @@ fn windowed_text(text: &str, cursor: Option<usize>, scroll: usize, max_chars: us
     } else {
         text[start_byte..end_byte].to_owned()
     };
+    let (left_arrow, right_arrow) = if cfg!(windows) { ("<", ">") } else { ("◀", "▶") };
     match (win_start_char > 0, win_end_char < char_count) {
-        (true, true) => format!("◀{body}▶"),
-        (true, false) => format!("◀{body}"),
-        (false, true) => format!("{body}▶"),
+        (true, true) => format!("{left_arrow}{body}{right_arrow}"),
+        (true, false) => format!("{left_arrow}{body}"),
+        (false, true) => format!("{body}{right_arrow}"),
         (false, false) => body,
     }
 }
