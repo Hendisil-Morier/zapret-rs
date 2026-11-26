@@ -88,7 +88,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: zapret-rs-${{ github.ref_name }}-windows-x86_64.zip
-          generate_release_notes: true
 
   release-linux:
     needs: [linux, windows]
