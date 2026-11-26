@@ -194,7 +194,9 @@ fn perform_install(cli: &InstallCli) -> Result<(), String> {
     };
     let bin_dir = prefix.join("bin");
     let dst_bin = bin_dir.join("zapret-rs");
-    if fs::canonicalize(&src_bin).ok() != fs::canonicalize(&dst_bin).ok() {
+    let dst_is_symlink =
+        fs::symlink_metadata(&dst_bin).is_ok_and(|meta| meta.file_type().is_symlink());
+    if dst_is_symlink || fs::canonicalize(&src_bin).ok() != fs::canonicalize(&dst_bin).ok() {
         atomic_copy_executable(&src_bin, &dst_bin)?;
     }
 

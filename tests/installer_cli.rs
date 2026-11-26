@@ -89,3 +89,27 @@ fn install_and_uninstall_prefix_deploy_binary_symlinks_and_bundled_lua() {
 
     let _ = fs::remove_dir_all(&prefix);
 }
+
+#[cfg(unix)]
+#[test]
+fn install_replaces_existing_symlink_pointing_to_source_bin() {
+    let bin = env!("CARGO_BIN_EXE_zapret-rs");
+    let prefix = temp_prefix("replace-symlink");
+    let bin_dir = prefix.join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    let dst_bin = bin_dir.join("zapret-rs");
+    std::os::unix::fs::symlink(bin, &dst_bin).expect("seed pre-existing symlink");
+
+    let inst = Command::new(bin)
+        .args(["install", "--prefix"])
+        .arg(&prefix)
+        .args(["--no-caps", "--source-bin", bin])
+        .output()
+        .expect("run install over pre-existing symlink");
+    assert!(inst.status.success(), "stderr={}", String::from_utf8_lossy(&inst.stderr));
+
+    let meta = fs::symlink_metadata(&dst_bin).expect("dst metadata");
+    assert!(meta.file_type().is_file() && !meta.file_type().is_symlink(), "dst must become a real file for setcap");
+
+    let _ = fs::remove_dir_all(&prefix);
+}
