@@ -48,8 +48,10 @@ pub mod state_tabs;
 pub mod tabs;
 /// Theme-driven panel builders, `[key]` badge styling, log tagging, and syntax highlighters.
 pub mod theme;
-/// Configurable color themes, built-in vivid presets, hex parsing, and `theme.toml` persistence.
+/// Configurable color themes, hex parsing, and `theme.toml` persistence.
 pub mod theme_config;
+/// Built-in TUI `Theme` struct and vivid color palette presets.
+pub mod theme_presets;
 /// Navigation enums, form field descriptors, telemetry counters, and worker events.
 pub mod types;
 /// Background strategy scan and live `nfqws2` NFQUEUE worker handles.
