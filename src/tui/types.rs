@@ -343,6 +343,7 @@ impl PanelFocusState {
                     ConfigFocus::Nft => ConfigFocus::Toml,
                 };
             }
+            ActiveTab::Speed => {}
         }
     }
 }

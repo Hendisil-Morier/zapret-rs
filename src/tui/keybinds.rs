@@ -65,6 +65,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
         ActiveTab::Finder => "1: Strategy Finder",
         ActiveTab::Run => "2: Run nfqws2",
         ActiveTab::Config => "3: Config & Diagnostics",
+        ActiveTab::Speed => "4: Speed Test",
     };
     // `panel_block` takes `&'static str`; leak the formatted title for the lifetime of this frame.
     let title = format!(" Keybindings \u{2014} {tab_label} [?] ");
@@ -81,9 +82,9 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
 
     // Global bindings shown regardless of active tab.
     let global_row = if !state.has_net_caps {
-        "[1/2/3] Views  [Tab/Shift+Tab] Panel  [t] Theme  [T] Save Theme  [g] Caps  [?] Help  [q] Quit"
+        "[1/2/3/4] Views  [Tab/Shift+Tab] Panel  [t] Theme  [T] Save Theme  [g] Caps  [?] Help  [q] Quit"
     } else {
-        "[1/2/3] Views  [Tab/Shift+Tab] Focus Panel  [t] Theme  [T] Save theme.toml  [?] Help  [q] Quit"
+        "[1/2/3/4] Views  [Tab/Shift+Tab] Focus Panel  [t] Theme  [T] Save theme.toml  [?] Help  [q] Quit"
     };
     push_help_section(&mut lines, "Global", false, &[global_row], t);
 
@@ -127,6 +128,15 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
                 "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn/Home] Scroll TOML/nft"
             };
             push_help_section(&mut lines, "Config & Diagnostics", true, &[cfg_row], t);
+        }
+        ActiveTab::Speed => {
+            push_help_section(
+                &mut lines,
+                "Speed Test",
+                true,
+                &["[r] Run Before/After Check  [c] Clear Results  [Up/Down/j/k] Select Row"],
+                t,
+            );
         }
     }
 

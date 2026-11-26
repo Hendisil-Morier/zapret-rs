@@ -25,6 +25,8 @@ use crate::tools::{
 };
 /// Live packet inspector state for Tab 2.
 use crate::tui::inspect::PacketInspectorState;
+/// Before/after speed comparison state for Tab 4.
+use crate::tui::speed::SpeedState;
 /// Floating capability-grant, `sudo` auth, and daemon-stop confirmation modal state.
 use crate::tui::modal::{AuthModal, ModalKeyResult, ModalPurpose};
 /// Attached background `nfqws2` daemon metadata shown on Tab 2.
@@ -136,6 +138,8 @@ pub struct AppState {
     pub theme: Theme,
     /// Live packet inspector table, filter, pause toggle, and detail popup state on Tab 2.
     pub inspector: PacketInspectorState,
+    /// Before/after speed comparison results and phase on Tab 4.
+    pub speed: SpeedState,
 }
 
 impl AppState {
@@ -206,6 +210,7 @@ impl AppState {
             focus: PanelFocusState::default(),
             theme,
             inspector: PacketInspectorState::default(),
+            speed: SpeedState::default(),
         };
         let cfg_path = expand_tilde(&state.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
@@ -354,6 +359,7 @@ impl AppState {
             ActiveTab::Finder => self.handle_finder_key(key.code),
             ActiveTab::Run => self.handle_run_key(key.code),
             ActiveTab::Config => self.handle_config_key(key.code),
+            ActiveTab::Speed => self.handle_speed_key(key.code),
         }
     }
 }

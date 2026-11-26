@@ -24,8 +24,12 @@ pub mod render;
 pub mod render_config;
 /// Strategy Finder Tab 1 panel widgets extracted to keep renderer modules focused.
 pub mod render_finder;
+/// Before/after Speed Test Tab 4 table and status card renderer.
+pub mod render_speed;
 /// Terminal lifecycle, `sudo`-safe suspend/resume, and worker coordination loop.
 pub mod runner;
+/// Tab 4 model: before/after speed comparison state, targets, and delta helpers.
+pub mod speed;
 /// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
 pub mod tab2_session;
 /// Terminal alternate-screen session RAII guard and unprivileged `$EDITOR` launcher.

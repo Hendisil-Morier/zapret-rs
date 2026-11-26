@@ -17,6 +17,8 @@ use crate::tui::{keybinds::draw_keybinds_modal, modal::draw_auth_modal};
 use crate::tui::render_config::draw_config_tab;
 /// Tab 1 Strategy Finder rendering helper.
 use crate::tui::render_finder::draw_finder_tab;
+/// Tab 4 Speed Test rendering helper.
+use crate::tui::render_speed::draw_speed_tab;
 /// Application state rendered into the terminal frame.
 use crate::tui::state::AppState;
 /// Shared panel border helpers, `[key]` badge styling, log tagging, and syntax highlighters.
@@ -42,6 +44,7 @@ pub fn draw_app(frame: &mut Frame, state: &AppState) {
         ActiveTab::Finder => draw_finder_tab(frame, chunks[1], state),
         ActiveTab::Run => draw_run_tab(frame, chunks[1], state),
         ActiveTab::Config => draw_config_tab(frame, chunks[1], state),
+        ActiveTab::Speed => draw_speed_tab(frame, chunks[1], state),
     }
     draw_footer(frame, chunks[2], state);
     if state.tab == ActiveTab::Run
@@ -68,7 +71,8 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
     let tab_titles = [
         (" 1:", " Strategy Finder "),
         (" 2:", " Run nfqws2 "),
-        (" 3:", " Config & Diagnostics "),
+        (" 3:", " Config & Diag "),
+        (" 4:", " Speed Test "),
     ]
     .into_iter()
     .map(|(num, label)| {

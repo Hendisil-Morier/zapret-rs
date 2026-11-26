@@ -91,4 +91,22 @@ impl AppState {
         }
         AppAction::None
     }
+
+    /// Handles navigation and clear keys on Tab 4 (Speed Test).
+    pub(crate) fn handle_speed_key(&mut self, code: KeyCode) -> AppAction {
+        match code {
+            KeyCode::Up | KeyCode::Char('k') => self.speed.move_selection(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.speed.move_selection(1),
+            KeyCode::Char('c') => {
+                if self.speed.phase.is_running() {
+                    self.status_banner = "Cannot clear results while speed test is running.".to_owned();
+                } else {
+                    self.speed.clear();
+                    self.status_banner = "Speed test results cleared.".to_owned();
+                }
+            }
+            _ => {}
+        }
+        AppAction::None
+    }
 }

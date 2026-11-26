@@ -27,6 +27,7 @@ impl AppState {
             KeyCode::Char('1') => return Some(self.switch_tab(ActiveTab::Finder)),
             KeyCode::Char('2') => return Some(self.switch_tab(ActiveTab::Run)),
             KeyCode::Char('3') => return Some(self.switch_tab(ActiveTab::Config)),
+            KeyCode::Char('4') => return Some(self.switch_tab(ActiveTab::Speed)),
             KeyCode::Tab => return Some(self.cycle_panel_focus(true)),
             KeyCode::BackTab => return Some(self.cycle_panel_focus(false)),
             KeyCode::Char('t') if !detail_open => {

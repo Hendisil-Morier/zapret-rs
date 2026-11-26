@@ -12,11 +12,13 @@ pub enum ActiveTab {
     Run,
     /// Tab 3: scrollable `nfqws2.toml` viewer, `nftables` preview, and capability diagnostics.
     Config,
+    /// Tab 4: before/after speed comparison (daemon stopped vs. daemon running).
+    Speed,
 }
 
 impl ActiveTab {
     /// Every tab in header order, used to derive index, next and previous consistently.
-    const ORDER: [Self; 3] = [Self::Finder, Self::Run, Self::Config];
+    const ORDER: [Self; 4] = [Self::Finder, Self::Run, Self::Config, Self::Speed];
 
     /// Returns the 0-based tab index for `ratatui::widgets::Tabs`.
     pub fn index(self) -> usize {
