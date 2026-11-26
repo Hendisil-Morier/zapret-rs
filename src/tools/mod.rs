@@ -4,6 +4,8 @@
 pub mod firewall;
 /// IPv4/IPv6 single-address and CIDR subnet aggregator (`zapret2/ip2net`).
 pub mod ip2net;
+/// Compile-time bundled Lua scripts and fallback extractor into user/system data paths.
+pub mod lua_bundle;
 /// `mdig` configuration, domain validation helpers, and `libc::getaddrinfo` backend.
 pub mod mdig_backend;
 /// RFC 1035 DNS binary query constructor and reply parser for `mdig`.
@@ -59,10 +61,15 @@ pub use strat_cli::{
     DEFAULT_STRAT_QNUM, StratFinderCli, extract_strat_finder_args, run_strat_finder,
     run_strat_finder_cli,
 };
-/// Public API re-exports for `strat_finder` interactive terminal wizard and Lua discovery.
+/// Public API re-exports for `strat_finder` interactive terminal wizard and config path defaults.
 pub use strat_interactive::{
-    InteractiveDefaults, InteractiveSelections, default_output_config_path, detect_lua_dir,
-    expand_tilde, normalize_domain, prompt_interactive_wizard, resolve_lua_scripts,
+    InteractiveDefaults, InteractiveSelections, default_output_config_path, expand_tilde,
+    normalize_domain, prompt_interactive_wizard,
+};
+/// Public API re-exports for compile-time bundled Lua scripts, discovery, and XDG extraction.
+pub use lua_bundle::{
+    BUNDLED_LUA_SCRIPTS, default_user_lua_dir, detect_lua_dir, extract_bundled_lua,
+    resolve_lua_scripts,
 };
 /// Public API re-exports for OS-agnostic firewall backend traits and port collection.
 pub use firewall::{FirewallBackend, FirewallHandle, collect_config_ports};

@@ -25,10 +25,11 @@ use crate::runtime::{
 };
 /// Strategy catalog types and expansion function.
 use crate::tools::strat_catalog::{IpFamily, ProbeProtocol, ScanLevel, build_catalog};
-/// Interactive terminal setup wizard, domain/tilde helpers, and Lua script discovery.
+/// Embedded Lua script discovery and fallback extractor.
+use crate::tools::lua_bundle::{detect_lua_dir, resolve_lua_scripts};
+/// Interactive terminal setup wizard and domain/tilde helpers.
 use crate::tools::strat_interactive::{
-    InteractiveDefaults, detect_lua_dir, expand_tilde, normalize_domain, prompt_interactive_wizard,
-    resolve_lua_scripts,
+    InteractiveDefaults, expand_tilde, normalize_domain, prompt_interactive_wizard,
 };
 /// OS-agnostic firewall backend trait implemented by [`NftFirewallBackend`].
 use crate::tools::firewall::FirewallBackend;
