@@ -1,4 +1,12 @@
-//! Configuration constants, queued packet metadata, and verdict decisions for NFQUEUE interception.
+//! Configuration constants, queued packet metadata, and verdict decisions for packet interception.
+
+/// Atomic shutdown flag shared with the packet interception loop.
+use std::sync::atomic::AtomicBool;
+/// Poll timeout duration returned by the caller's timer scheduler.
+use std::time::Duration;
+
+/// Typed interception error returned by [`PacketIntercepter`] implementations.
+use crate::intercepter::error::IntercepterError;
 
 /// Default Linux NFQUEUE queue number matching `zapret2`.
 pub const DEFAULT_QUEUE_NUM: u16 = 200;
@@ -71,4 +79,18 @@ pub enum Decision {
     Drop,
     /// Replace the packet bytes with the supplied payload before accepting.
     Replace(Vec<u8>),
+}
+
+/// OS-agnostic packet interception loop contract implemented by platform drivers such as [`crate::intercepter::QueueCatcher`].
+pub trait PacketIntercepter {
+    /// Runs the non-blocking interception loop until `stop` becomes `true`.
+    fn run_until<F, T>(
+        &mut self,
+        stop: &AtomicBool,
+        next_timeout: T,
+        on_packet: F,
+    ) -> Result<(), IntercepterError>
+    where
+        F: FnMut(&QueuedPacket<'_>) -> Decision,
+        T: FnMut() -> Option<Duration>;
 }

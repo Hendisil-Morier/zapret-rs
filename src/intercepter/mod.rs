@@ -15,8 +15,8 @@ pub use error::IntercepterError;
 pub use ifname::IfNameResolver;
 /// Re-exported queue catcher and pure packet dispatch helpers.
 pub use nfqueue::{QueueCatcher, apply_decision, dispatch_packet, poll_timeout_ms};
-/// Re-exported NFQUEUE configuration defaults and packet/verdict types.
+/// Re-exported NFQUEUE configuration defaults, [`PacketIntercepter`] trait, and packet/verdict types.
 pub use types::{
     DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_MAXLEN, DEFAULT_QUEUE_NUM, DEFAULT_QUEUE_RCVBUF,
-    Decision, QueueConfig, QueuedPacket,
+    Decision, PacketIntercepter, QueueConfig, QueuedPacket,
 };

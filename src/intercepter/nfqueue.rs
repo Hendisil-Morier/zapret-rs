@@ -18,8 +18,8 @@ use nfq::{Message, Queue, Verdict};
 use crate::intercepter::error::IntercepterError;
 /// Persistent `SIOCGIFNAME` resolver for incoming and outgoing interface names.
 use crate::intercepter::ifname::IfNameResolver;
-/// NFQUEUE configuration, borrowed packet metadata, and verdict decisions.
-use crate::intercepter::types::{Decision, QueueConfig, QueuedPacket};
+/// NFQUEUE configuration, borrowed packet metadata, [`PacketIntercepter`] trait, and verdict decisions.
+use crate::intercepter::types::{Decision, PacketIntercepter, QueueConfig, QueuedPacket};
 
 /// Attempts to grow the netlink socket `SO_RCVBUF` size, ignoring kernel clamping limits.
 fn set_socket_rcvbuf(fd: RawFd, rcvbuf_bytes: usize) {
@@ -206,6 +206,22 @@ impl QueueCatcher {
         apply_decision(&mut msg, decision);
         self.queue.verdict(msg)?;
         Ok(())
+    }
+}
+
+impl PacketIntercepter for QueueCatcher {
+    /// Runs the non-blocking `poll()` and verdict loop until `stop` becomes `true`.
+    fn run_until<F, T>(
+        &mut self,
+        stop: &AtomicBool,
+        next_timeout: T,
+        on_packet: F,
+    ) -> Result<(), IntercepterError>
+    where
+        F: FnMut(&QueuedPacket<'_>) -> Decision,
+        T: FnMut() -> Option<Duration>,
+    {
+        QueueCatcher::run_until(self, stop, next_timeout, on_packet)
     }
 }
 
