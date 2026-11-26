@@ -47,6 +47,9 @@ use crate::rawsend::PacketSender;
 /// Linux raw socket sender implementation.
 #[cfg(target_os = "linux")]
 use crate::rawsend::RawSender;
+/// Windows WinDivert raw packet injector implementation.
+#[cfg(windows)]
+use crate::rawsend::WinDivertSender;
 /// Scheduled timer pool managing active timers and deadlines.
 use crate::timer::pool::TimerPool;
 
@@ -74,6 +77,13 @@ impl LuaRuntime {
     pub fn new(config: LuaConfig) -> Result<Self, LuaEngineError> {
         let sender: Rc<RefCell<dyn PacketSender>> =
             Rc::new(RefCell::new(RawSender::new(config.bind_fix4, config.bind_fix6)));
+        Self::with_sender(config, sender)
+    }
+
+    /// Creates a new [`LuaRuntime`] backed by a Windows `WinDivertSender`.
+    #[cfg(windows)]
+    pub fn new(config: LuaConfig) -> Result<Self, LuaEngineError> {
+        let sender: Rc<RefCell<dyn PacketSender>> = Rc::new(RefCell::new(WinDivertSender::new()));
         Self::with_sender(config, sender)
     }
 

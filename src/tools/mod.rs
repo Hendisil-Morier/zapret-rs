@@ -33,6 +33,9 @@ pub mod strat_catalog;
 pub mod strat_cli;
 /// Interactive terminal setup wizard for `strat_finder`.
 pub mod strat_interactive;
+/// Windows WinDivert filter-expression [`FirewallBackend`] implementation.
+#[cfg(windows)]
+pub mod strat_windivert;
 /// Temporary `nftables` NFQUEUE rule management with RAII teardown (`zapret_strat_finder`).
 pub mod strat_nft;
 /// HTTP/TLS/QUIC connectivity probe backends (`curl` + mockable trait).
@@ -99,6 +102,9 @@ pub use lua_bundle::{
 };
 /// Public API re-exports for OS-agnostic firewall backend traits and port collection.
 pub use firewall::{FirewallBackend, FirewallHandle, collect_config_ports};
+/// Public API re-exports for Windows WinDivert filter [`FirewallBackend`].
+#[cfg(windows)]
+pub use strat_windivert::{WinDivertFilterGuard, WinDivertFirewallBackend, build_windivert_filter};
 /// Public API re-export for the shared `nfqws2` daemon CLI entry point.
 pub use daemon_cli::run_nfqws2_cli;
 /// Public API re-exports for `strat_finder` temporary `nftables` firewall management.

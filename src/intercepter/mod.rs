@@ -10,6 +10,12 @@ pub mod ifname;
 pub mod nfqueue;
 /// Default constants, queue config, packet metadata, and verdict decision types.
 pub mod types;
+/// Windows WinDivert [`PacketIntercepter`] driver.
+#[cfg(windows)]
+pub mod windivert;
+/// Dynamic `WinDivert.dll` C-ABI loader.
+#[cfg(windows)]
+pub mod windivert_ffi;
 
 /// Re-exported NFQUEUE error enum.
 pub use error::IntercepterError;
@@ -19,6 +25,9 @@ pub use ifname::IfNameResolver;
 /// Re-exported queue catcher and pure packet dispatch helpers.
 #[cfg(target_os = "linux")]
 pub use nfqueue::{QueueCatcher, apply_decision, dispatch_packet, poll_timeout_ms};
+/// Re-exported Windows WinDivert intercepter.
+#[cfg(windows)]
+pub use windivert::WinDivertIntercepter;
 /// Re-exported NFQUEUE configuration defaults, [`PacketIntercepter`] trait, and packet/verdict types.
 pub use types::{
     DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_MAXLEN, DEFAULT_QUEUE_NUM, DEFAULT_QUEUE_RCVBUF,

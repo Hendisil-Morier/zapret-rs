@@ -46,6 +46,9 @@ use crate::rawsend::PacketSender;
 /// Real Linux raw socket packet sender implementation.
 #[cfg(target_os = "linux")]
 use crate::rawsend::RawSender;
+/// Windows WinDivert raw packet injector implementation.
+#[cfg(windows)]
+use crate::rawsend::WinDivertSender;
 /// Monotonic boottime clock queried once per dispatched packet.
 use crate::timer::{MonotonicTime, boottime_now};
 
@@ -85,6 +88,13 @@ impl DesyncEngine {
     pub fn new(config: &AppConfig) -> Result<Self, LuaEngineError> {
         let sender: Rc<RefCell<dyn PacketSender>> =
             Rc::new(RefCell::new(RawSender::new(config.bind_fix4, config.bind_fix6)));
+        Self::with_sender(config, sender)
+    }
+
+    /// Constructs a [`DesyncEngine`] using a Windows `WinDivertSender`.
+    #[cfg(windows)]
+    pub fn new(config: &AppConfig) -> Result<Self, LuaEngineError> {
+        let sender: Rc<RefCell<dyn PacketSender>> = Rc::new(RefCell::new(WinDivertSender::new()));
         Self::with_sender(config, sender)
     }
 
