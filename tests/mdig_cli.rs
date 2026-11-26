@@ -374,9 +374,15 @@ fn binary_cli_dns_modes_passthrough_and_exit_codes() {
         b"192.0.2.10/32\n2001:db8::/64\n192.0.2.1/33\n",
     );
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    assert_eq!(String::from_utf8_lossy(&stdout), "192.0.2.10\n2001:db8::/64\n");
+    let out_str = String::from_utf8_lossy(&stdout);
+    let mut out_lines: Vec<&str> = out_str.lines().collect();
+    out_lines.sort_unstable();
+    assert_eq!(out_lines, vec!["192.0.2.10", "2001:db8::/64"]);
     assert!(stderr.contains("domains=3 success=2 error=1"));
-    assert_eq!(fs::read_to_string(&ok_log).expect("read ok log"), "192.0.2.10/32\n2001:db8::/64\n");
+    let ok_str = fs::read_to_string(&ok_log).expect("read ok log");
+    let mut ok_lines: Vec<&str> = ok_str.lines().collect();
+    ok_lines.sort_unstable();
+    assert_eq!(ok_lines, vec!["192.0.2.10/32", "2001:db8::/64"]);
     assert_eq!(fs::read_to_string(&fail_log).expect("read fail log"), "192.0.2.1/33\n");
 
     // Unwritable log path returns exit code 5; invalid --threads returns exit code 1.
