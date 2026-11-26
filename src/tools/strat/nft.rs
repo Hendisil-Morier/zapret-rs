@@ -327,4 +327,20 @@ impl FirewallBackend for NftFirewallBackend {
             Err(err) => Err(err),
         }
     }
+
+    /// Returns the Linux `nftables` preview panel title shown on Tab 3.
+    fn preview_title(&self) -> &'static str {
+        " Temporary nftables Script "
+    }
+
+    /// Renders the temporary `table inet zapret_strat_finder` script preview.
+    fn preview_filter(
+        &self,
+        qnum: u16,
+        fwmark: u32,
+        tcp_ports: &[u16],
+        udp_ports: &[u16],
+    ) -> String {
+        Self::build_nft_script(qnum, fwmark, tcp_ports, udp_ports)
+    }
 }

@@ -6,11 +6,10 @@ use std::time::{Duration, Instant};
 /// Keyboard key codes handled inside the Strategy Finder form and text editor.
 use crossterm::event::KeyCode;
 
-/// Strategy catalog, scan settings, and domain normalization.
-use crate::tools::{ProbeProtocol, ScanConfig, ScanLevel, normalize_domain};
-/// `nftables` preview generator on non-Windows targets.
-#[cfg(not(windows))]
-use crate::tools::NftFirewallBackend;
+/// Strategy catalog, active OS firewall backend, scan settings, and domain normalization.
+use crate::tools::{
+    ProbeProtocol, ScanConfig, ScanLevel, active_firewall_backend, normalize_domain,
+};
 /// Application state updated by Strategy Finder actions and worker progress events.
 use crate::tui::state::AppState;
 /// Navigation, form descriptors, dwell delay, action results, and background scan events.
@@ -63,8 +62,8 @@ impl AppState {
         })
     }
 
-    /// Renders the `nftables` ruleset preview matching the current Finder ports and queue settings.
-    pub fn nft_preview_script(&self) -> String {
+    /// Renders the active OS firewall backend's `(panel_title, filter_text)` preview for Tab 3.
+    pub fn filter_preview(&self) -> (&'static str, String) {
         let cfg = ScanConfig {
             domains: Vec::new(),
             protos: self.selected_protos(),
@@ -75,14 +74,16 @@ impl AppState {
             force_blocked: false,
         };
         let (tcp, udp) = cfg.required_ports();
-        #[cfg(windows)]
-        {
-            crate::tools::build_windivert_filter(&tcp, &udp)
-        }
-        #[cfg(not(windows))]
-        {
-            NftFirewallBackend::build_nft_script(self.finder_qnum, self.fwmark, &tcp, &udp)
-        }
+        let backend = active_firewall_backend();
+        (
+            backend.preview_title(),
+            backend.preview_filter(self.finder_qnum, self.fwmark, &tcp, &udp),
+        )
+    }
+
+    /// Renders the preview script/filter text from [`Self::filter_preview`] for compatibility.
+    pub fn nft_preview_script(&self) -> String {
+        self.filter_preview().1
     }
 
     /// Applies one background [`ScanUiEvent`] to live progress, results table, logs, and TOML.

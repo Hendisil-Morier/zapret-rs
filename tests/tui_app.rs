@@ -212,11 +212,7 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
 
         state.tab = ActiveTab::Config;
         let cfg_screen = render_to_string(&state, w, h);
-        let expected_filter_title = if cfg!(windows) {
-            "WinDivert Filter"
-        } else {
-            "Temporary nftables Script"
-        };
+        let expected_filter_title = state.filter_preview().0.trim();
         assert!(cfg_screen.contains(expected_filter_title));
         assert!(cfg_screen.contains("table inet zapret_strat_finder {"));
         assert!(cfg_screen.contains("Auto Hostlist"));
@@ -385,4 +381,31 @@ fn zapret_rs_multicall_subcommands_and_symlink_dispatch() {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// Verifies OS firewall backends own their Tab 3 panel titles, filter previews, and unsupported fallback.
+#[test]
+fn firewall_backends_supply_distinct_preview_titles_and_unsupported_error() {
+    use zapret_rs::tools::{
+        FirewallBackend, NftFirewallBackend, UnsupportedFirewallBackend, active_firewall_backend,
+    };
+
+    let nft = NftFirewallBackend::default();
+    assert_eq!(nft.preview_title(), " Temporary nftables Script ");
+    assert!(nft.preview_filter(200, 0x4000_0000, &[443], &[]).contains("queue num 200"));
+
+    let unsupported = UnsupportedFirewallBackend;
+    assert_eq!(unsupported.preview_title(), " Packet Filter Preview ");
+    assert!(unsupported.preview_filter(200, 0x4000_0000, &[443], &[]).contains("not implemented"));
+    let err = match unsupported.install(200, 0x4000_0000, &[443], &[]) {
+        Ok(_) => panic!("unsupported backend should not install firewall rules"),
+        Err(e) => e,
+    };
+    assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
+
+    let active = active_firewall_backend();
+    #[cfg(target_os = "linux")]
+    assert_eq!(active.preview_title(), " Temporary nftables Script ");
+    #[cfg(windows)]
+    assert_eq!(active.preview_title(), " WinDivert Filter ");
 }

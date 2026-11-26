@@ -8,11 +8,11 @@ use std::time::Instant;
 /// Symlink-safe TOML writer, `~/` expansion, `nft` table constant, and TOML merge helpers.
 use crate::tools::{FirewallHandle, STRAT_FINDER_NFT_TABLE, merge_nfqws2_toml};
 /// Linux `nftables` backend for Strategy Finder / live queue rules.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 use crate::tools::NftFirewallBackend;
-/// Windows WinDivert firewall backend (builds filter expressions without invoking `nft` or `sudo`).
-#[cfg(windows)]
-use crate::tools::{FirewallBackend, WinDivertFirewallBackend};
+/// Active OS firewall backend selector for non-Linux targets.
+#[cfg(not(target_os = "linux"))]
+use crate::tools::active_firewall_backend;
 /// Shared stop-wait state machine reused when halting `nfqws2` prior to starting a scan.
 use crate::tui::daemon_cycle::{CycleInputs, CyclePhase, CycleStep, next_step};
 /// Floating authentication modal helpers and silent `sudo` executor.
@@ -45,12 +45,7 @@ fn install_nft_non_interactive(
     udp: &[u16],
     need_sudo: &mut bool,
 ) -> io::Result<Box<dyn FirewallHandle>> {
-    #[cfg(windows)]
-    {
-        let _ = need_sudo;
-        WinDivertFirewallBackend.install(qnum, fwmark, tcp, udp)
-    }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
         let res = NftFirewallBackend::default().install_non_interactive(qnum, fwmark, tcp, udp);
         if let Err(ref err) = res
@@ -59,6 +54,11 @@ fn install_nft_non_interactive(
             *need_sudo = true;
         }
         res
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = need_sudo;
+        active_firewall_backend().install(qnum, fwmark, tcp, udp)
     }
 }
 

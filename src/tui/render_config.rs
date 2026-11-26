@@ -66,12 +66,7 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let nft_focused = state.focus.config == ConfigFocus::Nft;
     let nft_border = if nft_focused { t.accent_bright } else { t.frame };
-    let nft_script = state.nft_preview_script();
-    let filter_title = if cfg!(windows) {
-        " WinDivert Filter "
-    } else {
-        " Temporary nftables Script "
-    };
+    let (filter_title, nft_script) = state.filter_preview();
     let nft_pane = Paragraph::new(highlight_nft(&nft_script, t))
         .scroll((state.focus.nft_scroll, 0))
         .wrap(Wrap { trim: false })

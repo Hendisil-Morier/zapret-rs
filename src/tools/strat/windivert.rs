@@ -54,4 +54,20 @@ impl FirewallBackend for WinDivertFirewallBackend {
             filter: build_windivert_filter(tcp_ports, udp_ports),
         }))
     }
+
+    /// Returns the Windows WinDivert filter preview panel title shown on Tab 3.
+    fn preview_title(&self) -> &'static str {
+        " WinDivert Filter "
+    }
+
+    /// Renders the WinDivert `NETWORK`-layer capture filter expression preview.
+    fn preview_filter(
+        &self,
+        _qnum: u16,
+        _fwmark: u32,
+        tcp_ports: &[u16],
+        udp_ports: &[u16],
+    ) -> String {
+        build_windivert_filter(tcp_ports, udp_ports)
+    }
 }

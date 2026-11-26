@@ -32,7 +32,10 @@ pub use cli::{
     run_strat_finder_cli,
 };
 /// Public API re-exports for OS-agnostic firewall backend traits and port collection.
-pub use firewall::{FirewallBackend, FirewallHandle, collect_config_ports};
+pub use firewall::{
+    FirewallBackend, FirewallHandle, UnsupportedFirewallBackend, active_firewall_backend,
+    collect_config_ports,
+};
 /// Public API re-exports for `strat_finder` interactive terminal wizard and config path defaults.
 pub use interactive::{
     InteractiveDefaults, InteractiveSelections, default_output_config_path, expand_tilde,
