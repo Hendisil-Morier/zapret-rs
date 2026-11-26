@@ -9,10 +9,14 @@ pub mod daemon_runtime;
 pub mod firewall;
 /// IPv4/IPv6 single-address and CIDR subnet aggregator (`zapret2/ip2net`).
 pub mod ip2net;
+/// Shared `ip2net` CLI runner (`run_ip2net_cli`).
+pub mod ip2net_cli;
 /// Compile-time bundled Lua scripts and fallback extractor into user/system data paths.
 pub mod lua_bundle;
 /// `mdig` configuration, domain validation helpers, and `libc::getaddrinfo` backend.
 pub mod mdig_backend;
+/// Shared `mdig` CLI runner (`run_mdig_cli`).
+pub mod mdig_cli;
 /// RFC 1035 DNS binary query constructor and reply parser for `mdig`.
 pub mod mdig_dns;
 /// Multi-threaded domain resolver worker pool, IP/CIDR filter, and stats tracking for `mdig`.
@@ -41,12 +45,16 @@ pub use ip2net::{
     Ip2NetConfig, Ip2NetError, Ip2NetFamily, parse_prefix_length, parse_v4_threshold,
     parse_v6_threshold, run_ip2net,
 };
+/// Public API re-export for the shared `ip2net` CLI entry point.
+pub use ip2net_cli::run_ip2net_cli;
 /// Public API re-exports for `mdig` configuration, validation helpers, and resolver backends.
 pub use mdig_backend::{
     DEFAULT_EAGAIN_ATTEMPTS, DEFAULT_EAGAIN_DELAY_MS, DEFAULT_MDIG_THREADS, DnsResolver,
     LibcResolver, MAX_EAGAIN_ATTEMPTS, MAX_EAGAIN_DELAY_MS, MAX_MDIG_THREADS, MdigConfig,
     MdigConfigError, ResolveError, beautify_invalid_domain, is_valid_domain,
 };
+/// Public API re-export for the shared `mdig` CLI entry point.
+pub use mdig_cli::run_mdig_cli;
 /// Public API re-exports for `mdig` binary DNS query building and reply parsing.
 pub use mdig_dns::{
     DNS_CLASS_IN, DNS_TYPE_A, DNS_TYPE_AAAA, MDIG_DNS_REPLY_MAX, MdigDnsError, MdigFamily,
