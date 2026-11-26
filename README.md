@@ -6,7 +6,9 @@ It ships as a single executable (`zapret-rs`) with built-in Lua scripts, an inte
 
 ## Quick Start (Linux)
 
-### 1. Build and Install
+### 1. Download or Build
+
+Download `zapret-rs-v1.3.0-linux-x86_64.tar.gz` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it, or build from source:
 
 ```bash
 cargo build --release
@@ -15,13 +17,13 @@ cargo build --release
 Install for your current user (places the binary in `~/.local/bin/zapret-rs`, extracts bundled Lua scripts, and grants network permissions):
 
 ```bash
-./target/release/zapret-rs install
+zapret-rs install
 ```
 
 Or install system-wide with compatibility symlinks (`nfqws2`, `strat_finder`, `ip2net`, `mdig`) and a `systemd` background service:
 
 ```bash
-sudo ./target/release/zapret-rs install --symlinks --systemd
+sudo zapret-rs install --symlinks --systemd
 ```
 
 To remove it later, run `zapret-rs uninstall` (or `sudo zapret-rs uninstall --systemd`).
@@ -34,12 +36,13 @@ Run `zapret-rs` in your terminal:
 zapret-rs
 ```
 
-The TUI has four tabs:
+The TUI has five tabs:
 
-1. **Strategy Finder (`1`):** Enter one or more blocked domains, choose a scan level, and run the finder to automatically discover working bypass rules and save `~/.config/zapret-rs/nfqws2.toml`.
-2. **Run `nfqws2` (`2`):** Start (`r`), stop (`S`), or restart (`R`) the daemon, watch live packet counters, and inspect intercepted traffic. Press `x` to detach and leave the daemon running in the background.
+1. **Strategy Finder (`1`):** Enter one or more blocked domains, choose a scan level, and run the finder to automatically discover working bypass rules and save `~/.config/zapret-rs/nfqws2.toml` (with options to merge, replace, or keep your existing config).
+2. **Run `nfqws2` / `WinDivert` (`2`):** Start (`r`), stop (`S`), or restart (`R`) the engine, watch live packet counters, and inspect intercepted traffic. On Linux, press `x` to detach and leave the daemon running in the background.
 3. **Config & Diag (`3`):** View or edit `nfqws2.toml`, push profile changes to the running daemon (`p`), or grant network capabilities (`g`) if needed.
 4. **Speed Test (`4`):** Measure connection speed before and after enabling your active bypass rules.
+5. **Status (`5`):** Inspect live operational health checks (`[OK]` / `[WARN]` / `[ERR]`) for privileges, packet driver (`WinDivert` or `NFQUEUE`/`nftables`), Lua scripts, `curl`, config, and daemon IPC (`r` to refresh).
 
 Press `?` at any time to see the keybindings for the current tab.
 
@@ -70,13 +73,21 @@ If you installed with `--symlinks`, you can also invoke `nfqws2`, `strat_finder`
 
 Windows 10 and 11 (`x64`) are supported via WinDivert:
 
-1. Download `WinDivert-2.2.2-A.zip` from [reqrypt.org/windivert.html](https://reqrypt.org/windivert.html) or [github.com/basil00/WinDivert/releases](https://github.com/basil00/WinDivert/releases).
-2. Copy `WinDivert.dll` and `WinDivert64.sys` from the `x64` folder into the same folder as `zapret-rs.exe`.
-3. Open an **Administrator** terminal and run:
+1. Download `zapret-rs-v1.3.0-windows-x86_64.zip` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it (`WinDivert.dll`, `WinDivert64.sys`, and `lua/` are already bundled alongside `zapret-rs.exe`).
+   If building from source instead, copy `WinDivert.dll` and `WinDivert64.sys` from `WinDivert-2.2.2-A` (`x64/`) into the same folder as `zapret-rs.exe`.
+2. Open **Windows Terminal (Admin)** (`Win + X` -> **Terminal (Admin)**) in the extracted folder and launch the TUI:
+
+```powershell
+.\zapret-rs.exe
+```
+
+Or run the headless daemon directly:
 
 ```powershell
 .\zapret-rs.exe daemon --config nfqws2.toml
 ```
+
+Note: Windows' built-in `curl.exe` lacks HTTP/3 support, so Strategy Finder skips HTTP/3 probes unless an HTTP/3-enabled `curl.exe` is installed earlier on `PATH`.
 
 ## Configuration (`nfqws2.toml`)
 
