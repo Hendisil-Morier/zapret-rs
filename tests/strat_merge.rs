@@ -95,3 +95,52 @@ fn domain_scope_renders_catch_all_and_autohostlist_profiles_cleanly() {
         Some(std::path::Path::new(DEFAULT_AUTOHOSTLIST_FILE))
     );
 }
+
+#[test]
+fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot() {
+    let tls_strats = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
+    let http_strats = build_catalog(ProbeProtocol::Http, ScanLevel::Quick, IpFamily::V4);
+    let tls_a = tls_strats[0].clone();
+    let tls_b = tls_strats[1].clone();
+    let http_a = http_strats[0].clone();
+    let opts = TomlRenderOptions::default();
+
+    // Multi-strategy cover for TLS + HTTP collapses to one winner per protocol slot outside ScannedOnly.
+    let multi_cover = vec![
+        CoveredProfile { strategy: http_a.clone(), domains: vec!["a.com".to_owned()], avg_latency_ms: 20 },
+        CoveredProfile { strategy: tls_a.clone(), domains: vec!["a.com".to_owned()], avg_latency_ms: 25 },
+        CoveredProfile { strategy: tls_b.clone(), domains: vec!["b.com".to_owned()], avg_latency_ms: 30 },
+    ];
+    for scope in [DomainScope::AllDomains, DomainScope::AutoHostlist] {
+        let rendered = render_nfqws2_toml_scoped(&multi_cover, &opts, scope);
+        let cfg = AppConfig::from_toml_str(&rendered, None).expect("valid deduplicated TOML");
+        assert_eq!(cfg.profiles.len(), 2);
+        assert_eq!(cfg.profiles[0].name.as_deref(), Some(http_a.id.as_str()));
+        assert_eq!(cfg.profiles[1].name.as_deref(), Some(tls_a.id.as_str()));
+    }
+
+    // Merging a new AutoHostlist TLS winner replaces the old TLS autolist profile while keeping HTTP.
+    let existing = render_nfqws2_toml_scoped(&multi_cover, &opts, DomainScope::AutoHostlist);
+    let incoming_tls = render_nfqws2_toml_scoped(
+        &[CoveredProfile { strategy: tls_b.clone(), domains: vec!["c.com".to_owned()], avg_latency_ms: 15 }],
+        &opts,
+        DomainScope::AutoHostlist,
+    );
+    let merged = merge_nfqws2_toml(&existing, &incoming_tls).expect("slot merge succeeds");
+    let cfg = AppConfig::from_toml_str(&merged, None).expect("valid slot-merged TOML");
+    assert_eq!(cfg.profiles.len(), 2);
+    assert_eq!(cfg.profiles[0].name.as_deref(), Some(http_a.id.as_str()));
+    assert_eq!(cfg.profiles[1].name.as_deref(), Some(tls_b.id.as_str()));
+
+    // A domain-scoped profile merges ahead of trailing AutoHostlist fallback rules.
+    let incoming_domain = render_nfqws2_toml(
+        &[CoveredProfile { strategy: tls_a.clone(), domains: vec!["d.com".to_owned()], avg_latency_ms: 10 }],
+        &opts,
+    );
+    let with_specific = merge_nfqws2_toml(&merged, &incoming_domain).expect("domain merge succeeds");
+    let specific_cfg = AppConfig::from_toml_str(&with_specific, None).expect("valid hybrid TOML");
+    assert_eq!(specific_cfg.profiles.len(), 3);
+    assert_eq!(specific_cfg.profiles[0].lists.hostlist_domains, vec!["d.com"]);
+    assert!(specific_cfg.profiles[1].lists.hostlist_auto.is_some());
+    assert!(specific_cfg.profiles[2].lists.hostlist_auto.is_some());
+}

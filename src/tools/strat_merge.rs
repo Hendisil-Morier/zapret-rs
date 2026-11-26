@@ -49,12 +49,36 @@ impl DomainScope {
 }
 
 /// Renders `profiles` with [`render_nfqws2_toml`] and rewrites per-profile domain scoping for `scope`.
+///
+/// In [`DomainScope::AllDomains`] and [`DomainScope::AutoHostlist`], keeps only the first winning
+/// strategy per `(ipv, port, is_udp, l7_proto)` slot because dropping `hostlist_domains` makes
+/// subsequent profiles in the same protocol slot unreachable.
 pub fn render_nfqws2_toml_scoped(
     profiles: &[CoveredProfile],
     opts: &TomlRenderOptions,
     scope: DomainScope,
 ) -> String {
-    let base = render_nfqws2_toml(profiles, opts);
+    let deduped: Vec<CoveredProfile>;
+    let scoped = if scope == DomainScope::ScannedOnly {
+        profiles
+    } else {
+        let mut seen_slots = HashSet::new();
+        deduped = profiles
+            .iter()
+            .filter(|covered| {
+                let spec = &covered.strategy;
+                seen_slots.insert((
+                    spec.ipv,
+                    spec.proto.default_port(),
+                    spec.proto.is_udp(),
+                    spec.proto.l7_proto().as_str(),
+                ))
+            })
+            .cloned()
+            .collect();
+        &deduped
+    };
+    let base = render_nfqws2_toml(scoped, opts);
     if scope == DomainScope::ScannedOnly {
         return base;
     }
@@ -100,7 +124,10 @@ fn read_str_array(table: &toml::Table, key: &str) -> Vec<String> {
 }
 
 /// Canonical `(filter_l3, filter_tcp, filter_udp, filter_l7)` signature for comparing profile slots.
-fn filter_signature(prof: &toml::Table) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+type FilterSignature = (Vec<String>, Vec<String>, Vec<String>, Vec<String>);
+
+/// Builds the canonical [`FilterSignature`] tuple for `prof`.
+fn filter_signature(prof: &toml::Table) -> FilterSignature {
     (
         read_str_array(prof, "filter_l3"),
         read_str_array(prof, "filter_tcp"),
@@ -109,17 +136,47 @@ fn filter_signature(prof: &toml::Table) -> (Vec<String>, Vec<String>, Vec<String
     )
 }
 
-/// Returns `true` when `prof` acts as a catch-all without hostlist or ipset scoping.
-fn is_catch_all(prof: &toml::Table) -> bool {
-    !prof.contains_key("hostlist_domains") && !has_other_lists(prof)
-}
-
-/// Returns `true` if `prof` still references list/ipset sources after inline domains are removed.
-fn has_other_lists(prof: &toml::Table) -> bool {
+/// Returns `true` when `prof` uses non-auto external list or ipset filtering.
+fn has_non_auto_lists(prof: &toml::Table) -> bool {
     prof.contains_key("hostlist")
-        || prof.contains_key("hostlist_auto")
         || prof.contains_key("ipset")
         || prof.contains_key("ipset_domains")
+}
+
+/// Returns `true` if `prof` references external/auto list or ipset sources besides inline domains.
+fn has_other_lists(prof: &toml::Table) -> bool {
+    has_non_auto_lists(prof) || prof.contains_key("hostlist_auto")
+}
+
+/// Returns `true` when `prof` covers an entire protocol slot (`AllDomains` catch-all or plain `hostlist_auto`).
+fn is_slot_scope(prof: &toml::Table) -> bool {
+    !prof.contains_key("hostlist_domains") && !has_non_auto_lists(prof)
+}
+
+/// Replaces any existing slot-wide (`AllDomains` or `hostlist_auto`) profiles in `sig` with `new_prof`.
+fn replace_slot_scope_profile(
+    merged_profiles: &mut Vec<toml::Table>,
+    sig: &FilterSignature,
+    new_prof: toml::Table,
+) {
+    let mut replaced = false;
+    let mut slot = Some(new_prof);
+    merged_profiles.retain_mut(|old_prof| {
+        if filter_signature(old_prof) == *sig && is_slot_scope(old_prof) {
+            if !replaced {
+                if let Some(fresh) = slot.take() {
+                    *old_prof = fresh;
+                }
+                replaced = true;
+                return true;
+            }
+            return false;
+        }
+        true
+    });
+    if let Some(fresh) = slot {
+        merged_profiles.push(fresh);
+    }
 }
 
 /// Appends unique string items from `extra` into `target` case-insensitively.
@@ -209,6 +266,11 @@ pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, 
 
     for new_prof in incoming_profiles {
         let sig = filter_signature(&new_prof);
+        if is_slot_scope(&new_prof) {
+            replace_slot_scope_profile(&mut merged_profiles, &sig, new_prof);
+            continue;
+        }
+
         let new_name = new_prof.get("name").and_then(toml::Value::as_str);
         let new_actions = new_prof.get("actions");
         let new_domains = read_str_array(&new_prof, "hostlist_domains");
@@ -227,14 +289,14 @@ pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, 
             });
         }
 
-        // Reuse an identical profile in the same slot by extending its `hostlist_domains`.
+        // Reuse an identical domain/list profile in the same slot by extending its `hostlist_domains`.
         if let Some(existing) = merged_profiles.iter_mut().find(|p| {
             filter_signature(p) == sig
+                && !is_slot_scope(p)
                 && p.get("name").and_then(toml::Value::as_str) == new_name
                 && p.get("actions") == new_actions
         }) {
             if !new_domains.is_empty()
-                && !is_catch_all(existing)
                 && let Some(toml::Value::Array(arr)) = existing.get_mut("hostlist_domains")
             {
                 merge_unique_strings(arr, &new_domains);
@@ -242,10 +304,10 @@ pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, 
             continue;
         }
 
-        // Insert new domain-scoped profiles ahead of trailing catch-all profiles.
+        // Insert new domain-scoped profiles ahead of trailing catch-all / autolist fallbacks.
         let insert_idx = merged_profiles
             .iter()
-            .position(is_catch_all)
+            .position(is_slot_scope)
             .unwrap_or(merged_profiles.len());
         merged_profiles.insert(insert_idx, new_prof);
     }
