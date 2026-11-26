@@ -5,8 +5,14 @@ use std::io;
 /// Timestamp tracking when waiting for a running `nfqws2` daemon to stop before scanning.
 use std::time::Instant;
 
-/// Symlink-safe TOML writer, `~/` expansion, non-interactive `nftables`, and TOML merge helpers.
-use crate::tools::{FirewallHandle, NftFirewallBackend, STRAT_FINDER_NFT_TABLE, merge_nfqws2_toml};
+/// Symlink-safe TOML writer, `~/` expansion, `nft` table constant, and TOML merge helpers.
+use crate::tools::{FirewallHandle, STRAT_FINDER_NFT_TABLE, merge_nfqws2_toml};
+/// Linux `nftables` backend for Strategy Finder / live queue rules.
+#[cfg(not(windows))]
+use crate::tools::NftFirewallBackend;
+/// Windows WinDivert firewall backend (builds filter expressions without invoking `nft` or `sudo`).
+#[cfg(windows)]
+use crate::tools::{FirewallBackend, WinDivertFirewallBackend};
 /// Shared stop-wait state machine reused when halting `nfqws2` prior to starting a scan.
 use crate::tui::daemon_cycle::{CycleInputs, CyclePhase, CycleStep, next_step};
 /// Floating authentication modal helpers and silent `sudo` executor.
@@ -39,13 +45,21 @@ fn install_nft_non_interactive(
     udp: &[u16],
     need_sudo: &mut bool,
 ) -> io::Result<Box<dyn FirewallHandle>> {
-    let res = NftFirewallBackend::default().install_non_interactive(qnum, fwmark, tcp, udp);
-    if let Err(ref err) = res
-        && err.kind() == io::ErrorKind::PermissionDenied
+    #[cfg(windows)]
     {
-        *need_sudo = true;
+        let _ = need_sudo;
+        WinDivertFirewallBackend.install(qnum, fwmark, tcp, udp)
     }
-    res
+    #[cfg(not(windows))]
+    {
+        let res = NftFirewallBackend::default().install_non_interactive(qnum, fwmark, tcp, udp);
+        if let Err(ref err) = res
+            && err.kind() == io::ErrorKind::PermissionDenied
+        {
+            *need_sudo = true;
+        }
+        res
+    }
 }
 
 /// Queued Tab 1 scan launch waiting for an active `nfqws2` daemon to stop and release its queue.
@@ -214,6 +228,12 @@ pub(crate) fn submit_auth_modal(
     if purpose == ModalPurpose::ConfirmStopDaemon {
         state.modal = None;
         execute_remote_stop(state, session_tab2);
+        return false;
+    }
+    #[cfg(windows)]
+    if purpose == ModalPurpose::GrantCaps {
+        state.modal = None;
+        state.pending_caps_action = None;
         return false;
     }
     if purpose == ModalPurpose::ConfirmMergeConfig {

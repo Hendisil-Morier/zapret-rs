@@ -99,13 +99,23 @@ impl ActiveDaemon {
     }
 }
 
+/// Formats a platform-appropriate missing-privilege error message for Tab 1/Tab 2 workers.
+fn missing_privs_error(exe_path: &str) -> String {
+    #[cfg(windows)]
+    {
+        let _ = exe_path;
+        "Administrator privileges required (right-click zapret-rs.exe -> Run as administrator)".to_owned()
+    }
+    #[cfg(not(windows))]
+    {
+        format!("missing CAP_NET_ADMIN/CAP_NET_RAW (run: sudo setcap cap_net_admin,cap_net_raw+ep {exe_path})")
+    }
+}
+
 /// Validates network capabilities, scan domains/options, and Lua script discovery before launching a scan.
 pub(crate) fn validate_scan_prereqs(state: &AppState) -> Result<(ScanConfig, Vec<PathBuf>), String> {
     if !state.has_net_caps {
-        return Err(format!(
-            "missing CAP_NET_ADMIN/CAP_NET_RAW (run: sudo setcap cap_net_admin,cap_net_raw+ep {})",
-            state.exe_path
-        ));
+        return Err(missing_privs_error(&state.exe_path));
     }
     let scan_cfg = state.build_scan_config()?;
     let lua_opt = if state.lua_dir_input.trim().is_empty() {
@@ -203,10 +213,7 @@ where
     F: FnOnce(u16, u32, &[u16], &[u16]) -> std::io::Result<Box<dyn FirewallHandle>>,
 {
     if !state.has_net_caps {
-        return Err(format!(
-            "missing CAP_NET_ADMIN/CAP_NET_RAW (run: sudo setcap cap_net_admin,cap_net_raw+ep {})",
-            state.exe_path
-        ));
+        return Err(missing_privs_error(&state.exe_path));
     }
     if state.active_toml.trim().is_empty() {
         return Err("no active nfqws2.toml loaded (run Strategy Finder or press 'l' to load a file)".to_owned());

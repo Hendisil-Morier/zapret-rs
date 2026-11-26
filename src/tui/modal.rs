@@ -197,6 +197,10 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
     frame.render_widget(Clear, popup);
 
     let (title, summary) = match modal.purpose {
+        ModalPurpose::GrantCaps if cfg!(windows) => (
+            " Administrator Privileges Required ",
+            "WinDivert requires Administrator privileges to capture and inject packets.",
+        ),
         ModalPurpose::GrantCaps => (
             " Grant Network Capabilities ",
             "zapret-rs needs CAP_NET_ADMIN and CAP_NET_RAW (without running as root).",
@@ -283,6 +287,13 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         )))
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
         frame.render_widget(prompt, rows[2]);
+    } else if cfg!(windows) && modal.purpose == ModalPurpose::GrantCaps {
+        let notice = Paragraph::new(Line::from(Span::styled(
+            " Right-click zapret-rs.exe and select \"Run as administrator\", then retry.",
+            Style::default().fg(t.warn_bright),
+        )))
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
+        frame.render_widget(notice, rows[2]);
     } else if modal.needs_password {
         let masked = "*".repeat(modal.password_len());
         let input = Paragraph::new(Line::from(vec![
@@ -313,6 +324,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
     }
 
     let action_hint = match modal.purpose {
+        ModalPurpose::GrantCaps if cfg!(windows) => "[Enter/Esc] Dismiss",
         ModalPurpose::GrantCaps => "[Enter] Grant & Restart   [Esc] Dismiss",
         ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => "[Enter] Authenticate & Continue   [Esc] Cancel",
         ModalPurpose::ConfirmStopDaemon => "[Enter] Stop Remote Daemon   [Esc] Cancel",

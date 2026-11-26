@@ -158,6 +158,9 @@ fn start_standalone_daemon(
 
     #[cfg(windows)]
     {
+        if !state.has_net_caps {
+            return DaemonLaunchOutcome::Unavailable;
+        }
         let _ = (sub_prefix, nft_flag, uid_arg);
         let mut cmd = Command::new(bin);
         if let Some(sub) = subcmd {

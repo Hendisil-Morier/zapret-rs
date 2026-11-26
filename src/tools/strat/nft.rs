@@ -30,13 +30,20 @@ pub fn build_nft_cleanup_cmd() -> String {
 
 /// Returns `true` if invoking `sudo` currently requires an interactive password prompt.
 pub fn sudo_needs_password() -> bool {
-    !Command::new("sudo")
-        .args(["-n", "true"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    #[cfg(windows)]
+    {
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        !Command::new("sudo")
+            .args(["-n", "true"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    }
 }
 
 /// Elevation mode used when spawning `nft`.

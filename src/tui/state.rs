@@ -332,9 +332,12 @@ impl AppState {
 
     /// Opens the capability-grant modal and remembers any `action` to resume after restart.
     pub fn open_caps_modal_for(&mut self, action: Option<PostCapsAction>) {
-        let cmd = format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", self.exe_path);
         self.pending_caps_action = action;
-        self.modal = Some(AuthModal::open(ModalPurpose::GrantCaps, cmd));
+        self.modal = Some(if cfg!(windows) {
+            AuthModal::confirm(ModalPurpose::GrantCaps, "Right-click zapret-rs.exe -> Run as administrator".to_owned())
+        } else {
+            AuthModal::open(ModalPurpose::GrantCaps, format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", self.exe_path))
+        });
     }
 
     /// Processes a terminal key press and returns any side-effect [`AppAction`] for the runner.
