@@ -347,3 +347,37 @@ fn config_tab_edit_action_and_toml_validation_badge() {
     state.handle_key(key(KeyCode::Esc));
     assert!(!state.help_open);
 }
+
+/// Verifies `zapret-rs` routes both explicit subcommands and `argv[0]` symlinks to each applet.
+#[test]
+fn zapret_rs_multicall_subcommands_and_symlink_dispatch() {
+    let bin = env!("CARGO_BIN_EXE_zapret-rs");
+
+    for (sub, expected_ver) in [
+        ("daemon", "nfqws2"),
+        ("scan", "strat_finder"),
+        ("ip2net", "ip2net"),
+        ("mdig", "mdig"),
+    ] {
+        let out = Command::new(bin).args([sub, "--version"]).output().expect("subcommand --version");
+        assert!(out.status.success(), "{sub} --version failed: {out:?}");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains(expected_ver), "{sub} version output mismatch: {stdout}");
+    }
+
+    #[cfg(unix)]
+    {
+        let dir = std::env::temp_dir().join(format!("zapret-rs-sym-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create symlink temp dir");
+        for name in ["nfqws2", "ip2net", "mdig", "strat_finder"] {
+            let link = dir.join(name);
+            std::os::unix::fs::symlink(bin, &link).expect("symlink applet");
+            let out = Command::new(&link).arg("--version").output().expect("run symlinked applet");
+            assert!(out.status.success(), "{name} symlink --version failed: {out:?}");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(stdout.contains(name), "{name} symlink stdout mismatch: {stdout}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

@@ -17,6 +17,8 @@ pub mod lua_bundle;
 pub mod mdig_backend;
 /// Shared `mdig` CLI runner (`run_mdig_cli`).
 pub mod mdig_cli;
+/// BusyBox-style multicall dispatcher mapping `argv[0]` symlinks and subcommands to applets.
+pub mod multicall;
 /// RFC 1035 DNS binary query constructor and reply parser for `mdig`.
 pub mod mdig_dns;
 /// Multi-threaded domain resolver worker pool, IP/CIDR filter, and stats tracking for `mdig`.
@@ -55,6 +57,11 @@ pub use mdig_backend::{
 };
 /// Public API re-export for the shared `mdig` CLI entry point.
 pub use mdig_cli::run_mdig_cli;
+/// Public API re-exports for multicall `argv[0]` symlink and subcommand routing.
+pub use multicall::{
+    MulticallApplet, dispatch_headless_applet, resolve_argv0_applet, resolve_multicall,
+    resolve_subcommand_applet,
+};
 /// Public API re-exports for `mdig` binary DNS query building and reply parsing.
 pub use mdig_dns::{
     DNS_CLASS_IN, DNS_TYPE_A, DNS_TYPE_AAAA, MDIG_DNS_REPLY_MAX, MdigDnsError, MdigFamily,

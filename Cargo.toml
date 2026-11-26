@@ -23,7 +23,6 @@ path = "src/bin/strat_finder.rs"
 [[bin]]
 name = "zapret-rs"
 path = "src/bin/zapret_rs.rs"
-required-features = ["tui"]
 
 [[bench]]
 name = "hotpath"

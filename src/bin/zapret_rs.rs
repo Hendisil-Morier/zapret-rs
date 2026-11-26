@@ -1,4 +1,4 @@
-//! `zapret-rs`: unified `ratatui` TUI wrapping strategy discovery, config management, and live `nfqws2`.
+//! `zapret-rs`: unified multicall binary wrapping TUI, `nfqws2` daemon, `strat_finder`, `ip2net`, and `mdig`.
 
 /// Path options accepted on the CLI for pre-loading configs and Lua scripts.
 use std::path::PathBuf;
@@ -8,15 +8,27 @@ use std::process::ExitCode;
 /// Minimal CLI flag parsing (`--config`, `--lua-dir`, `--no-nft`, `--version`).
 use clap::Parser;
 
-/// TUI entry point and options struct from the library crate.
+/// Headless multicall router for `argv[0]` symlinks and subcommands (`daemon`, `scan`, `ip2net`, `mdig`).
+use zapret_rs::tools::dispatch_headless_applet;
+/// TUI entry point and options struct when compiled with the default `tui` feature.
+#[cfg(feature = "tui")]
 use zapret_rs::tui::{TuiOptions, run_tui};
 
-/// Command-line options for the `zapret-rs` interactive TUI.
+/// Help footer listing multicall subcommands available through the unified `zapret-rs` binary.
+const SUBCOMMAND_HELP: &str = "\
+Subcommands:
+  daemon (nfqws2)  Run the NFQUEUE DPI desync daemon
+  scan             Run the CLI strategy finder (strat_finder)
+  ip2net           Group IPs into covering CIDR subnets
+  mdig             Multi-threaded DNS lookup tool";
+
+/// Command-line options for the `zapret-rs` interactive TUI and multicall entry point.
 #[derive(Debug, Parser)]
 #[command(
     name = "zapret-rs",
     version = env!("CARGO_PKG_VERSION"),
-    about = "Interactive TUI wrapping zapret-rs strategy finder, config preview, and live nfqws2"
+    about = "Unified zapret-rs binary: interactive TUI, nfqws2 daemon, strat_finder, ip2net, and mdig",
+    after_help = SUBCOMMAND_HELP
 )]
 struct ZapretTuiCli {
     /// Optional `nfqws2.toml` path to pre-load into the Config and Run tabs.
@@ -36,21 +48,35 @@ struct ZapretTuiCli {
     theme: Option<String>,
 }
 
-/// Parses optional startup flags and launches the interactive `ratatui` TUI.
+/// Dispatches multicall applets first, then parses TUI flags and opens the interactive interface.
 fn main() -> ExitCode {
+    if let Some(code) = dispatch_headless_applet(std::env::args_os()) {
+        return code;
+    }
     let cli = ZapretTuiCli::parse();
-    let opts = TuiOptions {
-        config: cli.config,
-        lua_dir: cli.lua_dir,
-        no_nft: cli.no_nft,
-        control_socket: cli.control_socket,
-        theme: cli.theme,
-    };
-    match run_tui(opts) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
-            eprintln!("zapret-rs TUI error: {err}");
-            ExitCode::FAILURE
+    #[cfg(feature = "tui")]
+    {
+        let opts = TuiOptions {
+            config: cli.config,
+            lua_dir: cli.lua_dir,
+            no_nft: cli.no_nft,
+            control_socket: cli.control_socket,
+            theme: cli.theme,
+        };
+        match run_tui(opts) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("zapret-rs TUI error: {err}");
+                ExitCode::FAILURE
+            }
         }
+    }
+    #[cfg(not(feature = "tui"))]
+    {
+        let _ = cli;
+        eprintln!(
+            "zapret-rs: built without 'tui' feature; run a headless subcommand (daemon, scan, ip2net, mdig)"
+        );
+        ExitCode::FAILURE
     }
 }
