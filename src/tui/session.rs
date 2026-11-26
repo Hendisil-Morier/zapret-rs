@@ -7,8 +7,9 @@ use std::io::{self, Stdout};
 /// Path resolution for the sibling domain history file beside `nfqws2.toml`.
 use std::path::PathBuf;
 
-/// `crossterm` terminal raw-mode and alternate-screen lifecycle commands.
+/// `crossterm` terminal raw-mode, alternate-screen, and mouse-capture lifecycle commands.
 use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -160,7 +161,7 @@ pub(crate) struct TerminalSession {
 }
 
 impl TerminalSession {
-    /// Enters raw mode and the alternate screen buffer.
+    /// Enters raw mode, alternate screen buffer, and mouse capture.
     pub(crate) fn enter() -> Result<Self, String> {
         let seamless = std::env::var_os(SEAMLESS_REEXEC_ENV).is_some();
         enable_raw_mode().map_err(|err| format!("failed to enable terminal raw mode: {err}"))?;
@@ -169,6 +170,7 @@ impl TerminalSession {
             let _ = disable_raw_mode();
             return Err(format!("failed to enter alternate screen: {err}"));
         }
+        let _ = execute!(stdout, EnableMouseCapture);
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)
             .map_err(|err| format!("failed to initialize terminal: {err}"))?;
@@ -177,12 +179,12 @@ impl TerminalSession {
         Ok(Self { terminal, restore_on_drop: true })
     }
 
-    /// Temporarily leaves alternate screen and raw mode while running an interactive action.
+    /// Temporarily leaves alternate screen, mouse capture, and raw mode while running `action`.
     pub(crate) fn suspend_for<T, F: FnOnce() -> T>(&mut self, action: F) -> T {
+        let _ = execute!(self.terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen);
         let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
         let result = action();
-        let _ = execute!(self.terminal.backend_mut(), EnterAlternateScreen);
+        let _ = execute!(self.terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture);
         let _ = enable_raw_mode();
         let _ = self.terminal.clear();
         result
@@ -190,11 +192,11 @@ impl TerminalSession {
 }
 
 impl Drop for TerminalSession {
-    /// Restores cooked terminal mode and leaves the alternate screen unless handing off to `exec()`.
+    /// Restores cooked terminal mode, disables mouse capture, and leaves alternate screen on exit.
     fn drop(&mut self) {
         if self.restore_on_drop {
+            let _ = execute!(self.terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen);
             let _ = disable_raw_mode();
-            let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
             let _ = self.terminal.show_cursor();
         }
     }
