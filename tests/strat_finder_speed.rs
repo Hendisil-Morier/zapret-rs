@@ -211,3 +211,59 @@ fn run_scan_batches_baselines_and_promotes_sticky_winner_to_first_probe() {
     assert_eq!(report.targets[1].tested_count, 1, "sticky winner promoted to index 0 on tls13");
     assert_eq!(report.targets[3].tested_count, 1, "sticky winner promoted to index 0 on d2");
 }
+
+/// Verifies multi-domain `(ipv, proto)` grouping shares profile swaps, drops passing domains on
+/// `stop_on_first`, and preserves original `(domain, ipv, proto)` ordering in `ScanReport::targets`.
+#[test]
+fn run_scan_sweeps_multiple_domains_concurrently_and_drops_solved_domains() {
+    let cat = build_catalog(ProbeProtocol::Tls12, ScanLevel::Quick, IpFamily::V4);
+    let cand0 = cat[0].id.clone();
+    let cand2 = cat[2].id.clone();
+    let t13_0 = cand0.replacen("tls12:", "tls13:", 1);
+    let t13_2 = cand2.replacen("tls12:", "tls13:", 1);
+
+    let state = Rc::new(RefCell::new(SpeedMockState::default()));
+    {
+        let mut st = state.borrow_mut();
+        st.outcomes.insert(("d1.test".to_owned(), Some(cand0)), ProbeOutcome::Available { http_code: 200, latency_ms: 15 });
+        st.outcomes.insert(("d2.test".to_owned(), Some(cand2.clone())), ProbeOutcome::Available { http_code: 200, latency_ms: 25 });
+        st.outcomes.insert(("d3.test".to_owned(), Some(cand2)), ProbeOutcome::Available { http_code: 200, latency_ms: 35 });
+        st.outcomes.insert(("d1.test".to_owned(), Some(t13_0)), ProbeOutcome::Available { http_code: 200, latency_ms: 16 });
+        st.outcomes.insert(("d2.test".to_owned(), Some(t13_2.clone())), ProbeOutcome::Available { http_code: 200, latency_ms: 26 });
+        st.outcomes.insert(("d3.test".to_owned(), Some(t13_2)), ProbeOutcome::Available { http_code: 200, latency_ms: 36 });
+    }
+
+    let cfg = ScanConfig {
+        domains: vec!["d1.test".to_owned(), "d2.test".to_owned(), "d3.test".to_owned()],
+        protos: vec![ProbeProtocol::Tls12, ProbeProtocol::Tls13],
+        families: vec![IpFamily::V4],
+        level: ScanLevel::Quick,
+        timeout: Duration::from_secs(2),
+        stop_on_first: true,
+        force_blocked: false,
+    };
+    let mut applier = SpeedMockApplier(Rc::clone(&state));
+    let probe = SpeedMockProbe(Rc::clone(&state));
+    let stop = AtomicBool::new(false);
+
+    let report = run_scan(&cfg, &probe, &mut applier, &stop, |_| {}).expect("scan ok");
+    let st = state.borrow();
+    // Wave 0 = 6 baselines; Tls12 cand0 = 3 domains -> d1 drops; cand1 = 2; cand2 = 2 -> d2/d3 drop;
+    // Sticky Tls13 runs cand0/cand2 in the top 2 positions across remaining domains!
+    assert_eq!(st.batch_sizes, vec![6, 3, 2, 2, 3, 2]);
+    assert_eq!(st.swap_count, 5, "only 3 Tls12 swaps + 2 sticky Tls13 swaps instead of sweeping domains serially");
+
+    let order: Vec<(&str, ProbeProtocol, usize)> =
+        report.targets.iter().map(|t| (t.domain.as_str(), t.proto, t.tested_count)).collect();
+    assert_eq!(
+        order,
+        vec![
+            ("d1.test", ProbeProtocol::Tls12, 1),
+            ("d1.test", ProbeProtocol::Tls13, 1),
+            ("d2.test", ProbeProtocol::Tls12, 3),
+            ("d2.test", ProbeProtocol::Tls13, 2),
+            ("d3.test", ProbeProtocol::Tls12, 3),
+            ("d3.test", ProbeProtocol::Tls13, 2),
+        ]
+    );
+}

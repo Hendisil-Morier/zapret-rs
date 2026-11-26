@@ -187,66 +187,84 @@ where
     applier.clear()?;
     let baselines = if target_reqs.is_empty() { Vec::new() } else { probe.probe_batch(&target_reqs) };
 
-    let mut targets = Vec::new();
-    let mut domain_strategies = Vec::new();
+    let mut targets: Vec<TargetScanResult> = target_reqs
+        .iter()
+        .zip(baselines)
+        .map(|(req, baseline)| {
+            on_event(ProgressEvent::Baseline { domain: &req.domain, proto: req.proto, ipv: req.ipv, outcome: &baseline });
+            let skipped_unblocked = baseline.is_success() && !cfg.force_blocked;
+            TargetScanResult {
+                domain: req.domain.clone(), proto: req.proto, ipv: req.ipv, baseline,
+                skipped_unblocked, tested_count: 0, matches: Vec::new(),
+            }
+        })
+        .collect();
+
     let mut sticky: Vec<(IpFamily, String)> = Vec::new();
     let mut interrupted = false;
 
-    for (req, baseline) in target_reqs.into_iter().zip(baselines) {
-        on_event(ProgressEvent::Baseline { domain: &req.domain, proto: req.proto, ipv: req.ipv, outcome: &baseline });
-        if baseline.is_success() && !cfg.force_blocked {
-            targets.push(TargetScanResult {
-                domain: req.domain, proto: req.proto, ipv: req.ipv, baseline,
-                skipped_unblocked: true, tested_count: 0, matches: Vec::new(),
-            });
-            continue;
-        }
-        if interrupted || stop.load(Ordering::Acquire) {
-            interrupted = true;
-            break;
-        }
-
-        let catalog = prioritize_sticky(build_catalog(req.proto, cfg.level, req.ipv), &sticky);
-        let total = catalog.len();
-        let mut matches = Vec::new();
-        let mut tested_count = 0usize;
-
-        for (idx, spec) in catalog.iter().enumerate() {
-            if stop.load(Ordering::Acquire) {
-                interrupted = true;
-                break;
+    'groups: for &ipv in &cfg.families {
+        for &proto in &cfg.protos {
+            if proto == ProbeProtocol::Http3 && !http3_ok {
+                continue;
             }
-            applier.apply_profiles(vec![spec.to_profile(1, &[])])?;
-            let outcome = probe.probe(&req);
-            tested_count += 1;
-            on_event(ProgressEvent::Candidate {
-                domain: &req.domain, index: idx + 1, total, strategy: spec, outcome: &outcome,
-            });
-            if let Some(latency_ms) = outcome.latency_ms() {
-                let entry = (spec.ipv, strategy_suffix(&spec.id).to_owned());
-                if !sticky.contains(&entry) {
-                    sticky.push(entry);
-                }
-                matches.push(StrategyMatch { strategy: spec.clone(), latency_ms });
-                if cfg.stop_on_first {
+            let mut active: Vec<usize> = (0..targets.len())
+                .filter(|&i| !targets[i].skipped_unblocked && targets[i].ipv == ipv && targets[i].proto == proto)
+                .collect();
+            if active.is_empty() {
+                continue;
+            }
+
+            let catalog = prioritize_sticky(build_catalog(proto, cfg.level, ipv), &sticky);
+            let total = catalog.len();
+
+            for (idx, spec) in catalog.iter().enumerate() {
+                if active.is_empty() {
                     break;
                 }
+                if stop.load(Ordering::Acquire) {
+                    interrupted = true;
+                    break 'groups;
+                }
+                applier.apply_profiles(vec![spec.to_profile(1, &[])])?;
+                let batch_reqs: Vec<ProbeRequest> =
+                    active.iter().map(|&si| target_reqs[si].clone()).collect();
+                let outcomes = probe.probe_batch(&batch_reqs);
+                let mut next_active = Vec::with_capacity(active.len());
+
+                for (slot_idx, outcome) in active.into_iter().zip(outcomes) {
+                    let t = &mut targets[slot_idx];
+                    t.tested_count += 1;
+                    on_event(ProgressEvent::Candidate {
+                        domain: &t.domain, index: idx + 1, total, strategy: spec, outcome: &outcome,
+                    });
+                    if let Some(latency_ms) = outcome.latency_ms() {
+                        let entry = (spec.ipv, strategy_suffix(&spec.id).to_owned());
+                        if !sticky.contains(&entry) {
+                            sticky.push(entry);
+                        }
+                        t.matches.push(StrategyMatch { strategy: spec.clone(), latency_ms });
+                        if cfg.stop_on_first {
+                            continue;
+                        }
+                    }
+                    next_active.push(slot_idx);
+                }
+                active = next_active;
             }
         }
-
-        rank_matches(&mut matches);
-        if !matches.is_empty() {
-            domain_strategies.push(DomainStrategies {
-                domain: req.domain.clone(), proto: req.proto, ipv: req.ipv, matches: matches.clone(),
-            });
-        }
-        targets.push(TargetScanResult {
-            domain: req.domain, proto: req.proto, ipv: req.ipv, baseline,
-            skipped_unblocked: false, tested_count, matches,
-        });
     }
 
     let _ = applier.clear();
+    let mut domain_strategies = Vec::new();
+    for t in &mut targets {
+        rank_matches(&mut t.matches);
+        if !t.matches.is_empty() {
+            domain_strategies.push(DomainStrategies {
+                domain: t.domain.clone(), proto: t.proto, ipv: t.ipv, matches: t.matches.clone(),
+            });
+        }
+    }
     let cover = select_minimal_cover(&domain_strategies);
     Ok(ScanReport { targets, cover, interrupted })
 }
