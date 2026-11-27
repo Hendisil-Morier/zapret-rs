@@ -19,6 +19,9 @@ use crate::config::{AppConfig, LuaInitEntry};
 /// Core stateful DPI desync engine and packet loop bound by Tab 2.
 #[cfg(any(target_os = "linux", windows))]
 use crate::desync::DesyncEngine;
+/// Packet decision and borrowed queued metadata passed to worker telemetry dispatch.
+#[cfg(any(target_os = "linux", windows))]
+use crate::intercepter::{Decision, QueuedPacket};
 /// OS-agnostic packet interception loop trait.
 #[cfg(windows)]
 use crate::intercepter::PacketIntercepter;
@@ -44,8 +47,8 @@ use crate::telemetry::{PacketCounters, PacketRecord};
 use crate::telemetry::{PacketVerdict, build_packet_record};
 /// Application state read/updated when spawning workers.
 use crate::tui::state::AppState;
-/// Status and scan event types.
-use crate::tui::types::{FinderStatus, RunStatus, ScanUiEvent};
+/// Status, active tab, and scan event types.
+use crate::tui::types::{ActiveTab, FinderStatus, RunStatus, ScanUiEvent};
 
 /// Active background strategy finder scan owned by the TUI event loop.
 pub(crate) struct ActiveScan {
@@ -76,6 +79,8 @@ impl ActiveScan {
 pub(crate) struct ActiveDaemon {
     /// Stop flag observed by `QueueCatcher::run_until`.
     pub(crate) stop: Arc<AtomicBool>,
+    /// Gates `Pass` packet dissection/capture to avoid formatting records while Tab 2 is unviewed or paused.
+    pub(crate) capture_enabled: Arc<AtomicBool>,
     /// Bounded non-blocking stream of all captured [`PacketRecord`] items.
     pub(crate) pkt_rx: Receiver<PacketRecord>,
     /// Dedicated non-blocking stream of `MODIFY`/`DROP` records so `PASS` bursts never drop them.
@@ -210,6 +215,37 @@ where
     Ok(ActiveScan { stop, rx, join: Some(join), fw_guard })
 }
 
+/// Dispatches one live Tab 2 packet and skips `build_packet_record` unless actively inspected.
+#[cfg(any(target_os = "linux", windows))]
+fn dispatch_live_worker_packet(
+    engine: &DesyncEngine,
+    counters: &PacketCounters,
+    pass_seen: &mut u64,
+    capture_enabled: &AtomicBool,
+    desync_tx: &mpsc::SyncSender<PacketRecord>,
+    pkt_tx: &mpsc::SyncSender<PacketRecord>,
+    pkt: &QueuedPacket<'_>,
+) -> Decision {
+    let (decision, outcome) = engine.process_packet_traced(pkt);
+    let (seq, verdict) = counters.record_outcome(&outcome);
+    let inspecting = capture_enabled.load(Ordering::Relaxed);
+    if !inspecting {
+        return decision;
+    }
+    if verdict == PacketVerdict::Pass {
+        let idx = *pass_seen;
+        *pass_seen = idx.wrapping_add(1);
+        if !idx.is_multiple_of(10) {
+            return decision;
+        }
+        let _ = pkt_tx.try_send(build_packet_record(seq, pkt, &outcome));
+    } else {
+        // Route `REASM`/`MODIFY`/`DESYNC` to a dedicated channel so `PASS` bursts never drop them.
+        let _ = desync_tx.try_send(build_packet_record(seq, pkt, &outcome));
+    }
+    decision
+}
+
 /// Starts the live in-process `nfqws2` NFQUEUE worker for Tab 2 using `state.active_toml`.
 pub(crate) fn start_live_daemon<F>(state: &mut AppState, install_fw: F) -> Result<ActiveDaemon, String>
 where
@@ -232,6 +268,10 @@ where
     let (desync_tx, desync_rx) = mpsc::sync_channel::<PacketRecord>(256);
     let stop = Arc::new(AtomicBool::new(false));
     let stop_bg = Arc::clone(&stop);
+    let capture_enabled = Arc::new(AtomicBool::new(
+        state.tab == ActiveTab::Run && !state.inspector.paused,
+    ));
+    let capture_bg = Arc::clone(&capture_enabled);
     let counters: Arc<PacketCounters> = Arc::clone(&state.counters);
 
     let join = thread::Builder::new()
@@ -248,20 +288,20 @@ where
                     Err(err) => { let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}"))); return; }
                 };
                 let _ = ready_tx.send(Ok(()));
+                let mut pass_seen = 0u64;
                 let _ = catcher.run_until(
                     &stop_bg,
                     || Some(Duration::from_millis(50)),
                     |pkt| {
-                        let (decision, outcome) = engine.process_packet_traced(pkt);
-                        let (seq, verdict) = counters.record_outcome(&outcome);
-                        // Route `REASM`/`MODIFY`/`DESYNC` to a dedicated channel so `PASS` bursts never drop them.
-                        let record = build_packet_record(seq, pkt, &outcome);
-                        if verdict != PacketVerdict::Pass {
-                            let _ = desync_tx.try_send(record);
-                        } else {
-                            let _ = pkt_tx.try_send(record);
-                        }
-                        decision
+                        dispatch_live_worker_packet(
+                            &engine,
+                            &counters,
+                            &mut pass_seen,
+                            &capture_bg,
+                            &desync_tx,
+                            &pkt_tx,
+                            pkt,
+                        )
                     },
                 );
             }
@@ -278,25 +318,26 @@ where
                     Err(err) => { let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}"))); return; }
                 };
                 let _ = ready_tx.send(Ok(()));
+                let mut pass_seen = 0u64;
                 let _ = catcher.run_until(
                     &stop_bg,
                     || Some(Duration::from_millis(50)),
                     |pkt| {
-                        let (decision, outcome) = engine.process_packet_traced(pkt);
-                        let (seq, verdict) = counters.record_outcome(&outcome);
-                        let record = build_packet_record(seq, pkt, &outcome);
-                        if verdict != PacketVerdict::Pass {
-                            let _ = desync_tx.try_send(record);
-                        } else {
-                            let _ = pkt_tx.try_send(record);
-                        }
-                        decision
+                        dispatch_live_worker_packet(
+                            &engine,
+                            &counters,
+                            &mut pass_seen,
+                            &capture_bg,
+                            &desync_tx,
+                            &pkt_tx,
+                            pkt,
+                        )
                     },
                 );
             }
             #[cfg(not(any(target_os = "linux", windows)))]
             {
-                let _ = (&cfg, &stop_bg, &counters, &pkt_tx, &desync_tx);
+                let _ = (&cfg, &stop_bg, &capture_bg, &counters, &pkt_tx, &desync_tx);
                 let _ = ready_tx.send(Err(
                     "live packet interception is not yet implemented on this OS".to_owned(),
                 ));
@@ -331,5 +372,5 @@ where
     ));
     state.status_banner =
         format!("{engine} is running. Press 'f' to filter, 'd' for detail, 'x' to stop.");
-    Ok(ActiveDaemon { stop, pkt_rx, desync_rx, join: Some(join), fw_guard })
+    Ok(ActiveDaemon { stop, capture_enabled, pkt_rx, desync_rx, join: Some(join), fw_guard })
 }

@@ -7,9 +7,6 @@ use std::path::PathBuf;
 /// Single-thread reference counting for profile snapshots and packet senders.
 use std::rc::Rc;
 
-/// Dynamic Lua value variant matched against resolved desync callback functions.
-use mlua::Value;
-
 /// Profile definitions loaded into runtime structures and Lua validation.
 use crate::config::{AppConfig, DesyncProfile};
 /// ICMP and non-TCP/UDP/ICMP raw IP packet processors.
@@ -283,7 +280,7 @@ impl DesyncEngine {
         }
 
         match self.try_run_profile(
-            profile, instances, replay, pkt, dis, ps, pos_opt, reasm_data, decrypt_data,
+            idx, profile, instances, replay, pkt, dis, ps, pos_opt, reasm_data, decrypt_data,
         ) {
             Ok(decision) => {
                 let label = || Some(profile.name.clone().unwrap_or_else(|| format!("profile #{}", profile.index)));
@@ -305,6 +302,7 @@ impl DesyncEngine {
     #[allow(clippy::too_many_arguments)]
     fn try_run_profile(
         &self,
+        profile_slot: usize,
         profile: &Rc<DesyncProfile>,
         instances: &[String],
         replay: &ReplayContext<'_>,
@@ -347,7 +345,6 @@ impl DesyncEngine {
             build_desync_table(lua, &table_input).map_err(|e| format!("failed to build desync table: {e}"))?
         };
         let ctx_ud = self.runtime.desync_ctx_userdata().map_err(|e| format!("failed to fetch desync ctx userdata: {e}"))?;
-        let globals = lua.globals();
 
         let mut verdict = VERDICT_PASS;
         for (idx, action) in profile.actions.iter().enumerate() {
@@ -357,10 +354,7 @@ impl DesyncEngine {
                 continue;
             }
 
-            let func_val = globals.get::<Value>(action.func.as_str()).map_err(|e| format!("failed to resolve '{}': {e}", action.func))?;
-            let Value::Function(func): Value = func_val else {
-                return Err(format!("desync function '{}' does not exist", action.func));
-            };
+            let func = self.runtime.resolve_cached_action(profile_slot, idx, &action.func)?;
 
             let Some(arg_tbl) = build_action_args_table(lua, &action.args, Some(&desync_tbl), true)
                 .map_err(|e| format!("failed to build args for '{}': {e}", action.func))?

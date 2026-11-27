@@ -1,7 +1,7 @@
 //! Deduplicated hostlist/ipset registries, autohostlist pools, and full Milestone 3 profile matching.
 
-/// Single-threaded interior mutability for reloading shared list files and mutating failure counters.
-use std::cell::RefCell;
+/// Single-threaded interior mutability and cooldown cells for shared lists and counters.
+use std::cell::{Cell, RefCell};
 /// Deduplication map keying file-backed hostlists and ipsets by canonical/configured path.
 use std::collections::HashMap;
 /// Filesystem probing, gzip magic verification, and creatable/writable autohostlist verification.
@@ -26,6 +26,8 @@ use crate::lists::{
 };
 /// Precomputed `<func>_<profile_n>_<func_n>` action instance name helper (`desync_instance`).
 use crate::lua::desync_encode::desync_instance_name;
+/// Monotonic boottime seconds clock used to throttle list `stat(2)` reload probes.
+use crate::timer::boottime_secs;
 
 /// Process-wide cache of deduplicated hostlist and ipset files supporting startup validation and `SIGHUP`.
 #[derive(Debug, Default)]
@@ -49,6 +51,8 @@ pub(crate) struct ProfileRuntime {
     pub(crate) fail_pool: RefCell<HostFailPool>,
     /// Precomputed `<func>_<profile_n>_<func_n>` instance labels aligned 1:1 with `DesyncProfile::actions`.
     pub(crate) action_instances: Vec<String>,
+    /// Last monotonic boottime second when file-backed lists were checked via `stat(2)`.
+    last_reload_check_sec: Cell<i64>,
 }
 
 /// Full packet, IP endpoint, and hostname tuple evaluated during `zapret2` `dp_match` selection.
@@ -128,6 +132,7 @@ impl ListRegistry {
         }
         for rt in runtimes {
             rt.hostlists.ensure_autolists_non_empty();
+            rt.last_reload_check_sec.set(i64::MIN);
         }
     }
 }
@@ -228,6 +233,7 @@ fn build_profile_runtime(
         ipsets: ip_col,
         fail_pool: RefCell::new(HostFailPool::new()),
         action_instances,
+        last_reload_check_sec: Cell::new(i64::MIN),
     })
 }
 
@@ -306,14 +312,19 @@ pub(crate) fn profile_matches_full(
     if !profile.matches(&input.base) {
         return false;
     }
-    if rt.hostlists.reload_check().is_err() {
-        return false;
+    let now_sec = boottime_secs();
+    let do_reload = rt.last_reload_check_sec.get() != now_sec;
+    if do_reload {
+        rt.last_reload_check_sec.set(now_sec);
+        if rt.hostlists.reload_check().is_err() {
+            return false;
+        }
     }
     let hl_empty = hostlists_are_empty(&rt.hostlists);
     if rt.autolist.is_none() && input.hostname.is_none() && !hl_empty {
         return false;
     }
-    if !rt.ipsets.check(input.primary_ip, input.reverse_ip, false) {
+    if !rt.ipsets.check(input.primary_ip, input.reverse_ip, !do_reload) {
         return false;
     }
     if rt.autolist.is_some() && input.hostname.is_some() {

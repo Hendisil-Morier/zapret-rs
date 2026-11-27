@@ -15,8 +15,8 @@ use crate::telemetry::PacketRecord;
 use crate::tui::session::{TerminalSession, drop_fw_tui};
 /// Mutable TUI application state.
 use crate::tui::state::AppState;
-/// Navigation and worker event enums, including `RunStatus`.
-use crate::tui::types::RunStatus;
+/// Navigation and worker event enums, including `ActiveTab` and `RunStatus`.
+use crate::tui::types::{ActiveTab, RunStatus};
 /// Background live `nfqws2` NFQUEUE worker handle.
 use crate::tui::workers::ActiveDaemon;
 /// Remote daemon socket auto-detection, attachment, streaming reader, and control request types.
@@ -53,7 +53,13 @@ impl Tab2Session {
     /// Called on every render tick to keep the inspector panel live regardless of session variant.
     pub(crate) fn drain_packets(&self, state: &mut AppState) {
         let (desync_rx, pkt_rx) = match self {
-            Self::Local(d) => (&d.desync_rx, &d.pkt_rx),
+            Self::Local(d) => {
+                d.capture_enabled.store(
+                    state.tab == ActiveTab::Run && !state.inspector.paused,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                (&d.desync_rx, &d.pkt_rx)
+            }
             Self::Remote(r) => (&r.desync_rx, &r.pkt_rx),
         };
         drain_packet_pair(state, desync_rx, pkt_rx, 256);
