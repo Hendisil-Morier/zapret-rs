@@ -3,15 +3,14 @@
 /// Core `mlua` Lua state, table, value, and variadic argument types.
 use mlua::{Lua, Value, Variadic};
 
-/// L7 payload tag parser matching `l7payload_from_name`.
-use crate::config::L7Payload;
 /// Shared Lua argument-count checks and strict string/byte/bool extractors.
 use crate::lua::helpers::{
     check_argc_range, is_truthy, require_strict_bytes, require_strict_str,
 };
-/// Protocol split marker parser, multi-position resolver, and TLS ClientHello mutator.
+/// L7 payload tag parser, split marker resolver, and TLS ClientHello mutator.
 use crate::protocol::{
-    FakeTlsMod, posmarker_list_parse, posmarker_parse, resolve_multi_pos, resolve_pos, tls_mod,
+    FakeTlsMod, L7Payload, posmarker_list_parse, posmarker_parse, resolve_multi_pos, resolve_pos,
+    tls_mod,
 };
 
 /// Maximum markers accepted by `resolve_multi_pos` (`sizeof(markers)/sizeof(*markers)` in `lua.c`).

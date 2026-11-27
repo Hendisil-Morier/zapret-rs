@@ -6,12 +6,6 @@ use std::net::{IpAddr, Ipv6Addr};
 /// Maximum hostname length in bytes (`char host[256]` minus NUL terminator).
 const MAX_HOST_BYTES: usize = 255;
 
-/// Default maximum tracked hostnames inside a single [`crate::lists::HostFailPool`].
-pub const DEFAULT_MAX_HOSTFAIL_ENTRIES: usize = 16_384;
-
-/// Default maximum in-memory and appended entries permitted in a `--hostlist-auto` pool.
-pub const DEFAULT_MAX_AUTOHOSTLIST_ENTRIES: usize = 65_536;
-
 /// Returns `true` when `raw` is a clean DNS/SNI/list hostname (`[a-zA-Z0-9._-]`) or IP literal.
 fn is_valid_hostname_body(raw: &str) -> bool {
     if raw.is_empty() || raw.len() > MAX_HOST_BYTES {

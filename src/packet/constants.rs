@@ -9,6 +9,10 @@ pub const DEFAULT_MSS: u16 = 1220;
 pub const RECONSTRUCT_MAX_SIZE: usize = 65536;
 /// Default raw socket send buffer sizing constant (`RAW_SNDBUF`).
 pub const RAW_SNDBUF: usize = 64 * 1024;
+/// Default Linux NFQUEUE queue number matching `zapret2`.
+pub const DEFAULT_QUEUE_NUM: u16 = 200;
+/// Default firewall mark applied to injected raw packets to prevent NFQUEUE loops.
+pub const DEFAULT_DESYNC_FWMARK: u32 = 0x4000_0000;
 
 /// Verdict: pass the packet unmodified (`VERDICT_PASS`).
 pub const VERDICT_PASS: u8 = 0;

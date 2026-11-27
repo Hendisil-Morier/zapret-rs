@@ -82,7 +82,7 @@ pub fn feed_dns_response(payload: &[u8], ipcache: &RefCell<IpCache>, now_sec: i6
         return false;
     }
 
-    let Some(clean_name) = crate::lists::sanitize_wire_hostname(&query_name) else {
+    let Some(clean_name) = crate::protocol::sanitize_wire_hostname(&query_name) else {
         return false;
     };
     let mut cache = ipcache.borrow_mut();

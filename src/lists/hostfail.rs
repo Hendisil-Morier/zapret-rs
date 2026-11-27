@@ -3,8 +3,11 @@
 /// Map storing active per-hostname failure counters keyed by sanitized lowercase host.
 use std::collections::HashMap;
 
-/// Capacity cap and wire hostname sanitizer shared with hostlist pools.
-use crate::lists::host_sanitize::{DEFAULT_MAX_HOSTFAIL_ENTRIES, sanitize_wire_hostname};
+/// Wire hostname sanitizer shared across protocol decoders and hostlist pools.
+use crate::protocol::sanitize_wire_hostname;
+
+/// Default maximum tracked hostnames inside a single [`HostFailPool`].
+pub const DEFAULT_MAX_HOSTFAIL_ENTRIES: usize = 16_384;
 
 /// Active failure counter entry for one hostname inside [`HostFailPool`] (`hostfail_pool`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

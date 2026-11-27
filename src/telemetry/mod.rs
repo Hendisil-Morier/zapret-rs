@@ -8,4 +8,4 @@ pub mod record;
 /// Re-exported lock-free packet counters.
 pub use counters::PacketCounters;
 /// Re-exported packet outcome classification, decoded record, and builder function.
-pub use record::{PacketRecord, PacketVerdict, build_packet_record};
+pub use record::{PacketOutcome, PacketRecord, PacketVerdict, build_packet_record};

@@ -231,7 +231,7 @@ fn extract_host_from_ext(ext: &[u8]) -> Option<String> {
     let (host_off, host_len) = tls_advance_to_host_in_sni(ext)?;
     let capped_len = host_len.min(MAX_TLS_HOST_LEN);
     let raw = String::from_utf8_lossy(&ext[host_off..host_off + capped_len]);
-    crate::lists::sanitize_wire_hostname(&raw)
+    crate::protocol::sanitize_wire_hostname(&raw)
 }
 
 /// Extracts and lowercases the SNI hostname from a TLS Hello record (`TLSHelloExtractHost`).

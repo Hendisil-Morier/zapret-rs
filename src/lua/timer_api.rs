@@ -4,20 +4,22 @@
 use std::cell::RefCell;
 /// Reference counting for sharing timer pool handles across Lua closures.
 use std::rc::Rc;
+/// Cooperative shutdown flag polled between timer ticks in `--intercept=0` mode.
+use std::sync::atomic::AtomicBool;
 
 /// Core `mlua` types for table manipulation, functions, and variadic arguments.
 use mlua::{Function, Lua, Value, Variadic};
 
-/// Monotonic boottime clock reader for initializing activation timestamps.
-use crate::timer::clock::boottime_ms;
-/// Scheduled timer pool managing active timers and deadlines.
-use crate::timer::pool::TimerPool;
 /// Argument validation and value extraction helpers.
 use crate::lua::helpers::{
     check_argc, check_argc_range, coerce_i64, is_truthy, require_strict_str,
 };
 /// Typed error wrapper for Lua engine operations.
 use crate::lua::error::LuaEngineError;
+/// Top-level LuaJIT runtime orchestrator managing periodic GC and `mlua::Lua` state.
+use crate::lua::runtime::LuaRuntime;
+/// Monotonic boottime clock reader, callback loop runner, and scheduled timer pool.
+use crate::timer::{TimerPool, boottime_ms, run_no_intercept_callbacks};
 
 /// Registers `timer_set`, `timer_del`, `timer_info`, and `timer_enum` into Lua `_G`.
 pub fn register_timer_functions(
@@ -130,4 +132,36 @@ pub fn register_timer_functions(
     globals.set("timer_enum", timer_enum)?;
 
     Ok(())
+}
+
+/// Executes active timers in a non-intercepting loop until all timers complete or `stop` is set.
+///
+/// Provides parity with `zapret2`'s `NoInterceptLoop(void)` in `nfqws.c`. When
+/// `stop` becomes `true` or the timer pool becomes empty, the loop exits gracefully.
+pub fn run_no_intercept(
+    pool_rc: &Rc<RefCell<TimerPool>>,
+    runtime: &LuaRuntime,
+    stop: &AtomicBool,
+) {
+    run_no_intercept_with_tick(pool_rc, runtime, stop, || {});
+}
+
+/// Executes active timers while invoking `on_tick` periodically to handle signal events like `SIGHUP`.
+pub fn run_no_intercept_with_tick(
+    pool_rc: &Rc<RefCell<TimerPool>>,
+    runtime: &LuaRuntime,
+    stop: &AtomicBool,
+    on_tick: impl FnMut(),
+) {
+    run_no_intercept_callbacks(
+        stop,
+        on_tick,
+        || pool_rc.borrow().is_empty(),
+        || pool_rc.borrow_mut().next_deadline_ms(),
+        || {
+            let current_now = boottime_ms();
+            runtime.do_gc(current_now);
+            TimerPool::run_expired(pool_rc, runtime.lua(), current_now)
+        },
+    );
 }

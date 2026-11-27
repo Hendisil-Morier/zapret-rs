@@ -172,7 +172,7 @@ pub fn http_extract_header(data: &[u8], header: &[u8]) -> Option<String> {
 /// Extracts, sanitizes, and lowercases the `Host:` header value from an HTTP request (`HttpExtractHost`).
 pub fn http_extract_host(data: &[u8]) -> Option<String> {
     let raw = http_extract_header(data, b"\nHost:")?;
-    crate::lists::sanitize_http_host(&raw)
+    crate::protocol::sanitize_http_host(&raw)
 }
 
 /// Returns `true` when an HTTP 302/307 reply redirects to a different second-level domain or IP.

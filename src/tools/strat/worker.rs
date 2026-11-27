@@ -31,7 +31,7 @@ use crate::desync::DesyncEngine;
 use crate::intercepter::{Decision, PacketIntercepter};
 /// Tuned Linux NFQUEUE catcher bound once for the entire scan session.
 #[cfg(target_os = "linux")]
-use crate::intercepter::QueueCatcher;
+use crate::intercepter::{QueueCatcher, QueueConfig};
 /// Windows WinDivert intercepter bound once for the entire scan session.
 #[cfg(windows)]
 use crate::intercepter::WinDivertIntercepter;
@@ -332,7 +332,7 @@ fn run_worker_thread(
 ) {
     #[cfg(target_os = "linux")]
     let mut catcher = {
-        let qcfg = base_config.to_queue_config();
+        let qcfg = QueueConfig::with_fwmark(base_config.qnum, base_config.fwmark);
         if let Ok(mut spec) = stats.capture_spec.lock() {
             *spec = format!("NFQUEUE queue={} fwmark=0x{:08x}", qcfg.queue_num, base_config.fwmark);
         }

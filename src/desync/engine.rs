@@ -29,9 +29,9 @@ use crate::desync::verdict::{
 use crate::intercepter::{Decision, QueuedPacket};
 /// Global IP-to-hostname and incoming-TTL cache (`ip_cache`).
 use crate::lists::IpCache;
-/// Lua runtime, error enum, and desync table/argument builders.
+/// Lua runtime, configuration, error enum, and desync table/argument builders.
 use crate::lua::{
-    LuaEngineError, LuaRuntime,
+    LuaConfig, LuaEngineError, LuaRuntime,
     desync_encode::{DesyncTableInput, build_action_args_table, build_desync_table},
 };
 /// Default pass verdict bitmask initialized before profile actions execute.
@@ -100,7 +100,7 @@ impl DesyncEngine {
         config: &AppConfig,
         sender: Rc<RefCell<dyn PacketSender>>,
     ) -> Result<Self, LuaEngineError> {
-        let runtime = LuaRuntime::with_sender(config.to_lua_config(), Rc::clone(&sender))?;
+        let runtime = LuaRuntime::with_sender(LuaConfig::from(config), Rc::clone(&sender))?;
         Self::from_runtime(runtime, sender, config)
     }
 

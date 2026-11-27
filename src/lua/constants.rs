@@ -3,11 +3,13 @@
 /// Core `mlua` types for global table mutation.
 use mlua::{Lua, Table, Value};
 
+/// Application runtime configuration and default Lua GC interval mapped into [`LuaConfig`].
+use crate::config::{AppConfig, DEFAULT_LUA_GC_INTERVAL};
 /// Typed configuration errors are unnecessary here; conntrack timeouts flow directly into Lua state.
 use crate::conntrack::ConntrackTimeouts;
-/// Protocol, verdict, flag, and compatibility constants shared with the packet engine.
+/// Protocol, queue/fwmark defaults, verdict, flag, and compatibility constants.
 use crate::packet::constants::{
-    DEFAULT_MSS, ICMP_BASE_LEN, ICMP_DEST_UNREACH, ICMP_ECHO, ICMP_ECHOREPLY, ICMP_INFO_REPLY,
+    DEFAULT_DESYNC_FWMARK, DEFAULT_MSS, DEFAULT_QUEUE_NUM, ICMP_BASE_LEN, ICMP_DEST_UNREACH, ICMP_ECHO, ICMP_ECHOREPLY, ICMP_INFO_REPLY,
     ICMP_INFO_REQUEST, ICMP_PARAMETERPROB, ICMP_REDIRECT, ICMP_REDIRECT_HOST, ICMP_REDIRECT_NET,
     ICMP_REDIRECT_TOSHOST, ICMP_REDIRECT_TOSNET, ICMP_TIME_EXCEEDED, ICMP_TIMESTAMP,
     ICMP_TIMESTAMPREPLY, ICMP_TIMXCEED_INTRANS, ICMP_TIMXCEED_REASS, ICMP_UNREACH_FILTER_PROHIB,
@@ -68,8 +70,8 @@ impl Default for LuaConfig {
     fn default() -> Self {
         Self {
             verstr: env!("CARGO_PKG_VERSION").to_owned(),
-            qnum: 200,
-            desync_fwmark: 0x4000_0000,
+            qnum: u32::from(DEFAULT_QUEUE_NUM),
+            desync_fwmark: DEFAULT_DESYNC_FWMARK,
             bind_fix4: false,
             bind_fix6: false,
             debug: false,
@@ -78,7 +80,27 @@ impl Default for LuaConfig {
             cache_hostname: false,
             ctrack_disable: false,
             ctrack_timeouts: ConntrackTimeouts::default(),
-            lua_gc_sec: 60,
+            lua_gc_sec: DEFAULT_LUA_GC_INTERVAL,
+        }
+    }
+}
+
+impl From<&AppConfig> for LuaConfig {
+    /// Derives [`LuaConfig`] settings for `LuaRuntime::new` from resolved [`AppConfig`].
+    fn from(config: &AppConfig) -> Self {
+        Self {
+            qnum: u32::from(config.qnum),
+            desync_fwmark: config.fwmark,
+            bind_fix4: config.bind_fix4,
+            bind_fix6: config.bind_fix6,
+            debug: config.debug,
+            daemon: config.daemon,
+            server: config.server,
+            cache_hostname: config.ipcache.hostname,
+            ctrack_disable: config.conntrack.disable,
+            ctrack_timeouts: config.conntrack.timeouts,
+            lua_gc_sec: config.lua_gc,
+            ..Self::default()
         }
     }
 }

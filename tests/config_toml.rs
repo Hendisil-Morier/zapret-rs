@@ -13,6 +13,10 @@ use zapret_rs::config::{
     AppConfig, CliArgs, ConfigError, ControlSocketConfig, L7Payload, L7Proto, LuaInitEntry,
     PacketRange, ProfileMatchInput, l7_payload_matches, resolve_config,
 };
+/// NFQUEUE queue config constructor verified from resolved configuration.
+use zapret_rs::intercepter::QueueConfig;
+/// Lua runtime configuration derived from [`AppConfig`].
+use zapret_rs::lua::LuaConfig;
 /// IP protocol numbers used to verify cross-L4 `filter_defaults` denial.
 use zapret_rs::packet::constants::{IPPROTO_ICMP, IPPROTO_TCP, IPPROTO_UDP};
 
@@ -197,11 +201,11 @@ fn clap_cli_parses_overrides_version_and_validates_conflicts() {
     assert!(resolved.debug);
     assert!(!resolved.intercept);
 
-    let qcfg = resolved.to_queue_config();
+    let qcfg = QueueConfig::with_fwmark(resolved.qnum, resolved.fwmark);
     assert_eq!(qcfg.queue_num, 350);
     assert_eq!(qcfg.desync_fwmark, 0x1000);
 
-    let lcfg = resolved.to_lua_config();
+    let lcfg = LuaConfig::from(&resolved);
     assert_eq!(lcfg.qnum, 350);
     assert_eq!(lcfg.desync_fwmark, 0x1000);
     assert!(lcfg.bind_fix4);
@@ -318,7 +322,7 @@ ipset_exclude_ip = ["127.0.0.0/8"]
     assert_eq!(p.lists.ipset_exclude, vec![dir.join("lists/skip-cidrs.txt")]);
     assert_eq!(p.lists.ipset_exclude_ip, vec!["127.0.0.0/8"]);
 
-    let lcfg = cfg.to_lua_config();
+    let lcfg = LuaConfig::from(&cfg);
     assert!(lcfg.cache_hostname);
     assert_eq!(lcfg.ctrack_timeouts.established, 34);
 

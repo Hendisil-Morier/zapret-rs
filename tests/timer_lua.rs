@@ -9,10 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Elapsed execution measurement for verifying sleep bounds.
 use std::time::Instant;
 
-/// Top-level Lua configuration schema.
-use zapret_rs::lua::{LuaConfig, LuaRuntime};
+/// Top-level Lua configuration schema and `--intercept=0` timer loop runner.
+use zapret_rs::lua::{LuaConfig, LuaRuntime, run_no_intercept};
 /// Monotonic boottime clock reading and duration calculations.
-use zapret_rs::timer::{TimerPool, boottime_ms, run_no_intercept};
+use zapret_rs::timer::{TimerPool, boottime_ms};
 
 /// Mock packet sender implementing [`PacketSender`] for headless runtime initialization.
 struct NoopSender;

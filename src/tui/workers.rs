@@ -25,9 +25,9 @@ use crate::intercepter::{Decision, QueuedPacket};
 /// OS-agnostic packet interception loop trait.
 #[cfg(windows)]
 use crate::intercepter::PacketIntercepter;
-/// NFQUEUE catcher bound by the live Tab 2 daemon thread on Linux.
+/// NFQUEUE catcher and configuration bound by the live Tab 2 daemon thread on Linux.
 #[cfg(target_os = "linux")]
-use crate::intercepter::QueueCatcher;
+use crate::intercepter::{QueueCatcher, QueueConfig};
 /// WinDivert intercepter bound by the live Tab 2 daemon thread on Windows.
 #[cfg(windows)]
 use crate::intercepter::WinDivertIntercepter;
@@ -279,7 +279,7 @@ where
         .spawn(move || {
             #[cfg(target_os = "linux")]
             {
-                let mut catcher = match QueueCatcher::bind(cfg.to_queue_config()) {
+                let mut catcher = match QueueCatcher::bind(QueueConfig::with_fwmark(cfg.qnum, cfg.fwmark)) {
                     Ok(c) => c,
                     Err(err) => { let _ = ready_tx.send(Err(format!("NFQUEUE bind failed: {err}"))); return; }
                 };

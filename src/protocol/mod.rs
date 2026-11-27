@@ -4,8 +4,12 @@
 pub mod aes_block;
 /// Stateless L7 probes for XMPP, DNS, WireGuard, DHT, Discord, STUN, MTProto, DTLS, and BT.
 pub mod datagram;
+/// Wire hostname and HTTP `Host` header sanitization helpers preventing directive injection.
+pub mod host_sanitize;
 /// HTTP protocol probes, header/host extractors, DPI redirect checker, and HTTP markers.
 pub mod http;
+/// Canonical L7 protocol and payload enums, names, and bitmask matchers.
+pub mod l7;
 /// Protocol-relative payload split markers and multi-position resolver.
 pub mod markers;
 /// QUIC Long Header parsers, varints, Initial classifier, and CRYPTO defragmenter.
@@ -18,6 +22,7 @@ pub mod tls;
 pub mod tls_mod;
 
 pub use aes_block::{aes256_encrypt_block, ctr_add};
+pub use host_sanitize::{sanitize_http_host, sanitize_wire_hostname};
 pub use datagram::{
     dns_parse_in_ip_rr, dns_skip_name, is_bt_handshake, is_dht, is_discord_ip_discovery_request,
     is_dns_query, is_dns_response, is_dtls, is_dtls_client_hello, is_dtls_server_hello,
@@ -29,6 +34,10 @@ pub use datagram::{
 pub use http::{
     find_host_header_offset, find_nld, http_extract_header, http_extract_host, http_pos,
     http_reply_code, http_reply_looks_like_dpi_redirect, is_http, is_http_reply, strip_host_to_ip,
+};
+pub use l7::{
+    ALL_L7_PAYLOADS, L7_PAYLOAD_NONE_MASK, L7Payload, L7Proto, l7_payload_matches,
+    l7_payload_names, l7_payload_str_list, l7_proto_matches,
 };
 pub use markers::{
     PosMarker, ProtoPos, any_proto_pos, check_pos, host_pos, posmarker_from_name,

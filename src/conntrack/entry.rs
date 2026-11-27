@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use mlua::{Lua, RegistryKey};
 
 /// Discovered L7 protocol and reassembly payload classification tags stored on [`CtrackEntry`].
-use crate::config::{L7Payload, L7Proto};
+use crate::protocol::{L7Payload, L7Proto};
 /// Continuous stream reassembly buffer and shared pool memory budget attached to flows.
 use crate::conntrack::reasm::{GlobalBufferBudget, StreamReassembler};
 /// Connection position snapshots, delayed packet storage, and queue bounds.
@@ -76,7 +76,7 @@ pub struct CtrackEntry {
     pub t_start: MonotonicTime,
     /// Current state, timestamp, and bidirectional counters/sequences for client and server.
     pub pos: CtrackPositions,
-    /// Matched 1-based [`crate::config::DesyncProfile`] index cached on the flow.
+    /// Matched 1-based `DesyncProfile` index cached on the flow.
     pub profile_index: Option<u32>,
     /// `true` once profile selection has run for the current flow/discovery state (`profile_index == None` cached miss).
     pub profile_searched: bool,

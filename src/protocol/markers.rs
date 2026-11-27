@@ -1,7 +1,7 @@
 //! Protocol-relative payload split markers and position resolver matching `protocol.c`.
 
 /// L7 payload discriminator used when dispatching marker resolution.
-use crate::config::L7Payload;
+use crate::protocol::l7::L7Payload;
 /// Second-level domain finder and HTTP marker position resolver.
 use crate::protocol::http::{find_nld, http_pos};
 /// TLS handshake/SNI marker position resolver.

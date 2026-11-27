@@ -7,15 +7,13 @@ use std::time::Duration;
 
 /// Typed interception error returned by [`PacketIntercepter`] implementations.
 use crate::intercepter::error::IntercepterError;
+/// Default Linux NFQUEUE number and loop-prevention firewall mark shared across config and Lua.
+pub use crate::packet::constants::{DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_NUM};
 
-/// Default Linux NFQUEUE queue number matching `zapret2`.
-pub const DEFAULT_QUEUE_NUM: u16 = 200;
 /// Default Linux NFQUEUE kernel packet backlog (`Q_MAXLEN` in `params.h`).
 pub const DEFAULT_QUEUE_MAXLEN: u32 = 4096;
 /// Default Linux NFQUEUE netlink socket receive buffer size in bytes (`Q_RCVBUF` in `params.h`).
 pub const DEFAULT_QUEUE_RCVBUF: usize = 1024 * 1024;
-/// Default firewall mark applied to injected raw packets to prevent NFQUEUE loops.
-pub const DEFAULT_DESYNC_FWMARK: u32 = 0x4000_0000;
 
 /// Kernel NFQUEUE binding and loop-prevention settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +48,15 @@ impl QueueConfig {
     pub fn with_queue_num(queue_num: u16) -> Self {
         Self {
             queue_num,
+            ..Self::default()
+        }
+    }
+
+    /// Returns default NFQUEUE settings overriding both `queue_num` and `desync_fwmark`.
+    pub fn with_fwmark(queue_num: u16, desync_fwmark: u32) -> Self {
+        Self {
+            queue_num,
+            desync_fwmark,
             ..Self::default()
         }
     }

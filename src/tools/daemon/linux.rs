@@ -26,8 +26,8 @@ use crate::control::{
 use crate::desync::{
     DesyncEngine, collect_profile_names, drain_hub_commands, verify_config_list_files,
 };
-/// Linux NFQUEUE interception listener.
-use crate::intercepter::QueueCatcher;
+/// Linux NFQUEUE interception listener and configuration.
+use crate::intercepter::{QueueCatcher, QueueConfig};
 /// Packet sender trait, Linux raw socket sender, and socket error variants.
 use crate::rawsend::{PacketSender, RawSendError, RawSender};
 /// Process lifecycle management: PID files, `chdir`, privilege drop, caps, signals, writable dir, and daemonization.
@@ -284,7 +284,7 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
         return Ok(());
     }
 
-    let mut catcher = QueueCatcher::bind(config.to_queue_config())?;
+    let mut catcher = QueueCatcher::bind(QueueConfig::with_fwmark(config.qnum, config.fwmark))?;
     prepare_daemon_runtime(&config, &mut pid_guard)?;
     // Install nftables queue rules before opening control.sock so callers never race Packet Probes.
     let mut fw_guard = maybe_install_auto_nft(&config)?;

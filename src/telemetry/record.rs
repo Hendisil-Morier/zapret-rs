@@ -6,8 +6,6 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 /// Wire serialization for streaming packet records over the control socket.
 use serde::{Deserialize, Serialize};
 
-/// High-level packet outcome distinguishing reassembly pass-throughs from desync hits.
-use crate::desync::PacketOutcome;
 /// Kernel packet metadata recorded per intercepted packet.
 use crate::intercepter::QueuedPacket;
 /// L3/L4 wire packet dissector and TCP flag bitmasks.
@@ -20,6 +18,20 @@ use crate::protocol::{
 
 /// Maximum payload bytes copied per captured packet for hex/ASCII preview.
 const MAX_PAYLOAD_PREVIEW: usize = 128;
+
+/// High-level reason behind an intercepted packet's kernel verdict.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum PacketOutcome {
+    /// Passed unmodified by NFQUEUE (`Decision::Pass`).
+    #[default]
+    Pass,
+    /// Held or re-sent unmodified via raw socket during multi-segment TLS/QUIC reassembly.
+    Reasm,
+    /// Modified in-place by a matched desync profile (`Decision::Replace`), carrying its profile name.
+    Modify(Option<String>),
+    /// Replaced or dropped by a matched desync profile (e.g., `multisplit`), carrying its profile name.
+    Desync(Option<String>),
+}
 
 /// Simplified packet outcome classification displayed in the inspector and control stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

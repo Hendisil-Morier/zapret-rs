@@ -3,13 +3,13 @@
 /// JSON serialization for structured control requests, replies, and streamed events.
 use serde::{Deserialize, Serialize};
 
+/// Default PASS packet telemetry sampling divisor configured in `AppConfig`.
+pub use crate::config::DEFAULT_PASS_SAMPLE_RATE;
 /// Shared packet counter and decoded packet record types carried over IPC.
 use crate::telemetry::{PacketCounters, PacketRecord};
 
 /// Current control socket wire protocol version negotiated during `hello`.
 pub const CONTROL_PROTOCOL_VERSION: u32 = 1;
-/// Default daemon PASS packet sampling divisor (`1` forwarded per `20` PASS packets).
-pub const DEFAULT_PASS_SAMPLE_RATE: u64 = 20;
 
 /// Point-in-time snapshot of [`PacketCounters`] serialized over the control socket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

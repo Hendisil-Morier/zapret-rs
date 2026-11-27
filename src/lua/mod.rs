@@ -49,3 +49,5 @@ pub use constants::LuaConfig;
 pub use error::LuaEngineError;
 /// Re-exported LuaJIT runtime orchestrator.
 pub use runtime::LuaRuntime;
+/// Re-exported Lua-backed timer-only loop runners (`--intercept=0`).
+pub use timer_api::{run_no_intercept, run_no_intercept_with_tick};

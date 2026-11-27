@@ -1,4 +1,4 @@
-//! Validated application runtime configuration, profile matching, and queue/Lua config adapters.
+//! Validated application runtime configuration and profile filter matching.
 
 /// Ordered map storing normalized Lua desync action arguments and named binary blobs.
 use std::collections::BTreeMap;
@@ -14,23 +14,22 @@ use crate::config::filter::{
     IcmpFilter, IppFilter, MarkFilter, PortFilter, icmp_filters_match, ipp_filters_match,
     port_filters_match,
 };
-/// L7 protocol enums, bitmask matchers, and default none-disable bitmask constant.
-use crate::config::l7::{L7_PAYLOAD_NONE_MASK, L7Proto, l7_proto_matches};
 /// Packet position range filters evaluated per action.
 use crate::config::range::PacketRange;
 /// Milestone 3 conntrack, ipcache, and per-profile list configuration types.
 use crate::config::runtime_cfg::{ConntrackConfig, IpCacheConfig, ProfileListsConfig};
-/// Default PASS telemetry sampling divisor (`1` in `20`).
-use crate::control::DEFAULT_PASS_SAMPLE_RATE;
-/// Default NFQUEUE configuration constants and [`QueueConfig`] target struct.
-use crate::intercepter::{DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_NUM, QueueConfig};
-/// Lua runtime configuration struct populated from [`AppConfig`].
-use crate::lua::LuaConfig;
-/// IP protocol constants for routing L4 filter evaluation.
-use crate::packet::constants::{IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TCP, IPPROTO_UDP};
+/// Default queue number, fwmark, and IP protocol constants.
+use crate::packet::constants::{
+    DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_NUM, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TCP,
+    IPPROTO_UDP,
+};
+/// L7 protocol enums, bitmask matchers, and default none-disable bitmask constant.
+use crate::protocol::{L7_PAYLOAD_NONE_MASK, L7Proto, l7_proto_matches};
 
 /// Default forced Lua garbage collection interval in seconds (`LUA_GC_INTERVAL` in `params.h`).
 pub const DEFAULT_LUA_GC_INTERVAL: u64 = 60;
+/// Default daemon PASS packet sampling divisor (`1` forwarded per `20` PASS packets).
+pub const DEFAULT_PASS_SAMPLE_RATE: u64 = 20;
 
 /// Resolved startup Lua script source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -266,32 +265,5 @@ impl AppConfig {
             }
         }
         Ok(())
-    }
-
-    /// Derives [`QueueConfig`] settings for `QueueCatcher::bind`.
-    pub fn to_queue_config(&self) -> QueueConfig {
-        QueueConfig {
-            queue_num: self.qnum,
-            desync_fwmark: self.fwmark,
-            ..QueueConfig::default()
-        }
-    }
-
-    /// Derives [`LuaConfig`] settings for `LuaRuntime::new`.
-    pub fn to_lua_config(&self) -> LuaConfig {
-        LuaConfig {
-            qnum: u32::from(self.qnum),
-            desync_fwmark: self.fwmark,
-            bind_fix4: self.bind_fix4,
-            bind_fix6: self.bind_fix6,
-            debug: self.debug,
-            daemon: self.daemon,
-            server: self.server,
-            cache_hostname: self.ipcache.hostname,
-            ctrack_disable: self.conntrack.disable,
-            ctrack_timeouts: self.conntrack.timeouts,
-            lua_gc_sec: self.lua_gc,
-            ..LuaConfig::default()
-        }
     }
 }

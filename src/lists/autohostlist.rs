@@ -7,24 +7,25 @@ use std::path::Path;
 /// Shared reference handle to the profile's autohostlist [`HostlistFile`].
 use std::rc::Rc;
 
-/// L7 payload and protocol discriminators used in HTTP redirect triggers and debug log lines.
-use crate::config::{L7Payload, L7Proto};
 /// Conntrack flow, directional position, and retransmission-sentinel types.
 use crate::conntrack::{ConnState, CtrackEntry, CtrackPosition, CtrackPositions, RETRANS_COUNTER_STOP};
 /// Persistent list-file append, timestamped debug log, and mtime signature refresh helpers.
 use crate::lists::file_loader::{
     FileModSig, append_timestamped_debug_log, append_to_list_file,
 };
-/// Autohostlist capacity cap and wire hostname sanitizer preventing directive injection.
-use crate::lists::host_sanitize::{DEFAULT_MAX_AUTOHOSTLIST_ENTRIES, sanitize_wire_hostname};
 /// Bounded per-profile failure counter pool (`HostFailPool`).
 use crate::lists::hostfail::HostFailPool;
 /// Hostlist collections and underlying file-backed hostname pools.
 use crate::lists::hostlist::{HostlistCollection, HostlistFile};
 /// TCP RST wire flag constant matching `TH_RST` in `zapret2`.
 use crate::packet::constants::{IPPROTO_TCP, TH_RST};
-/// HTTP 302/307 off-SLD/off-IP DPI redirect classifier.
-use crate::protocol::http_reply_looks_like_dpi_redirect;
+/// HTTP 302/307 off-SLD/off-IP DPI redirect classifier, L7 tags, and wire hostname sanitizer.
+use crate::protocol::{
+    L7Payload, L7Proto, http_reply_looks_like_dpi_redirect, sanitize_wire_hostname,
+};
+
+/// Default maximum in-memory and appended entries permitted in a `--hostlist-auto` pool.
+pub const DEFAULT_MAX_AUTOHOSTLIST_ENTRIES: usize = 65_536;
 
 /// Minimum allowed `--hostlist-auto-fail-threshold` (`1`).
 pub const MIN_AUTOHOSTLIST_FAIL_THRESHOLD: u32 = 1;

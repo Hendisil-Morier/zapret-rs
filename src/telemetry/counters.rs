@@ -3,17 +3,15 @@
 /// Atomic 64-bit counters and relaxed ordering for low-overhead hot-path increments.
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Desync engine per-packet outcome classification mapped to [`PacketVerdict`].
-use crate::desync::PacketOutcome;
-/// High-level packet outcome tag returned alongside incremented sequence numbers.
-use crate::telemetry::record::PacketVerdict;
+/// Per-packet outcome classification and high-level verdict tag returned with sequence numbers.
+use crate::telemetry::record::{PacketOutcome, PacketVerdict};
 
 /// Lock-free packet outcome counters shared across the packet loop, IPC hub, and TUI.
 #[derive(Debug, Default)]
 pub struct PacketCounters {
-    /// Total packets dispatched to [`crate::desync::DesyncEngine::process_packet_traced`].
+    /// Total packets dispatched to `DesyncEngine::process_packet_traced`.
     pub total: AtomicU64,
-    /// Packets returned with [`crate::desync::PacketOutcome::Pass`].
+    /// Packets returned with [`PacketOutcome::Pass`].
     pub passed: AtomicU64,
     /// Multi-segment TLS/QUIC packets held or re-sent untouched via raw socket (`Reasm`).
     pub reassembled: AtomicU64,
