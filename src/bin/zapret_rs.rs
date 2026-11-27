@@ -23,7 +23,8 @@ Subcommands:
   mdig             Multi-threaded DNS lookup tool
   install          Install binary, Lua scripts, capabilities, and optional systemd unit
   uninstall        Remove installed zapret-rs binary, symlinks, and Lua scripts
-  dns              Inspect or configure OS DNS/DoH presets (cloudflare, google, quad9, adguard, auto)";
+  dns              Inspect or configure OS DNS/DoH presets (cloudflare, google, quad9, adguard, auto)
+  web              Serve embedded HTTP/SSE web dashboard for phone & browser control";
 
 /// Command-line options for the `zapret-rs` interactive TUI and multicall entry point.
 #[derive(Debug, Parser)]

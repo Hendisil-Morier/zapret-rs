@@ -19,6 +19,8 @@ use crate::tools::ip2net_cli::run_ip2net_cli;
 use crate::tools::mdig::cli::run_mdig_cli;
 /// Shared `strat_finder` CLI runner (`scan` / `strat_finder`).
 use crate::tools::strat::cli::run_strat_finder_cli;
+/// Embedded web dashboard CLI runner (`web`).
+use crate::tools::web::cli::run_web_cli;
 
 /// Resolved multicall applet together with the canonical binary name for `argv[0]` forwarding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +41,8 @@ pub enum MulticallApplet {
     Uninstall,
     /// OS DNS/DoH preset status and configuration manager (`dns`).
     Dns,
+    /// Embedded HTTP/SSE mobile & desktop web dashboard (`web`).
+    Web,
 }
 
 /// Normalizes an executable stem by taking its filename, stripping `.exe`, and lowercasing.
@@ -73,6 +77,7 @@ pub fn resolve_subcommand_applet(arg1: &OsStr) -> Option<MulticallApplet> {
         "install" => Some(MulticallApplet::Install),
         "uninstall" => Some(MulticallApplet::Uninstall),
         "dns" => Some(MulticallApplet::Dns),
+        "web" => Some(MulticallApplet::Web),
         _ => None,
     }
 }
@@ -101,6 +106,7 @@ where
             MulticallApplet::Install => "zapret-rs install",
             MulticallApplet::Uninstall => "zapret-rs uninstall",
             MulticallApplet::Dns => "zapret-rs dns",
+            MulticallApplet::Web => "zapret-rs web",
         };
         let mut forwarded = Vec::with_capacity(raw.len());
         forwarded.push(OsString::from(canonical));
@@ -128,5 +134,6 @@ where
         MulticallApplet::Install => Some(run_install_cli(forwarded)),
         MulticallApplet::Uninstall => Some(run_uninstall_cli(forwarded)),
         MulticallApplet::Dns => Some(run_dns_cli(forwarded)),
+        MulticallApplet::Web => Some(run_web_cli(forwarded)),
     }
 }

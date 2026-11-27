@@ -20,6 +20,8 @@ pub mod multicall;
 pub mod speed_probe;
 /// Strategy finder (`strat_finder`), firewall rule backends, TOML renderer, and merge helpers.
 pub mod strat;
+/// Embedded HTTP/1.1 + SSE remote web dashboard (`zapret-rs web`).
+pub mod web;
 
 /// Public API re-export for the shared `nfqws2` daemon CLI entry point.
 pub use daemon::run_nfqws2_cli;
@@ -78,3 +80,9 @@ pub use strat::{
 /// Public API re-exports for Windows WinDivert filter [`FirewallBackend`].
 #[cfg(windows)]
 pub use strat::{WinDivertFilterGuard, WinDivertFirewallBackend, build_windivert_filter};
+/// Public API re-exports for the `zapret-rs web` HTTP/SSE remote dashboard.
+pub use web::{
+    DEFAULT_WEB_BIND, HttpMethod, HttpReadError, HttpRequest, MAX_BODY_BYTES, MAX_HEADER_BYTES,
+    SESSION_COOKIE_NAME, WebAuth, WebCli, WebConfig, WebServerHandle, read_http_request,
+    run_web_cli, start_web_server, unix_now_secs, write_error, write_json, write_response,
+};
