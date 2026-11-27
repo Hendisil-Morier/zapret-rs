@@ -240,6 +240,12 @@ impl NftFirewallBackend {
             Err((_, ref stderr))
                 if is_nft_perm_denied(stderr) && crate::runtime::current_uid_or_zero() != 0 =>
             {
+                if crate::runtime::has_no_new_privs() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "direct nft failed under NoNewPrivileges (ensure CAP_NET_ADMIN ambient or pass --no-nft)",
+                    ));
+                }
                 if sudo_needs_password() {
                     return Err(io::Error::new(
                         io::ErrorKind::PermissionDenied,
@@ -283,7 +289,8 @@ impl NftFirewallBackend {
             Ok(guard) => Ok(guard),
             Err(err)
                 if err.kind() == io::ErrorKind::PermissionDenied
-                    && crate::runtime::current_uid_or_zero() != 0 =>
+                    && crate::runtime::current_uid_or_zero() != 0
+                    && !crate::runtime::has_no_new_privs() =>
             {
                 eprintln!(
                     "[nft] elevating only `nft` via sudo to install temporary table inet {STRAT_FINDER_NFT_TABLE}"

@@ -88,6 +88,24 @@ fn ambient_cap_active(cap: u32) -> bool {
     unsafe { libc::prctl(libc::PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET as c_ulong, cap as c_ulong, 0, 0) == 1 }
 }
 
+/// Returns `true` when `cap` is present in both permitted and inheritable sets (e.g. systemd
+/// `AmbientCapabilities` alongside file capabilities that clear the initial ambient mask on `execve`).
+fn inheritable_cap_active(cap: u32) -> bool {
+    if cap >= 32 {
+        return false;
+    }
+    let bit = 1u32 << cap;
+    capget_current()
+        .map(|d| (d[0].permitted & bit) != 0 && (d[0].inheritable & bit) != 0)
+        .unwrap_or(false)
+}
+
+/// Returns `true` when Linux `PR_GET_NO_NEW_PRIVS` is active (blocking setuid helpers like `sudo`).
+pub fn has_no_new_privs() -> bool {
+    // SAFETY: `PR_GET_NO_NEW_PRIVS` reads thread boolean flag and ignores trailing arguments.
+    unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) == 1 }
+}
+
 /// Applies `mask` as effective/permitted sets and `inheritable` as the inheritable capability set.
 /// Invokes `SYS_capset` (`pid = 0`) and returns `errno` (`EPERM` if raising unpermitted bits).
 fn set_process_caps_with_inheritable(mask: u64, inheritable: u64) -> Result<(), std::io::Error> {
@@ -194,6 +212,7 @@ fn retain_net_capabilities_internal(
 ) -> Result<(), ProcessError> {
     let can_keep_nft_ambient = preserve_nft_ambient
         && (ambient_cap_active(CAP_NET_ADMIN)
+            || inheritable_cap_active(CAP_NET_ADMIN)
             || (allow_raise_from_permitted
                 && capget_current()
                     .map(|d| (d[0].permitted & (1u32 << CAP_NET_ADMIN)) != 0)

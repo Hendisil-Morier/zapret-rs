@@ -4,7 +4,7 @@
 use crate::runtime::error::ProcessError;
 /// Linux capability mask and capability/sudo drop helpers.
 #[cfg(target_os = "linux")]
-use crate::runtime::caps::{CAP_MASK_NET, has_effective_caps};
+use crate::runtime::caps::{CAP_MASK_NET, has_effective_caps, has_no_new_privs as linux_no_new_privs};
 /// Linux `sudo` UID-drop helper.
 #[cfg(target_os = "linux")]
 use crate::runtime::process::drop_sudo_root_if_needed;
@@ -78,6 +78,18 @@ fn is_windows_admin() -> bool {
     // SAFETY: `token` was opened by `OpenProcessToken`.
     let _ = unsafe { CloseHandle(token) };
     ok != 0 && elevation != 0
+}
+
+/// Returns `true` when Linux `NoNewPrivileges` prevents `sudo` elevation; always `false` elsewhere.
+pub fn has_no_new_privs() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        linux_no_new_privs()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
 }
 
 /// Returns `true` when the current process holds packet capture/injection privileges.

@@ -28,7 +28,8 @@ pub use caps::{
 pub use error::ProcessError;
 /// Re-exported OS-agnostic privilege checks and elevation-drop wrappers.
 pub use privilege::{
-    IdentitySpec, current_uid_or_zero, drop_elevated_root_if_needed, has_packet_capture_privileges,
+    IdentitySpec, current_uid_or_zero, drop_elevated_root_if_needed, has_no_new_privs,
+    has_packet_capture_privileges,
 };
 /// Re-exported identity resolution, privilege drop, `chdir`, PID guard, and daemonization helpers.
 #[cfg(target_os = "linux")]
