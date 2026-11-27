@@ -4,6 +4,22 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-11-27
+
+### Security
+
+- **Privilege, Filesystem, and Installer Hardening:** Restricted `nft`, `sudo`, `setcap`, `systemctl`, and daemon launches to verified root-owned system directories, cleared ambient capabilities properly across privilege transitions, limited directory ownership transfers to newly created leaf directories via `O_NOFOLLOW`, locked `setcap` target binary permissions before granting capabilities, rejected systemd template control characters and CWD `./lua` probing, and stopped exposing the live Web UI pairing passcode in diagnostics and `zapret-rs-debug.txt`.
+- **Web UI and `strat_finder` Validation:** Blocked Slowloris 1-byte reads with bounded request deadlines, enforced `Host`/`Origin`/`Sec-Fetch-Site`/CSP guards (including `--no-auth`), rate-limited `/api/login` failures, confined `POST /api/config` and `/api/domains` paths to the config directory, added `--globoff` plus SSRF/domain character validation in connectivity probing, and avoided blocking interactive `sudo` during `WebScanJob::start`.
+- **Wire Hostname, Lua, and Flood Bounds:** Enforced `ChunkMode::Text` on Lua script/inline loading, reclaimed dropped `mlua::RegistryKey` slots via `lua.expire_registry_values()`, rejected directive/control characters in extracted TLS/HTTP/DNS hostnames, capped `HostFailPool` and `autohostlist` growth, added oldest-entry eviction on full `ConntrackPool` and `IpCache`, protected active flows against unexpected reverse `SYN` resets, bounded global reassembly and delayed packet buffers at 32 MiB, and capped per-tick NFQUEUE batch draining.
+
+### Fixed
+
+- **Windows `WinDivert`, Port Intervals, Live Reload, and Control IPC:** Pinned heap `OVERLAPPED` state across cancelled async I/O, restricted `WinDivert` DLL loading to safe search paths, used aligned `repr(C)` socket addresses, disarmed superseded firewall guards across reloads while rebinding `WinDivert` filters on port changes, preserved port intervals in `nftables`/`WinDivert` filter rules and `ipset_ip` checks, restored blocking mode and stateful `LineReader` framing on control streams, fixed shared-`Arc` Web IPC shutdown, and fixed an out-of-bounds `ClientHello` panic in `tls_mod`.
+
+### Performance
+
+- **Hot-Path Overhead Reduction:** Cooldown-limited per-profile hostlist and ipset `stat(2)` checks to 1 second (bypassed on explicit reload), cached Lua action callbacks as registry handles instead of per-packet `_G` lookups, and gated TUI live worker packet capture on inspector visibility and `Pass` sampling.
+
 ## [1.4.2] - 2026-11-26
 
 ### Added
