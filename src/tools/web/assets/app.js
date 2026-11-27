@@ -24,13 +24,18 @@
 
   async function apiFetch(url, opts) {
     const res = await fetch(url, opts || {});
-    if (res.status === 401) {
-      showLogin(true);
-      throw new Error("Authentication required");
-    }
     const text = await res.text();
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+    if (res.status === 401) {
+      if (url === "/api/login") {
+        throw new Error(data.error === "invalid passcode"
+          ? "Wrong passcode. Check the host terminal and try again."
+          : (data.error || "Invalid passcode"));
+      }
+      showLogin(true);
+      throw new Error("Authentication required");
+    }
     if (!res.ok) {
       throw new Error(data.error || ("Request failed (" + res.status + ")"));
     }
@@ -404,11 +409,18 @@
     $("login-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       $("login-error").classList.add("hidden");
+      const token = $("passcode-input").value.trim();
+      if (!token) {
+        $("login-error").textContent = "Enter the pairing passcode shown in the host terminal.";
+        $("login-error").classList.remove("hidden");
+        $("passcode-input").focus();
+        return;
+      }
       try {
         await apiFetch("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: $("passcode-input").value })
+          body: JSON.stringify({ token })
         });
         $("passcode-input").value = "";
         showLogin(false);
@@ -416,6 +428,8 @@
       } catch (err) {
         $("login-error").textContent = err.message;
         $("login-error").classList.remove("hidden");
+        $("passcode-input").focus();
+        $("passcode-input").select();
       }
     });
 
