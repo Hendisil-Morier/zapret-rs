@@ -65,14 +65,15 @@ pub fn collect_component_statuses(state: &AppState) -> Vec<ComponentCheck> {
 /// Checks whether the embedded HTTP/SSE mobile/browser Web UI is running inside the TUI.
 fn check_web_ui(state: &AppState) -> ComponentCheck {
     match &state.web_status {
-        Some((url, passcode)) => ComponentCheck {
-            name: "Web UI",
-            health: ComponentHealth::Ok,
-            summary: format!("Listening at {url} (passcode: {passcode})"),
-            detail: format!(
-                "Embedded mobile/browser Web UI is active at {url} with pairing passcode '{passcode}'. Press 'W' anywhere to stop it."
-            ),
-        },
+        Some((url, passcode)) => {
+            let auth_desc = if passcode.starts_with("none") { "no passcode (localhost)" } else { "passcode active (hidden)" };
+            ComponentCheck {
+                name: "Web UI",
+                health: ComponentHealth::Ok,
+                summary: format!("Listening at {url} ({auth_desc})"),
+                detail: format!("Embedded mobile/browser Web UI is active at {url} ({auth_desc}). Press 'y' to copy passcode or 'W' to stop it."),
+            }
+        }
         None => ComponentCheck {
             name: "Web UI",
             health: ComponentHealth::Warn,

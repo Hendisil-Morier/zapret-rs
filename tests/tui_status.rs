@@ -117,6 +117,34 @@ fn tab5_debug_report_exports_checks_logs_and_curl_exit_hints() {
 }
 
 #[test]
+fn tab5_debug_report_redacts_active_web_ui_passcode() {
+    use zapret_rs::tui::debug_report::format_debug_report;
+
+    let mut state = AppState::new(None, None, false);
+    state.web_status = Some((
+        "http://192.168.1.50:8787".to_owned(),
+        "dead-beef-cafe-1337".to_owned(),
+    ));
+    state.push_run_log("[web] leaked dead-beef-cafe-1337 check");
+    state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
+
+    let web_check = state
+        .status_checks
+        .iter()
+        .find(|c| c.name == "Web UI")
+        .expect("Web UI check");
+    assert!(!web_check.summary.contains("dead-beef-cafe-1337"));
+    assert!(!web_check.detail.contains("dead-beef-cafe-1337"));
+
+    let report = format_debug_report(&state);
+    assert!(report.contains("192.168.1.50:8787"));
+    assert!(
+        !report.contains("dead-beef-cafe-1337"),
+        "debug report must never leak live Web UI pairing passcode:\n{report}"
+    );
+}
+
+#[test]
 fn tab5_debug_report_includes_speed_finder_and_active_config() {
     use std::path::PathBuf;
     use zapret_rs::tools::{

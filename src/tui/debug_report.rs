@@ -273,6 +273,12 @@ pub fn format_debug_report(state: &AppState) -> String {
     append_log_tail(&mut out, "Recent Live Scan Log", state.finder_logs.iter());
     let _ = writeln!(out);
     append_log_tail(&mut out, "Recent Daemon Log", state.run_logs.iter());
+    if let Some((_, passcode)) = &state.web_status
+        && !passcode.is_empty()
+        && !passcode.starts_with("none")
+    {
+        out = out.replace(passcode, "[REDACTED]");
+    }
     out
 }
 

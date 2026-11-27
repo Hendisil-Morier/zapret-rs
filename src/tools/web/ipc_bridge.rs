@@ -21,8 +21,8 @@ use std::time::Duration;
 
 /// Control socket auto-detection, protocol types, and framed JSON helpers.
 use crate::control::{
-    CONTROL_PROTOCOL_VERSION, CodecError, ControlStream, DaemonStatus, Request, Response,
-    control_socket_candidates, is_live_control_socket, read_message, write_message,
+    CONTROL_PROTOCOL_VERSION, CodecError, ControlStream, DaemonStatus, LineReader, Request,
+    Response, control_socket_candidates, is_live_control_socket, write_message,
 };
 /// Sampled telemetry packet records forwarded to the Monitor feed.
 use crate::telemetry::PacketRecord;
@@ -120,8 +120,8 @@ pub struct WebIpcBridge {
     cmd_lock: Mutex<()>,
     /// Cooperative shutdown flag observed by the background connector/reader loop.
     stop: Arc<AtomicBool>,
-    /// Background thread handle joined on drop.
-    join: Option<JoinHandle<()>>,
+    /// Background thread handle joined on [`Self::shutdown`] or [`Drop`], even behind `Arc`.
+    join: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl WebIpcBridge {
@@ -137,7 +137,12 @@ impl WebIpcBridge {
             .spawn(move || run_ipc_loop(control_socket, &shared_bg, &stop_bg))
             .ok();
 
-        Self { shared, cmd_lock: Mutex::new(()), stop, join }
+        Self {
+            shared,
+            cmd_lock: Mutex::new(()),
+            stop,
+            join: Mutex::new(join),
+        }
     }
 
     /// Returns a cloned snapshot of daemon connection state, counters, and recent packets.
@@ -204,8 +209,8 @@ impl WebIpcBridge {
         }
     }
 
-    /// Requests immediate stop and joins the background IPC thread.
-    pub fn shutdown(&mut self) {
+    /// Requests immediate stop and joins the background IPC thread even when shared via `Arc`.
+    pub fn shutdown(&self) {
         self.stop.store(true, Ordering::Release);
         if let Ok(mut guard) = self.shared.lock() {
             if let Some(writer) = guard.writer.take()
@@ -215,7 +220,9 @@ impl WebIpcBridge {
             }
             guard.sse_clients.clear();
         }
-        if let Some(handle) = self.join.take() {
+        if let Ok(mut handle_guard) = self.join.lock()
+            && let Some(handle) = handle_guard.take()
+        {
             let _ = handle.join();
         }
     }
@@ -237,16 +244,16 @@ fn connect_and_stream(sock: &Path, shared: &Arc<Mutex<BridgeShared>>, stop: &Ato
     write_message(&mut stream, &Request::Hello { version: CONTROL_PROTOCOL_VERSION })
         .map_err(|err| format!("hello send failed: {err}"))?;
     let reader_raw = stream.try_clone().map_err(|err| format!("clone stream failed: {err}"))?;
-    let mut reader = BufReader::new(reader_raw);
+    let mut reader = LineReader::new(BufReader::new(reader_raw));
 
-    match read_message(&mut reader).map_err(|err| format!("hello read failed: {err}"))? {
+    match reader.read_message::<Response>().map_err(|err| format!("hello read failed: {err}"))? {
         Some(Response::HelloOk { version, .. }) if version == CONTROL_PROTOCOL_VERSION => {}
         Some(Response::Error { message, .. }) => return Err(message),
         other => return Err(format!("unexpected hello reply: {other:?}")),
     }
 
     write_message(&mut stream, &Request::Status).map_err(|err| format!("status send failed: {err}"))?;
-    let initial_status = match read_message(&mut reader).map_err(|err| format!("status read failed: {err}"))? {
+    let initial_status = match reader.read_message::<Response>().map_err(|err| format!("status read failed: {err}"))? {
         Some(Response::Status(s)) => s,
         Some(Response::Error { message, .. }) => return Err(message),
         other => return Err(format!("unexpected status reply: {other:?}")),
@@ -254,7 +261,7 @@ fn connect_and_stream(sock: &Path, shared: &Arc<Mutex<BridgeShared>>, stop: &Ato
 
     write_message(&mut stream, &Request::Subscribe { pass_sample_rate: Some(20) })
         .map_err(|err| format!("subscribe failed: {err}"))?;
-    let _ = reader.get_ref().set_read_timeout(Some(READER_POLL_TIMEOUT));
+    let _ = reader.get_ref().get_ref().set_read_timeout(Some(READER_POLL_TIMEOUT));
 
     let writer = Arc::new(Mutex::new(stream));
     if let Ok(mut guard) = shared.lock() {
@@ -267,7 +274,7 @@ fn connect_and_stream(sock: &Path, shared: &Arc<Mutex<BridgeShared>>, stop: &Ato
     }
 
     while !stop.load(Ordering::Acquire) {
-        match read_message::<_, Response>(&mut reader) {
+        match reader.read_message::<Response>() {
             Ok(Some(msg)) => handle_daemon_message(msg, shared, &writer),
             Ok(None) => break,
             Err(CodecError::Io(err))

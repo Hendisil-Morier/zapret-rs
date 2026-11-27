@@ -83,6 +83,11 @@ impl ControlStream {
         self.inner.try_clone().map(|inner| Self { inner })
     }
 
+    /// Sets the socket non-blocking mode (`false` clears listener-inherited non-blocking flags).
+    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        self.inner.set_nonblocking(nonblocking)
+    }
+
     /// Sets the socket read timeout.
     pub fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
         self.inner.set_read_timeout(dur)

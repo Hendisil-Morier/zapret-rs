@@ -13,13 +13,20 @@ use std::time::Duration;
 use crate::config::{AppConfig, LuaInitEntry};
 /// Capability/Admin check guarding live capture scans before opening sockets.
 use crate::runtime::has_packet_capture_privileges;
-/// Bundled Lua discovery, strategy catalog, firewall backend, scanner, and TOML renderer.
+/// Bundled Lua discovery, strategy catalog, non-interactive firewall backend, scanner, and TOML renderer.
 use crate::tools::lua_bundle::resolve_lua_scripts;
+/// Range/host-validated domain parser and strategy scan builders.
 use crate::tools::strat::{
     CurlProbeBackend, DEFAULT_STRAT_QNUM, DomainScope, InProcessWorkerHandle, IpFamily,
-    ProbeProtocol, ProgressEvent, ScanConfig, ScanLevel, TomlRenderOptions,
-    active_firewall_backend, normalize_domain, render_nfqws2_toml_scoped, run_scan,
+    ProbeProtocol, ProgressEvent, ScanConfig, ScanLevel, TomlRenderOptions, parse_clean_domain,
+    render_nfqws2_toml_scoped, run_scan,
 };
+/// Active non-Linux firewall backend selector.
+#[cfg(not(target_os = "linux"))]
+use crate::tools::strat::active_firewall_backend;
+/// Linux `nftables` backend invoked strictly non-interactively from web HTTP worker threads.
+#[cfg(target_os = "linux")]
+use crate::tools::strat::NftFirewallBackend;
 /// Default interception fwmark constant shared with `nfqws2`.
 use crate::intercepter::DEFAULT_DESYNC_FWMARK;
 /// Web runtime paths (`config`, `lua_dir`) passed into scan execution.
@@ -137,7 +144,7 @@ impl WebScanJob {
         false
     }
 
-    /// Validates options, checks privileges/Lua, installs temporary firewall rules, and starts scan.
+    /// Validates options, checks privileges/Lua, atomically claims the scan slot, and starts worker.
     pub fn start(
         &self,
         req: ScanStartPayload,
@@ -147,7 +154,7 @@ impl WebScanJob {
         if !has_packet_capture_privileges().unwrap_or(false) {
             return Err((403, "web process lacks packet capture / administrator privileges".to_owned()));
         }
-        let domains: Vec<String> = req.domains.iter().filter_map(|d| normalize_domain(d)).collect();
+        let domains: Vec<String> = req.domains.iter().filter_map(|d| parse_clean_domain(d)).collect();
         if domains.is_empty() {
             return Err((400, "enter at least one valid domain".to_owned()));
         }
@@ -164,12 +171,25 @@ impl WebScanJob {
         }
         let lua_scripts = resolve_lua_scripts(cfg.lua_dir.as_deref()).map_err(|e| (400, e))?;
 
+        let initial = WebScanSnapshot {
+            status: "running".to_owned(),
+            label: "Starting scan...".to_owned(),
+            ..WebScanSnapshot::default()
+        };
         {
-            let guard = self.state.lock().map_err(|_| (500, "scan lock poisoned".to_owned()))?;
+            let mut guard = self.state.lock().map_err(|_| (500, "scan lock poisoned".to_owned()))?;
             if guard.status == "running" {
                 return Err((409, "a scan is already running".to_owned()));
             }
+            *guard = initial.clone();
         }
+        let release_claim = |msg: &str| {
+            if let Ok(mut guard) = self.state.lock() {
+                guard.status = "failed".to_owned();
+                guard.error = Some(msg.to_owned());
+            }
+        };
+
         if let Ok(mut j) = self.join.lock()
             && let Some(old) = j.take()
         {
@@ -186,31 +206,50 @@ impl WebScanJob {
             force_blocked: false,
         };
         let (tcp, udp) = scan_cfg.required_ports();
-        let fw_guard = active_firewall_backend()
-            .install(DEFAULT_STRAT_QNUM, DEFAULT_DESYNC_FWMARK, &tcp, &udp)
-            .map_err(|e| (500, format!("firewall setup failed: {e}")))?;
+        #[cfg(target_os = "linux")]
+        let fw_res = NftFirewallBackend::default().install_non_interactive(
+            DEFAULT_STRAT_QNUM,
+            DEFAULT_DESYNC_FWMARK,
+            &tcp,
+            &udp,
+        );
+        #[cfg(not(target_os = "linux"))]
+        let fw_res = active_firewall_backend().install(
+            DEFAULT_STRAT_QNUM,
+            DEFAULT_DESYNC_FWMARK,
+            &tcp,
+            &udp,
+        );
+        let fw_guard = match fw_res {
+            Ok(g) => g,
+            Err(e) => {
+                let code = if e.kind() == std::io::ErrorKind::PermissionDenied { 403 } else { 500 };
+                let msg = format!("firewall setup failed: {e}");
+                release_claim(&msg);
+                return Err((code, msg));
+            }
+        };
 
         let stop = Arc::new(AtomicBool::new(false));
         if let Ok(mut f) = self.stop_flag.lock() {
             *f = Some(Arc::clone(&stop));
         }
 
-        let initial = WebScanSnapshot {
-            status: "running".to_owned(),
-            label: "Starting scan...".to_owned(),
-            ..WebScanSnapshot::default()
-        };
-        if let Ok(mut st) = self.state.lock() {
-            *st = initial.clone();
-        }
         ipc.emit_event("scan", &initial);
 
         let state_bg = Arc::clone(&self.state);
         let ipc_bg = Arc::clone(ipc);
-        let handle = thread::Builder::new()
+        let handle = match thread::Builder::new()
             .name("zapret-web-scan".to_owned())
             .spawn(move || run_scan_worker(scan_cfg, lua_scripts, fw_guard, stop, state_bg, ipc_bg))
-            .map_err(|e| (500, format!("failed to spawn scan thread: {e}")))?;
+        {
+            Ok(h) => h,
+            Err(e) => {
+                let msg = format!("failed to spawn scan thread: {e}");
+                release_claim(&msg);
+                return Err((500, msg));
+            }
+        };
         if let Ok(mut j) = self.join.lock() {
             *j = Some(handle);
         }

@@ -13,13 +13,36 @@ use crate::config::AppConfig;
 use crate::tools::strat::interactive::normalize_domain;
 use crate::tools::strat::toml::write_config_nofollow;
 
-/// Normalizes `raw` and rejects malformed labels, spaces, or newlines before writing lists/TOML.
+/// Normalizes `raw` and rejects malformed labels, IPs, localhost/local targets, glob chars, or `@`.
 pub fn parse_clean_domain(raw: &str) -> Option<String> {
+    if raw.contains('@')
+        || raw.contains('{')
+        || raw.contains('}')
+        || raw.contains('[')
+        || raw.contains(']')
+        || raw.chars().any(char::is_control)
+    {
+        return None;
+    }
     let domain = normalize_domain(raw)?;
+    if domain.parse::<std::net::IpAddr>().is_ok()
+        || domain == "localhost"
+        || domain.ends_with(".localhost")
+        || domain.ends_with(".local")
+        || domain.ends_with(".internal")
+    {
+        return None;
+    }
     let valid_chars = domain
         .bytes()
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
-    if !valid_chars || !domain.contains('.') || domain.contains("..") {
+    let valid_labels = domain.split('.').all(|lbl| {
+        !lbl.is_empty()
+            && lbl.len() <= 63
+            && !lbl.starts_with('-')
+            && !lbl.ends_with('-')
+    });
+    if !valid_chars || !valid_labels || !domain.contains('.') || domain.contains("..") {
         return None;
     }
     Some(domain)

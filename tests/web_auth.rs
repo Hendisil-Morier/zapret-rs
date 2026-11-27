@@ -185,6 +185,8 @@ fn web_server_serves_self_contained_assets_without_external_cdn() {
     let (st_html, html) = raw_http(addr, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     assert_eq!(st_html, 200);
     assert!(html.contains("X-Content-Type-Options: nosniff"));
+    assert!(html.contains("X-Frame-Options: DENY"));
+    assert!(html.contains("Content-Security-Policy: default-src 'self'"));
     assert!(html.contains("text/html; charset=utf-8"));
     assert!(html.contains("Reload Lists") && html.contains("Confirm Stop"));
     assert!(!html.contains("http://") && !html.contains("https://"));
@@ -199,4 +201,59 @@ fn web_server_serves_self_contained_assets_without_external_cdn() {
     assert!(js.contains("application/javascript") && js.contains("/api/events"));
 
     srv.shutdown();
+}
+
+#[test]
+fn web_server_blocks_dns_rebinding_cross_origin_and_rate_limits_login() {
+    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let (auth, _) = WebAuth::new(bind, None, true).expect("no-auth loopback");
+    let mut srv_noauth = start_web_server(WebConfig {
+        bind,
+        auth,
+        control_socket: None,
+        config: None,
+        lua_dir: None,
+    })
+    .expect("start no-auth server");
+    let noauth_addr = srv_noauth.addr();
+
+    // DNS rebinding Host and cross-origin Origin / Sec-Fetch-Site are rejected with 403 even in --no-auth.
+    assert_eq!(raw_http(noauth_addr, "GET /healthz HTTP/1.1\r\nHost: evil.com:8787\r\n\r\n").0, 403);
+    assert_eq!(
+        raw_http(
+            noauth_addr,
+            "POST /api/logout HTTP/1.1\r\nHost: localhost\r\nOrigin: https://evil.com\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}",
+        ).0,
+        403
+    );
+    assert_eq!(
+        raw_http(
+            noauth_addr,
+            "POST /api/logout HTTP/1.1\r\nHost: localhost\r\nSec-Fetch-Site: cross-site\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}",
+        ).0,
+        403
+    );
+    srv_noauth.shutdown();
+
+    // Verify 5 consecutive login failures trigger 429 rate-limit lockout.
+    let (auth_pw, _) = WebAuth::new(bind, Some("good-secret".to_owned()), false).expect("pw auth");
+    let mut srv_pw = start_web_server(WebConfig {
+        bind,
+        auth: auth_pw,
+        control_socket: None,
+        config: None,
+        lua_dir: None,
+    })
+    .expect("start pw server");
+    let pw_addr = srv_pw.addr();
+    let bad = "{\"token\":\"bad\"}";
+    let bad_req = format!(
+        "POST /api/login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{bad}",
+        bad.len()
+    );
+    for _ in 0..5 {
+        assert_eq!(raw_http(pw_addr, &bad_req).0, 401);
+    }
+    assert_eq!(raw_http(pw_addr, &bad_req).0, 429);
+    srv_pw.shutdown();
 }

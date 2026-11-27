@@ -236,3 +236,52 @@ fn config_apply_pushes_reload_config_to_attached_daemon() {
     let _ = t.join();
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn config_upload_blocks_path_traversal_and_external_file_disclosure() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("zapret_web_confine_{}_{nanos}", std::process::id()));
+    let outside = std::env::temp_dir().join(format!("zapret_outside_{}_{nanos}.txt", std::process::id()));
+    fs::create_dir_all(&dir).expect("mkdir");
+    fs::write(&outside, "secret-data").expect("write outside");
+    let cfg_path = dir.join("nfqws2.toml");
+    let baseline = "qnum = 200\nfwmark = 0x40000000\n";
+    fs::write(&cfg_path, baseline).expect("write baseline");
+
+    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let (auth, _) = WebAuth::new(bind, Some("confine-tok".to_owned()), false).expect("auth");
+    let mut web = start_web_server(WebConfig {
+        bind,
+        auth,
+        control_socket: Some(dir.join("missing.sock")),
+        config: Some(cfg_path.clone()),
+        lua_dir: None,
+    })
+    .expect("start web");
+    let addr = web.addr();
+
+    let evil_toml_cases = [
+        format!("blobs = {{ secret = {{ file = \"{}\" }} }}\n", outside.display()),
+        "lua_init = [{ inline = \"os.getenv('HOME')\" }]\n".to_owned(),
+        format!("[[profiles]]\nhostlist = [\"{}\"]\n", outside.display()),
+        "[[profiles]]\nhostlist_auto = \"../escape.txt\"\n".to_owned(),
+        format!("hostlist_auto_debug = \"{}\"\n", outside.display()),
+    ];
+    for evil in evil_toml_cases {
+        let body = serde_json::json!({ "toml": evil, "apply": false }).to_string();
+        let req = format!(
+            "POST /api/config HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer confine-tok\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let (st, _) = raw_http(addr, &req);
+        assert_eq!(st, 400, "escaped TOML must be rejected: {evil}");
+    }
+    assert_eq!(fs::read_to_string(&cfg_path).expect("baseline intact"), baseline);
+
+    web.shutdown();
+    let _ = fs::remove_file(&outside);
+    let _ = fs::remove_dir_all(&dir);
+}

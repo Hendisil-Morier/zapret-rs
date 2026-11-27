@@ -17,11 +17,13 @@ use crate::tools::speed_probe::{control_target, domain_target, measure};
 use crate::tools::strat::{
     CurlProbeBackend, DEFAULT_AUTOHOSTLIST_FILE, IpFamily, configured_autohostlist_paths,
     default_output_config_path, extract_exclude_domains, extract_hostlist_domains,
-    mutate_exclude_domains_toml, mutate_hostlist_file, normalize_domain, read_hostlist_lines,
+    mutate_exclude_domains_toml, mutate_hostlist_file, parse_clean_domain, read_hostlist_lines,
     write_config_nofollow,
 };
 /// Runtime web configuration containing explicit `--config` path overrides.
 use crate::tools::web::cli::WebConfig;
+/// Path confinement checks for Web-submitted TOML configs and hostlist mutations.
+use crate::tools::web::config_guard::{is_confined_to_config_dir, validate_web_toml_paths};
 /// Bounded HTTP request and JSON/error writers.
 use crate::tools::web::http::{HttpMethod, HttpRequest, write_error, write_json};
 /// Daemon IPC bridge forwarding `reload_config` / `reload_lists` and SSE updates.
@@ -111,14 +113,21 @@ fn read_config_json(path: &Path) -> serde_json::Value {
     })
 }
 
-/// Validates, writes symlink-safely, and optionally live-reloads `nfqws2.toml`.
+/// Validates path confinement and syntax, writes symlink-safely, and optionally live-reloads `nfqws2.toml`.
 fn save_config_toml(
     path: &Path,
     toml_text: &str,
     apply: bool,
     ipc: &WebIpcBridge,
+    cfg: &WebConfig,
 ) -> Result<serde_json::Value, (u16, String)> {
-    let parsed = AppConfig::from_toml_str(toml_text, path.parent())
+    let config_dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    validate_web_toml_paths(toml_text, config_dir, cfg.lua_dir.as_deref())
+        .map_err(|err| (400, err))?;
+    let parsed = AppConfig::from_toml_str(toml_text, Some(config_dir))
         .map_err(|err| (400, format!("invalid config TOML: {err}")))?;
     write_config_nofollow(path, toml_text)
         .map_err(|err| (500, format!("failed to write {}: {err}", path.display())))?;
@@ -140,13 +149,27 @@ fn save_config_toml(
     }))
 }
 
+/// Reads and filters autohostlist paths strictly confined to `config_path`'s parent directory.
+fn confined_autohostlist_paths(cfg: &AppConfig, config_path: &Path) -> Vec<PathBuf> {
+    let config_dir = config_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    configured_autohostlist_paths(cfg)
+        .into_iter()
+        .filter(|p| is_confined_to_config_dir(p, config_dir))
+        .collect()
+}
+
 /// Returns blacklist (`hostlist_exclude`), profile `hostlist_domains`, and conditional `autohostlist.txt` entries.
 fn read_domains_json(config_path: &Path) -> serde_json::Value {
     let toml = std::fs::read_to_string(config_path).unwrap_or_default();
     let parsed = AppConfig::from_toml_str(&toml, config_path.parent()).ok();
     let exclude_domains = parsed.as_ref().map_or_else(Vec::new, extract_exclude_domains);
     let hostlist_domains = parsed.as_ref().map_or_else(Vec::new, extract_hostlist_domains);
-    let auto_paths = parsed.as_ref().map_or_else(Vec::new, configured_autohostlist_paths);
+    let auto_paths = parsed
+        .as_ref()
+        .map_or_else(Vec::new, |c| confined_autohostlist_paths(c, config_path));
     let autohostlist_enabled = !auto_paths.is_empty();
     let autohostlist_path = auto_paths.first().cloned().unwrap_or_else(|| resolve_autohostlist_path(config_path));
     let mut autohostlist_domains = Vec::new();
@@ -201,7 +224,7 @@ fn mutate_domain_list(
             let current = std::fs::read_to_string(config_path).unwrap_or_default();
             let parsed = AppConfig::from_toml_str(&current, config_path.parent())
                 .map_err(|err| (400, format!("invalid config: {err}")))?;
-            let auto_paths = configured_autohostlist_paths(&parsed);
+            let auto_paths = confined_autohostlist_paths(&parsed, config_path);
             let Some(auto_path) = auto_paths.first() else {
                 return Err((
                     400,
@@ -227,7 +250,7 @@ fn run_speed_probe(payload: &SpeedRequestPayload) -> Vec<SpeedRow> {
     let mut targets: Vec<_> = payload
         .domains
         .iter()
-        .filter_map(|d| normalize_domain(d))
+        .filter_map(|d| parse_clean_domain(d))
         .map(|d| domain_target(&d))
         .collect();
     if payload.include_control {
@@ -268,7 +291,7 @@ pub fn handle_ops_route(
                 let _ = write_error(stream, 400, "Bad Request", "expected JSON object with toml");
                 return true;
             };
-            match save_config_toml(&config_path, &payload.toml, payload.apply, ipc) {
+            match save_config_toml(&config_path, &payload.toml, payload.apply, ipc, cfg) {
                 Ok(val) => { let _ = write_json(stream, 200, "OK", &[], &val); }
                 Err((code, msg)) => {
                     let reason = if code == 400 { "Bad Request" } else if code == 502 { "Bad Gateway" } else { "Internal Server Error" };

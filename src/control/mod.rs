@@ -21,7 +21,7 @@ pub mod transport;
 
 /// Re-exported framing constants, typed codec error, and stream read/write helpers.
 pub use codec::{
-    CodecError, MAX_CONTROL_LINE_BYTES, decode_line, encode_line, read_bounded_line,
+    CodecError, LineReader, MAX_CONTROL_LINE_BYTES, decode_line, encode_line, read_bounded_line,
     read_message, write_message,
 };
 /// Re-exported daemon status metadata, command requests, and telemetry hub.

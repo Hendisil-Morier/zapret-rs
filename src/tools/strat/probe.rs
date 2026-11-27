@@ -114,11 +114,15 @@ impl CurlProbeBackend {
         {
             return cached;
         }
-        let resolved = (domain, port).to_socket_addrs().ok().and_then(|addrs| {
-            addrs
-                .map(|sa| sa.ip())
-                .find(|ip| matches!((ipv, ip), (IpFamily::V4, IpAddr::V4(_)) | (IpFamily::V6, IpAddr::V6(_))))
-        });
+        let resolved = (domain, port)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|addrs| {
+                addrs
+                    .map(|sa| sa.ip())
+                    .find(|ip| matches!((ipv, ip), (IpFamily::V4, IpAddr::V4(_)) | (IpFamily::V6, IpAddr::V6(_))))
+            })
+            .filter(|ip| !is_ssrf_blocked_ip(*ip));
         if let Ok(mut guard) = self.resolve_cache.write() {
             guard.insert(key, resolved);
         }
@@ -134,6 +138,7 @@ impl CurlProbeBackend {
 
     /// Builds `curl` arguments fetching `url` and printing `write_out` after the transfer.
     ///
+    /// Passes `--globoff` so bracket/brace characters cannot expand URL globs into SSRF sweeps.
     /// `proto = None` leaves TLS and HTTP version negotiation to `curl` (used by speed checks that
     /// must behave like ordinary browsing); `Some` pins the version exactly as strategy scans do.
     pub fn build_url_args(
@@ -146,9 +151,19 @@ impl CurlProbeBackend {
         let secs = format_curl_timeout(timeout);
         let null_sink = if cfg!(windows) { "NUL" } else { "/dev/null" };
         let mut args = vec![
-            "-sS".to_owned(), "-o".to_owned(), null_sink.to_owned(), "--noproxy".to_owned(), "*".to_owned(),
-            "--connect-timeout".to_owned(), secs.clone(), "--max-time".to_owned(), secs,
-            if ipv == IpFamily::V4 { "-4" } else { "-6" }.to_owned(), "-w".to_owned(), write_out.to_owned(),
+            "-sS".to_owned(),
+            "--globoff".to_owned(),
+            "-o".to_owned(),
+            null_sink.to_owned(),
+            "--noproxy".to_owned(),
+            "*".to_owned(),
+            "--connect-timeout".to_owned(),
+            secs.clone(),
+            "--max-time".to_owned(),
+            secs,
+            if ipv == IpFamily::V4 { "-4" } else { "-6" }.to_owned(),
+            "-w".to_owned(),
+            write_out.to_owned(),
         ];
         match proto {
             None => {}
@@ -175,6 +190,19 @@ impl CurlProbeBackend {
     }
 }
 
+/// Returns `true` when `ip` targets loopback, unspecified, multicast, or link-local metadata space.
+fn is_ssrf_blocked_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_unspecified() || v4.is_link_local() || v4.is_multicast(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
 impl ProbeBackend for CurlProbeBackend {
     /// Runs `curl --version` unprivileged and checks whether `HTTP3` appears in `Features:`.
     fn supports_http3(&self) -> bool {
@@ -191,6 +219,15 @@ impl ProbeBackend for CurlProbeBackend {
 
     /// Invokes `curl` unprivileged for `req` (with `--resolve` cache hit when resolved) and classifies the output.
     fn probe(&self, req: &ProbeRequest) -> ProbeOutcome {
+        if !req.domain.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+            || req.domain.starts_with('-')
+            || req.domain.is_empty()
+        {
+            return ProbeOutcome::Failed {
+                code: -1,
+                detail: "invalid probe domain name".to_owned(),
+            };
+        }
         let mut args = Self::build_args(req);
         if let Some(ip) = self.cached_ip(&req.domain, req.proto.default_port(), req.ipv) {
             let resolve = format_resolve_arg(&req.domain, req.proto.default_port(), ip);

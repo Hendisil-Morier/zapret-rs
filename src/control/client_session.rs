@@ -18,7 +18,7 @@ use std::thread;
 use std::time::Duration;
 
 /// Bounded JSON frame reader/writer and typed codec error mapping.
-use crate::control::codec::{CodecError, read_message, write_message};
+use crate::control::codec::{CodecError, LineReader, write_message};
 /// Telemetry hub, subscriber registration, and command forwarding.
 use crate::control::hub::{ControlCommand, SubscriberSink, TelemetryHub};
 /// Wire protocol constants, requests, responses, and version validation.
@@ -58,11 +58,11 @@ pub(crate) fn serve_client(
         run_client_writer(writer_stream, out_rx, writer_alive);
     });
 
-    let mut reader = BufReader::new(stream);
+    let mut reader = LineReader::new(BufReader::new(stream));
     let mut handshaked = false;
 
     while client_alive.load(Ordering::Acquire) && !server_stop.load(Ordering::Acquire) {
-        match read_message::<_, Request>(&mut reader) {
+        match reader.read_message::<Request>() {
             Ok(Some(req)) => {
                 let keep_open = handle_client_request(
                     id,
@@ -72,7 +72,7 @@ pub(crate) fn serve_client(
                     &hub,
                     &out_tx,
                     &client_alive,
-                    reader.get_ref(),
+                    reader.get_ref().get_ref(),
                 );
                 if !keep_open {
                     break;
@@ -98,7 +98,7 @@ pub(crate) fn serve_client(
     hub.remove_subscriber(id);
     drop(out_tx);
     let _ = writer_join.join();
-    let _ = reader.get_ref().shutdown(Shutdown::Both);
+    let _ = reader.get_ref().get_ref().shutdown(Shutdown::Both);
 }
 
 /// Dispatches one decoded client [`Request`], returning `false` if the connection should close.

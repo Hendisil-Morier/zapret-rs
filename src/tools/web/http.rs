@@ -1,7 +1,9 @@
 //! Minimal bounded HTTP/1.1 request parser and JSON/error response writers.
 
 /// Buffered reading and exact payload reading over TCP streams.
-use std::io::{self, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
+/// Total header+body read deadline bounding Slowloris trickle attacks.
+use std::time::{Duration, Instant};
 
 /// JSON serialization for structured REST replies.
 use serde::Serialize;
@@ -10,6 +12,10 @@ use serde::Serialize;
 pub const MAX_HEADER_BYTES: usize = 16 * 1024;
 /// Maximum accepted HTTP request body size (`512 KiB`, ample for `nfqws2.toml` uploads).
 pub const MAX_BODY_BYTES: usize = 512 * 1024;
+/// Total deadline across all chunks of a single incoming HTTP request (Slowloris defense).
+const REQUEST_READ_DEADLINE: Duration = Duration::from_secs(5);
+/// Chunk size used while reading HTTP headers instead of 1-byte syscalls.
+const HEADER_READ_CHUNK_BYTES: usize = 2048;
 
 /// Parsed HTTP request method.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,23 +95,40 @@ impl HttpReadError {
     }
 }
 
-/// Reads bytes until `\r\n\r\n` up to [`MAX_HEADER_BYTES`], returning `(head_end_idx, buf)`.
-fn read_header_block<R: Read>(reader: &mut R) -> Result<Option<(usize, Vec<u8>)>, HttpReadError> {
+/// Reads chunks until `\r\n\r\n` up to [`MAX_HEADER_BYTES`] within `deadline`, preserving trailing body bytes.
+fn read_header_block<R: Read>(
+    reader: &mut R,
+    deadline: Instant,
+) -> Result<Option<(usize, Vec<u8>)>, HttpReadError> {
     let mut buf = Vec::with_capacity(1024);
-    let mut byte = [0u8; 1];
+    let mut chunk = [0u8; HEADER_READ_CHUNK_BYTES];
     loop {
-        match reader.read(&mut byte) {
+        if Instant::now() >= deadline {
+            return Err(HttpReadError::Io("HTTP header read deadline exceeded".to_owned()));
+        }
+        let max_to_read = (MAX_HEADER_BYTES.saturating_sub(buf.len())).min(chunk.len());
+        if max_to_read == 0 {
+            return Err(HttpReadError::HeadersTooLarge);
+        }
+        match reader.read(&mut chunk[..max_to_read]) {
             Ok(0) if buf.is_empty() => return Ok(None),
             Ok(0) => return Err(HttpReadError::BadRequest("unexpected EOF before header terminator".to_owned())),
-            Ok(_) => {
-                buf.push(byte[0]);
-                if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
-                    return Ok(Some((buf.len(), buf)));
+            Ok(n) => {
+                let prev_len = buf.len();
+                buf.extend_from_slice(&chunk[..n]);
+                let search_from = prev_len.saturating_sub(3);
+                if let Some(rel) = buf[search_from..].windows(4).position(|w| w == b"\r\n\r\n") {
+                    let head_end = search_from + rel + 4;
+                    if head_end > MAX_HEADER_BYTES {
+                        return Err(HttpReadError::HeadersTooLarge);
+                    }
+                    return Ok(Some((head_end, buf)));
                 }
                 if buf.len() >= MAX_HEADER_BYTES {
                     return Err(HttpReadError::HeadersTooLarge);
                 }
             }
+            Err(err) if err.kind() == ErrorKind::Interrupted => continue,
             Err(err) => return Err(HttpReadError::Io(err.to_string())),
         }
     }
@@ -113,10 +136,11 @@ fn read_header_block<R: Read>(reader: &mut R) -> Result<Option<(usize, Vec<u8>)>
 
 /// Reads and validates one HTTP/1.1 request from `reader` (`Ok(None)` on clean client EOF).
 pub fn read_http_request<R: Read>(reader: &mut R) -> Result<Option<HttpRequest>, HttpReadError> {
-    let Some((head_len, raw_head)) = read_header_block(reader)? else {
+    let deadline = Instant::now() + REQUEST_READ_DEADLINE;
+    let Some((head_len, raw_buf)) = read_header_block(reader, deadline)? else {
         return Ok(None);
     };
-    let head_str = std::str::from_utf8(&raw_head[..head_len])
+    let head_str = std::str::from_utf8(&raw_buf[..head_len])
         .map_err(|_| HttpReadError::BadRequest("non-UTF8 HTTP headers".to_owned()))?;
     let mut lines = head_str.split("\r\n");
     let req_line = lines.next().unwrap_or("");
@@ -137,6 +161,7 @@ pub fn read_http_request<R: Read>(reader: &mut R) -> Result<Option<HttpRequest>,
 
     let mut headers = Vec::new();
     let mut content_len: usize = 0;
+    let mut seen_host = false;
     for line in lines {
         if line.is_empty() {
             continue;
@@ -146,6 +171,12 @@ pub fn read_http_request<R: Read>(reader: &mut R) -> Result<Option<HttpRequest>,
         };
         let key = k.trim().to_ascii_lowercase();
         let val = v.trim().to_owned();
+        if key == "host" {
+            if seen_host {
+                return Err(HttpReadError::BadRequest("duplicate Host header".to_owned()));
+            }
+            seen_host = true;
+        }
         if key == "transfer-encoding" && val.to_ascii_lowercase().contains("chunked") {
             return Err(HttpReadError::UnsupportedEncoding);
         }
@@ -162,9 +193,23 @@ pub fn read_http_request<R: Read>(reader: &mut R) -> Result<Option<HttpRequest>,
 
     let mut body = vec![0u8; content_len];
     if content_len > 0 {
-        reader
-            .read_exact(&mut body)
-            .map_err(|err| HttpReadError::BadRequest(format!("incomplete request body: {err}")))?;
+        let already = &raw_buf[head_len..];
+        let copy_len = already.len().min(content_len);
+        body[..copy_len].copy_from_slice(&already[..copy_len]);
+        let mut offset = copy_len;
+        while offset < content_len {
+            if Instant::now() >= deadline {
+                return Err(HttpReadError::Io("HTTP body read deadline exceeded".to_owned()));
+            }
+            match reader.read(&mut body[offset..]) {
+                Ok(0) => {
+                    return Err(HttpReadError::BadRequest("incomplete request body: unexpected EOF".to_owned()));
+                }
+                Ok(n) => offset += n,
+                Err(err) if err.kind() == ErrorKind::Interrupted => continue,
+                Err(err) => return Err(HttpReadError::Io(err.to_string())),
+            }
+        }
     }
 
     Ok(Some(HttpRequest {
@@ -192,6 +237,8 @@ pub fn write_response(
          Content-Length: {}\r\n\
          Cache-Control: no-store\r\n\
          X-Content-Type-Options: nosniff\r\n\
+         X-Frame-Options: DENY\r\n\
+         Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'\r\n\
          Connection: close\r\n",
         body.len()
     )?;

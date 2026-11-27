@@ -2,6 +2,8 @@
 
 /// Target socket bind address validation ensuring `--no-auth` stays loopback-only.
 use std::net::SocketAddr;
+/// Synchronized `/api/login` failed-attempt throttling state.
+use std::sync::Mutex;
 /// Wall-clock UNIX timestamps for session cookie expiration checks.
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -212,5 +214,121 @@ impl WebAuth {
             return true;
         }
         req.header("x-zapret-action").is_some()
+    }
+
+    /// Rejects cross-site `Origin`/`Sec-Fetch-Site` headers and DNS-rebinding `Host` headers
+    /// (especially critical on loopback listeners where `--no-auth` may be active).
+    pub fn passes_host_and_origin_guard(req: &HttpRequest, bind_addr: SocketAddr) -> bool {
+        let Some(raw_host) = req.header("host").map(str::trim).filter(|h| !h.is_empty()) else {
+            return false;
+        };
+        if raw_host.chars().any(char::is_whitespace) || raw_host.contains('/') {
+            return false;
+        }
+        let host_name = extract_authority_host(raw_host);
+        if host_name.is_empty() {
+            return false;
+        }
+        if bind_addr.ip().is_loopback() && !is_loopback_hostname(host_name, bind_addr) {
+            return false;
+        }
+        if let Some(sfs) = req.header("sec-fetch-site").map(str::trim)
+            && req.method == crate::tools::web::http::HttpMethod::Post
+            && !sfs.eq_ignore_ascii_case("same-origin")
+            && !sfs.eq_ignore_ascii_case("none")
+        {
+            return false;
+        }
+        if let Some(origin) = req.header("origin").map(str::trim) {
+            let Some(after_scheme) = origin
+                .strip_prefix("http://")
+                .or_else(|| origin.strip_prefix("https://"))
+            else {
+                return false;
+            };
+            let origin_auth = after_scheme.split('/').next().unwrap_or("");
+            if !origin_auth.eq_ignore_ascii_case(raw_host)
+                && !extract_authority_host(origin_auth).eq_ignore_ascii_case(host_name)
+            {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Extracts hostname/IP without optional `:port` or IPv6 brackets (`[...]` -> `...`).
+fn extract_authority_host(authority: &str) -> &str {
+    if let Some(rest) = authority.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else {
+        authority.split(':').next().unwrap_or("")
+    }
+}
+
+/// Returns `true` when `host` identifies a local loopback address or `localhost`.
+fn is_loopback_hostname(host: &str, bind_addr: SocketAddr) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == bind_addr.ip().to_string()
+}
+
+/// Sliding-window failed `/api/login` attempt limiter preventing online passcode brute-forcing.
+#[derive(Default)]
+pub struct LoginRateLimiter {
+    /// Synchronized failure count and active cooldown window timestamps.
+    state: Mutex<LoginThrottleState>,
+}
+
+/// Internal state guarded by [`LoginRateLimiter`].
+#[derive(Default)]
+struct LoginThrottleState {
+    /// Consecutive failed `/api/login` attempts in the active window.
+    failures: u32,
+    /// Start timestamp (UNIX seconds) of the active failure window.
+    window_started: u64,
+    /// Cooldown expiration timestamp (UNIX seconds) while locked out.
+    locked_until: u64,
+}
+
+impl LoginRateLimiter {
+    /// Returns `Ok(())` if login attempts are allowed at `now_secs`, else `Err(retry_after_secs)`.
+    pub fn check_allowed(&self, now_secs: u64) -> Result<(), u64> {
+        let guard = match self.state.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        if now_secs < guard.locked_until {
+            Err(guard.locked_until - now_secs)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Records a failed passcode attempt and triggers a 30s lockout after 5 failures within 60s.
+    pub fn record_failure(&self, now_secs: u64) {
+        let mut guard = match self.state.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        if now_secs.saturating_sub(guard.window_started) > 60 {
+            guard.window_started = now_secs;
+            guard.failures = 0;
+        }
+        guard.failures = guard.failures.saturating_add(1);
+        if guard.failures >= 5 {
+            guard.locked_until = now_secs.saturating_add(30);
+        }
+    }
+
+    /// Resets failure counters after a successful passcode verification.
+    pub fn record_success(&self) {
+        let mut guard = match self.state.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        guard.failures = 0;
+        guard.locked_until = 0;
     }
 }

@@ -19,8 +19,9 @@ use std::time::Duration;
 
 /// Control socket candidate discovery, protocol messages, and bounded codec helpers.
 use crate::control::{
-    CONTROL_PROTOCOL_VERSION, CodecError, ControlErrorCode, ControlStream, DaemonStatus, Request,
-    Response, control_socket_candidates, is_live_control_socket, read_message, write_message,
+    CONTROL_PROTOCOL_VERSION, CodecError, ControlErrorCode, ControlStream, DaemonStatus,
+    LineReader, Request, Response, control_socket_candidates, is_live_control_socket,
+    write_message,
 };
 /// Lock-free packet counters and serializable packet record model.
 use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict};
@@ -153,14 +154,14 @@ pub fn connect_remote_daemon(
     let writer_stream = stream
         .try_clone()
         .map_err(|err| format!("failed to clone control socket: {err}"))?;
-    let mut reader = BufReader::new(stream);
+    let mut reader = LineReader::new(BufReader::new(stream));
 
     let daemon_version = perform_hello(&mut reader)?;
     let status = fetch_initial_status(&mut reader)?;
     status.counters.store_into(&counters);
     send_subscribe(&mut reader)?;
 
-    let _ = reader.get_ref().set_read_timeout(Some(READER_POLL_TIMEOUT));
+    let _ = reader.get_ref().get_ref().set_read_timeout(Some(READER_POLL_TIMEOUT));
 
     let meta = RemoteDaemonMeta {
         socket_path,
@@ -199,10 +200,10 @@ pub fn connect_remote_daemon(
 }
 
 /// Executes the `hello` handshake and translates version skew into a clear user message.
-fn perform_hello(reader: &mut BufReader<ControlStream>) -> Result<String, String> {
-    write_message(reader.get_mut(), &Request::Hello { version: CONTROL_PROTOCOL_VERSION })
+fn perform_hello(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<String, String> {
+    write_message(reader.get_mut().get_mut(), &Request::Hello { version: CONTROL_PROTOCOL_VERSION })
         .map_err(|err| format!("failed sending hello: {err}"))?;
-    match read_message::<_, Response>(reader) {
+    match reader.read_message::<Response>() {
         Ok(Some(Response::HelloOk { version, daemon_version })) => {
             if version != CONTROL_PROTOCOL_VERSION {
                 return Err(format!(
@@ -222,10 +223,10 @@ fn perform_hello(reader: &mut BufReader<ControlStream>) -> Result<String, String
 }
 
 /// Sends `status` and reads the daemon's [`DaemonStatus`] reply.
-fn fetch_initial_status(reader: &mut BufReader<ControlStream>) -> Result<DaemonStatus, String> {
-    write_message(reader.get_mut(), &Request::Status)
+fn fetch_initial_status(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<DaemonStatus, String> {
+    write_message(reader.get_mut().get_mut(), &Request::Status)
         .map_err(|err| format!("failed requesting status: {err}"))?;
-    match read_message::<_, Response>(reader) {
+    match reader.read_message::<Response>() {
         Ok(Some(Response::Status(st))) => Ok(st),
         Ok(Some(Response::Error { message, .. })) => Err(format!("status failed: {message}")),
         Ok(Some(other)) => Err(format!("unexpected status reply: {other:?}")),
@@ -235,10 +236,10 @@ fn fetch_initial_status(reader: &mut BufReader<ControlStream>) -> Result<DaemonS
 }
 
 /// Sends `subscribe` and awaits the initial acknowledgment before starting the reader thread.
-fn send_subscribe(reader: &mut BufReader<ControlStream>) -> Result<(), String> {
-    write_message(reader.get_mut(), &Request::Subscribe { pass_sample_rate: None })
+fn send_subscribe(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<(), String> {
+    write_message(reader.get_mut().get_mut(), &Request::Subscribe { pass_sample_rate: None })
         .map_err(|err| format!("failed subscribing to telemetry: {err}"))?;
-    match read_message::<_, Response>(reader) {
+    match reader.read_message::<Response>() {
         Ok(Some(Response::Ack { op, .. })) if op == "subscribe" => Ok(()),
         Ok(Some(Response::Error { message, .. })) => Err(format!("subscribe failed: {message}")),
         Ok(Some(other)) => Err(format!("unexpected subscribe reply: {other:?}")),
@@ -249,7 +250,7 @@ fn send_subscribe(reader: &mut BufReader<ControlStream>) -> Result<(), String> {
 
 /// Continuously decodes streamed server frames into shared counters and inspector queues.
 fn run_remote_reader(
-    mut reader: BufReader<ControlStream>,
+    mut reader: LineReader<BufReader<ControlStream>>,
     counters: Arc<PacketCounters>,
     pkt_tx: mpsc::SyncSender<PacketRecord>,
     desync_tx: mpsc::SyncSender<PacketRecord>,
@@ -258,7 +259,7 @@ fn run_remote_reader(
 ) {
     let mut reason: Option<String> = None;
     while !stop.load(Ordering::Acquire) {
-        match read_message::<_, Response>(&mut reader) {
+        match reader.read_message::<Response>() {
             Ok(Some(resp)) => match resp {
                 Response::Counters(snap) => snap.store_into(&counters),
                 Response::Packet(rec) => {

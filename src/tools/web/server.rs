@@ -1,18 +1,16 @@
 //! HTTP/1.1 router, SSE streamer, and bounded TCP listener for `zapret-rs web`.
 
-/// Connection error matching and flushing SSE event frames cleanly.
-use std::io::{ErrorKind, Write};
+/// Connection error matching for non-blocking accept loops.
+use std::io::ErrorKind;
 /// Bound HTTP TCP listener and accepted sockets.
 use std::net::{SocketAddr, TcpListener, TcpStream};
 /// Cooperative shutdown flag shared between accept loop and SSE readers.
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-/// Receiver delivering broadcast SSE events from [`WebIpcBridge`].
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
 /// Shared bridge, server config, and worker counter handles.
 use std::sync::Arc;
 /// Listener accept thread handle joined cleanly on drop.
 use std::thread::{self, JoinHandle};
-/// Socket read/write timeouts and SSE keepalive intervals.
+/// Socket read/write timeouts and idle accept sleep duration.
 use std::time::Duration;
 
 /// JSON body parsing for login requests.
@@ -20,8 +18,8 @@ use serde::Deserialize;
 
 /// Wire control commands forwarded to the daemon socket on API actions.
 use crate::control::Request;
-/// Session authentication validator, CSRF guard, and UNIX epoch helper.
-use crate::tools::web::auth::{WebAuth, unix_now_secs};
+/// Session authentication validator, Host/Origin DNS-rebinding guard, and login rate limiter.
+use crate::tools::web::auth::{LoginRateLimiter, WebAuth, unix_now_secs};
 /// Resolved web runtime configuration passed from [`crate::tools::web::cli`].
 use crate::tools::web::cli::WebConfig;
 /// Bounded HTTP request parser and JSON/error/asset responders.
@@ -34,6 +32,8 @@ use crate::tools::web::ipc_bridge::WebIpcBridge;
 use crate::tools::web::ops::handle_ops_route;
 /// Background Strategy Finder scan job coordinator.
 use crate::tools::web::scan_job::WebScanJob;
+/// Real-time Server-Sent Events stream handler.
+use crate::tools::web::sse::stream_sse_loop;
 
 /// Embedded mobile-first single-page dashboard HTML served at `/`.
 const INDEX_HTML: &str = include_str!("assets/index.html");
@@ -48,8 +48,6 @@ const MAX_HTTP_WORKERS: usize = 16;
 const ACCEPT_IDLE_SLEEP: Duration = Duration::from_millis(25);
 /// Socket timeout bounding malformed/stalled client HTTP requests.
 const CLIENT_IO_TIMEOUT: Duration = Duration::from_secs(5);
-/// SSE keepalive comment cadence preventing idle mobile/Tailscale connection drops.
-const SSE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Running web dashboard HTTP server and IPC bridge stopped automatically on [`Drop`].
 pub struct WebServerHandle {
@@ -75,11 +73,9 @@ impl WebServerHandle {
     pub fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
         self.scan_job.stop();
+        self.ipc.shutdown();
         if let Some(handle) = self.join.take() {
             let _ = handle.join();
-        }
-        if let Some(ipc) = Arc::get_mut(&mut self.ipc) {
-            ipc.shutdown();
         }
     }
 }
@@ -98,6 +94,22 @@ struct LoginPayload {
     token: String,
 }
 
+/// Shared runtime dependencies passed to HTTP connection worker threads.
+struct WebServerState {
+    /// Static web configuration (`--bind`, `--config`, `--lua-dir`, `WebAuth`).
+    cfg: WebConfig,
+    /// Background daemon control socket bridge.
+    ipc: Arc<WebIpcBridge>,
+    /// Background Strategy Finder scan coordinator.
+    scan_job: Arc<WebScanJob>,
+    /// Sliding-window failed `/api/login` rate limiter.
+    limiter: LoginRateLimiter,
+    /// Shared shutdown signal observed by accept and SSE loops.
+    stop: Arc<AtomicBool>,
+    /// Active short-request worker thread count.
+    active_workers: AtomicUsize,
+}
+
 /// Decrements active HTTP worker count on scope exit even across early returns.
 struct WorkerSlotGuard<'a>(Option<&'a AtomicUsize>);
 
@@ -109,60 +121,20 @@ impl Drop for WorkerSlotGuard<'_> {
     }
 }
 
-/// Streams HTTP `text/event-stream` status/counters/packet updates until client disconnect or stop.
-fn stream_sse_loop(
+/// Handles `POST /api/login` credential verification, rate limiting, and `Set-Cookie` minting.
+fn handle_login(
     stream: &mut TcpStream,
-    ipc: &WebIpcBridge,
-    stop: &AtomicBool,
+    req: &HttpRequest,
+    cfg: &WebConfig,
+    limiter: &LoginRateLimiter,
+    now: u64,
 ) {
-    let Some((initial, rx)) = ipc.subscribe_sse() else {
-        let _ = write_error(stream, 503, "Service Unavailable", "too many live telemetry tabs open");
-        return;
-    };
-    let head = "HTTP/1.1 200 OK\r\n\
-                Content-Type: text/event-stream; charset=utf-8\r\n\
-                Cache-Control: no-cache\r\n\
-                X-Content-Type-Options: nosniff\r\n\
-                Connection: keep-alive\r\n\r\n";
-    if stream.write_all(head.as_bytes()).is_err() {
-        return;
-    }
-    if let Ok(json) = serde_json::to_string(&initial) {
-        let first = format!("event: status\ndata: {json}\n\n");
-        if stream.write_all(first.as_bytes()).is_err() {
-            return;
-        }
-    }
-    let _ = stream.flush();
-    drain_sse_frames(stream, rx, stop);
-}
-
-/// Reads SSE frames from `rx`, emitting keepalives on idle timeouts until EOF or `stop`.
-fn drain_sse_frames(stream: &mut TcpStream, rx: Receiver<String>, stop: &AtomicBool) {
-    while !stop.load(Ordering::Acquire) {
-        match rx.recv_timeout(SSE_KEEPALIVE_INTERVAL) {
-            Ok(frame) => {
-                if frame.is_empty() {
-                    continue;
-                }
-                if stream.write_all(frame.as_bytes()).is_err() || stream.flush().is_err() {
-                    break;
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                if stream.write_all(b": keepalive\n\n").is_err() || stream.flush().is_err() {
-                    break;
-                }
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
-    }
-}
-
-/// Handles `POST /api/login` credential verification and `Set-Cookie` minting.
-fn handle_login(stream: &mut TcpStream, req: &HttpRequest, cfg: &WebConfig, now: u64) {
     if !WebAuth::passes_csrf_guard(req) {
         let _ = write_error(stream, 403, "Forbidden", "missing JSON or X-Zapret-Action header");
+        return;
+    }
+    if limiter.check_allowed(now).is_err() {
+        let _ = write_error(stream, 429, "Too Many Requests", "too many failed attempts; retry later");
         return;
     }
     let Ok(payload) = serde_json::from_slice::<LoginPayload>(&req.body) else {
@@ -170,9 +142,11 @@ fn handle_login(stream: &mut TcpStream, req: &HttpRequest, cfg: &WebConfig, now:
         return;
     };
     if !cfg.auth.verify_token(&payload.token) {
+        limiter.record_failure(now);
         let _ = write_error(stream, 401, "Unauthorized", "invalid passcode");
         return;
     }
+    limiter.record_success();
     if let Some(cookie) = cfg.auth.issue_session_cookie(now) {
         let header = WebAuth::format_set_cookie(&cookie, 12 * 3600);
         let _ = write_json(
@@ -212,12 +186,13 @@ fn handle_daemon_action(stream: &mut TcpStream, req: &HttpRequest, ipc: &WebIpcB
 fn handle_request(
     stream: &mut TcpStream,
     req: &HttpRequest,
-    cfg: &WebConfig,
-    ipc: &Arc<WebIpcBridge>,
-    scan_job: &WebScanJob,
-    stop: &AtomicBool,
+    st: &WebServerState,
     slot: &mut WorkerSlotGuard<'_>,
 ) {
+    if !WebAuth::passes_host_and_origin_guard(req, st.cfg.bind) {
+        let _ = write_error(stream, 403, "Forbidden", "invalid Host or cross-origin request");
+        return;
+    }
     let now = unix_now_secs();
     match (&req.method, req.path.as_str()) {
         (HttpMethod::Get, "/" | "/index.html") => {
@@ -242,20 +217,20 @@ fn handle_request(
                 200,
                 "OK",
                 &[],
-                &serde_json::json!({ "ok": true, "auth_required": cfg.auth.is_required() }),
+                &serde_json::json!({ "ok": true, "auth_required": st.cfg.auth.is_required() }),
             );
         }
         (HttpMethod::Get, "/api/auth/check") => {
-            let authed = cfg.auth.is_authorized(req, now);
+            let authed = st.cfg.auth.is_authorized(req, now);
             let _ = write_json(
                 stream,
                 if authed { 200 } else { 401 },
                 if authed { "OK" } else { "Unauthorized" },
                 &[],
-                &serde_json::json!({ "authenticated": authed, "auth_required": cfg.auth.is_required() }),
+                &serde_json::json!({ "authenticated": authed, "auth_required": st.cfg.auth.is_required() }),
             );
         }
-        (HttpMethod::Post, "/api/login") => handle_login(stream, req, cfg, now),
+        (HttpMethod::Post, "/api/login") => handle_login(stream, req, &st.cfg, &st.limiter, now),
         (HttpMethod::Post, "/api/logout") => {
             if !WebAuth::passes_csrf_guard(req) {
                 let _ = write_error(stream, 403, "Forbidden", "missing JSON or X-Zapret-Action header");
@@ -271,7 +246,7 @@ fn handle_request(
             );
         }
         _ => {
-            if !cfg.auth.is_authorized(req, now) {
+            if !st.cfg.auth.is_authorized(req, now) {
                 let _ = write_error(stream, 401, "Unauthorized", "authentication required");
                 return;
             }
@@ -281,7 +256,7 @@ fn handle_request(
             }
             match (&req.method, req.path.as_str()) {
                 (HttpMethod::Get, "/api/status") => {
-                    let snap = ipc.snapshot();
+                    let snap = st.ipc.snapshot();
                     let _ = write_json(stream, 200, "OK", &[], &snap);
                 }
                 (HttpMethod::Get, "/api/events") => {
@@ -289,13 +264,13 @@ fn handle_request(
                     if let Some(c) = slot.0.take() {
                         c.fetch_sub(1, Ordering::AcqRel);
                     }
-                    stream_sse_loop(stream, ipc, stop);
+                    stream_sse_loop(stream, &st.ipc, &st.stop);
                 }
                 (HttpMethod::Post, p) if p.starts_with("/api/daemon/") => {
-                    handle_daemon_action(stream, req, ipc);
+                    handle_daemon_action(stream, req, &st.ipc);
                 }
                 _ => {
-                    if !handle_ops_route(stream, req, cfg, ipc, scan_job) {
+                    if !handle_ops_route(stream, req, &st.cfg, &st.ipc, &st.scan_job) {
                         let _ = write_error(stream, 404, "Not Found", "endpoint not found");
                     }
                 }
@@ -305,15 +280,8 @@ fn handle_request(
 }
 
 /// Processes one accepted TCP socket connection within read/write timeouts.
-fn serve_connection(
-    mut stream: TcpStream,
-    cfg: &WebConfig,
-    ipc: &Arc<WebIpcBridge>,
-    scan_job: &WebScanJob,
-    stop: &AtomicBool,
-    active_workers: &AtomicUsize,
-) {
-    let mut slot = WorkerSlotGuard(Some(active_workers));
+fn serve_connection(mut stream: TcpStream, st: &WebServerState) {
+    let mut slot = WorkerSlotGuard(Some(&st.active_workers));
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(CLIENT_IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(CLIENT_IO_TIMEOUT));
@@ -322,7 +290,7 @@ fn serve_connection(
         Err(_) => return,
     };
     match read_http_request(&mut reader) {
-        Ok(Some(req)) => handle_request(&mut stream, &req, cfg, ipc, scan_job, stop, &mut slot),
+        Ok(Some(req)) => handle_request(&mut stream, &req, st, &mut slot),
         Ok(None) => {}
         Err(err) => {
             let (status, reason, msg) = err.http_status();
@@ -343,37 +311,37 @@ pub fn start_web_server(cfg: WebConfig) -> Result<WebServerHandle, String> {
         .map_err(|err| format!("failed to inspect local bind address: {err}"))?;
 
     let ipc = Arc::new(WebIpcBridge::spawn(cfg.control_socket.clone()));
-    let ipc_accept = Arc::clone(&ipc);
     let scan_job = Arc::new(WebScanJob::default());
-    let scan_accept = Arc::clone(&scan_job);
     let stop = Arc::new(AtomicBool::new(false));
-    let stop_bg = Arc::clone(&stop);
-    let active_workers = Arc::new(AtomicUsize::new(0));
-    let cfg_arc = Arc::new(cfg);
+    let shared = Arc::new(WebServerState {
+        cfg,
+        ipc: Arc::clone(&ipc),
+        scan_job: Arc::clone(&scan_job),
+        limiter: LoginRateLimiter::default(),
+        stop: Arc::clone(&stop),
+        active_workers: AtomicUsize::new(0),
+    });
+    let shared_bg = Arc::clone(&shared);
 
     let join = thread::Builder::new()
         .name("zapret-web-http".to_owned())
         .spawn(move || {
-            while !stop_bg.load(Ordering::Acquire) {
+            while !shared_bg.stop.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        let prev = active_workers.fetch_add(1, Ordering::AcqRel);
+                        let prev = shared_bg.active_workers.fetch_add(1, Ordering::AcqRel);
                         if prev >= MAX_HTTP_WORKERS {
-                            active_workers.fetch_sub(1, Ordering::AcqRel);
+                            shared_bg.active_workers.fetch_sub(1, Ordering::AcqRel);
                             let _ = write_error(&mut stream, 503, "Service Unavailable", "server busy");
                             continue;
                         }
-                        let cfg_req = Arc::clone(&cfg_arc);
-                        let ipc_req = Arc::clone(&ipc_accept);
-                        let scan_req = Arc::clone(&scan_accept);
-                        let stop_req = Arc::clone(&stop_bg);
-                        let workers_req = Arc::clone(&active_workers);
+                        let st_req = Arc::clone(&shared_bg);
                         if thread::Builder::new()
                             .name("zapret-web-req".to_owned())
-                            .spawn(move || serve_connection(stream, &cfg_req, &ipc_req, &scan_req, &stop_req, &workers_req))
+                            .spawn(move || serve_connection(stream, &st_req))
                             .is_err()
                         {
-                            active_workers.fetch_sub(1, Ordering::AcqRel);
+                            shared_bg.active_workers.fetch_sub(1, Ordering::AcqRel);
                         }
                     }
                     Err(err) if err.kind() == ErrorKind::WouldBlock => {

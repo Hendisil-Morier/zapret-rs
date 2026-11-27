@@ -4,6 +4,8 @@
 pub mod auth;
 /// CLI options and shutdown loop for `zapret-rs web`.
 pub mod cli;
+/// Path confinement validator preventing Web UI config uploads from escaping config dir.
+pub mod config_guard;
 /// Bounded HTTP/1.1 request parser and JSON/asset response writers.
 pub mod http;
 /// Background `ControlStream` subscriber bridging daemon status and packets to SSE.
@@ -12,8 +14,10 @@ pub mod ipc_bridge;
 pub mod ops;
 /// Background Strategy Finder scan job coordinator streaming progress over SSE.
 pub mod scan_job;
-/// HTTP/1.1 router, SSE streamer, and bounded TCP listener.
+/// HTTP/1.1 router, worker pool, and bounded TCP listener.
 pub mod server;
+/// Server-Sent Events (`text/event-stream`) live telemetry streamer.
+pub mod sse;
 
 /// Public API re-exports for web authentication and cookie validation.
 pub use auth::{SESSION_COOKIE_NAME, WebAuth, unix_now_secs};

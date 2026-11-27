@@ -65,50 +65,99 @@ pub fn read_bounded_line<R: BufRead>(
     reader: &mut R,
     max_bytes: usize,
 ) -> Result<Option<String>, CodecError> {
-    let mut buf = Vec::new();
-    loop {
-        let available = match reader.fill_buf() {
-            Ok(chunk) => chunk,
-            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(err) => return Err(CodecError::Io(err)),
-        };
-        if available.is_empty() {
-            if buf.is_empty() {
-                return Ok(None);
-            }
-            break;
-        }
-        if let Some(pos) = available.iter().position(|&b| b == b'\n') {
-            let take = pos + 1;
-            if buf.len() + take > max_bytes {
-                reader.consume(take);
-                return Err(CodecError::LineTooLong { max: max_bytes });
-            }
-            buf.extend_from_slice(&available[..pos]);
-            reader.consume(take);
-            break;
-        }
-        let chunk_len = available.len();
-        if buf.len() + chunk_len > max_bytes {
-            return Err(CodecError::LineTooLong { max: max_bytes });
-        }
-        buf.extend_from_slice(available);
-        reader.consume(chunk_len);
-    }
-    if buf.last() == Some(&b'\r') {
-        buf.pop();
-    }
-    let text = String::from_utf8(buf)
-        .map_err(|err| CodecError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, err)))?;
-    Ok(Some(text))
+    LineReader::with_max_bytes(reader, max_bytes).read_line()
 }
 
 /// Reads and deserializes the next bounded JSON line from `reader`, returning `None` on EOF.
 pub fn read_message<R: BufRead, T: DeserializeOwned>(
     reader: &mut R,
 ) -> Result<Option<T>, CodecError> {
-    let Some(line) = read_bounded_line(reader, MAX_CONTROL_LINE_BYTES)? else {
-        return Ok(None);
-    };
-    Ok(Some(serde_json::from_str(&line)?))
+    LineReader::new(reader).read_message()
+}
+
+/// Stateful newline-delimited frame reader retaining partial bytes across `TimedOut`/`WouldBlock` polls.
+pub struct LineReader<R> {
+    /// Underlying buffered stream reader.
+    reader: R,
+    /// Persistent accumulation buffer holding incomplete frames across poll timeouts.
+    buf: Vec<u8>,
+    /// Maximum allowed byte length per frame (including line terminator).
+    max_bytes: usize,
+}
+
+impl<R: BufRead> LineReader<R> {
+    /// Wraps `reader` with the default [`MAX_CONTROL_LINE_BYTES`] frame limit.
+    pub fn new(reader: R) -> Self {
+        Self::with_max_bytes(reader, MAX_CONTROL_LINE_BYTES)
+    }
+
+    /// Wraps `reader` with an explicit maximum frame limit `max_bytes`.
+    pub fn with_max_bytes(reader: R, max_bytes: usize) -> Self {
+        Self {
+            reader,
+            buf: Vec::new(),
+            max_bytes,
+        }
+    }
+
+    /// Returns a shared reference to the underlying buffered reader.
+    pub fn get_ref(&self) -> &R {
+        &self.reader
+    }
+
+    /// Returns a mutable reference to the underlying buffered reader.
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.reader
+    }
+
+    /// Reads one complete newline-terminated UTF-8 line, preserving partial bytes on timeouts.
+    pub fn read_line(&mut self) -> Result<Option<String>, CodecError> {
+        let mut raw = loop {
+            let available = match self.reader.fill_buf() {
+                Ok(chunk) => chunk,
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(err) => return Err(CodecError::Io(err)),
+            };
+            if available.is_empty() {
+                if self.buf.is_empty() {
+                    return Ok(None);
+                }
+                break std::mem::take(&mut self.buf);
+            }
+            if let Some(pos) = available.iter().position(|&b| b == b'\n') {
+                let take = pos + 1;
+                if self.buf.len() + take > self.max_bytes {
+                    self.buf.clear();
+                    self.reader.consume(take);
+                    return Err(CodecError::LineTooLong { max: self.max_bytes });
+                }
+                self.buf.extend_from_slice(&available[..pos]);
+                self.reader.consume(take);
+                break std::mem::take(&mut self.buf);
+            }
+            let chunk_len = available.len();
+            if self.buf.len() + chunk_len > self.max_bytes {
+                self.buf.clear();
+                self.reader.consume(chunk_len);
+                return Err(CodecError::LineTooLong { max: self.max_bytes });
+            }
+            self.buf.extend_from_slice(available);
+            self.reader.consume(chunk_len);
+        };
+        if raw.last() == Some(&b'\r') {
+            raw.pop();
+        }
+        let text = String::from_utf8(raw).map_err(|err| {
+            CodecError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+        })?;
+        Ok(Some(text))
+    }
+
+    /// Reads and deserializes the next JSON line frame from `self`, returning `None` on EOF.
+    pub fn read_message<T: DeserializeOwned>(&mut self) -> Result<Option<T>, CodecError> {
+        let Some(line) = self.read_line()? else {
+            return Ok(None);
+        };
+        Ok(Some(serde_json::from_str(&line)?))
+    }
 }

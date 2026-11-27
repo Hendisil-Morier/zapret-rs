@@ -369,8 +369,8 @@ pub(crate) fn submit_prompt_modal(
                         active.url, active.passcode, clip_note
                     );
                     state.push_run_log(format!(
-                        "[web] listening at {} (passcode: {})",
-                        active.url, active.passcode
+                        "[web] listening at {} (pairing passcode active; press 'y' to copy)",
+                        active.url
                     ));
                     if let Some(mut prev) = web_ui.replace(active) {
                         prev.handle.shutdown();
