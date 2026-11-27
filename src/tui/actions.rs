@@ -78,7 +78,7 @@ pub(crate) fn begin_scan_stopping_daemon(
     session_tab2: &mut Option<Tab2Session>,
     session: &mut TerminalSession,
 ) -> Option<PendingScanStart> {
-    if !state.has_net_caps {
+    if !state.status.has_net_caps {
         state.open_caps_modal_for(Some(PostCapsAction::StartScan));
         return None;
     }
@@ -90,13 +90,13 @@ pub(crate) fn begin_scan_stopping_daemon(
         return None;
     }
     if session_tab2.is_none()
-        && detect_control_socket(state.control_socket_override.as_deref()).is_none()
+        && detect_control_socket(state.run.control_socket_override.as_deref()).is_none()
     {
         try_start_scan(state, active_scan);
         return None;
     }
-    state.finder_status = FinderStatus::Scanning;
-    state.progress_label = "Stopping running nfqws2 daemon...".to_owned();
+    state.finder.status = FinderStatus::Scanning;
+    state.finder.progress_label = "Stopping running nfqws2 daemon...".to_owned();
     state.status_banner = "Stopping nfqws2 before strategy scan...".to_owned();
     Some(PendingScanStart { started: Instant::now() })
 }
@@ -113,7 +113,7 @@ pub(crate) fn poll_pending_scan(
     };
     let inputs = CycleInputs {
         session_active: session_tab2.is_some(),
-        socket_present: detect_control_socket(state.control_socket_override.as_deref()).is_some(),
+        socket_present: detect_control_socket(state.run.control_socket_override.as_deref()).is_some(),
         modal_open: false,
         run_errored: false,
         elapsed: pending.started.elapsed(),
@@ -139,7 +139,7 @@ pub(crate) fn poll_pending_scan(
 /// If `has_net_caps` is unset, opens the capability grant modal with `PostCapsAction::StartScan`
 /// so the scan is retried automatically after `setcap` succeeds.
 pub(crate) fn try_start_scan(state: &mut AppState, active_scan: &mut Option<ActiveScan>) {
-    if !state.has_net_caps {
+    if !state.status.has_net_caps {
         state.open_caps_modal_for(Some(PostCapsAction::StartScan));
         return;
     }
@@ -163,7 +163,7 @@ pub(crate) fn try_start_scan(state: &mut AppState, active_scan: &mut Option<Acti
 
 /// Records a daemon startup failure uniformly across Tab 2 state, banner, and log.
 fn record_start_error(state: &mut AppState, err: String) {
-    state.run_status = crate::tui::types::RunStatus::Error(err.clone());
+    state.run.status = crate::tui::types::RunStatus::Error(err.clone());
     state.status_banner = format!("Start failed: {err}");
     state.push_run_log(format!("[error] {err}"));
 }
@@ -172,8 +172,8 @@ fn record_start_error(state: &mut AppState, err: String) {
 ///
 /// Resolution order: detected control socket → external daemon launch → in-process local daemon.
 pub(crate) fn try_start_or_attach(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) {
-    let detected = detect_control_socket(state.control_socket_override.as_deref());
-    state.detected_socket = detected.clone();
+    let detected = detect_control_socket(state.run.control_socket_override.as_deref());
+    state.run.detected_socket = detected.clone();
     if let Some(sock) = detected {
         attach_to_socket(state, session_tab2, sock);
         return;
@@ -193,7 +193,7 @@ pub(crate) fn try_start_or_attach(state: &mut AppState, session_tab2: &mut Optio
 /// If `has_net_caps` is unset, opens the capability grant modal with `PostCapsAction::StartDaemon`
 /// so the launch is retried automatically after `setcap` succeeds.
 fn try_start_local_daemon(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) {
-    if !state.has_net_caps {
+    if !state.status.has_net_caps {
         state.open_caps_modal_for(Some(PostCapsAction::StartDaemon));
         return;
     }
@@ -238,7 +238,7 @@ pub(crate) fn submit_auth_modal(
     }
     if purpose == ModalPurpose::ConfirmApplyDns {
         state.modal = None;
-        state.status_banner = match crate::tools::apply_dns_preset(state.dns_preset) {
+        state.status_banner = match crate::tools::apply_dns_preset(state.status.dns_preset) {
             Ok(msg) => {
                 state.refresh_status_checks();
                 msg
@@ -249,13 +249,13 @@ pub(crate) fn submit_auth_modal(
     }
     if purpose == ModalPurpose::ConfirmMergeConfig {
         state.modal = None;
-        if let Some((prev, new_toml)) = state.pending_merge.take() {
+        if let Some((prev, new_toml)) = state.config.pending_merge.take() {
             match merge_nfqws2_toml(&prev, &new_toml) {
                 Ok(merged) => {
                     state.set_active_toml(merged);
                     state.status_banner = format!(
                         "Merged into {} profile(s). Press 's' to save.",
-                        state.parsed_profiles.len()
+                        state.config.parsed_profiles.len()
                     );
                 }
                 Err(err) => state.status_banner = format!("Merge failed (kept new scan): {err}"),
@@ -277,7 +277,7 @@ pub(crate) fn submit_auth_modal(
                 .map(|p| p.display().to_string())
                 .map_err(|err| format!("cannot locate trusted setcap: {err}"));
             match setcap_cmd {
-                Ok(bin) => run_sudo_silent(&["--", &bin, "cap_net_admin,cap_net_raw+ep", &state.exe_path], pw_ref),
+                Ok(bin) => run_sudo_silent(&["--", &bin, "cap_net_admin,cap_net_raw+ep", &state.status.exe_path], pw_ref),
                 Err(err) => Err(err),
             }
         }
@@ -299,7 +299,7 @@ pub(crate) fn submit_auth_modal(
             state.modal = None;
             match purpose {
                 ModalPurpose::GrantCaps => {
-                    state.has_net_caps = true;
+                    state.status.has_net_caps = true;
                     state.status_banner = "Capabilities granted.".to_owned();
                     return true;
                 }
@@ -342,11 +342,11 @@ pub(crate) fn poll_active_scan(
     }
     if finished && let Some(mut done_scan) = active_scan.take() {
         done_scan.shutdown(|g| drop_fw_tui(session, g));
-        if state.pending_merge.is_some() && state.modal.is_none() {
+        if state.config.pending_merge.is_some() && state.modal.is_none() {
             let preview = format!(
                 "merge {} new profile(s) into existing {}",
-                state.parsed_profiles.len(),
-                state.output_path
+                state.config.parsed_profiles.len(),
+                state.finder.output_path
             );
             state.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmMergeConfig, preview));
         }
@@ -363,7 +363,7 @@ pub(crate) fn cancel_active_scan(
 ) {
     if let Some(mut scan) = active_scan.take() {
         scan.shutdown(|g| drop_fw_tui(session, g));
-        state.finder_status = FinderStatus::Done;
+        state.finder.status = FinderStatus::Done;
         state.status_banner = "Scan stopped cleanly.".to_owned();
     }
 }

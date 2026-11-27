@@ -80,10 +80,10 @@ fn mouse_interacts_with_finder_run_config_and_speed_panels() {
     let mut state = AppState::new(None, None, false);
 
     // Tab 1: click ProtoHttp row (body starts at y=3, inner row 0=y=4 -> ProtoHttp is y=5).
-    assert!(state.proto_http);
+    assert!(state.finder.proto_http);
     handle_mouse_event(&mut state, click(10, 5), AREA);
     assert_eq!(state.focused_field(), FinderField::ProtoHttp);
-    assert!(!state.proto_http);
+    assert!(!state.finder.proto_http);
 
     // Tab 1 right-bottom Live Scan Log scroll wheel focuses Log and increments offset.
     for i in 0..8 {
@@ -109,7 +109,7 @@ fn mouse_interacts_with_finder_run_config_and_speed_panels() {
     // Tab 3: scroll wheel in left TOML, top-right nft, bottom-right AutoHostlist focuses & scrolls.
     state.tab = ActiveTab::Config;
     handle_mouse_event(&mut state, scroll(20, 10, true), AREA);
-    assert_eq!((state.focus.config, state.toml_scroll), (ConfigFocus::Toml, 3));
+    assert_eq!((state.focus.config, state.config.toml_scroll), (ConfigFocus::Toml, 3));
     handle_mouse_event(&mut state, scroll(90, 10, true), AREA);
     assert_eq!((state.focus.config, state.focus.nft_scroll), (ConfigFocus::Nft, 3));
     handle_mouse_event(&mut state, scroll(90, 25, true), AREA);

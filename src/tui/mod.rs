@@ -42,6 +42,8 @@ pub mod speed;
 pub mod speed_runner;
 /// Tab 5 operational health checks for privileges, driver, Lua, `curl`, config, and IPC.
 pub mod status_check;
+/// Domain-scoped sub-state structs (`StatusTabState`, etc.) extracted from `AppState`.
+pub mod tab_states;
 /// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
 pub mod tab2_session;
 /// Terminal alternate-screen session RAII guard and unprivileged `$EDITOR` launcher.
@@ -89,6 +91,8 @@ pub use render::draw_app;
 pub use runner::{TuiOptions, run_tui};
 /// Re-exported mutable application state container.
 pub use state::AppState;
+/// Re-exported Tab 1, Tab 2, Tab 3, and Tab 5 domain sub-state structs.
+pub use tab_states::{ConfigTabState, FinderState, RunState, StatusTabState};
 /// Re-exported configurable TUI theme palette and preset/file helpers.
 pub use theme_config::Theme;
 /// Re-exported navigation, form, and event types.

@@ -70,9 +70,9 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) -
         ActiveTab::Config => handle_config_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Speed => handle_speed_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Status => {
-            if let Some(dir) = scroll_dir && !state.status_checks.is_empty() {
-                let next = state.status_selected as isize + dir;
-                state.status_selected = next.clamp(0, state.status_checks.len() as isize - 1) as usize;
+            if let Some(dir) = scroll_dir && !state.status.checks.is_empty() {
+                let next = state.status.selected as isize + dir;
+                state.status.selected = next.clamp(0, state.status.checks.len() as isize - 1) as usize;
             }
         }
     }
@@ -101,7 +101,7 @@ fn handle_header_click(state: &mut AppState, col: u16, header_area: Rect) {
             if spec.tab == ActiveTab::Status {
                 state.refresh_status_checks();
             }
-            state.editing_text = false;
+            state.finder.editing_text = false;
             state.reset_finder_hover();
             return;
         }
@@ -182,25 +182,25 @@ fn handle_finder_mouse(
         state.focus.finder = FinderFocus::Setup;
         if let Some(dir) = scroll_dir {
             let key = if dir < 0 { KeyCode::Up } else { KeyCode::Down };
-            state.editing_text = false;
+            state.finder.editing_text = false;
             state.handle_finder_key(key);
             return;
         }
         if is_left && pos.y > cols[0].y && pos.y + 1 < cols[0].bottom() {
             let row = usize::from(pos.y - (cols[0].y + 1));
             if let Some(&field) = FinderField::ALL.get(row) {
-                let already_focused = state.focus_idx == row;
-                state.focus_idx = row;
-                state.text_scroll = 0;
+                let already_focused = state.finder.focus_idx == row;
+                state.finder.focus_idx = row;
+                state.finder.text_scroll = 0;
                 if field.is_text() {
                     if already_focused {
                         state.handle_finder_key(KeyCode::Enter);
                     } else {
-                        state.editing_text = false;
+                        state.finder.editing_text = false;
                         state.reset_finder_hover();
                     }
                 } else {
-                    state.editing_text = false;
+                    state.finder.editing_text = false;
                     state.handle_finder_key(KeyCode::Enter);
                 }
             }
@@ -208,7 +208,7 @@ fn handle_finder_mouse(
         return;
     }
 
-    state.editing_text = false;
+    state.finder.editing_text = false;
     let right = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Percentage(52), Constraint::Min(5)])
@@ -218,12 +218,12 @@ fn handle_finder_mouse(
         state.focus.finder = FinderFocus::Results;
         state.reset_finder_hover();
         if let Some(dir) = scroll_dir {
-            let last = state.targets.len().saturating_sub(1);
+            let last = state.finder.targets.len().saturating_sub(1);
             let sel = &mut state.focus.finder_results_sel;
             *sel = if dir < 0 { sel.saturating_sub(1) } else { (*sel + 1).min(last) };
-        } else if is_left && !state.targets.is_empty() && pos.y >= right[1].y + 2 && pos.y + 1 < right[1].bottom() {
+        } else if is_left && !state.finder.targets.is_empty() && pos.y >= right[1].y + 2 && pos.y + 1 < right[1].bottom() {
             let row = usize::from(pos.y - (right[1].y + 2));
-            if row < state.targets.len() {
+            if row < state.finder.targets.len() {
                 state.focus.finder_results_sel = row;
             }
         }
@@ -231,7 +231,7 @@ fn handle_finder_mouse(
         state.focus.finder = FinderFocus::Log;
         state.reset_finder_hover();
         if let Some(dir) = scroll_dir {
-            scroll_log_n(&mut state.focus.finder_log_scroll, state.finder_logs.len(), dir, 3);
+            scroll_log_n(&mut state.focus.finder_log_scroll, state.finder.logs.len(), dir, 3);
         }
     }
 }
@@ -305,7 +305,7 @@ fn handle_run_mouse(
     } else if rows[3].contains(pos) {
         state.focus.run = RunFocus::Log;
         if let Some(dir) = scroll_dir {
-            scroll_log_n(&mut state.focus.run_log_scroll, state.run_logs.len(), dir, 3);
+            scroll_log_n(&mut state.focus.run_log_scroll, state.run.logs.len(), dir, 3);
         }
     }
     AppAction::None
@@ -331,7 +331,7 @@ fn handle_config_mouse(
     if cols[0].contains(pos) {
         state.focus.config = ConfigFocus::Toml;
         if let Some(dir) = scroll_dir {
-            scroll_pane_n(&mut state.toml_scroll, dir, 3);
+            scroll_pane_n(&mut state.config.toml_scroll, dir, 3);
         }
     } else if right[0].contains(pos) {
         state.focus.config = ConfigFocus::Nft;

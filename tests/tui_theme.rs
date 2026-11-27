@@ -71,12 +71,12 @@ fn theme_syntax_highlighters_and_buffer_palette_apply_distinct_colors() {
 #[test]
 fn finder_option_tooltip_opens_after_one_second_dwell_and_resets_on_navigation() {
     let mut state = AppState::new(None, None, false);
-    let t0 = state.finder_hover.since.expect("initial hover timestamp armed");
+    let t0 = state.finder.hover.since.expect("initial hover timestamp armed");
     state.poll_finder_hover(t0);
-    assert!(!state.finder_hover.open, "tooltip must stay closed immediately");
+    assert!(!state.finder.hover.open, "tooltip must stay closed immediately");
 
     state.poll_finder_hover(t0 + FINDER_HOVER_DELAY);
-    assert!(state.finder_hover.open, "tooltip must open after 1s dwell");
+    assert!(state.finder.hover.open, "tooltip must open after 1s dwell");
     let first_popup = render_to_string(&state, 120, 32);
     assert!(first_popup.contains("? Target Domains"));
     assert!(first_popup.contains("[Esc] hide"));
@@ -84,18 +84,18 @@ fn finder_option_tooltip_opens_after_one_second_dwell_and_resets_on_navigation()
     // Navigating down closes the tooltip immediately and re-arms the 1s timer on the next option.
     state.handle_key(key(KeyCode::Down));
     assert_eq!(state.focused_field(), FinderField::ProtoHttp);
-    assert!(!state.finder_hover.open);
-    let t1 = state.finder_hover.since.expect("hover re-armed on move");
+    assert!(!state.finder.hover.open);
+    let t1 = state.finder.hover.since.expect("hover re-armed on move");
     state.poll_finder_hover(t1 + FINDER_HOVER_DELAY);
     let second_popup = render_to_string(&state, 120, 32);
     assert!(second_popup.contains("? HTTP (TCP 80)"));
 
     // Pressing Esc dismisses the tooltip and pauses re-opening until further interaction.
     state.handle_key(key(KeyCode::Esc));
-    assert!(!state.finder_hover.open);
-    assert!(state.finder_hover.since.is_none());
+    assert!(!state.finder.hover.open);
+    assert!(state.finder.hover.since.is_none());
     state.poll_finder_hover(t1 + FINDER_HOVER_DELAY * 5);
-    assert!(!state.finder_hover.open);
+    assert!(!state.finder.hover.open);
 }
 
 /// Verifies `Tab`/`BackTab` cycles panel focus within each tab and scrolls logs/results/scripts.

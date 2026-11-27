@@ -48,19 +48,19 @@ fn startup_seeding_uses_saved_domains_then_falls_back_to_hostlist_domains() {
 
     // Without saved history file, seeding extracts inline hostlist_domains from active_toml.
     let mut state = AppState::new(Some(cfg_path.clone()), None, false);
-    state.domains_input.clear();
+    state.finder.domains_input.clear();
     seed_domains_on_startup(&mut state);
-    assert_eq!(state.domains_input, "youtube.com, discord.com");
+    assert_eq!(state.finder.domains_input, "youtube.com, discord.com");
 
     // Once user saves a custom domain list, subsequent startups prefer the saved history file.
-    state.domains_input = "store.steampowered.com".to_owned();
+    state.finder.domains_input = "store.steampowered.com".to_owned();
     save_domains_history(&state);
-    assert!(domains_history_path(&state.output_path).is_file());
+    assert!(domains_history_path(&state.finder.output_path).is_file());
 
     let mut reloaded = AppState::new(Some(cfg_path), None, false);
-    reloaded.domains_input.clear();
+    reloaded.finder.domains_input.clear();
     seed_domains_on_startup(&mut reloaded);
-    assert_eq!(reloaded.domains_input, "store.steampowered.com");
+    assert_eq!(reloaded.finder.domains_input, "store.steampowered.com");
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -107,7 +107,7 @@ fn scan_completion_stashes_pending_merge_and_esc_keeps_new_scan_only() {
     });
 
     // Existing profiles trigger `pending_merge` with (previous, new_scan).
-    let (prev, new_only) = state.pending_merge.clone().expect("pending_merge populated");
+    let (prev, new_only) = state.config.pending_merge.clone().expect("pending_merge populated");
     assert_eq!(prev, existing);
     assert_eq!(new_only, rendered_new);
 
@@ -137,19 +137,19 @@ fn scan_completion_stashes_pending_merge_and_esc_keeps_new_scan_only() {
         state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
         AppAction::None
     );
-    assert!(state.pending_merge.is_none());
-    assert_eq!(state.active_toml, rendered_new);
+    assert!(state.config.pending_merge.is_none());
+    assert_eq!(state.config.active_toml, rendered_new);
 
     // Pressing 'k' on ConfirmMergeConfig restores the existing config and discards the new scan.
-    state.pending_merge = Some((prev.clone(), new_only));
+    state.config.pending_merge = Some((prev.clone(), new_only));
     state.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmMergeConfig, "merge".to_owned()));
     assert_eq!(
         state.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)),
         AppAction::None
     );
     assert!(state.modal.is_none());
-    assert!(state.pending_merge.is_none());
-    assert_eq!(state.active_toml, existing);
+    assert!(state.config.pending_merge.is_none());
+    assert_eq!(state.config.active_toml, existing);
 }
 
 #[test]
@@ -157,14 +157,14 @@ fn tab1_domain_scope_row_cycles_options_and_renders_in_setup_form() {
     use ratatui::{Terminal, backend::TestBackend};
 
     let mut state = AppState::new(None, None, false);
-    assert_eq!(state.domain_scope, DomainScope::ScannedOnly);
-    state.focus_idx = FinderField::ALL.len() - 1;
+    assert_eq!(state.finder.domain_scope, DomainScope::ScannedOnly);
+    state.finder.focus_idx = FinderField::ALL.len() - 1;
     assert_eq!(state.focused_field(), FinderField::DomainScope);
 
     state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(state.domain_scope, DomainScope::AllDomains);
+    assert_eq!(state.finder.domain_scope, DomainScope::AllDomains);
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(state.domain_scope, DomainScope::AutoHostlist);
+    assert_eq!(state.finder.domain_scope, DomainScope::AutoHostlist);
 
     let backend = TestBackend::new(120, 32);
     let mut term = Terminal::new(backend).expect("terminal");
@@ -174,7 +174,7 @@ fn tab1_domain_scope_row_cycles_options_and_renders_in_setup_form() {
     assert!(rendered.contains("Domain Scope") && rendered.contains("Auto Hostlist"));
 
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(state.domain_scope, DomainScope::ScannedOnly);
+    assert_eq!(state.finder.domain_scope, DomainScope::ScannedOnly);
 }
 
 #[test]
@@ -200,12 +200,12 @@ fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains() {
     fs::write(&cfg_path, &cfg_toml).expect("write nfqws2.toml");
 
     let mut state = AppState::new(Some(cfg_path), None, false);
-    state.domains_input = "blocked-one.example, blocked-two.example".to_owned();
+    state.finder.domains_input = "blocked-one.example, blocked-two.example".to_owned();
     seed_autohostlists_from_domains(&mut state);
     state.tab = ActiveTab::Config;
-    assert_eq!(state.autohostlist_paths, vec![autolist_path]);
+    assert_eq!(state.config.autohostlist_paths, vec![autolist_path]);
     assert_eq!(
-        state.autohostlist_entries,
+        state.config.autohostlist_entries,
         vec!["blocked-one.example".to_owned(), "blocked-two.example".to_owned()]
     );
 

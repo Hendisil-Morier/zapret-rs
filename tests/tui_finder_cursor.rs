@@ -31,12 +31,12 @@ fn line_with<'a>(lines: &'a [String], needle: &str) -> &'a str {
 #[test]
 fn editing_domains_cursor_does_not_scroll_or_mark_config_path() {
     let mut state = AppState::new(None, None, false);
-    state.domains_input = "alpha-first-domain.com,beta-second-domain.com".to_owned();
-    state.output_path = "/home/user/.config/zapret-rs/very-long-config-name.toml".to_owned();
+    state.finder.domains_input = "alpha-first-domain.com,beta-second-domain.com".to_owned();
+    state.finder.output_path = "/home/user/.config/zapret-rs/very-long-config-name.toml".to_owned();
 
     // Start editing `Domains` (focus_idx = 0) and move cursor near the end, then left.
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(state.editing_text);
+    assert!(state.finder.editing_text);
 
     let before_lines = render_lines(&state);
     let cfg_before = line_with(&before_lines, "Config Path");
@@ -56,13 +56,13 @@ fn editing_domains_cursor_does_not_scroll_or_mark_config_path() {
 #[test]
 fn arrow_keys_scroll_long_text_row_without_entering_edit_mode() {
     let mut state = AppState::new(None, None, false);
-    state.domains_input = "alpha-first-domain.com,beta-second-domain.com,gamma-third.org".to_owned();
-    state.output_path = "/home/user/.config/zapret-rs/very-long-config-name.toml".to_owned();
+    state.finder.domains_input = "alpha-first-domain.com,beta-second-domain.com,gamma-third.org".to_owned();
+    state.finder.output_path = "/home/user/.config/zapret-rs/very-long-config-name.toml".to_owned();
 
     let initial = render_lines(&state);
     let dom0 = line_with(&initial, "Domains").to_owned();
     let cfg0 = line_with(&initial, "Config Path").to_owned();
-    assert!(!state.editing_text);
+    assert!(!state.finder.editing_text);
     assert!(dom0.contains("alpha-first"));
 
     // Press Right / End in view mode to scroll the text horizontally without editing.

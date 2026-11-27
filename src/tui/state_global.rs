@@ -27,7 +27,7 @@ impl AppState {
                 self.dismiss_finder_hover();
             }
             KeyCode::Char('q') => return Some(AppAction::Quit),
-            KeyCode::Char('g') if !self.has_net_caps => self.open_caps_modal(),
+            KeyCode::Char('g') if !self.status.has_net_caps => self.open_caps_modal(),
             KeyCode::Char('1') => return Some(self.switch_tab(ActiveTab::Finder)),
             KeyCode::Char('2') => return Some(self.switch_tab(ActiveTab::Run)),
             KeyCode::Char('3') => return Some(self.switch_tab(ActiveTab::Config)),
@@ -95,27 +95,27 @@ impl AppState {
         self.status_banner =
             "Attached to nfqws2. Press 'x' to detach, 'l' to reload lists, 'S' to stop daemon."
                 .to_owned();
-        self.detected_socket = Some(meta.socket_path.clone());
-        self.remote_meta = Some(meta);
-        self.run_status = RunStatus::Attached;
-        self.auto_reattach = true;
-        self.counter_baseline = (0, 0, 0, 0, 0);
+        self.run.detected_socket = Some(meta.socket_path.clone());
+        self.run.remote_meta = Some(meta);
+        self.run.status = RunStatus::Attached;
+        self.run.auto_reattach = true;
+        self.run.counter_baseline = (0, 0, 0, 0, 0);
         self.push_run_log(log_line);
     }
 
     /// Transitions Tab 2 back from [`RunStatus::Attached`] to [`RunStatus::Stopped`].
     pub fn set_detached(&mut self, log_line: String, banner: String) {
-        self.remote_meta = None;
-        self.run_status = RunStatus::Stopped;
-        self.counter_baseline = (0, 0, 0, 0, 0);
+        self.run.remote_meta = None;
+        self.run.status = RunStatus::Stopped;
+        self.run.counter_baseline = (0, 0, 0, 0, 0);
         self.push_run_log(log_line);
         self.status_banner = banner;
     }
 
     /// Returns `(total, passed, reassembled, modified, desynced)` minus [`Self::counter_baseline`].
     pub fn visible_counters(&self) -> (u64, u64, u64, u64, u64) {
-        let (s0, s1, s2, s3, s4) = self.counters.snapshot();
-        let (b0, b1, b2, b3, b4) = self.counter_baseline;
+        let (s0, s1, s2, s3, s4) = self.run.counters.snapshot();
+        let (b0, b1, b2, b3, b4) = self.run.counter_baseline;
         if s0 < b0 || s1 < b1 || s2 < b2 || s3 < b3 || s4 < b4 {
             return (s0, s1, s2, s3, s4);
         }

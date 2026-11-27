@@ -40,7 +40,7 @@ enum JobPhase {
 pub(crate) struct SpeedJob {
     /// Current phase of the stop -> measure -> start -> measure sequence.
     phase: JobPhase,
-    /// Ordered `(target, ip_family)` pairs matching `state.ip_mode.families()`.
+    /// Ordered `(target, ip_family)` pairs matching `state.finder.ip_mode.families()`.
     targets: Vec<(SpeedTarget, IpFamily)>,
 }
 
@@ -102,8 +102,8 @@ pub(crate) fn begin_speed_test(
     if !attach_and_stop_active_daemon(state, session_tab2, session) {
         return None;
     }
-    let eff = effective_speed_domains(&state.domains_input, &state.active_toml);
-    let targets = build_scoped_targets(&eff, &state.ip_mode.families());
+    let eff = effective_speed_domains(&state.finder.domains_input, &state.config.active_toml);
+    let targets = build_scoped_targets(&eff, &state.finder.ip_mode.families());
     state.speed.start_scoped(&targets);
     state.status_banner = "Speed test: waiting for daemon to stop...".to_owned();
     Some(SpeedJob { phase: JobPhase::Stopping { started: Instant::now() }, targets })
@@ -120,7 +120,7 @@ pub(crate) fn poll_speed_test(
     };
     match &mut curr.phase {
         JobPhase::Stopping { started } => {
-            let sock = detect_control_socket(state.control_socket_override.as_deref()).is_some();
+            let sock = detect_control_socket(state.run.control_socket_override.as_deref()).is_some();
             if session_tab2.is_some() || sock {
                 if started.elapsed() >= STOP_TIMEOUT {
                     abort_speed_job(
@@ -152,7 +152,7 @@ pub(crate) fn poll_speed_test(
                 state.status_banner = "Speed test: settling firewall rules...".to_owned();
             } else if state.modal.is_some() {
                 // Waiting on user confirmation (`sudo` / capability prompt).
-            } else if matches!(state.run_status, RunStatus::Error(_)) {
+            } else if matches!(state.run.status, RunStatus::Error(_)) {
                 abort_speed_job(
                     job,
                     state,

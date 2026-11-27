@@ -114,7 +114,7 @@ fn format_rate_and_describe_sample_cover_scales_and_errors() {
 #[test]
 fn tab4_key_switches_renders_empty_state_table_and_help_popup() {
     let mut state = AppState::new(None, None, false);
-    state.domains_input = "example.com".to_owned();
+    state.finder.domains_input = "example.com".to_owned();
     state.handle_key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
     assert_eq!(state.tab, ActiveTab::Speed);
 
@@ -143,7 +143,7 @@ fn tab4_key_switches_renders_empty_state_table_and_help_popup() {
 fn tab4_run_key_requires_confirmation_then_emits_run_speed_test_action() {
     let mut state = AppState::new(None, None, false);
     state.tab = ActiveTab::Speed;
-    state.domains_input = "example.com".to_owned();
+    state.finder.domains_input = "example.com".to_owned();
 
     assert_eq!(
         state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),

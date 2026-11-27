@@ -64,27 +64,27 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation() {
 
     // Enter text edit mode on Domains; typing 'q' and '1' must insert characters, not quit or switch tabs.
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
-    assert!(state.editing_text);
+    assert!(state.finder.editing_text);
     for ch in "q1.example.com".chars() {
         assert_eq!(state.handle_key(key(KeyCode::Char(ch))), AppAction::None);
     }
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
-    assert!(!state.editing_text);
-    assert_eq!(state.domains_input, "q1.example.com");
+    assert!(!state.finder.editing_text);
+    assert_eq!(state.finder.domains_input, "q1.example.com");
 
     // Toggle HTTP off, cycle IP mode to V6, cycle ScanLevel to Standard.
     state.handle_key(key(KeyCode::Down)); // ProtoHttp
     assert_eq!(state.focused_field(), FinderField::ProtoHttp);
     state.handle_key(key(KeyCode::Char(' ')));
-    assert!(!state.proto_http);
+    assert!(!state.finder.proto_http);
 
-    state.focus_idx = 5; // IpMode
+    state.finder.focus_idx = 5; // IpMode
     state.handle_key(key(KeyCode::Enter));
-    assert_eq!(state.ip_mode, IpMode::V6);
+    assert_eq!(state.finder.ip_mode, IpMode::V6);
 
-    state.focus_idx = 6; // Level
+    state.finder.focus_idx = 6; // Level
     state.handle_key(key(KeyCode::Enter));
-    assert_eq!(state.level, ScanLevel::Standard);
+    assert_eq!(state.finder.level, ScanLevel::Standard);
 
     // Build scan config from form state and verify fields.
     let cfg = state.build_scan_config().expect("valid scan config");
@@ -95,7 +95,7 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation() {
 
     // Trigger scan start and feed synthetic ScanUiEvents.
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StartScan);
-    state.finder_status = FinderStatus::Scanning;
+    state.finder.status = FinderStatus::Scanning;
     assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::StopScan);
 
     let spec = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V6)
@@ -141,20 +141,20 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation() {
         rendered_toml: rendered,
     });
 
-    assert_eq!(state.finder_status, FinderStatus::Done);
-    assert_eq!(state.parsed_profiles, vec![spec.id]);
+    assert_eq!(state.finder.status, FinderStatus::Done);
+    assert_eq!(state.config.parsed_profiles, vec![spec.id]);
 
     // Press 'a' to switch to Run tab, start daemon, reset counters, and quit.
     assert_eq!(state.handle_key(key(KeyCode::Char('a'))), AppAction::None);
     assert_eq!(state.tab, ActiveTab::Run);
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StartDaemon);
 
-    state.run_status = RunStatus::Running;
-    state.counters.total.store(12, Ordering::Relaxed);
+    state.run.status = RunStatus::Running;
+    state.run.counters.total.store(12, Ordering::Relaxed);
     assert_eq!(state.handle_key(key(KeyCode::Char('c'))), AppAction::None);
-    assert_eq!(state.counters.snapshot().0, 0);
+    assert_eq!(state.run.counters.snapshot().0, 0);
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StopDaemon);
-    state.has_net_caps = false;
+    state.status.has_net_caps = false;
     assert_eq!(state.handle_key(key(KeyCode::Char('g'))), AppAction::None);
     assert!(state.modal.is_some(), "'g' must open the floating capability modal");
     assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
@@ -191,12 +191,12 @@ fn tui_floating_auth_modal_masks_password_renders_and_submits() {
 #[test]
 fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
     let mut state = AppState::new(None, None, false);
-    state.domains_input = "example.com".to_owned();
-    state.counters.total.store(99, Ordering::Relaxed);
-    state.counters.passed.store(86, Ordering::Relaxed);
-    state.counters.reassembled.store(4, Ordering::Relaxed);
-    state.counters.modified.store(7, Ordering::Relaxed);
-    state.counters.desynced.store(2, Ordering::Relaxed);
+    state.finder.domains_input = "example.com".to_owned();
+    state.run.counters.total.store(99, Ordering::Relaxed);
+    state.run.counters.passed.store(86, Ordering::Relaxed);
+    state.run.counters.reassembled.store(4, Ordering::Relaxed);
+    state.run.counters.modified.store(7, Ordering::Relaxed);
+    state.run.counters.desynced.store(2, Ordering::Relaxed);
 
     for &(w, h) in &[(120u16, 36u16), (80, 24)] {
         state.tab = ActiveTab::Finder;
@@ -324,22 +324,22 @@ fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
 #[test]
 fn config_tab_edit_action_and_toml_validation_badge() {
     let mut state = AppState::new(None, None, false);
-    state.has_net_caps = true;
+    state.status.has_net_caps = true;
     state.tab = ActiveTab::Config;
     assert_eq!(state.handle_key(key(KeyCode::Char('e'))), AppAction::EditConfig);
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::EditConfig);
 
     // Invalid TOML populates `toml_error` and displays `[INVALID:` on Tab 3.
     state.set_active_toml("qnum = [broken".to_owned());
-    assert!(state.toml_error.is_some());
-    assert!(state.parsed_profiles.is_empty());
+    assert!(state.config.toml_error.is_some());
+    assert!(state.config.parsed_profiles.is_empty());
     let bad_screen = render_to_string(&state, 120, 32);
     assert!(bad_screen.contains("[INVALID:"));
 
     // Valid starter TOML clears `toml_error` and renders `[VALID:`.
     let starter = zapret_rs::tui::editor::build_starter_toml(200, 0x4000_0000, "");
     state.set_active_toml(starter);
-    assert!(state.toml_error.is_none());
+    assert!(state.config.toml_error.is_none());
     let ok_screen = render_to_string(&state, 120, 32);
     assert!(ok_screen.contains("[VALID:") && ok_screen.contains("[?] Keys"));
     state.handle_key(key(KeyCode::Char('?')));

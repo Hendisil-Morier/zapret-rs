@@ -51,7 +51,7 @@ fn tab3_blacklist_and_conditional_autohostlist_prompts_persist_and_render() {
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitPrompt);
     apply_prompt_offline(&mut state);
     assert!(state.prompt_modal.is_none());
-    assert_eq!(state.exclude_entries, vec!["bank.example.com".to_owned()]);
+    assert_eq!(state.config.exclude_entries, vec!["bank.example.com".to_owned()]);
     assert!(fs::read_to_string(&cfg_path).expect("read").contains("hostlist_exclude_domains"));
 
     // Render Tab 3 and confirm Blacklist appears cleanly.
@@ -71,14 +71,14 @@ fn tab3_blacklist_and_conditional_autohostlist_prompts_persist_and_render() {
     type_str(&mut state, "blocked.org");
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitPrompt);
     apply_prompt_offline(&mut state);
-    assert_eq!(state.autohostlist_entries, vec!["blocked.org".to_owned()]);
+    assert_eq!(state.config.autohostlist_entries, vec!["blocked.org".to_owned()]);
 
     assert_eq!(state.handle_key(key(KeyCode::Char('d'))), AppAction::None);
     assert_eq!(state.prompt_modal.as_ref().map(|m| m.kind), Some(PromptKind::RemoveListDomain));
     type_str(&mut state, "bank.example.com");
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitPrompt);
     apply_prompt_offline(&mut state);
-    assert!(state.exclude_entries.is_empty());
+    assert!(state.config.exclude_entries.is_empty());
 
     let _ = fs::remove_dir_all(&dir);
 }

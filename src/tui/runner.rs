@@ -96,10 +96,10 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     if !from_reexec {
         seed_domains_on_startup(&mut state);
     }
-    state.control_socket_override = opts.control_socket;
-    state.detected_socket = detect_control_socket(state.control_socket_override.as_deref());
-    state.has_net_caps = has_packet_capture_privileges().unwrap_or(false);
-    if !state.has_net_caps && state.detected_socket.is_none() {
+    state.run.control_socket_override = opts.control_socket;
+    state.run.detected_socket = detect_control_socket(state.run.control_socket_override.as_deref());
+    state.status.has_net_caps = has_packet_capture_privileges().unwrap_or(false);
+    if !state.status.has_net_caps && state.run.detected_socket.is_none() {
         state.open_caps_modal();
     }
 
@@ -107,13 +107,13 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     let mut active_scan: Option<ActiveScan> = None;
     let mut pending_scan: Option<PendingScanStart> = None;
     let mut tab2_session: Option<Tab2Session> = None;
-    if let Some(sock) = state.detected_socket.clone()
+    if let Some(sock) = state.run.detected_socket.clone()
         && attach_to_socket(&mut state, &mut tab2_session, sock)
         && !from_reexec
     {
         state.tab = ActiveTab::Run;
     }
-    if state.has_net_caps {
+    if state.status.has_net_caps {
         match pending_action {
             Some(PostCapsAction::StartScan) => {
                 pending_scan = begin_scan_stopping_daemon(
@@ -185,7 +185,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 }
                 AppAction::StopScan => {
                     if pending_scan.take().is_some() {
-                        state.finder_status = crate::tui::FinderStatus::Done;
+                        state.finder.status = crate::tui::FinderStatus::Done;
                         state.status_banner =
                             "Cancelled strategy scan while stopping nfqws2.".to_owned();
                     } else {
@@ -207,7 +207,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 AppAction::DetachDaemon => {
                     if let Some(Tab2Session::Remote(mut remote)) = tab2_session.take() {
                         remote.detach();
-                        state.auto_reattach = false;
+                        state.run.auto_reattach = false;
                         state.set_detached(
                             "[detach] detached from remote nfqws2 (daemon still running).".to_owned(),
                             "Detached from remote daemon.".to_owned(),

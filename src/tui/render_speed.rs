@@ -56,9 +56,9 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         SpeedPhase::Done => t.ok,
         _ => t.warn,
     };
-    let eff_domains = effective_speed_domains(&state.domains_input, &state.active_toml);
+    let eff_domains = effective_speed_domains(&state.finder.domains_input, &state.config.active_toml);
     let preview_targets = build_targets(&eff_domains);
-    let source_hint = if state.domains_input.trim().is_empty() && !eff_domains.trim().is_empty() {
+    let source_hint = if state.finder.domains_input.trim().is_empty() && !eff_domains.trim().is_empty() {
         "Targets (from active config + control): "
     } else {
         "Targets (from Tab 1 + control): "
@@ -73,7 +73,7 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled("Phase: ", Style::default().fg(t.info)),
             Span::styled(phase.label(), Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
             Span::styled("   IP Family: ", Style::default().fg(t.info)),
-            Span::styled(state.ip_mode.label(), Style::default().fg(t.warn_bright)),
+            Span::styled(state.finder.ip_mode.label(), Style::default().fg(t.warn_bright)),
         ]),
         Line::from(vec![
             Span::styled(source_hint, Style::default().fg(t.subtle)),

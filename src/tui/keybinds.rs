@@ -71,7 +71,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
     let mut lines = Vec::new();
 
     // Global bindings shown regardless of active tab.
-    let global_row = if !state.has_net_caps {
+    let global_row = if !state.status.has_net_caps {
         "[1..5] Views  [Tab/Shift+Tab] Panel  [W] Web UI  [t/T] Theme  [g] Caps  [?] Help  [q] Quit"
     } else {
         "[1..5] Views  [Tab/Shift+Tab] Focus Panel  [W] Web UI  [t] Theme  [T] Save theme.toml  [?] Help  [q] Quit"
@@ -102,12 +102,12 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
             );
         }
         ActiveTab::Run => {
-            let run_rows: [&'static str; 2] = if state.run_status == RunStatus::Attached {
+            let run_rows: [&'static str; 2] = if state.run.status == RunStatus::Attached {
                 [
                     "[x] Detach  [S] Stop Daemon  [R] Restart  [l] Reload Lists  [f] Verdict  [/] Search  [p] Pause  [d] Detail",
                     "[Up/Down/PgUp/PgDn] Select Packet / Scroll Log  [c] Clear  [Esc/Enter] Close Detail",
                 ]
-            } else if state.detected_socket.is_some() && state.run_status != RunStatus::Running {
+            } else if state.run.detected_socket.is_some() && state.run.status != RunStatus::Running {
                 [
                     "[r] Attach  [R] Restart  [f] Verdict  [/] Search  [p] Pause  [d] Detail  [c] Clear  [l] Reload",
                     "[Up/Down/PgUp/PgDn] Select Packet / Scroll Daemon Log  [Esc/Enter] Close Detail",
@@ -122,7 +122,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
             push_help_section(&mut lines, run_title, true, &run_rows, t);
         }
         ActiveTab::Config => {
-            let cfg_rows: [&'static str; 2] = if state.run_status == RunStatus::Attached {
+            let cfg_rows: [&'static str; 2] = if state.run.status == RunStatus::Attached {
                 [
                     "[e/Enter] Edit ($EDITOR)  [p] Push Config  [s] Save  [l] Reload",
                     "[b] Blacklist  [a] Auto-add  [d] Remove Domain  [Up/Down/PgUp/PgDn] Scroll",

@@ -22,16 +22,16 @@ impl AppState {
     /// Returns the currently selected protocol list from the Finder checkboxes.
     pub fn selected_protos(&self) -> Vec<ProbeProtocol> {
         let mut out = Vec::new();
-        if self.proto_http {
+        if self.finder.proto_http {
             out.push(ProbeProtocol::Http);
         }
-        if self.proto_tls12 {
+        if self.finder.proto_tls12 {
             out.push(ProbeProtocol::Tls12);
         }
-        if self.proto_tls13 {
+        if self.finder.proto_tls13 {
             out.push(ProbeProtocol::Tls13);
         }
-        if self.proto_http3 {
+        if self.finder.proto_http3 {
             out.push(ProbeProtocol::Http3);
         }
         out
@@ -40,7 +40,7 @@ impl AppState {
     /// Validates Finder form fields and constructs a [`ScanConfig`].
     pub fn build_scan_config(&self) -> Result<ScanConfig, String> {
         let domains: Vec<String> = self
-            .domains_input
+            .finder.domains_input
             .split(|c: char| c.is_whitespace() || c == ',')
             .filter_map(normalize_domain)
             .collect();
@@ -54,10 +54,10 @@ impl AppState {
         Ok(ScanConfig {
             domains,
             protos,
-            families: self.ip_mode.families(),
-            level: self.level,
+            families: self.finder.ip_mode.families(),
+            level: self.finder.level,
             timeout: Duration::from_secs(2),
-            stop_on_first: self.stop_on_first,
+            stop_on_first: self.finder.stop_on_first,
             force_blocked: false,
         })
     }
@@ -67,17 +67,17 @@ impl AppState {
         let cfg = ScanConfig {
             domains: Vec::new(),
             protos: self.selected_protos(),
-            families: self.ip_mode.families(),
-            level: self.level,
+            families: self.finder.ip_mode.families(),
+            level: self.finder.level,
             timeout: Duration::from_secs(2),
-            stop_on_first: self.stop_on_first,
+            stop_on_first: self.finder.stop_on_first,
             force_blocked: false,
         };
         let (tcp, udp) = cfg.required_ports();
         let backend = active_firewall_backend();
         (
             backend.preview_title(),
-            backend.preview_filter(self.finder_qnum, self.fwmark, &tcp, &udp),
+            backend.preview_filter(self.finder.qnum, self.finder.fwmark, &tcp, &udp),
         )
     }
 
@@ -91,13 +91,13 @@ impl AppState {
         match event {
             ScanUiEvent::Baseline { domain, proto, ipv, summary, skipped } => {
                 let tag = if skipped { "reachable (skip)" } else { "blocked" };
-                self.progress_label = format!("Baseline {domain} ({proto}/{ipv}): {summary}");
+                self.finder.progress_label = format!("Baseline {domain} ({proto}/{ipv}): {summary}");
                 self.push_finder_log(format!("[baseline] {domain} ({proto}/{ipv}) -> {summary} [{tag}]"));
             }
             ScanUiEvent::Candidate { domain, index, total, strategy_id, passed, summary } => {
-                self.progress_done = index;
-                self.progress_total = total;
-                self.progress_label = format!("{domain} [{index}/{total}] {strategy_id}");
+                self.finder.progress_done = index;
+                self.finder.progress_total = total;
+                self.finder.progress_label = format!("{domain} [{index}/{total}] {strategy_id}");
                 if passed {
                     self.push_finder_log(format!(
                         "[PASS {index}/{total}] {domain} :: {strategy_id} -> {summary}"
@@ -107,21 +107,21 @@ impl AppState {
             ScanUiEvent::Notice(msg) => self.push_finder_log(msg),
             ScanUiEvent::Completed { report, rendered_toml } => {
                 let n_cover = report.cover.len();
-                self.targets = report.targets;
-                self.cover = report.cover;
+                self.finder.targets = report.targets;
+                self.finder.cover = report.cover;
                 self.focus.finder_results_sel = 0;
-                self.finder_status = FinderStatus::Done;
-                self.progress_done = self.progress_total;
+                self.finder.status = FinderStatus::Done;
+                self.finder.progress_done = self.finder.progress_total;
                 if !rendered_toml.is_empty() {
-                    if !self.parsed_profiles.is_empty() && self.toml_error.is_none() {
-                        self.pending_merge =
-                            Some((self.active_toml.clone(), rendered_toml.clone()));
+                    if !self.config.parsed_profiles.is_empty() && self.config.toml_error.is_none() {
+                        self.config.pending_merge =
+                            Some((self.config.active_toml.clone(), rendered_toml.clone()));
                     } else {
-                        self.pending_merge = None;
+                        self.config.pending_merge = None;
                     }
                     self.set_active_toml(rendered_toml);
                 }
-                self.progress_label = if report.interrupted {
+                self.finder.progress_label = if report.interrupted {
                     format!("Stopped early: {n_cover} covering profile(s)")
                 } else {
                     format!("Done: {n_cover} minimal covering profile(s)")
@@ -133,8 +133,8 @@ impl AppState {
                 };
             }
             ScanUiEvent::Failed(err) => {
-                self.finder_status = FinderStatus::Error(err.clone());
-                self.progress_label = format!("Error: {err}");
+                self.finder.status = FinderStatus::Error(err.clone());
+                self.finder.progress_label = format!("Error: {err}");
                 self.status_banner = format!("Scan error: {err}");
                 self.push_finder_log(format!("[error] {err}"));
             }
@@ -143,14 +143,14 @@ impl AppState {
 
     /// Hides the option tooltip and restarts the 1-second dwell timer from now.
     pub fn reset_finder_hover(&mut self) {
-        self.finder_hover.open = false;
-        self.finder_hover.since = Some(Instant::now());
+        self.finder.hover.open = false;
+        self.finder.hover.since = Some(Instant::now());
     }
 
     /// Hides the option tooltip and pauses the dwell timer until the user interacts again.
     pub fn dismiss_finder_hover(&mut self) {
-        self.finder_hover.open = false;
-        self.finder_hover.since = None;
+        self.finder.hover.open = false;
+        self.finder.hover.since = None;
     }
 
     /// Opens the Tab 1 option explanation popup once focus rests idle for [`FINDER_HOVER_DELAY`].
@@ -159,17 +159,17 @@ impl AppState {
             || self.focus.finder != FinderFocus::Setup
             || self.modal.is_some()
             || self.help_open
-            || self.editing_text
-            || self.finder_status == FinderStatus::Scanning
+            || self.finder.editing_text
+            || self.finder.status == FinderStatus::Scanning
         {
-            self.finder_hover.open = false;
+            self.finder.hover.open = false;
             return;
         }
-        if !self.finder_hover.open
-            && let Some(since) = self.finder_hover.since
+        if !self.finder.hover.open
+            && let Some(since) = self.finder.hover.since
             && now.saturating_duration_since(since) >= FINDER_HOVER_DELAY
         {
-            self.finder_hover.open = true;
+            self.finder.hover.open = true;
         }
     }
 
@@ -178,18 +178,18 @@ impl AppState {
         match self.focus.finder {
             FinderFocus::Setup => match code {
                 KeyCode::Up | KeyCode::Char('k') => {
-                    self.focus_idx = if self.focus_idx == 0 {
+                    self.finder.focus_idx = if self.finder.focus_idx == 0 {
                         FinderField::ALL.len() - 1
                     } else {
-                        self.focus_idx - 1
+                        self.finder.focus_idx - 1
                     };
-                    self.text_scroll = 0;
+                    self.finder.text_scroll = 0;
                     self.reset_finder_hover();
                     true
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
-                    self.focus_idx = (self.focus_idx + 1) % FinderField::ALL.len();
-                    self.text_scroll = 0;
+                    self.finder.focus_idx = (self.finder.focus_idx + 1) % FinderField::ALL.len();
+                    self.finder.text_scroll = 0;
                     self.reset_finder_hover();
                     true
                 }
@@ -199,10 +199,10 @@ impl AppState {
                     let len = self.focused_text_buf_len();
                     let cap = len.saturating_sub(16);
                     match code {
-                        KeyCode::Left => self.text_scroll = self.text_scroll.saturating_sub(1),
-                        KeyCode::Right => self.text_scroll = (self.text_scroll + 1).min(cap),
-                        KeyCode::Home => self.text_scroll = 0,
-                        KeyCode::End => self.text_scroll = cap,
+                        KeyCode::Left => self.finder.text_scroll = self.finder.text_scroll.saturating_sub(1),
+                        KeyCode::Right => self.finder.text_scroll = (self.finder.text_scroll + 1).min(cap),
+                        KeyCode::Home => self.finder.text_scroll = 0,
+                        KeyCode::End => self.finder.text_scroll = cap,
                         _ => {}
                     }
                     self.reset_finder_hover();
@@ -211,23 +211,23 @@ impl AppState {
                 _ => false,
             },
             FinderFocus::Results => {
-                let last = self.targets.len().saturating_sub(1);
+                let last = self.finder.targets.len().saturating_sub(1);
                 let sel = &mut self.focus.finder_results_sel;
                 match code {
                     KeyCode::Up | KeyCode::Char('k') => *sel = sel.saturating_sub(1),
-                    KeyCode::Down | KeyCode::Char('j') if !self.targets.is_empty() => {
+                    KeyCode::Down | KeyCode::Char('j') if !self.finder.targets.is_empty() => {
                         *sel = (*sel + 1).min(last);
                     }
                     KeyCode::PageUp => *sel = sel.saturating_sub(5),
-                    KeyCode::PageDown if !self.targets.is_empty() => *sel = (*sel + 5).min(last),
+                    KeyCode::PageDown if !self.finder.targets.is_empty() => *sel = (*sel + 5).min(last),
                     KeyCode::Home => *sel = 0,
-                    KeyCode::End if !self.targets.is_empty() => *sel = last,
+                    KeyCode::End if !self.finder.targets.is_empty() => *sel = last,
                     _ => return false,
                 }
                 true
             }
             FinderFocus::Log => {
-                adjust_log_scroll(&mut self.focus.finder_log_scroll, self.finder_logs.len(), code)
+                adjust_log_scroll(&mut self.focus.finder_log_scroll, self.finder.logs.len(), code)
             }
         }
     }
@@ -235,9 +235,9 @@ impl AppState {
     /// Returns character count of the currently focused text field (`0` for non-text fields).
     fn focused_text_buf_len(&self) -> usize {
         match self.focused_field() {
-            FinderField::Domains => self.domains_input.chars().count(),
-            FinderField::LuaDir => self.lua_dir_input.chars().count(),
-            FinderField::OutputPath => self.output_path.chars().count(),
+            FinderField::Domains => self.finder.domains_input.chars().count(),
+            FinderField::LuaDir => self.finder.lua_dir_input.chars().count(),
+            FinderField::OutputPath => self.finder.output_path.chars().count(),
             _ => 0,
         }
     }
@@ -245,9 +245,9 @@ impl AppState {
     /// Returns a mutable reference to the active text field buffer, or `None` for non-text fields.
     fn focused_text_buf_mut(&mut self) -> Option<&mut String> {
         match self.focused_field() {
-            FinderField::Domains => Some(&mut self.domains_input),
-            FinderField::LuaDir => Some(&mut self.lua_dir_input),
-            FinderField::OutputPath => Some(&mut self.output_path),
+            FinderField::Domains => Some(&mut self.finder.domains_input),
+            FinderField::LuaDir => Some(&mut self.finder.lua_dir_input),
+            FinderField::OutputPath => Some(&mut self.finder.output_path),
             _ => None,
         }
     }
@@ -259,14 +259,14 @@ impl AppState {
     /// lists remain fully navigable even when they overflow the visible column.
     pub(crate) fn handle_text_edit_key(&mut self, code: KeyCode) -> AppAction {
         if matches!(code, KeyCode::Esc | KeyCode::Enter) {
-            self.editing_text = false;
+            self.finder.editing_text = false;
             self.status_banner = "Field updated.".to_owned();
             self.reset_finder_hover();
             return AppAction::None;
         }
-        let pos = self.text_cursor;
+        let pos = self.finder.text_cursor;
         let Some(buf) = self.focused_text_buf_mut() else {
-            self.editing_text = false;
+            self.finder.editing_text = false;
             self.reset_finder_hover();
             return AppAction::None;
         };
@@ -295,7 +295,7 @@ impl AppState {
             _ => None,
         };
         if let Some(cursor) = next_cursor {
-            self.text_cursor = cursor;
+            self.finder.text_cursor = cursor;
         }
         AppAction::None
     }
@@ -306,17 +306,17 @@ impl AppState {
             return AppAction::None;
         }
         match code {
-            KeyCode::Esc if self.finder_status != FinderStatus::Scanning && self.finder_hover.open => {
+            KeyCode::Esc if self.finder.status != FinderStatus::Scanning && self.finder.hover.open => {
                 self.dismiss_finder_hover();
             }
             KeyCode::Enter | KeyCode::Char(' ') if self.focus.finder == FinderFocus::Setup => {
                 self.activate_focused_finder_field();
             }
-            KeyCode::Char('r') if self.finder_status != FinderStatus::Scanning => {
+            KeyCode::Char('r') if self.finder.status != FinderStatus::Scanning => {
                 self.dismiss_finder_hover();
                 return AppAction::StartScan;
             }
-            KeyCode::Char('x') | KeyCode::Esc if self.finder_status == FinderStatus::Scanning => {
+            KeyCode::Char('x') | KeyCode::Esc if self.finder.status == FinderStatus::Scanning => {
                 return AppAction::StopScan;
             }
             KeyCode::Char('s') => {
@@ -324,7 +324,7 @@ impl AppState {
                 return AppAction::SaveConfig;
             }
             KeyCode::Char('a') => {
-                if self.active_toml.is_empty() {
+                if self.config.active_toml.is_empty() {
                     self.status_banner =
                         "No generated config yet: run a scan or load a file first.".to_owned();
                 } else {
@@ -345,28 +345,28 @@ impl AppState {
     fn activate_focused_finder_field(&mut self) {
         self.reset_finder_hover();
         if let Some(len) = self.focused_text_buf_mut().map(|buf| buf.len()) {
-            self.editing_text = true;
-            self.text_cursor = len;
+            self.finder.editing_text = true;
+            self.finder.text_cursor = len;
             self.dismiss_finder_hover();
             self.status_banner = "Editing field: Left/Right move cursor, Home/End jump, Del deletes forward, Enter/Esc done.".to_owned();
             return;
         }
         match self.focused_field() {
-            FinderField::ProtoHttp => self.proto_http = !self.proto_http,
-            FinderField::ProtoTls12 => self.proto_tls12 = !self.proto_tls12,
-            FinderField::ProtoTls13 => self.proto_tls13 = !self.proto_tls13,
-            FinderField::ProtoHttp3 => self.proto_http3 = !self.proto_http3,
-            FinderField::IpMode => self.ip_mode = self.ip_mode.next(),
+            FinderField::ProtoHttp => self.finder.proto_http = !self.finder.proto_http,
+            FinderField::ProtoTls12 => self.finder.proto_tls12 = !self.finder.proto_tls12,
+            FinderField::ProtoTls13 => self.finder.proto_tls13 = !self.finder.proto_tls13,
+            FinderField::ProtoHttp3 => self.finder.proto_http3 = !self.finder.proto_http3,
+            FinderField::IpMode => self.finder.ip_mode = self.finder.ip_mode.next(),
             FinderField::Level => {
-                self.level = match self.level {
+                self.finder.level = match self.finder.level {
                     ScanLevel::Quick => ScanLevel::Standard,
                     ScanLevel::Standard => ScanLevel::Force,
                     ScanLevel::Force => ScanLevel::Quick,
                 };
             }
-            FinderField::StopOnFirst => self.stop_on_first = !self.stop_on_first,
-            FinderField::NoNft => self.no_nft = !self.no_nft,
-            FinderField::DomainScope => self.domain_scope = self.domain_scope.next(),
+            FinderField::StopOnFirst => self.finder.stop_on_first = !self.finder.stop_on_first,
+            FinderField::NoNft => self.finder.no_nft = !self.finder.no_nft,
+            FinderField::DomainScope => self.finder.domain_scope = self.finder.domain_scope.next(),
             _ => {}
         }
     }

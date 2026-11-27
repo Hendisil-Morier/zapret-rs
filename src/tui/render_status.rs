@@ -55,12 +55,12 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let summary_width = rows[0].width.saturating_sub(32) as usize;
     let table_rows: Vec<Row<'_>> = state
-        .status_checks
+        .status.checks
         .iter()
         .enumerate()
         .map(|(idx, item)| {
-            let selected = idx == state.status_selected;
-            let hscroll = if selected { state.status_hscroll } else { 0 };
+            let selected = idx == state.status.selected;
+            let hscroll = if selected { state.status.hscroll } else { 0 };
             build_status_row(item, selected, hscroll, summary_width, t)
         })
         .collect();
@@ -79,7 +79,7 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     ));
     frame.render_widget(table, rows[0]);
 
-    let detail_lines = if let Some(sel) = state.status_checks.get(state.status_selected) {
+    let detail_lines = if let Some(sel) = state.status.checks.get(state.status.selected) {
         vec![Line::from(vec![
             Span::styled(
                 format!("{}: ", sel.name),

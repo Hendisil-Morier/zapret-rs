@@ -83,21 +83,21 @@ impl ReexecSnapshot {
     pub(crate) fn capture(state: &AppState) -> Self {
         Self {
             tab: state.tab,
-            focus_idx: state.focus_idx,
-            domains_input: state.domains_input.clone(),
-            proto_http: state.proto_http,
-            proto_tls12: state.proto_tls12,
-            proto_tls13: state.proto_tls13,
-            proto_http3: state.proto_http3,
-            ip_mode: state.ip_mode,
-            level: state.level.as_str().to_owned(),
-            stop_on_first: state.stop_on_first,
-            no_nft: state.no_nft,
-            lua_dir_input: state.lua_dir_input.clone(),
-            output_path: state.output_path.clone(),
+            focus_idx: state.finder.focus_idx,
+            domains_input: state.finder.domains_input.clone(),
+            proto_http: state.finder.proto_http,
+            proto_tls12: state.finder.proto_tls12,
+            proto_tls13: state.finder.proto_tls13,
+            proto_http3: state.finder.proto_http3,
+            ip_mode: state.finder.ip_mode,
+            level: state.finder.level.as_str().to_owned(),
+            stop_on_first: state.finder.stop_on_first,
+            no_nft: state.finder.no_nft,
+            lua_dir_input: state.finder.lua_dir_input.clone(),
+            output_path: state.finder.output_path.clone(),
             pending_action: state.pending_caps_action,
             theme_toml: Some(state.theme.to_toml()),
-            domain_scope: state.domain_scope,
+            domain_scope: state.finder.domain_scope,
         }
     }
 
@@ -120,25 +120,25 @@ impl ReexecSnapshot {
             return (true, None);
         };
         state.tab = snap.tab;
-        state.focus_idx = snap.focus_idx;
-        state.domains_input = snap.domains_input;
-        state.proto_http = snap.proto_http;
-        state.proto_tls12 = snap.proto_tls12;
-        state.proto_tls13 = snap.proto_tls13;
-        state.proto_http3 = snap.proto_http3;
-        state.ip_mode = snap.ip_mode;
-        state.level = match snap.level.as_str() {
+        state.finder.focus_idx = snap.focus_idx;
+        state.finder.domains_input = snap.domains_input;
+        state.finder.proto_http = snap.proto_http;
+        state.finder.proto_tls12 = snap.proto_tls12;
+        state.finder.proto_tls13 = snap.proto_tls13;
+        state.finder.proto_http3 = snap.proto_http3;
+        state.finder.ip_mode = snap.ip_mode;
+        state.finder.level = match snap.level.as_str() {
             "standard" => ScanLevel::Standard,
             "force" => ScanLevel::Force,
             _ => ScanLevel::Quick,
         };
-        state.stop_on_first = snap.stop_on_first;
-        state.no_nft = snap.no_nft;
-        state.lua_dir_input = snap.lua_dir_input;
-        state.domain_scope = snap.domain_scope;
-        if snap.output_path != state.output_path {
-            state.output_path = snap.output_path;
-            let cfg_path = expand_tilde(&state.output_path);
+        state.finder.stop_on_first = snap.stop_on_first;
+        state.finder.no_nft = snap.no_nft;
+        state.finder.lua_dir_input = snap.lua_dir_input;
+        state.finder.domain_scope = snap.domain_scope;
+        if snap.output_path != state.finder.output_path {
+            state.finder.output_path = snap.output_path;
+            let cfg_path = expand_tilde(&state.finder.output_path);
             if let Ok(text) = fs::read_to_string(&cfg_path) {
                 state.set_active_toml(text);
             }
@@ -226,14 +226,14 @@ pub(crate) fn drop_fw_tui(session: &mut TerminalSession, guard: Box<dyn Firewall
     }
 }
 
-/// Suspends the TUI to open `state.output_path` in `$VISUAL`/`$EDITOR` with zero caps, then reloads.
+/// Suspends the TUI to open `state.finder.output_path` in `$VISUAL`/`$EDITOR` with zero caps, then reloads.
 pub(crate) fn edit_config_in_editor(state: &mut AppState, session: &mut TerminalSession) {
-    let path = expand_tilde(&state.output_path);
+    let path = expand_tilde(&state.finder.output_path);
     if !path.exists() {
-        let seed = if state.active_toml.trim().is_empty() {
-            build_starter_toml(crate::intercepter::DEFAULT_QUEUE_NUM, state.fwmark, &state.lua_dir_input)
+        let seed = if state.config.active_toml.trim().is_empty() {
+            build_starter_toml(crate::intercepter::DEFAULT_QUEUE_NUM, state.finder.fwmark, &state.finder.lua_dir_input)
         } else {
-            state.active_toml.clone()
+            state.config.active_toml.clone()
         };
         if let Err(err) = write_config_nofollow(&path, &seed) {
             state.status_banner = format!("Cannot create {}: {err}", path.display());
@@ -247,7 +247,7 @@ pub(crate) fn edit_config_in_editor(state: &mut AppState, session: &mut Terminal
     }
 }
 
-/// Returns the sibling `.zapret-domains` history path beside `state.output_path`.
+/// Returns the sibling `.zapret-domains` history path beside `state.finder.output_path`.
 pub fn domains_history_path(output_path: &str) -> PathBuf {
     let cfg = expand_tilde(output_path);
     cfg.with_file_name("domains")
@@ -255,51 +255,51 @@ pub fn domains_history_path(output_path: &str) -> PathBuf {
 
 /// Persists non-empty Tab 1 `domains_input` alongside `nfqws2.toml` cleanly via `O_NOFOLLOW`.
 pub fn save_domains_history(state: &AppState) {
-    let trimmed = state.domains_input.trim();
+    let trimmed = state.finder.domains_input.trim();
     if trimmed.is_empty() {
         return;
     }
-    let path = domains_history_path(&state.output_path);
+    let path = domains_history_path(&state.finder.output_path);
     let _ = write_config_nofollow(&path, trimmed);
 }
 
-/// Seeds empty `state.domains_input` from saved domain history or `hostlist_domains` in `active_toml`.
+/// Seeds empty `state.finder.domains_input` from saved domain history or `hostlist_domains` in `active_toml`.
 pub fn seed_domains_on_startup(state: &mut AppState) {
-    if !state.domains_input.trim().is_empty() {
+    if !state.finder.domains_input.trim().is_empty() {
         return;
     }
-    let hist = domains_history_path(&state.output_path);
+    let hist = domains_history_path(&state.finder.output_path);
     if let Ok(saved) = fs::read_to_string(hist) {
         let trimmed = saved.trim();
         if !trimmed.is_empty() {
-            state.domains_input = trimmed.to_owned();
+            state.finder.domains_input = trimmed.to_owned();
             return;
         }
     }
-    if !state.active_toml.trim().is_empty()
-        && let Ok(cfg) = AppConfig::from_toml_str(&state.active_toml, None)
+    if !state.config.active_toml.trim().is_empty()
+        && let Ok(cfg) = AppConfig::from_toml_str(&state.config.active_toml, None)
     {
         let domains = extract_hostlist_domains(&cfg);
         if !domains.is_empty() {
-            state.domains_input = domains.join(", ");
+            state.finder.domains_input = domains.join(", ");
         }
     }
 }
 
 /// Ensures any configured `hostlist_auto` file contains the scanned `domains_input` hostnames.
 pub fn seed_autohostlists_from_domains(state: &mut AppState) {
-    if state.autohostlist_paths.is_empty() || state.domains_input.trim().is_empty() {
+    if state.config.autohostlist_paths.is_empty() || state.finder.domains_input.trim().is_empty() {
         return;
     }
     let domains: Vec<String> = state
-        .domains_input
+        .finder.domains_input
         .split(|c: char| c.is_whitespace() || c == ',')
         .filter_map(normalize_domain)
         .collect();
     if domains.is_empty() {
         return;
     }
-    for path in &state.autohostlist_paths {
+    for path in &state.config.autohostlist_paths {
         let existing = fs::read_to_string(path).unwrap_or_default();
         let mut out = existing.clone();
         if !out.is_empty() && !out.ends_with('\n') {
@@ -323,31 +323,31 @@ pub fn seed_autohostlists_from_domains(state: &mut AppState) {
     state.refresh_autohostlist();
 }
 
-/// Saves `state.active_toml` cleanly to `state.output_path` without following symlinks.
+/// Saves `state.config.active_toml` cleanly to `state.finder.output_path` without following symlinks.
 pub(crate) fn save_toml_to_disk(state: &mut AppState) {
-    if state.active_toml.trim().is_empty() {
+    if state.config.active_toml.trim().is_empty() {
         state.status_banner = "Nothing to save yet.".to_owned();
         return;
     }
     save_domains_history(state);
     seed_autohostlists_from_domains(state);
-    let path = expand_tilde(&state.output_path);
-    match write_config_nofollow(&path, &state.active_toml) {
+    let path = expand_tilde(&state.finder.output_path);
+    match write_config_nofollow(&path, &state.config.active_toml) {
         Ok(()) => state.status_banner = format!("Saved {}", path.display()),
         Err(err) => state.status_banner = format!("Save failed: {err}"),
     }
 }
 
-/// Reloads `state.output_path` from disk and refreshes Tab 3 TOML validation diagnostics.
+/// Reloads `state.finder.output_path` from disk and refreshes Tab 3 TOML validation diagnostics.
 pub(crate) fn reload_toml_from_disk(state: &mut AppState) {
-    let path = expand_tilde(&state.output_path);
+    let path = expand_tilde(&state.finder.output_path);
     match fs::read_to_string(&path) {
         Ok(text) => {
             state.set_active_toml(text);
             seed_domains_on_startup(state);
-            state.status_banner = match &state.toml_error {
+            state.status_banner = match &state.config.toml_error {
                 Some(err) => format!("Loaded with TOML error: {}", err.lines().next().unwrap_or(err)),
-                None => format!("Loaded {} ({} profiles)", path.display(), state.parsed_profiles.len()),
+                None => format!("Loaded {} ({} profiles)", path.display(), state.config.parsed_profiles.len()),
             };
         }
         Err(err) => state.status_banner = format!("Reload failed ({}): {err}", path.display()),

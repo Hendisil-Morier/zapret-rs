@@ -13,17 +13,17 @@ use zapret_rs::tui::{ActiveTab, AppAction, AppState, draw_app};
 #[test]
 fn tab5_status_populates_checks_navigates_and_renders() {
     let mut state = AppState::new(None, None, false);
-    assert!(state.status_checks.is_empty());
+    assert!(state.status.checks.is_empty());
 
     assert_eq!(
         state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE)),
         AppAction::None
     );
     assert_eq!(state.tab, ActiveTab::Status);
-    assert_eq!(state.status_checks.len(), 10);
-    assert_eq!(state.status_selected, 0);
+    assert_eq!(state.status.checks.len(), 10);
+    assert_eq!(state.status.selected, 0);
 
-    let names: Vec<&str> = state.status_checks.iter().map(|c| c.name).collect();
+    let names: Vec<&str> = state.status.checks.iter().map(|c| c.name).collect();
     assert_eq!(
         names,
         [
@@ -41,16 +41,16 @@ fn tab5_status_populates_checks_navigates_and_renders() {
     );
 
     state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    assert_eq!(state.status_selected, 1);
+    assert_eq!(state.status.selected, 1);
     state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
-    assert_eq!(state.status_selected, 0);
+    assert_eq!(state.status.selected, 0);
     state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-    assert_eq!(state.status_checks.len(), 10);
+    assert_eq!(state.status.checks.len(), 10);
 
     // Cycling DNS preset ('n') and opening confirm modal ('a') work cleanly.
-    let initial_preset = state.dns_preset;
+    let initial_preset = state.status.dns_preset;
     state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-    assert_ne!(state.dns_preset, initial_preset);
+    assert_ne!(state.status.dns_preset, initial_preset);
     state.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
     assert_eq!(
         state.modal.as_ref().map(|m| m.purpose),
@@ -104,7 +104,7 @@ fn tab5_debug_report_exports_checks_logs_and_curl_exit_hints() {
     state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
 
-    let report_file = debug_report_path(&state.output_path);
+    let report_file = debug_report_path(&state.finder.output_path);
     let body = std::fs::read_to_string(&report_file).expect("read exported debug report");
     assert!(body.contains("=== zapret-rs Debug Report ==="));
     assert!(body.contains("=== Operational Component Checks ==="));
@@ -129,7 +129,7 @@ fn tab5_debug_report_redacts_active_web_ui_passcode() {
     state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
 
     let web_check = state
-        .status_checks
+        .status.checks
         .iter()
         .find(|c| c.name == "Web UI")
         .expect("Web UI check");
@@ -160,7 +160,7 @@ fn tab5_debug_report_includes_speed_finder_and_active_config() {
 
     // Switch back to Tab 1 and populate scan, speed, config, and attached daemon metadata.
     state.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
-    state.domains_input = "example.com".to_owned();
+    state.finder.domains_input = "example.com".to_owned();
     state.speed.phase = SpeedPhase::Done;
     state.speed.rows.push(SpeedRow {
         label: "example.com".to_owned(),
@@ -186,7 +186,7 @@ fn tab5_debug_report_includes_speed_finder_and_active_config() {
         ipv: IpFamily::V4,
         actions: Vec::new(),
     };
-    state.targets.push(TargetScanResult {
+    state.finder.targets.push(TargetScanResult {
         domain: "example.com".to_owned(),
         proto: ProbeProtocol::Tls13,
         ipv: IpFamily::V4,
@@ -195,13 +195,13 @@ fn tab5_debug_report_includes_speed_finder_and_active_config() {
         tested_count: 17,
         matches: vec![StrategyMatch { strategy: strat.clone(), latency_ms: 140 }],
     });
-    state.cover.push(CoveredProfile {
+    state.finder.cover.push(CoveredProfile {
         strategy: strat,
         domains: vec!["example.com".to_owned()],
         avg_latency_ms: 140,
     });
     state.set_active_toml("qnum = 200\nfirmware_test = true\n".to_owned());
-    state.remote_meta = Some(RemoteDaemonMeta {
+    state.run.remote_meta = Some(RemoteDaemonMeta {
         socket_path: PathBuf::from("/tmp/test.sock"),
         daemon_version: "1.4.0".to_owned(),
         pid: 4242,
@@ -215,7 +215,7 @@ fn tab5_debug_report_includes_speed_finder_and_active_config() {
     // Switching back to Tab 5 must refresh status checks with the updated Speed Test & Scan rows.
     state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
     let speed_check = state
-        .status_checks
+        .status.checks
         .iter()
         .find(|c| c.name == "Speed Test")
         .expect("Speed Test status row");

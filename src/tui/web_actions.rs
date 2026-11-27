@@ -193,10 +193,10 @@ fn format_web_url(addr: SocketAddr) -> String {
 /// Starts the embedded HTTP/SSE Web UI bound to `bind` and updates `state.web_status`.
 pub fn launch_web_ui(state: &mut AppState, bind: SocketAddr) -> Result<ActiveWebUi, String> {
     let (auth, token) = WebAuth::new(bind, None, false)?;
-    let cfg_path = (!state.output_path.trim().is_empty()).then(|| expand_tilde(&state.output_path));
-    let lua_dir = (!state.lua_dir_input.trim().is_empty()).then(|| expand_tilde(&state.lua_dir_input));
+    let cfg_path = (!state.finder.output_path.trim().is_empty()).then(|| expand_tilde(&state.finder.output_path));
+    let lua_dir = (!state.finder.lua_dir_input.trim().is_empty()).then(|| expand_tilde(&state.finder.lua_dir_input));
     let control_socket =
-        state.control_socket_override.clone().or_else(|| state.detected_socket.clone());
+        state.run.control_socket_override.clone().or_else(|| state.run.detected_socket.clone());
     let cfg = WebConfig {
         bind,
         auth,
@@ -232,7 +232,7 @@ fn commit_updated_toml(
     updated_toml: String,
     label: &str,
 ) -> Result<(), String> {
-    let cfg_path = expand_tilde(&state.output_path);
+    let cfg_path = expand_tilde(&state.finder.output_path);
     write_config_nofollow(&cfg_path, &updated_toml)
         .map_err(|err| format!("failed to write {}: {err}", cfg_path.display()))?;
     state.set_active_toml(updated_toml.clone());
@@ -271,9 +271,9 @@ pub(crate) fn submit_prompt_modal(
 
     let outcome: Result<(), String> = match kind {
         PromptKind::BlacklistDomain => {
-            let cfg_path = expand_tilde(&state.output_path);
-            let source_toml = if !state.active_toml.trim().is_empty() {
-                state.active_toml.clone()
+            let cfg_path = expand_tilde(&state.finder.output_path);
+            let source_toml = if !state.config.active_toml.trim().is_empty() {
+                state.config.active_toml.clone()
             } else {
                 std::fs::read_to_string(&cfg_path).unwrap_or_default()
             };
@@ -284,11 +284,11 @@ pub(crate) fn submit_prompt_modal(
                 })
         }
         PromptKind::AddAutoHostlist => {
-            if state.autohostlist_paths.is_empty() {
+            if state.config.autohostlist_paths.is_empty() {
                 Err("Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first)".to_owned())
             } else {
                 let mut res = Ok(());
-                for path in state.autohostlist_paths.clone() {
+                for path in state.config.autohostlist_paths.clone() {
                     if let Err(err) = mutate_hostlist_file(&path, &raw_input, true) {
                         res = Err(err);
                         break;
@@ -315,10 +315,10 @@ pub(crate) fn submit_prompt_modal(
                 return;
             };
             let mut removed_any = false;
-            if state.exclude_entries.iter().any(|d| d.eq_ignore_ascii_case(&clean)) {
-                let cfg_path = expand_tilde(&state.output_path);
+            if state.config.exclude_entries.iter().any(|d| d.eq_ignore_ascii_case(&clean)) {
+                let cfg_path = expand_tilde(&state.finder.output_path);
                 if let Ok(updated) =
-                    mutate_exclude_domains_toml(&state.active_toml, &clean, false, cfg_path.parent())
+                    mutate_exclude_domains_toml(&state.config.active_toml, &clean, false, cfg_path.parent())
                 {
                     let _ = commit_updated_toml(
                         state,
@@ -329,8 +329,8 @@ pub(crate) fn submit_prompt_modal(
                     removed_any = true;
                 }
             }
-            for path in state.autohostlist_paths.clone() {
-                let prev_len = state.autohostlist_entries.len();
+            for path in state.config.autohostlist_paths.clone() {
+                let prev_len = state.config.autohostlist_entries.len();
                 if let Ok(after) = mutate_hostlist_file(&path, &clean, false)
                     && after.len() < prev_len
                 {

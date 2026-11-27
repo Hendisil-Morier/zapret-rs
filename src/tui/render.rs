@@ -98,20 +98,20 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
         .highlight_style(Style::default().fg(Color::Black).bg(t.accent_bright).add_modifier(Modifier::BOLD));
     frame.render_widget(tabs, cols[0]);
 
-    let (cap_txt, cap_col) = if state.has_net_caps { ("CAPS OK", t.ok_bright) } else { ("NO CAPS", t.warn_bright) };
-    let (act_txt, act_col, badge_border) = if state.finder_status == FinderStatus::Scanning {
+    let (cap_txt, cap_col) = if state.status.has_net_caps { ("CAPS OK", t.ok_bright) } else { ("NO CAPS", t.warn_bright) };
+    let (act_txt, act_col, badge_border) = if state.finder.status == FinderStatus::Scanning {
         ("SCANNING", t.special_bright, t.special)
     } else {
-        match state.run_status {
+        match state.run.status {
             RunStatus::Running => ("RUNNING", t.ok_bright, t.ok),
             RunStatus::Attached => ("ATTACHED", t.accent_bright, t.accent),
-            _ => ("IDLE", t.muted, if state.has_net_caps { t.frame } else { t.warn }),
+            _ => ("IDLE", t.muted, if state.status.has_net_caps { t.frame } else { t.warn }),
         }
     };
-    let uid_col = if state.uid == 0 { t.err_bright } else { t.text };
+    let uid_col = if state.status.uid == 0 { t.err_bright } else { t.text };
     let badge = Paragraph::new(Line::from(vec![
         Span::styled(" UID:", Style::default().fg(t.info)),
-        Span::styled(format!("{} ", state.uid), Style::default().fg(uid_col).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{} ", state.status.uid), Style::default().fg(uid_col).add_modifier(Modifier::BOLD)),
         Span::styled("| ", Style::default().fg(t.muted)),
         Span::styled(cap_txt, Style::default().fg(cap_col).add_modifier(Modifier::BOLD)),
         Span::styled(" | ", Style::default().fg(t.muted)),
@@ -163,8 +163,8 @@ fn web_ui_controller_line(state: &AppState, key_style: Style) -> Line<'static> {
 fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
     let t = &state.theme;
     let key_style = Style::default().fg(t.info);
-    let mut lines = if state.run_status == RunStatus::Attached
-        && let Some(meta) = &state.remote_meta
+    let mut lines = if state.run.status == RunStatus::Attached
+        && let Some(meta) = &state.run.remote_meta
     {
         let cfg_span = match meta.config_path.as_deref() {
             Some(p) => Span::styled(p.to_owned(), Style::default().fg(t.accent_bright)),
@@ -191,10 +191,10 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
             ]),
         ]
     } else {
-        let (st_text, st_color) = match &state.run_status {
+        let (st_text, st_color) = match &state.run.status {
             RunStatus::Running => ("RUNNING".to_owned(), t.ok_bright),
             RunStatus::Attached => ("ATTACHED".to_owned(), t.accent_bright),
-            RunStatus::Stopped => match &state.detected_socket {
+            RunStatus::Stopped => match &state.run.detected_socket {
                 Some(sock) => (
                     format!("STOPPED (daemon socket found at {}; press 'r' to attach)", sock.display()),
                     t.warn_bright,
@@ -204,15 +204,15 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
             RunStatus::Error(e) => (format!("ERROR: {e}"), t.err_bright),
         };
         let mut prof_line = vec![Span::styled(
-            format!("Profiles ({})  : ", state.parsed_profiles.len()),
+            format!("Profiles ({})  : ", state.config.parsed_profiles.len()),
             key_style,
         )];
         prof_line.extend(profile_spans(
-            &state.parsed_profiles,
+            &state.config.parsed_profiles,
             "none loaded (run Strategy Finder or press 'l' to load config file)",
             t,
         ));
-        let (nft_text, nft_col) = if state.no_nft {
+        let (nft_text, nft_col) = if state.finder.no_nft {
             ("manual (--no-nft)", t.warn_bright)
         } else {
             ("managed (auto cleanup on stop)", t.ok_bright)
@@ -224,7 +224,7 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
             ]),
             Line::from(vec![
                 Span::styled("Config Path   : ", key_style),
-                Span::styled(state.output_path.clone(), Style::default().fg(t.accent_bright)),
+                Span::styled(state.finder.output_path.clone(), Style::default().fg(t.accent_bright)),
             ]),
             Line::from(prof_line),
             Line::from(vec![
@@ -263,7 +263,7 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         ])
         .split(area);
 
-    let ctrl_border = match state.run_status {
+    let ctrl_border = match state.run.status {
         RunStatus::Running => t.ok,
         RunStatus::Attached => t.accent,
         RunStatus::Error(_) => t.err,
@@ -309,7 +309,7 @@ fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         frame,
         rows[3],
         " Daemon Log ",
-        &state.run_logs,
+        &state.run.logs,
         state.focus.run_log_scroll,
         state.focus.run == RunFocus::Log,
         t,

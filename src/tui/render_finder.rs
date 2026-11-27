@@ -65,10 +65,10 @@ fn text_field_span(
     color: Color,
     max_cols: usize,
 ) -> Span<'static> {
-    let (cursor, scroll) = if focused && state.editing_text {
-        (Some(state.text_cursor), 0)
+    let (cursor, scroll) = if focused && state.finder.editing_text {
+        (Some(state.finder.text_cursor), 0)
     } else if focused {
-        (None, state.text_scroll)
+        (None, state.finder.text_scroll)
     } else {
         (None, 0)
     };
@@ -94,14 +94,14 @@ pub(crate) fn draw_finder_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         ])
         .split(cols[1]);
 
-    let ratio = if state.progress_total > 0 {
-        (state.progress_done as f64 / state.progress_total as f64).clamp(0.0, 1.0)
-    } else if state.finder_status == FinderStatus::Done {
+    let ratio = if state.finder.progress_total > 0 {
+        (state.finder.progress_done as f64 / state.finder.progress_total as f64).clamp(0.0, 1.0)
+    } else if state.finder.status == FinderStatus::Done {
         1.0
     } else {
         0.0
     };
-    let (gauge_color, gauge_border) = match state.finder_status {
+    let (gauge_color, gauge_border) = match state.finder.status {
         FinderStatus::Error(_) => (t.err, t.err),
         FinderStatus::Done => (t.ok_bright, t.ok),
         FinderStatus::Scanning => (t.accent_bright, t.accent),
@@ -116,7 +116,7 @@ pub(crate) fn draw_finder_tab(frame: &mut Frame, area: Rect, state: &AppState) {
                 .add_modifier(Modifier::BOLD),
         )
         .ratio(ratio)
-        .label(state.progress_label.as_str());
+        .label(state.finder.progress_label.as_str());
     frame.render_widget(gauge, right[0]);
 
     draw_results_table(frame, right[1], state);
@@ -124,16 +124,16 @@ pub(crate) fn draw_finder_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         frame,
         right[2],
         " Live Scan Log ",
-        &state.finder_logs,
+        &state.finder.logs,
         state.focus.finder_log_scroll,
         state.focus.finder == FinderFocus::Log,
         t,
     );
     if state.focus.finder == FinderFocus::Setup
-        && state.finder_hover.open
+        && state.finder.hover.open
         && state.modal.is_none()
         && !state.help_open
-        && !state.editing_text
+        && !state.finder.editing_text
     {
         draw_finder_tooltip(frame, area, cols[0], cols[1], state);
     }
@@ -158,44 +158,44 @@ fn format_form_row(
     let t = &state.theme;
     let (label, lbl_col, value_span) = match field {
         FinderField::Domains => {
-            let span = if state.domains_input.is_empty() && !focused {
+            let span = if state.finder.domains_input.is_empty() && !focused {
                 Span::styled("<press Enter to type domain(s)>", Style::default().fg(t.muted))
             } else {
-                text_field_span(&state.domains_input, state, focused, t.accent_bright, value_cols)
+                text_field_span(&state.finder.domains_input, state, focused, t.accent_bright, value_cols)
             };
             ("Domains      ", t.accent_bright, span)
         }
-        FinderField::ProtoHttp => ("HTTP (80)    ", t.info, checkbox_span(state.proto_http, t)),
-        FinderField::ProtoTls12 => ("TLS 1.2 (443)", t.info, checkbox_span(state.proto_tls12, t)),
-        FinderField::ProtoTls13 => ("TLS 1.3 (443)", t.info, checkbox_span(state.proto_tls13, t)),
-        FinderField::ProtoHttp3 => ("HTTP/3 (UDP) ", t.info, checkbox_span(state.proto_http3, t)),
-        FinderField::IpMode => ("IP Version   ", t.special_bright, Span::styled(state.ip_mode.label(), Style::default().fg(t.warn_bright))),
-        FinderField::Level => ("Scan Level   ", t.special_bright, Span::styled(state.level.as_str(), Style::default().fg(t.special_bright))),
-        FinderField::StopOnFirst => ("Stop On First", t.warn, checkbox_span(state.stop_on_first, t)),
+        FinderField::ProtoHttp => ("HTTP (80)    ", t.info, checkbox_span(state.finder.proto_http, t)),
+        FinderField::ProtoTls12 => ("TLS 1.2 (443)", t.info, checkbox_span(state.finder.proto_tls12, t)),
+        FinderField::ProtoTls13 => ("TLS 1.3 (443)", t.info, checkbox_span(state.finder.proto_tls13, t)),
+        FinderField::ProtoHttp3 => ("HTTP/3 (UDP) ", t.info, checkbox_span(state.finder.proto_http3, t)),
+        FinderField::IpMode => ("IP Version   ", t.special_bright, Span::styled(state.finder.ip_mode.label(), Style::default().fg(t.warn_bright))),
+        FinderField::Level => ("Scan Level   ", t.special_bright, Span::styled(state.finder.level.as_str(), Style::default().fg(t.special_bright))),
+        FinderField::StopOnFirst => ("Stop On First", t.warn, checkbox_span(state.finder.stop_on_first, t)),
         FinderField::NoNft => (
             if cfg!(windows) { "Manual Filter" } else { "Manual nft   " },
             t.warn,
-            checkbox_span(state.no_nft, t),
+            checkbox_span(state.finder.no_nft, t),
         ),
         FinderField::LuaDir => (
             "Lua Dir      ",
             t.ok_bright,
-            text_field_span(&state.lua_dir_input, state, focused, t.info, value_cols),
+            text_field_span(&state.finder.lua_dir_input, state, focused, t.info, value_cols),
         ),
         FinderField::OutputPath => (
             "Config Path  ",
             t.ok_bright,
-            text_field_span(&state.output_path, state, focused, t.info, value_cols),
+            text_field_span(&state.finder.output_path, state, focused, t.info, value_cols),
         ),
         FinderField::DomainScope => (
             "Domain Scope ",
             t.special_bright,
-            Span::styled(state.domain_scope.label(), Style::default().fg(t.warn_bright)),
+            Span::styled(state.finder.domain_scope.label(), Style::default().fg(t.warn_bright)),
         ),
     };
 
     let prefix = if focused { "> " } else { "  " };
-    if focused && state.editing_text {
+    if focused && state.finder.editing_text {
         let edit_style = Style::default().fg(Color::Black).bg(t.warn).add_modifier(Modifier::BOLD);
         return ListItem::new(Line::from(vec![
             Span::styled(format!("{prefix}{label}: "), edit_style),
@@ -225,10 +225,10 @@ fn draw_finder_form(frame: &mut Frame, area: Rect, state: &AppState) {
         .iter()
         .enumerate()
         .map(|(idx, &field)| {
-            format_form_row(state, field, setup_focused && idx == state.focus_idx, value_cols)
+            format_form_row(state, field, setup_focused && idx == state.finder.focus_idx, value_cols)
         })
         .collect();
-    let (title, border, title_col) = if state.editing_text {
+    let (title, border, title_col) = if state.finder.editing_text {
         (" Strategy Setup [EDITING] ", t.warn, t.warn_bright)
     } else if setup_focused {
         (" Strategy Setup ", t.accent_bright, t.accent_bright)
@@ -247,11 +247,11 @@ fn draw_results_table(frame: &mut Frame, area: Rect, state: &AppState) {
         .style(Style::default().fg(t.warn_bright).bg(t.highlight_bg).add_modifier(Modifier::BOLD));
 
     let capacity = usize::from(area.height.saturating_sub(3)).max(1);
-    let clamped_sel = state.focus.finder_results_sel.min(state.targets.len().saturating_sub(1));
+    let clamped_sel = state.focus.finder_results_sel.min(state.finder.targets.len().saturating_sub(1));
     let start = if clamped_sel >= capacity { clamped_sel + 1 - capacity } else { 0 };
 
     let rows: Vec<Row> = state
-        .targets
+        .finder.targets
         .iter()
         .enumerate()
         .skip(start)
@@ -295,7 +295,7 @@ fn draw_results_table(frame: &mut Frame, area: Rect, state: &AppState) {
         Constraint::Percentage(30),
         Constraint::Length(7),
     ];
-    let title = format!(" Results ({} targets, {} cover profiles) ", state.targets.len(), state.cover.len());
+    let title = format!(" Results ({} targets, {} cover profiles) ", state.finder.targets.len(), state.finder.cover.len());
     let (border, title_col) = if focused { (t.accent_bright, t.accent_bright) } else { (t.frame, t.info) };
     let table = Table::new(rows, widths)
         .header(header)
@@ -336,7 +336,7 @@ fn draw_finder_tooltip(
     let w = 48u16.min(avail_w).max(20.min(bounds.width));
     let body_lines = wrapped_line_count(desc, usize::from(w.saturating_sub(2)));
     let h = (body_lines + 4).min(bounds.height).max(5.min(bounds.height));
-    let anchor_y = form_col.y + 1 + state.focus_idx as u16;
+    let anchor_y = form_col.y + 1 + state.finder.focus_idx as u16;
     let x = if right_col.width >= 24 {
         right_col.x + 1
     } else {

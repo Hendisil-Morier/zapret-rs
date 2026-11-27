@@ -4,23 +4,12 @@
 use std::collections::VecDeque;
 /// Path handling for config files, Lua directories, control sockets, and executable paths.
 use std::path::PathBuf;
-/// Lock-free shared packet counters updated by the live NFQUEUE daemon or remote subscriber thread.
-use std::sync::Arc;
 
 /// Keyboard event primitives handled by [`AppState::handle_key`].
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// Default desync fwmark constant shared across tabs.
-use crate::intercepter::DEFAULT_DESYNC_FWMARK;
-/// OS-agnostic UID and packet-capture privilege helpers for the Diagnostics panel.
-use crate::runtime::{current_uid_or_zero, has_packet_capture_privileges};
-/// Lock-free packet counter type shared across Tab 2 sessions.
-use crate::telemetry::PacketCounters;
-/// Strategy catalog, scan level, and interactive path helpers.
-use crate::tools::{
-    CoveredProfile, DEFAULT_STRAT_QNUM, DomainScope, ScanLevel, TargetScanResult,
-    default_output_config_path, detect_lua_dir, expand_tilde,
-};
+/// Interactive path expansion for loading initial `nfqws2.toml`.
+use crate::tools::expand_tilde;
 /// Live packet inspector state for Tab 2.
 use crate::tui::inspect::PacketInspectorState;
 /// Before/after speed comparison state for Tab 4.
@@ -29,103 +18,20 @@ use crate::tui::speed::SpeedState;
 use crate::tui::modal::{AuthModal, ModalKeyResult, ModalPurpose};
 /// Centered plain-text domain/web prompt modal state.
 use crate::tui::prompt_modal::{PromptKeyResult, PromptModal};
-/// Attached background `nfqws2` daemon metadata shown on Tab 2.
-use crate::tui::remote::RemoteDaemonMeta;
+/// Tab 1, Tab 2, Tab 3, and Tab 5 state sub-structs extracted from [`AppState`].
+use crate::tui::tab_states::{ConfigTabState, FinderState, RunState, StatusTabState};
 /// Configurable color theme palette and `theme.toml` load/save helpers.
 use crate::tui::theme_config::{Theme, resolve_theme};
 /// Shared TUI enums and worker event types.
-use crate::tui::types::{
-    ActiveTab, AppAction, FinderField, FinderHoverState, FinderStatus, IpMode, PanelFocusState,
-    PostCapsAction, RunStatus,
-};
+use crate::tui::types::{ActiveTab, AppAction, FinderField, PanelFocusState, PostCapsAction};
 
 /// Maximum number of log lines retained in each scrollable log panel.
 const MAX_LOG_LINES: usize = 200;
 
-/// Complete mutable state of the `zapret-rs` TUI application.
+/// Top-level TUI application container combining UI chrome with per-tab domain sub-states.
 pub struct AppState {
     /// Currently visible top-level tab.
     pub tab: ActiveTab,
-    /// Selected row index within [`FinderField::ALL`].
-    pub focus_idx: usize,
-    /// `true` while typing into a focused text field.
-    pub editing_text: bool,
-    /// Byte cursor position within the active text-field buffer (clamped to buffer length on each edit).
-    pub text_cursor: usize,
-    /// Horizontal character scroll offset for browsing long unfocused/view-mode Tab 1 text fields.
-    pub text_scroll: usize,
-    /// Comma/space-separated target domains input buffer.
-    pub domains_input: String,
-    /// Enabled HTTP (TCP 80) protocol checkbox.
-    pub proto_http: bool,
-    /// Enabled TLS 1.2 (TCP 443) protocol checkbox.
-    pub proto_tls12: bool,
-    /// Enabled TLS 1.3 (TCP 443) protocol checkbox.
-    pub proto_tls13: bool,
-    /// Enabled HTTP/3 QUIC (UDP 443) protocol checkbox.
-    pub proto_http3: bool,
-    /// Selected IP family mode.
-    pub ip_mode: IpMode,
-    /// Selected scan thoroughness level.
-    pub level: ScanLevel,
-    /// Stop sweeping a target on first working strategy.
-    pub stop_on_first: bool,
-    /// Skip automatic `nftables` setup/teardown.
-    pub no_nft: bool,
-    /// Lua scripts directory input buffer.
-    pub lua_dir_input: String,
-    /// Destination/loaded `nfqws2.toml` path input buffer.
-    pub output_path: String,
-    /// Domain scoping mode applied when generating `nfqws2.toml` profiles from a scan.
-    pub domain_scope: DomainScope,
-    /// Explicit `--control-socket` override passed into the TUI CLI, if any.
-    pub control_socket_override: Option<PathBuf>,
-    /// Auto-detected running daemon socket path ready to attach when stopped.
-    pub detected_socket: Option<PathBuf>,
-    /// NFQUEUE number used during strategy finder scans.
-    pub finder_qnum: u16,
-    /// Firewall mark used for loop prevention.
-    pub fwmark: u32,
-    /// Current Finder background task status.
-    pub finder_status: FinderStatus,
-    /// Current progress numerator within the active target sweep.
-    pub progress_done: usize,
-    /// Current progress denominator within the active target sweep.
-    pub progress_total: usize,
-    /// Human-readable status label inside the progress gauge.
-    pub progress_label: String,
-    /// Per-target completed results shown in the Finder table.
-    pub targets: Vec<TargetScanResult>,
-    /// Minimal cross-domain profile cover from the latest scan.
-    pub cover: Vec<CoveredProfile>,
-    /// Recent strategy finder log messages.
-    pub finder_logs: VecDeque<String>,
-    /// Current live `nfqws2` daemon or remote attach status on Tab 2.
-    pub run_status: RunStatus,
-    /// Active remote daemon metadata while `run_status == RunStatus::Attached`.
-    pub remote_meta: Option<RemoteDaemonMeta>,
-    /// When `true`, automatically re-attaches if a daemon socket reappears after unexpected loss.
-    pub auto_reattach: bool,
-    /// Lock-free packet counters shared with local worker or remote subscriber thread.
-    pub counters: Arc<PacketCounters>,
-    /// Local display baseline subtracted from [`Self::counters`] after pressing `c` while attached.
-    pub counter_baseline: (u64, u64, u64, u64, u64),
-    /// Recent live `nfqws2` daemon log lines.
-    pub run_logs: VecDeque<String>,
-    /// Active TOML text shown in Tab 3 and executed by Tab 2.
-    pub active_toml: String,
-    /// Parsed profile names summary for the active TOML (`empty` when invalid/empty).
-    pub parsed_profiles: Vec<String>,
-    /// Parse error message for `active_toml` when non-empty and invalid (`None` when valid/empty).
-    pub toml_error: Option<String>,
-    /// Vertical scroll offset inside Tab 3's TOML preview pane.
-    pub toml_scroll: u16,
-    /// Effective UID captured at startup for diagnostics.
-    pub uid: u32,
-    /// Whether `CAP_NET_ADMIN|CAP_NET_RAW` are active in the current process.
-    pub has_net_caps: bool,
-    /// Current executable path displayed in `setcap` guidance.
-    pub exe_path: String,
     /// Transient footer notification line.
     pub status_banner: String,
     /// Active floating capability-grant / `sudo` / stop-confirm modal, when visible.
@@ -134,120 +40,52 @@ pub struct AppState {
     pub help_open: bool,
     /// Action automatically resumed once capability grant triggers a seamless restart.
     pub pending_caps_action: Option<PostCapsAction>,
-    /// Dwell timer and visibility state for Tab 1's 1-second option explanation tooltip.
-    pub finder_hover: FinderHoverState,
     /// Per-tab focused panel and scroll offsets switched via `Tab` / `Shift+Tab`.
     pub focus: PanelFocusState,
     /// Active configurable TUI color palette (`neon` by default, or from `theme.toml`).
     pub theme: Theme,
+    /// Tab 1 (`Strategy Finder`) form inputs, scan configuration, progress, results, and log state.
+    pub finder: FinderState,
+    /// Tab 2 daemon session status, counters, socket override, and logs.
+    pub run: RunState,
+    /// Tab 3 active TOML, profile summary, pending merge, and domain lists.
+    pub config: ConfigTabState,
     /// Live packet inspector table, filter, pause toggle, and detail popup state on Tab 2.
     pub inspector: PacketInspectorState,
     /// Before/after speed comparison results and phase on Tab 4.
     pub speed: SpeedState,
-    /// Stashed `(previous_toml, scan_toml)` awaiting user merge confirmation after a scan.
-    pub pending_merge: Option<(String, String)>,
-    /// Unique resolved `hostlist_auto` file paths referenced by `active_toml`.
-    pub autohostlist_paths: Vec<PathBuf>,
-    /// Learned domain entries currently loaded from `autohostlist_paths`.
-    pub autohostlist_entries: Vec<String>,
-    /// Excluded (blacklisted) domains configured via `hostlist_exclude` / `hostlist_exclude_domains`.
-    pub exclude_entries: Vec<String>,
     /// Active centered plain-text input modal (Blacklist / Auto Hostlist / Web UI).
     pub prompt_modal: Option<PromptModal>,
     /// Active in-TUI Web UI `(url, pairing_passcode)` when running; `None` when stopped.
     pub web_status: Option<(String, String)>,
-    /// Cached operational health checks displayed on Tab 5 (`Status`).
-    pub status_checks: Vec<crate::tui::status_check::ComponentCheck>,
-    /// Selected row index inside Tab 5's component status table.
-    pub status_selected: usize,
-    /// Horizontal scroll offset for the selected Tab 5 `Summary` cell.
-    pub status_hscroll: usize,
-    /// Selected OS DNS/DoH preset cycled on Tab 5 (`n`) and applied on confirm (`a`).
-    pub dns_preset: crate::tools::DnsPreset,
+    /// Tab 5 operational diagnostics table, DNS preset, and process privilege state.
+    pub status: StatusTabState,
 }
 
 impl AppState {
     /// Initializes TUI state with auto-detected Lua directory, capability snapshot, and optional config.
     pub fn new(initial_config: Option<PathBuf>, initial_lua_dir: Option<PathBuf>, no_nft: bool) -> Self {
-        let lua_dir = initial_lua_dir
-            .or_else(|| detect_lua_dir(None))
-            .map_or_else(String::new, |p| p.display().to_string());
-        let output_path = initial_config
-            .clone()
-            .unwrap_or_else(default_output_config_path)
-            .display()
-            .to_string();
-        let uid = current_uid_or_zero();
-        let has_net_caps = has_packet_capture_privileges().unwrap_or(false);
-        let exe_path = std::env::current_exe()
-            .ok()
-            .map_or_else(|| "./target/release/zapret-rs".to_owned(), |p| p.display().to_string());
-
         let (theme, theme_warn) = resolve_theme(None);
+        let finder = FinderState::from_cli(initial_config, initial_lua_dir, no_nft);
 
         let mut state = Self {
             tab: ActiveTab::Finder,
-            focus_idx: 0,
-            editing_text: false,
-            text_cursor: 0,
-            text_scroll: 0,
-            domains_input: String::new(),
-            proto_http: true,
-            proto_tls12: true,
-            proto_tls13: true,
-            proto_http3: true,
-            ip_mode: IpMode::V4,
-            level: ScanLevel::Quick,
-            stop_on_first: true,
-            no_nft,
-            lua_dir_input: lua_dir,
-            output_path,
-            domain_scope: DomainScope::default(),
-            control_socket_override: None,
-            detected_socket: None,
-            finder_qnum: DEFAULT_STRAT_QNUM,
-            fwmark: DEFAULT_DESYNC_FWMARK,
-            finder_status: FinderStatus::Idle,
-            progress_done: 0,
-            progress_total: 0,
-            progress_label: "Idle: enter domain(s) and press 'r' to scan".to_owned(),
-            targets: Vec::new(),
-            cover: Vec::new(),
-            finder_logs: VecDeque::new(),
-            run_status: RunStatus::Stopped,
-            remote_meta: None,
-            auto_reattach: true,
-            counters: Arc::new(PacketCounters::default()),
-            counter_baseline: (0, 0, 0, 0, 0),
-            run_logs: VecDeque::new(),
-            active_toml: String::new(),
-            parsed_profiles: Vec::new(),
-            toml_error: None,
-            toml_scroll: 0,
-            uid,
-            has_net_caps,
-            exe_path,
             status_banner: "Ready. Press '?' for keybindings.".to_owned(),
             modal: None,
             help_open: false,
             pending_caps_action: None,
-            finder_hover: FinderHoverState::default(),
             focus: PanelFocusState::default(),
             theme,
+            finder,
+            run: RunState::default(),
+            config: ConfigTabState::default(),
             inspector: PacketInspectorState::default(),
             speed: SpeedState::default(),
-            pending_merge: None,
-            autohostlist_paths: Vec::new(),
-            autohostlist_entries: Vec::new(),
-            exclude_entries: Vec::new(),
             prompt_modal: None,
             web_status: None,
-            status_checks: Vec::new(),
-            status_selected: 0,
-            status_hscroll: 0,
-            dns_preset: crate::tools::DnsPreset::Cloudflare,
+            status: StatusTabState::default(),
         };
-        let cfg_path = expand_tilde(&state.output_path);
+        let cfg_path = expand_tilde(&state.finder.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
             state.set_active_toml(text);
             state.status_banner = format!("Loaded {}", cfg_path.display());
@@ -260,7 +98,7 @@ impl AppState {
 
     /// Returns the currently focused [`FinderField`].
     pub fn focused_field(&self) -> FinderField {
-        FinderField::ALL[self.focus_idx.min(FinderField::ALL.len() - 1)]
+        FinderField::ALL[self.finder.focus_idx.min(FinderField::ALL.len() - 1)]
     }
 
     /// Pushes `msg` into a bounded [`VecDeque`], evicting the oldest line once full.
@@ -273,12 +111,12 @@ impl AppState {
 
     /// Appends a bounded line to the Finder log buffer.
     pub fn push_finder_log(&mut self, msg: impl Into<String>) {
-        Self::push_bounded_log(&mut self.finder_logs, msg.into());
+        Self::push_bounded_log(&mut self.finder.logs, msg.into());
     }
 
     /// Appends a bounded line to the Run daemon log buffer.
     pub fn push_run_log(&mut self, msg: impl Into<String>) {
-        Self::push_bounded_log(&mut self.run_logs, msg.into());
+        Self::push_bounded_log(&mut self.run.logs, msg.into());
     }
 
     /// Opens the centered floating modal for granting `CAP_NET_ADMIN|CAP_NET_RAW`.
@@ -292,7 +130,7 @@ impl AppState {
         self.modal = Some(if cfg!(windows) {
             AuthModal::confirm(ModalPurpose::GrantCaps, "Right-click zapret-rs.exe -> Run as administrator".to_owned())
         } else {
-            AuthModal::open(ModalPurpose::GrantCaps, format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", self.exe_path))
+            AuthModal::open(ModalPurpose::GrantCaps, format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", self.status.exe_path))
         });
     }
 
@@ -306,7 +144,7 @@ impl AppState {
                     self.modal = None;
                     self.pending_caps_action = None;
                     if purpose == ModalPurpose::ConfirmMergeConfig {
-                        self.pending_merge = None;
+                        self.config.pending_merge = None;
                         self.status_banner = "Kept new scan config only (press 's' to save).".to_owned();
                     }
                     self.reset_finder_hover();
@@ -319,7 +157,7 @@ impl AppState {
                 ModalKeyResult::Submit => AppAction::SubmitModal,
                 ModalKeyResult::KeepExisting => {
                     self.modal = None;
-                    if let Some((prev, _)) = self.pending_merge.take() { self.set_active_toml(prev); }
+                    if let Some((prev, _)) = self.config.pending_merge.take() { self.set_active_toml(prev); }
                     self.status_banner = "Kept existing config (discarded new scan).".to_owned();
                     self.reset_finder_hover();
                     AppAction::None
@@ -343,7 +181,7 @@ impl AppState {
             }
             return AppAction::None;
         }
-        if self.editing_text {
+        if self.finder.editing_text {
             return self.handle_text_edit_key(key.code);
         }
         if self.inspector.filter_editing {

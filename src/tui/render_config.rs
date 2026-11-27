@@ -25,7 +25,7 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(area);
 
     let toml_focused = state.focus.config == ConfigFocus::Toml;
-    let (toml_lines, toml_title, border_color, title_color) = if state.active_toml.is_empty() {
+    let (toml_lines, toml_title, border_color, title_color) = if state.config.active_toml.is_empty() {
         (
             vec![
                 Line::from(Span::styled("# No active nfqws2.toml yet.", Style::default().fg(t.muted))),
@@ -34,28 +34,28 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
                     Style::default().fg(t.muted),
                 )),
             ],
-            format!(" nfqws2.toml ({}) ", state.output_path),
+            format!(" nfqws2.toml ({}) ", state.finder.output_path),
             if toml_focused { t.accent_bright } else { t.frame },
             t.accent_bright,
         )
-    } else if let Some(err) = &state.toml_error {
+    } else if let Some(err) = &state.config.toml_error {
         let short = err.lines().next().unwrap_or(err.as_str());
         (
-            highlight_toml(&state.active_toml, t),
-            format!(" nfqws2.toml ({}) [INVALID: {short}] ", state.output_path),
+            highlight_toml(&state.config.active_toml, t),
+            format!(" nfqws2.toml ({}) [INVALID: {short}] ", state.finder.output_path),
             t.err,
             t.err_bright,
         )
     } else {
         (
-            highlight_toml(&state.active_toml, t),
-            format!(" nfqws2.toml ({}) [VALID: {} profiles] ", state.output_path, state.parsed_profiles.len()),
+            highlight_toml(&state.config.active_toml, t),
+            format!(" nfqws2.toml ({}) [VALID: {} profiles] ", state.finder.output_path, state.config.parsed_profiles.len()),
             if toml_focused { t.accent_bright } else { t.ok },
             t.ok_bright,
         )
     };
     let toml_pane = Paragraph::new(toml_lines)
-        .scroll((state.toml_scroll, 0))
+        .scroll((state.config.toml_scroll, 0))
         .block(panel_block(&toml_title, border_color, title_color));
     frame.render_widget(toml_pane, cols[0]);
 
@@ -74,10 +74,10 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(nft_pane, right[0]);
 
     let autolist_focused = state.focus.config == ConfigFocus::AutoHostlist;
-    let (autolist_title, autolist_border, mut autolist_lines) = if state.autohostlist_paths.is_empty() {
+    let (autolist_title, autolist_border, mut autolist_lines) = if state.config.autohostlist_paths.is_empty() {
         (
-            format!(" Auto Hostlist (off) | Blacklist ({}) ", state.exclude_entries.len()),
-            if autolist_focused { t.accent_bright } else if !state.exclude_entries.is_empty() { t.warn } else { t.frame },
+            format!(" Auto Hostlist (off) | Blacklist ({}) ", state.config.exclude_entries.len()),
+            if autolist_focused { t.accent_bright } else if !state.config.exclude_entries.is_empty() { t.warn } else { t.frame },
             vec![
                 Line::from(Span::styled(
                     "Auto Hostlist off (set Tab 1 Domain Scope to Auto Hostlist).",
@@ -87,7 +87,7 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         )
     } else {
         let path_list = state
-            .autohostlist_paths
+            .config.autohostlist_paths
             .iter()
             .map(|p| p.display().to_string())
             .collect::<Vec<_>>()
@@ -96,13 +96,13 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled("File: ", Style::default().fg(t.info)),
             Span::styled(path_list, Style::default().fg(t.subtle)),
         ])];
-        if state.autohostlist_entries.is_empty() {
+        if state.config.autohostlist_entries.is_empty() {
             lines.push(Line::from(Span::styled(
                 "(empty yet — blocked domains append live or via [a])",
                 Style::default().fg(t.muted),
             )));
         } else {
-            for domain in &state.autohostlist_entries {
+            for domain in &state.config.autohostlist_entries {
                 lines.push(Line::from(Span::styled(
                     format!("  {domain}"),
                     Style::default().fg(t.ok_bright),
@@ -112,24 +112,24 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         (
             format!(
                 " Auto Hostlist ({}) | Blacklist ({}) ",
-                state.autohostlist_entries.len(),
-                state.exclude_entries.len()
+                state.config.autohostlist_entries.len(),
+                state.config.exclude_entries.len()
             ),
             if autolist_focused { t.accent_bright } else { t.ok },
             lines,
         )
     };
     autolist_lines.push(Line::from(Span::styled(
-        format!("Blacklist (never desync, {}):", state.exclude_entries.len()),
+        format!("Blacklist (never desync, {}):", state.config.exclude_entries.len()),
         Style::default().fg(t.warn_bright),
     )));
-    if state.exclude_entries.is_empty() {
+    if state.config.exclude_entries.is_empty() {
         autolist_lines.push(Line::from(Span::styled(
             "  (none — press 'b' to blacklist, 'd' to remove)",
             Style::default().fg(t.subtle),
         )));
     } else {
-        for domain in &state.exclude_entries {
+        for domain in &state.config.exclude_entries {
             autolist_lines.push(Line::from(Span::styled(
                 format!("  - {domain}"),
                 Style::default().fg(t.err_bright),

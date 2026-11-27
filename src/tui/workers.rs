@@ -119,14 +119,14 @@ fn missing_privs_error(exe_path: &str) -> String {
 
 /// Validates network capabilities, scan domains/options, and Lua script discovery before launching a scan.
 pub(crate) fn validate_scan_prereqs(state: &AppState) -> Result<(ScanConfig, Vec<PathBuf>), String> {
-    if !state.has_net_caps {
-        return Err(missing_privs_error(&state.exe_path));
+    if !state.status.has_net_caps {
+        return Err(missing_privs_error(&state.status.exe_path));
     }
     let scan_cfg = state.build_scan_config()?;
-    let lua_opt = if state.lua_dir_input.trim().is_empty() {
+    let lua_opt = if state.finder.lua_dir_input.trim().is_empty() {
         None
     } else {
-        Some(PathBuf::from(state.lua_dir_input.trim()))
+        Some(PathBuf::from(state.finder.lua_dir_input.trim()))
     };
     let lua_scripts = resolve_lua_scripts(lua_opt.as_deref())?;
     Ok((scan_cfg, lua_scripts))
@@ -140,11 +140,11 @@ where
     let (scan_cfg, lua_scripts) = validate_scan_prereqs(state)?;
 
     let (tcp_ports, udp_ports) = scan_cfg.required_ports();
-    let fw_guard = if state.no_nft {
+    let fw_guard = if state.finder.no_nft {
         None
     } else {
         Some(
-            install_fw(state.finder_qnum, state.fwmark, &tcp_ports, &udp_ports)
+            install_fw(state.finder.qnum, state.finder.fwmark, &tcp_ports, &udp_ports)
                 .map_err(|err| format!("{err}"))?,
         )
     };
@@ -152,7 +152,7 @@ where
     let (tx, rx) = mpsc::channel::<ScanUiEvent>();
     let stop = Arc::new(AtomicBool::new(false));
     let stop_bg = Arc::clone(&stop);
-    let (qnum, fwmark, domain_scope) = (state.finder_qnum, state.fwmark, state.domain_scope);
+    let (qnum, fwmark, domain_scope) = (state.finder.qnum, state.finder.fwmark, state.finder.domain_scope);
 
     // Static stop flag for `InProcessWorkerHandle::spawn` (worker exits cleanly when dropped).
     static NEVER_STOP: AtomicBool = AtomicBool::new(false);
@@ -205,12 +205,12 @@ where
         })
         .map_err(|err| format!("failed to spawn scan thread: {err}"))?;
 
-    state.finder_status = FinderStatus::Scanning;
-    state.targets.clear();
-    state.cover.clear();
-    state.progress_done = 0;
-    state.progress_total = 0;
-    state.progress_label = "Starting scan...".to_owned();
+    state.finder.status = FinderStatus::Scanning;
+    state.finder.targets.clear();
+    state.finder.cover.clear();
+    state.finder.progress_done = 0;
+    state.finder.progress_total = 0;
+    state.finder.progress_label = "Starting scan...".to_owned();
     state.status_banner = "Scan running. Press 'x' or Esc to stop.".to_owned();
     Ok(ActiveScan { stop, rx, join: Some(join), fw_guard })
 }
@@ -246,19 +246,19 @@ fn dispatch_live_worker_packet(
     decision
 }
 
-/// Starts the live in-process `nfqws2` NFQUEUE worker for Tab 2 using `state.active_toml`.
+/// Starts the live in-process `nfqws2` NFQUEUE worker for Tab 2 using `state.config.active_toml`.
 pub(crate) fn start_live_daemon<F>(state: &mut AppState, install_fw: F) -> Result<ActiveDaemon, String>
 where
     F: FnOnce(u16, u32, &[u16], &[u16]) -> std::io::Result<Box<dyn FirewallHandle>>,
 {
-    if !state.has_net_caps {
-        return Err(missing_privs_error(&state.exe_path));
+    if !state.status.has_net_caps {
+        return Err(missing_privs_error(&state.status.exe_path));
     }
-    if state.active_toml.trim().is_empty() {
+    if state.config.active_toml.trim().is_empty() {
         return Err("no active nfqws2.toml loaded (run Strategy Finder or press 'l' to load a file)".to_owned());
     }
-    let base_dir = Path::new(&state.output_path).parent();
-    let cfg = AppConfig::from_toml_str(&state.active_toml, base_dir)
+    let base_dir = Path::new(&state.finder.output_path).parent();
+    let cfg = AppConfig::from_toml_str(&state.config.active_toml, base_dir)
         .map_err(|err| format!("invalid nfqws2.toml: {err}"))?;
     let (tcp_ports, udp_ports) = collect_config_ports(&cfg);
     let (qnum, fwmark) = (cfg.qnum, cfg.fwmark);
@@ -272,7 +272,7 @@ where
         state.tab == ActiveTab::Run && !state.inspector.paused,
     ));
     let capture_bg = Arc::clone(&capture_enabled);
-    let counters: Arc<PacketCounters> = Arc::clone(&state.counters);
+    let counters: Arc<PacketCounters> = Arc::clone(&state.run.counters);
 
     let join = thread::Builder::new()
         .name("tui-nfqws2-live".to_owned())
@@ -351,7 +351,7 @@ where
         Err(_) => { let _ = join.join(); return Err("live daemon thread exited during startup".to_owned()); }
     }
 
-    let fw_guard = if state.no_nft {
+    let fw_guard = if state.finder.no_nft {
         None
     } else {
         match install_fw(qnum, fwmark, &tcp_ports, &udp_ports) {
@@ -364,11 +364,11 @@ where
         }
     };
 
-    state.run_status = RunStatus::Running;
+    state.run.status = RunStatus::Running;
     let engine = crate::tui::tabs::ENGINE_LABEL;
     state.push_run_log(format!(
         "[start] {engine} active (queue {qnum}, fwmark 0x{fwmark:08x}, {} profiles)",
-        state.parsed_profiles.len()
+        state.config.parsed_profiles.len()
     ));
     state.status_banner =
         format!("{engine} is running. Press 'f' to filter, 'd' for detail, 'x' to stop.");

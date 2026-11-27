@@ -113,14 +113,14 @@ fn wait_for_control_socket(configured: Option<&Path>, timeout: Duration) -> Opti
 
 /// Starts (or restarts if still deactivating) `zapret-rs.service` via trusted `systemctl` and attaches.
 fn start_via_systemd(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) -> DaemonLaunchOutcome {
-    if state.uid != 0 && sudo_needs_password() {
+    if state.status.uid != 0 && sudo_needs_password() {
         return DaemonLaunchOutcome::NeedSudo("sudo systemctl restart zapret-rs.service".to_owned());
     }
     let systemctl_bin = match resolve_trusted_system_bin("systemctl") {
         Ok(p) => p,
         Err(err) => return DaemonLaunchOutcome::Failed(format!("cannot locate trusted systemctl: {err}")),
     };
-    let output = if state.uid == 0 {
+    let output = if state.status.uid == 0 {
         Command::new(&systemctl_bin)
             .args(["restart", "zapret-rs.service"])
             .stdin(Stdio::null())
@@ -151,7 +151,7 @@ fn start_via_systemd(state: &mut AppState, session_tab2: &mut Option<Tab2Session
         Err(err) => return DaemonLaunchOutcome::Failed(format!("failed to invoke systemctl: {err}")),
     }
 
-    match wait_for_control_socket(state.control_socket_override.as_deref(), DAEMON_START_TIMEOUT) {
+    match wait_for_control_socket(state.run.control_socket_override.as_deref(), DAEMON_START_TIMEOUT) {
         Some(sock) => {
             if attach_to_socket(state, session_tab2, sock) {
                 DaemonLaunchOutcome::Attached
@@ -172,30 +172,30 @@ fn start_standalone_daemon(
     state: &mut AppState,
     session_tab2: &mut Option<Tab2Session>,
 ) -> DaemonLaunchOutcome {
-    if state.active_toml.trim().is_empty() {
+    if state.config.active_toml.trim().is_empty() {
         return DaemonLaunchOutcome::Failed(
             "no active nfqws2.toml loaded (run Strategy Finder or press 'l' to load a file)".to_owned(),
         );
     }
-    let cfg_path = expand_tilde(&state.output_path);
-    if let Err(err) = AppConfig::from_toml_str(&state.active_toml, cfg_path.parent()) {
+    let cfg_path = expand_tilde(&state.finder.output_path);
+    if let Err(err) = AppConfig::from_toml_str(&state.config.active_toml, cfg_path.parent()) {
         return DaemonLaunchOutcome::Failed(format!("invalid nfqws2.toml: {err}"));
     }
-    let disk_same = fs::read_to_string(&cfg_path).is_ok_and(|s| s == state.active_toml);
-    if !disk_same && let Err(err) = write_config_nofollow(&cfg_path, &state.active_toml) {
+    let disk_same = fs::read_to_string(&cfg_path).is_ok_and(|s| s == state.config.active_toml);
+    if !disk_same && let Err(err) = write_config_nofollow(&cfg_path, &state.config.active_toml) {
         return DaemonLaunchOutcome::Failed(format!("cannot write {}: {err}", cfg_path.display()));
     }
 
     let sock_path = state
-        .control_socket_override
+        .run.control_socket_override
         .clone()
         .unwrap_or_else(default_control_socket_path);
-    let nft_flag = if state.no_nft { "--nft=false" } else { "--nft" };
+    let nft_flag = if state.finder.no_nft { "--nft=false" } else { "--nft" };
     let sub_prefix = subcmd.map_or_else(String::new, |s| format!("{s} "));
 
     #[cfg(windows)]
     {
-        if !state.has_net_caps {
+        if !state.status.has_net_caps {
             return DaemonLaunchOutcome::Unavailable;
         }
         let _ = (sub_prefix, nft_flag);
@@ -247,15 +247,15 @@ fn start_standalone_daemon(
     }
     #[cfg(not(windows))]
     {
-        let uid_arg = format!("{}:{}", state.uid, resolve_daemon_gid(state.uid));
-        if state.uid != 0 && sudo_needs_password() {
+        let uid_arg = format!("{}:{}", state.status.uid, resolve_daemon_gid(state.status.uid));
+        if state.status.uid != 0 && sudo_needs_password() {
             return DaemonLaunchOutcome::NeedSudo(format!(
                 "sudo {} {sub_prefix}--daemon --config {} {nft_flag}",
                 bin.display(),
                 cfg_path.display()
             ));
         }
-        let mut cmd = if state.uid == 0 {
+        let mut cmd = if state.status.uid == 0 {
             let mut direct = Command::new(bin);
             if let Some(sub) = subcmd {
                 direct.arg(sub);
@@ -278,7 +278,7 @@ fn start_standalone_daemon(
             s.args(["--uid", &uid_arg]);
             s
         };
-        cmd.args(build_daemon_common_args(&cfg_path, &sock_path, state.no_nft))
+        cmd.args(build_daemon_common_args(&cfg_path, &sock_path, state.finder.no_nft))
             .stdin(Stdio::null());
 
         match cmd.output() {

@@ -68,21 +68,21 @@ impl Tab2Session {
 
 /// Connects to `sock` and populates Tab 2 remote attach state; returns `true` on success.
 ///
-/// On failure, `state.auto_reattach` is cleared to prevent an attach retry storm.
+/// On failure, `state.run.auto_reattach` is cleared to prevent an attach retry storm.
 pub(crate) fn attach_to_socket(
     state: &mut AppState,
     session_tab2: &mut Option<Tab2Session>,
     sock: PathBuf,
 ) -> bool {
-    match connect_remote_daemon(sock, Arc::clone(&state.counters)) {
+    match connect_remote_daemon(sock, Arc::clone(&state.run.counters)) {
         Ok((attached, meta)) => {
             state.set_attached(meta);
             *session_tab2 = Some(Tab2Session::Remote(attached));
             true
         }
         Err(err) => {
-            state.auto_reattach = false;
-            state.run_status = RunStatus::Error(err.clone());
+            state.run.auto_reattach = false;
+            state.run.status = RunStatus::Error(err.clone());
             state.status_banner = format!("Attach failed: {err}");
             state.push_run_log(format!("[error] {err}"));
             false
@@ -98,7 +98,7 @@ pub(crate) fn execute_remote_stop(state: &mut AppState, session_tab2: &mut Optio
         match remote.send_command(&Request::Stop) {
             Ok(()) => {
                 remote.stop_requested = true;
-                state.auto_reattach = false;
+                state.run.auto_reattach = false;
                 state.status_banner = "Sent stop request to remote daemon.".to_owned();
             }
             Err(err) => {
@@ -134,7 +134,7 @@ pub(crate) fn poll_tab2_session(
         while let Ok(ev) = remote.ev_rx.try_recv() {
             match ev {
                 RemoteEvent::StatusUpdated(st) => {
-                    if let Some(meta) = state.remote_meta.as_mut() {
+                    if let Some(meta) = state.run.remote_meta.as_mut() {
                         meta.profile_names = st.profile_names;
                         meta.config_path = st.config_path;
                     }
@@ -157,9 +157,9 @@ pub(crate) fn poll_tab2_session(
         if let Some(Tab2Session::Remote(mut remote)) = session_tab2.take() {
             remote.detach();
         }
-        state.detected_socket = detect_control_socket(state.control_socket_override.as_deref());
+        state.run.detected_socket = detect_control_socket(state.run.control_socket_override.as_deref());
         if was_stop {
-            state.auto_reattach = false;
+            state.run.auto_reattach = false;
             state.set_detached(
                 "[stop] remote nfqws2 daemon stopped cleanly.".to_owned(),
                 "Remote daemon stopped.".to_owned(),
@@ -179,19 +179,19 @@ pub(crate) fn poll_tab2_session(
 /// If the previously detected socket path has vanished from disk, it is cleared from `state`.
 /// If a new socket appears and `auto_reattach` is set, `attach_to_socket` is called immediately.
 fn refresh_idle_socket(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) {
-    if let Some(existing) = state.detected_socket.clone() {
+    if let Some(existing) = state.run.detected_socket.clone() {
         if std::fs::symlink_metadata(&existing).is_err() {
-            state.detected_socket = None;
-        } else if state.auto_reattach {
+            state.run.detected_socket = None;
+        } else if state.run.auto_reattach {
             attach_to_socket(state, session_tab2, existing);
         }
         return;
     }
-    if let Some(found) = detect_control_socket(state.control_socket_override.as_deref()) {
-        state.detected_socket = Some(found.clone());
-        if state.auto_reattach {
+    if let Some(found) = detect_control_socket(state.run.control_socket_override.as_deref()) {
+        state.run.detected_socket = Some(found.clone());
+        if state.run.auto_reattach {
             attach_to_socket(state, session_tab2, found);
-        } else if state.run_status == RunStatus::Stopped {
+        } else if state.run.status == RunStatus::Stopped {
             state.status_banner =
                 format!("Daemon socket ready at {}; press 'r' to attach.", found.display());
         }
@@ -207,16 +207,16 @@ pub(crate) fn push_config_to_daemon(state: &mut AppState, session_tab2: &Option<
             "Not attached to a daemon. Attach on Tab 2 ('r') before pushing config.".to_owned();
         return;
     };
-    if let Some(err) = &state.toml_error {
+    if let Some(err) = &state.config.toml_error {
         state.status_banner =
             format!("Cannot push invalid TOML: {}", err.lines().next().unwrap_or(err));
         return;
     }
-    if state.active_toml.trim().is_empty() {
+    if state.config.active_toml.trim().is_empty() {
         state.status_banner = "Active TOML is empty; nothing to push.".to_owned();
         return;
     }
-    match remote.send_command(&Request::ReloadConfig { toml: state.active_toml.clone() }) {
+    match remote.send_command(&Request::ReloadConfig { toml: state.config.active_toml.clone() }) {
         Ok(()) => {
             let _ = remote.send_command(&Request::Status);
             state.status_banner = "Pushed config to attached nfqws2 daemon.".to_owned();
@@ -239,7 +239,7 @@ pub(crate) fn stop_local_daemon(
     if let Some(Tab2Session::Local(mut daemon)) = session_tab2.take() {
         daemon.shutdown(|g| drop_fw_tui(session, g));
         drain_packet_pair(state, &daemon.desync_rx, &daemon.pkt_rx, usize::MAX);
-        state.run_status = RunStatus::Stopped;
+        state.run.status = RunStatus::Stopped;
         let engine = crate::tui::tabs::ENGINE_LABEL;
         state.push_run_log(if cfg!(windows) {
             format!("[stop] {engine} stopped cleanly.")
@@ -260,11 +260,11 @@ pub(crate) fn attach_and_stop_active_daemon(
 ) -> bool {
     if session_tab2.is_none()
         && let Some(sock) = state
-            .detected_socket
+            .run.detected_socket
             .clone()
-            .or_else(|| detect_control_socket(state.control_socket_override.as_deref()))
+            .or_else(|| detect_control_socket(state.run.control_socket_override.as_deref()))
     {
-        state.detected_socket = Some(sock.clone());
+        state.run.detected_socket = Some(sock.clone());
         if !attach_to_socket(state, session_tab2, sock) {
             return false;
         }

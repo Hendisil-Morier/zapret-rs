@@ -96,15 +96,15 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
     assert_eq!(detect_control_socket(Some(&sock)), Some(sock.clone()));
 
     let mut state = AppState::new(None, None, false);
-    state.has_net_caps = false; // Unprivileged TUI can attach without caps.
+    state.status.has_net_caps = false; // Unprivileged TUI can attach without caps.
     state.tab = ActiveTab::Run;
 
     let (mut attached, rmeta) =
-        connect_remote_daemon(sock.clone(), Arc::clone(&state.counters)).expect("attach");
+        connect_remote_daemon(sock.clone(), Arc::clone(&state.run.counters)).expect("attach");
     assert_eq!(rmeta.pid, 99123);
     assert_eq!(rmeta.qnum, 205);
     state.set_attached(rmeta);
-    assert_eq!(state.counters.snapshot().0, 10);
+    assert_eq!(state.run.counters.snapshot().0, 10);
 
     // Stream REASM and DESYNC packets from the daemon hub into TUI channels.
     hub.publish_packet(sample_pkt(11, PacketOutcome::Reasm));
@@ -195,9 +195,9 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
         "[error] control connection lost".to_owned(),
         "Control connection lost".to_owned(),
     );
-    assert_eq!(state.run_status, RunStatus::Stopped);
-    assert!(state.auto_reattach, "unexpected disconnect keeps auto_reattach enabled");
-    state.detected_socket = Some(sock.clone());
+    assert_eq!(state.run.status, RunStatus::Stopped);
+    assert!(state.run.auto_reattach, "unexpected disconnect keeps auto_reattach enabled");
+    state.run.detected_socket = Some(sock.clone());
     state.handle_key(key(KeyCode::Char('?')));
     let detected_help = render_to_string(&state, 120, 36);
     assert!(detected_help.contains("[r] Attach"));
@@ -241,7 +241,7 @@ fn attach_reports_readable_error_on_protocol_version_mismatch() {
 #[test]
 fn app_state_enables_auto_attach_by_default_and_clears_pending_caps_action_on_esc() {
     let mut state = AppState::new(None, None, false);
-    assert!(state.auto_reattach, "TUI must auto-attach active daemon sockets by default");
+    assert!(state.run.auto_reattach, "TUI must auto-attach active daemon sockets by default");
     state.open_caps_modal_for(Some(zapret_rs::tui::types::PostCapsAction::StartScan));
     assert_eq!(state.pending_caps_action, Some(zapret_rs::tui::types::PostCapsAction::StartScan));
     state.handle_key(key(KeyCode::Esc));
@@ -255,18 +255,18 @@ fn attached_clear_zeros_visible_counters_against_baseline() {
 
     let mut state = AppState::new(None, None, false);
     state.tab = ActiveTab::Run;
-    state.run_status = RunStatus::Attached;
-    state.counters.total.store(10, Ordering::Relaxed);
-    state.counters.passed.store(7, Ordering::Relaxed);
-    state.counters.desynced.store(3, Ordering::Relaxed);
+    state.run.status = RunStatus::Attached;
+    state.run.counters.total.store(10, Ordering::Relaxed);
+    state.run.counters.passed.store(7, Ordering::Relaxed);
+    state.run.counters.desynced.store(3, Ordering::Relaxed);
     assert_eq!(state.visible_counters(), (10, 7, 0, 0, 3));
 
     state.handle_key(key(KeyCode::Char('c')));
     assert_eq!(state.visible_counters(), (0, 0, 0, 0, 0));
 
     // Subsequent remote counter snapshots increment relative to the cleared baseline.
-    state.counters.total.store(12, Ordering::Relaxed);
-    state.counters.passed.store(8, Ordering::Relaxed);
-    state.counters.desynced.store(4, Ordering::Relaxed);
+    state.run.counters.total.store(12, Ordering::Relaxed);
+    state.run.counters.passed.store(8, Ordering::Relaxed);
+    state.run.counters.desynced.store(4, Ordering::Relaxed);
     assert_eq!(state.visible_counters(), (2, 1, 0, 0, 1));
 }
