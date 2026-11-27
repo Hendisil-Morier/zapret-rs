@@ -24,10 +24,19 @@ use crate::control::Request;
 use crate::tools::web::auth::{WebAuth, unix_now_secs};
 /// Resolved web runtime configuration passed from [`crate::tools::web::cli`].
 use crate::tools::web::cli::WebConfig;
-/// Bounded HTTP request parser and JSON/error writers.
-use crate::tools::web::http::{HttpMethod, HttpRequest, read_http_request, write_error, write_json};
+/// Bounded HTTP request parser and JSON/error/asset responders.
+use crate::tools::web::http::{
+    HttpMethod, HttpRequest, read_http_request, write_error, write_json, write_response,
+};
 /// Background daemon control IPC bridge and SSE fanout hub.
 use crate::tools::web::ipc_bridge::WebIpcBridge;
+
+/// Embedded mobile-first single-page dashboard HTML served at `/`.
+const INDEX_HTML: &str = include_str!("assets/index.html");
+/// Embedded daylight-first and dark-mode hardware faceplate stylesheet served at `/app.css`.
+const APP_CSS: &str = include_str!("assets/app.css");
+/// Embedded SSE + fetch client script served at `/app.js`.
+const APP_JS: &str = include_str!("assets/app.js");
 
 /// Maximum concurrent short-lived HTTP request threads accepted simultaneously.
 const MAX_HTTP_WORKERS: usize = 16;
@@ -203,6 +212,22 @@ fn handle_request(
 ) {
     let now = unix_now_secs();
     match (&req.method, req.path.as_str()) {
+        (HttpMethod::Get, "/" | "/index.html") => {
+            let _ = write_response(stream, 200, "OK", "text/html; charset=utf-8", &[], INDEX_HTML.as_bytes());
+        }
+        (HttpMethod::Get, "/app.css") => {
+            let _ = write_response(stream, 200, "OK", "text/css; charset=utf-8", &[], APP_CSS.as_bytes());
+        }
+        (HttpMethod::Get, "/app.js") => {
+            let _ = write_response(
+                stream,
+                200,
+                "OK",
+                "application/javascript; charset=utf-8",
+                &[],
+                APP_JS.as_bytes(),
+            );
+        }
         (HttpMethod::Get, "/healthz") => {
             let _ = write_json(
                 stream,

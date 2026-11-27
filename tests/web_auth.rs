@@ -167,3 +167,36 @@ fn multicall_dispatches_web_subcommand_and_cli_help() {
         .expect("run insecure web args");
     assert!(!fail.status.success());
 }
+
+#[test]
+fn web_server_serves_self_contained_assets_without_external_cdn() {
+    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let (auth, _) = WebAuth::new(bind, Some("asset-pass".to_owned()), false).expect("auth");
+    let mut srv = start_web_server(WebConfig {
+        bind,
+        auth,
+        control_socket: None,
+        config: None,
+        lua_dir: None,
+    })
+    .expect("start web server");
+    let addr = srv.addr();
+
+    let (st_html, html) = raw_http(addr, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert_eq!(st_html, 200);
+    assert!(html.contains("X-Content-Type-Options: nosniff"));
+    assert!(html.contains("text/html; charset=utf-8"));
+    assert!(html.contains("Reload Lists") && html.contains("Confirm Stop"));
+    assert!(!html.contains("http://") && !html.contains("https://"));
+
+    let (st_css, css) = raw_http(addr, "GET /app.css HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert_eq!(st_css, 200);
+    assert!(css.contains("text/css") && css.contains("tabular-nums"));
+    assert!(!css.contains("http://") && !css.contains("https://"));
+
+    let (st_js, js) = raw_http(addr, "GET /app.js HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert_eq!(st_js, 200);
+    assert!(js.contains("application/javascript") && js.contains("/api/events"));
+
+    srv.shutdown();
+}

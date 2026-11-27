@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>zapret-rs</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="login-view" class="login-backdrop hidden" aria-modal="true" role="dialog">
+    <form id="login-form" class="plate login-card">
+      <div class="brand-lockup">
+        <span class="signal-dot signal-dot-idle" aria-hidden="true"></span>
+        <h1>zapret-rs</h1>
+      </div>
+      <p class="muted">Enter the pairing passcode shown in the host terminal to unlock control.</p>
+      <label class="field-label" for="passcode-input">Passcode</label>
+      <input id="passcode-input" class="input mono" type="password" autocomplete="current-password" placeholder="xxxx-xxxx-xxxx-xxxx" required>
+      <p id="login-error" class="error-text hidden" role="alert"></p>
+      <button id="login-submit" class="btn btn-primary btn-block" type="submit">Unlock Dashboard</button>
+    </form>
+  </div>
+
+  <div id="app-shell" class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <span id="conn-dot" class="signal-dot signal-dot-idle" aria-hidden="true"></span>
+        <span class="brand-name">zapret-rs</span>
+        <span id="version-chip" class="chip mono">--</span>
+      </div>
+      <div class="topbar-right">
+        <span id="conn-label" class="conn-label">Connecting</span>
+        <button id="logout-btn" class="btn btn-ghost hidden" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <nav class="nav-rail" aria-label="Primary sections">
+        <button class="nav-item active" type="button" data-tab="monitor">Monitor</button>
+        <button class="nav-item" type="button" data-tab="domains">Domains</button>
+        <button class="nav-item" type="button" data-tab="scan">Scan</button>
+        <button class="nav-item" type="button" data-tab="config">Config</button>
+      </nav>
+
+      <main class="main-col">
+        <section id="tab-monitor" class="tab-panel active">
+          <div class="plate hero-plate">
+            <div class="hero-top">
+              <div>
+                <h2 id="engine-state" class="hero-title">Connecting to daemon</h2>
+                <p id="engine-meta" class="muted mono">Waiting for control socket</p>
+              </div>
+              <div class="hero-actions">
+                <button id="reload-lists-btn" class="btn btn-secondary" type="button" disabled>Reload Lists</button>
+                <button id="stop-ask-btn" class="btn btn-danger-outline" type="button" disabled>Stop Engine</button>
+                <div id="stop-confirm-row" class="confirm-inline hidden">
+                  <button id="stop-confirm-btn" class="btn btn-danger" type="button">Confirm Stop</button>
+                  <button id="stop-cancel-btn" class="btn btn-ghost" type="button">Cancel</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="profiles-row" class="profile-chips"></div>
+
+            <div class="counter-grid" aria-label="Packet counters">
+              <div class="counter-cell">
+                <span class="counter-key">Total</span>
+                <span id="cnt-total" class="counter-val mono">0</span>
+              </div>
+              <div class="counter-cell">
+                <span class="counter-key">Desynced</span>
+                <span id="cnt-desynced" class="counter-val counter-ok mono">0</span>
+              </div>
+              <div class="counter-cell">
+                <span class="counter-key">Modified</span>
+                <span id="cnt-modified" class="counter-val counter-cobalt mono">0</span>
+              </div>
+              <div class="counter-cell">
+                <span class="counter-key">Passed</span>
+                <span id="cnt-passed" class="counter-val mono">0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="plate feed-plate">
+            <div class="feed-header">
+              <div class="feed-title-wrap">
+                <h3>Live Packets</h3>
+                <span id="sse-badge" class="chip mono">SSE</span>
+              </div>
+              <div class="feed-controls">
+                <input id="pkt-filter" class="input input-compact" type="search" placeholder="Filter host, IP, verdict">
+                <button id="pause-feed-btn" class="btn btn-secondary btn-compact" type="button">Pause</button>
+              </div>
+            </div>
+            <div id="packet-list" class="packet-list">
+              <p class="empty-note">No packets captured yet.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-domains" class="tab-panel">
+          <div class="plate section-plate">
+            <h2>Domains &amp; Hostlists</h2>
+            <p class="muted">Domain scope and autohostlist management.</p>
+            <div id="domains-body"></div>
+          </div>
+        </section>
+
+        <section id="tab-scan" class="tab-panel">
+          <div class="plate section-plate">
+            <h2>Strategy Finder &amp; Speed</h2>
+            <p class="muted">Probe blocked sites and compare bypass throughput.</p>
+            <div id="scan-body"></div>
+          </div>
+        </section>
+
+        <section id="tab-config" class="tab-panel">
+          <div class="plate section-plate">
+            <h2>Configuration</h2>
+            <p class="muted">Edit and hot-reload nfqws2.toml profiles.</p>
+            <div id="config-body"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
