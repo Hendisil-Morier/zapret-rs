@@ -30,6 +30,8 @@ use crate::telemetry::{PacketCounters, build_packet_record};
 use crate::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_callbacks};
 /// Target port range collector and WinDivert filter-expression builder.
 use crate::tools::strat::firewall::{PortRangePair, collect_config_port_ranges};
+/// Shared daemon startup and event-loop error enum.
+use crate::tools::daemon::error::DaemonError;
 /// WinDivert filter string generator matching configured TCP/UDP port ranges.
 use crate::tools::strat::windivert::build_windivert_filter_ranges;
 
@@ -104,7 +106,7 @@ fn start_windows_control_server(
     config: &AppConfig,
     engine: &DesyncEngine,
     config_path: Option<&Path>,
-) -> Result<WindowsControlHandles, Box<dyn std::error::Error>> {
+) -> Result<WindowsControlHandles, DaemonError> {
     let Some(path) = socket_path else {
         return Ok((None, None));
     };
@@ -125,7 +127,7 @@ fn start_windows_control_server(
 }
 
 /// Executes the Windows WinDivert daemon startup pipeline and packet event loop.
-pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError> {
     let config = resolve_config(cli)?;
     if let Some(dir) = &config.chdir {
         std::env::set_current_dir(dir)?;

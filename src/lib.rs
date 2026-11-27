@@ -10,6 +10,8 @@ pub mod control;
 pub mod crypto;
 /// Core DPI desync profile routing and Lua action execution engine.
 pub mod desync;
+/// Unified library error type aggregating subsystem errors across `zapret-rs`.
+pub mod error;
 /// Linux NFQUEUE packet interception and verdict loop.
 pub mod intercepter;
 /// Hostlists, autohostlist failure detection, disjoint CIDR IPsets, and TTL IPCache.
@@ -33,3 +35,6 @@ pub mod tools;
 /// Interactive `ratatui` TUI wrapping strategy discovery, config preview, and live `nfqws2`.
 #[cfg(feature = "tui")]
 pub mod tui;
+
+/// Re-exported unified library error type.
+pub use error::ZapretError;

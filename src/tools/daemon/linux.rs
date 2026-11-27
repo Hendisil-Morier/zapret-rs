@@ -7,7 +7,7 @@ use std::fs::File;
 /// Classification of `EACCES`/`EPERM` when skipping raw socket preinit in `--intercept=0` mode.
 use std::io::ErrorKind;
 /// Path buffer carried inside file I/O diagnostics and control socket setup.
-use std::path::{Path, PathBuf};
+use std::path::Path;
 /// Reference counting for injecting [`RawSender`] into [`DesyncEngine`].
 use std::rc::Rc;
 /// Shared lock-free telemetry hub for control socket subscribers.
@@ -15,29 +15,24 @@ use std::sync::Arc;
 /// Poll timeout duration derived from the active timer pool deadline.
 use std::time::Duration;
 
-/// Typed error derivation for top-level startup and event-loop failures.
-use thiserror::Error;
-
-/// CLI arguments, config resolution, error wrapper, and Lua startup entry variants.
-use crate::config::{AppConfig, CliArgs, ConfigError, LuaInitEntry, resolve_config};
+/// CLI arguments, config resolution, and Lua startup entry variants.
+use crate::config::{AppConfig, CliArgs, LuaInitEntry, resolve_config};
 /// Unix control socket server, telemetry hub, and directory helpers.
 use crate::control::{
-    ControlServer, ControlServerConfig, ControlServerError, DaemonStatusMeta, TelemetryHub,
+    ControlServer, ControlServerConfig, DaemonStatusMeta, TelemetryHub,
     prepare_control_socket_dir, resolve_control_socket_path,
 };
 /// Core stateful DPI desync engine, list-file validation, and control command/reload helpers.
 use crate::desync::{
     DesyncEngine, collect_profile_names, drain_hub_commands, verify_config_list_files,
 };
-/// Linux NFQUEUE interception listener and poll error type.
-use crate::intercepter::{IntercepterError, QueueCatcher};
-/// LuaJIT runtime initialization and execution error type.
-use crate::lua::LuaEngineError;
-/// Packet sender trait, Linux raw socket sender, and socket setup error type.
+/// Linux NFQUEUE interception listener.
+use crate::intercepter::QueueCatcher;
+/// Packet sender trait, Linux raw socket sender, and socket error variants.
 use crate::rawsend::{PacketSender, RawSendError, RawSender};
 /// Process lifecycle management: PID files, `chdir`, privilege drop, caps, signals, writable dir, and daemonization.
 use crate::runtime::{
-    PidFileGuard, ProcessError, apply_chdir, daemonize, drop_privileges_for, install_signal_handlers,
+    PidFileGuard, apply_chdir, daemonize, drop_privileges_for, install_signal_handlers,
     prepare_writable_dir, quit_flag, resolve_identity, retain_net_capabilities_for,
     take_reload_requested,
 };
@@ -45,6 +40,8 @@ use crate::runtime::{
 use crate::telemetry::{PacketCounters, build_packet_record};
 /// Monotonic boottime clock, scheduled timer pool, and `--intercept=0` execution loop.
 use crate::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_callbacks};
+/// Shared daemon startup and event-loop error type.
+use crate::tools::daemon::error::DaemonError;
 /// OS-agnostic firewall handle and range-aware port collection helpers.
 use crate::tools::strat::firewall::{FirewallHandle, collect_config_port_ranges};
 /// Temporary `nftables` firewall guard backend used by `--nft`.
@@ -52,50 +49,6 @@ use crate::tools::strat::nft::NftFirewallBackend;
 
 /// Maximum poll timeout when the control socket is active so commands execute promptly.
 const CONTROL_LOOP_TIMEOUT_CAP: Duration = Duration::from_millis(50);
-
-/// Unified error type surfaced cleanly from `nfqws2` startup and event loops.
-#[derive(Debug, Error)]
-pub(crate) enum DaemonError {
-    /// CLI parsing or TOML validation failure.
-    #[error("{0}")]
-    Config(#[from] ConfigError),
-    /// Unix domain control socket setup or binding failure.
-    #[error("{0}")]
-    Control(#[from] ControlServerError),
-    /// Failure during `chdir`, UID/user resolution, PID file creation, capability setup, daemonize, or signals.
-    #[error("{0}")]
-    Process(#[from] ProcessError),
-    /// Raw L3 socket pre-initialization failure (`SOCK_RAW` + `IPPROTO_RAW`).
-    #[error("{0}")]
-    RawSend(#[from] RawSendError),
-    /// Embedded LuaJIT initialization, script execution, or missing profile action function.
-    #[error("{0}")]
-    Lua(#[from] LuaEngineError),
-    /// Linux NFQUEUE socket bind, receive, poll, or verdict submission error.
-    #[error("{0}")]
-    Intercepter(#[from] IntercepterError),
-    /// Temporary `nftables` queue rule installation failure when `--nft` is enabled.
-    #[error("temporary nftables setup failed: {0}")]
-    Nft(#[source] std::io::Error),
-    /// Referenced `--lua-init` script file could not be opened under active privileges.
-    #[error("cannot open Lua init script '{}': {source}", path.display())]
-    ScriptIo {
-        /// Filesystem path of the unreadable startup Lua script.
-        path: PathBuf,
-        /// Underlying OS error returned by `File::open`.
-        #[source]
-        source: std::io::Error,
-    },
-    /// Referenced hostlist, ipset, autohostlist, or debug log file failed validation.
-    #[error("cannot load list file '{}': {source}", path.display())]
-    ListIo {
-        /// Filesystem path of the invalid or inaccessible list file.
-        path: PathBuf,
-        /// Underlying OS or gzip decoding error.
-        #[source]
-        source: std::io::Error,
-    },
-}
 
 /// Checks that every `LuaInitEntry::File` script can be opened before `--dry-run` exits or loops begin.
 fn verify_lua_init_files(entries: &[LuaInitEntry]) -> Result<(), DaemonError> {

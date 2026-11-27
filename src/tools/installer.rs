@@ -92,6 +92,11 @@ fn default_install_prefix(prefer_system: bool) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/usr/local"))
 }
 
+/// Formats a consistent `"failed to <action> '<path>': <err>"` diagnostic message.
+fn path_err(action: &str, path: &Path, err: impl std::fmt::Display) -> String {
+    format!("failed to {action} '{}': {err}", path.display())
+}
+
 /// Verifies `dir` is a non-symlink directory (creating it cleanly when absent).
 fn ensure_real_dir(dir: &Path) -> Result<(), String> {
     if let Ok(meta) = fs::symlink_metadata(dir) {
@@ -103,8 +108,7 @@ fn ensure_real_dir(dir: &Path) -> Result<(), String> {
         }
         return Ok(());
     }
-    fs::create_dir_all(dir)
-        .map_err(|err| format!("failed to create '{}': {err}", dir.display()))
+    fs::create_dir_all(dir).map_err(|err| path_err("create", dir, err))
 }
 
 /// Atomically installs executable bytes from `src` to `dst` using `O_CREAT | O_EXCL | O_NOFOLLOW`
@@ -116,8 +120,7 @@ fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String> {
         .ok_or_else(|| format!("invalid target path '{}'", dst.display()))?;
     ensure_real_dir(parent)?;
 
-    let mut src_file = fs::File::open(src)
-        .map_err(|err| format!("failed to open source binary '{}': {err}", src.display()))?;
+    let mut src_file = fs::File::open(src).map_err(|err| path_err("open source binary", src, err))?;
     let mut staged = None;
     let mut dst_file = None;
     for attempt in 0..32u32 {
@@ -133,12 +136,7 @@ fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String> {
                 break;
             }
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(err) => {
-                return Err(format!(
-                    "failed to create staged binary '{}': {err}",
-                    candidate.display()
-                ));
-            }
+            Err(err) => return Err(path_err("create staged binary", &candidate, err)),
         }
     }
     let (Some(staged_path), Some(mut out_file)) = (staged, dst_file) else {
@@ -156,13 +154,13 @@ fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String> {
     #[cfg(unix)]
     if let Err(err) = out_file.set_permissions(fs::Permissions::from_mode(0o755)) {
         let _ = fs::remove_file(&staged_path);
-        return Err(format!("failed to chmod '{}': {err}", staged_path.display()));
+        return Err(path_err("chmod", &staged_path, err));
     }
     drop(out_file);
 
     fs::rename(&staged_path, dst).map_err(|err| {
         let _ = fs::remove_file(&staged_path);
-        format!("failed to install binary '{}': {err}", dst.display())
+        path_err("install binary", dst, err)
     })
 }
 

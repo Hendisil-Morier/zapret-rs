@@ -113,6 +113,20 @@ fn read_config_json(path: &Path) -> serde_json::Value {
     })
 }
 
+/// Maps a HTTP 400 validation failure with optional label prefix cleanly into Web API tuple format.
+fn bad_request(label: &str, err: impl std::fmt::Display) -> (u16, String) {
+    if label.is_empty() {
+        (400, err.to_string())
+    } else {
+        (400, format!("{label}: {err}"))
+    }
+}
+
+/// Maps a HTTP 500 persistence failure cleanly into Web API tuple format.
+fn write_failed(path: &Path, err: impl std::fmt::Display) -> (u16, String) {
+    (500, format!("failed to write {}: {err}", path.display()))
+}
+
 /// Validates path confinement and syntax, writes symlink-safely, and optionally live-reloads `nfqws2.toml`.
 fn save_config_toml(
     path: &Path,
@@ -126,11 +140,10 @@ fn save_config_toml(
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     validate_web_toml_paths(toml_text, config_dir, cfg.lua_dir.as_deref())
-        .map_err(|err| (400, err))?;
+        .map_err(|err| bad_request("", err))?;
     let parsed = AppConfig::from_toml_str(toml_text, Some(config_dir))
-        .map_err(|err| (400, format!("invalid config TOML: {err}")))?;
-    write_config_nofollow(path, toml_text)
-        .map_err(|err| (500, format!("failed to write {}: {err}", path.display())))?;
+        .map_err(|err| bad_request("invalid config TOML", err))?;
+    write_config_nofollow(path, toml_text).map_err(|err| write_failed(path, err))?;
 
     let applied = if apply {
         match ipc.send_command(&Request::ReloadConfig { toml: toml_text.to_owned() }) {
@@ -204,11 +217,11 @@ fn mutate_domain_list(
     match target_list {
         "exclude" => {
             let current = std::fs::read_to_string(config_path)
-                .map_err(|err| (400, format!("missing {}: {err}", config_path.display())))?;
+                .map_err(|err| bad_request(&format!("missing {}", config_path.display()), err))?;
             let updated = mutate_exclude_domains_toml(&current, &payload.domain, add, config_path.parent())
-                .map_err(|err| (400, err))?;
+                .map_err(|err| bad_request("", err))?;
             write_config_nofollow(config_path, &updated)
-                .map_err(|err| (500, format!("failed to write {}: {err}", config_path.display())))?;
+                .map_err(|err| write_failed(config_path, err))?;
             let reloaded = ipc.send_command(&Request::ReloadConfig { toml: updated }).is_ok();
             let domains = AppConfig::from_toml_str(&std::fs::read_to_string(config_path).unwrap_or_default(), config_path.parent())
                 .ok()
@@ -223,7 +236,7 @@ fn mutate_domain_list(
         "auto" => {
             let current = std::fs::read_to_string(config_path).unwrap_or_default();
             let parsed = AppConfig::from_toml_str(&current, config_path.parent())
-                .map_err(|err| (400, format!("invalid config: {err}")))?;
+                .map_err(|err| bad_request("invalid config", err))?;
             let auto_paths = confined_autohostlist_paths(&parsed, config_path);
             let Some(auto_path) = auto_paths.first() else {
                 return Err((
@@ -231,7 +244,8 @@ fn mutate_domain_list(
                     "Auto Hostlist is disabled; set Domain Scope to Auto Hostlist first".to_owned(),
                 ));
             };
-            let domains = mutate_hostlist_file(auto_path, &payload.domain, add).map_err(|e| (400, e))?;
+            let domains =
+                mutate_hostlist_file(auto_path, &payload.domain, add).map_err(|e| bad_request("", e))?;
             let reloaded = ipc.send_command(&Request::ReloadLists).is_ok();
             Ok(serde_json::json!({
                 "ok": true,
