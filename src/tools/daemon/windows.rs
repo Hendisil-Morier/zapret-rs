@@ -6,6 +6,8 @@ use std::cell::RefCell;
 use std::path::Path;
 /// Shared lock-free telemetry hub for control IPC subscribers.
 use std::sync::Arc;
+/// Local stop signal enabling filter rebinding on `reload_config` without aborting the daemon.
+use std::sync::atomic::{AtomicBool, Ordering};
 /// Poll timeout duration derived from the active timer pool deadline.
 use std::time::Duration;
 
@@ -26,24 +28,44 @@ use crate::runtime::{install_signal_handlers, prepare_writable_dir, quit_flag};
 use crate::telemetry::{PacketCounters, build_packet_record};
 /// Monotonic clock, scheduled timer pool, and `--intercept=0` execution loop.
 use crate::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_callbacks};
-/// Target port collector and WinDivert filter-expression builder.
-use crate::tools::strat::firewall::collect_config_ports;
-/// WinDivert filter string generator matching configured TCP/UDP ports.
-use crate::tools::strat::windivert::build_windivert_filter;
+/// Target port range collector and WinDivert filter-expression builder.
+use crate::tools::strat::firewall::{PortRangePair, collect_config_port_ranges};
+/// WinDivert filter string generator matching configured TCP/UDP port ranges.
+use crate::tools::strat::windivert::build_windivert_filter_ranges;
 
 /// Maximum timer/command poll slice when control IPC is active.
 const CONTROL_LOOP_TIMEOUT_CAP: Duration = Duration::from_millis(50);
 
+/// Optional telemetry hub and control IPC server handles created during Windows startup.
+type WindowsControlHandles = (Option<Arc<TelemetryHub>>, Option<ControlServer>);
+
+/// Collects inclusive `(tcp_ranges, udp_ranges)` matching the active `engine` profiles.
+fn collect_engine_port_ranges(qnum: u16, fwmark: u32, engine: &DesyncEngine) -> PortRangePair {
+    let mut cfg = AppConfig { qnum, fwmark, ..AppConfig::default() };
+    cfg.profiles = engine.profiles().iter().map(|p| (**p).clone()).collect();
+    collect_config_port_ranges(&cfg)
+}
+
 /// Advances Lua GC, timers, and pending control IPC commands between captured packets.
+///
+/// Sets `round_stop` and returns refreshed `(tcp, udp)` port intervals into `pending_ports` when a
+/// live `reload_config` changes the active WinDivert port set.
 fn poll_windows_loop(
     engine: &RefCell<DesyncEngine>,
     hub: Option<&TelemetryHub>,
     config: &AppConfig,
     config_dir: Option<&Path>,
+    active_ports: &PortRangePair,
+    pending_ports: &RefCell<Option<PortRangePair>>,
+    round_stop: &AtomicBool,
 ) -> Option<Duration> {
+    if quit_flag().load(Ordering::Acquire) {
+        round_stop.store(true, Ordering::Release);
+        return None;
+    }
     if let Some(active_hub) = hub {
         let mut eng = engine.borrow_mut();
-        drain_hub_commands(
+        let swapped = drain_hub_commands(
             &mut eng,
             active_hub,
             config.qnum,
@@ -52,6 +74,14 @@ fn poll_windows_loop(
             quit_flag(),
             config.debug,
         );
+        if swapped {
+            let new_ports = collect_engine_port_ranges(config.qnum, config.fwmark, &eng);
+            if new_ports != *active_ports {
+                *pending_ports.borrow_mut() = Some(new_ports);
+                round_stop.store(true, Ordering::Release);
+                return None;
+            }
+        }
     }
     let now = boottime_ms();
     {
@@ -74,7 +104,7 @@ fn start_windows_control_server(
     config: &AppConfig,
     engine: &DesyncEngine,
     config_path: Option<&Path>,
-) -> Result<(Option<Arc<TelemetryHub>>, Option<ControlServer>), Box<dyn std::error::Error>> {
+) -> Result<WindowsControlHandles, Box<dyn std::error::Error>> {
     let Some(path) = socket_path else {
         return Ok((None, None));
     };
@@ -154,25 +184,48 @@ pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), Box<dyn std::error
         return Ok(());
     }
 
-    let (tcp_ports, udp_ports) = collect_config_ports(&config);
-    let filter = build_windivert_filter(&tcp_ports, &udp_ports);
-    let mut catcher = WinDivertIntercepter::bind(&filter)?;
-    let loop_result = catcher.run_until(
-        quit_flag(),
-        || poll_windows_loop(&engine, hub.as_deref(), &config, config_dir),
-        |pkt| {
-            if let Some(ref active_hub) = hub {
-                let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
-                let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
-                if active_hub.should_publish(verdict) {
-                    active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
+    let mut active_ports = collect_config_port_ranges(&config);
+    let mut loop_result = Ok(());
+    while !quit_flag().load(Ordering::Acquire) {
+        let filter = build_windivert_filter_ranges(&active_ports.0, &active_ports.1);
+        let mut catcher = WinDivertIntercepter::bind(&filter)?;
+        let round_stop = AtomicBool::new(false);
+        let pending_ports = RefCell::new(None);
+        loop_result = catcher.run_until(
+            &round_stop,
+            || {
+                poll_windows_loop(
+                    &engine,
+                    hub.as_deref(),
+                    &config,
+                    config_dir,
+                    &active_ports,
+                    &pending_ports,
+                    &round_stop,
+                )
+            },
+            |pkt| {
+                if let Some(ref active_hub) = hub {
+                    let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
+                    let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
+                    if active_hub.should_publish(verdict) {
+                        active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
+                    }
+                    decision
+                } else {
+                    engine.borrow().process_packet(pkt)
                 }
-                decision
-            } else {
-                engine.borrow().process_packet(pkt)
-            }
-        },
-    );
+            },
+        );
+        if loop_result.is_err() {
+            break;
+        }
+        if let Some(next_ports) = pending_ports.into_inner() {
+            active_ports = next_ports;
+        } else {
+            break;
+        }
+    }
     if let Some(srv) = control_server {
         srv.shutdown();
     }

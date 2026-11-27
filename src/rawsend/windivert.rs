@@ -41,6 +41,34 @@ impl WinDivertSender {
     }
 }
 
+/// Win32 IPv4 `SOCKADDR_IN` (`#[repr(C)]`) ensuring proper 2-byte alignment for `GetBestInterfaceEx`.
+#[repr(C)]
+struct SockAddrIn {
+    /// Address family (`AF_INET = 2`).
+    sin_family: u16,
+    /// Destination port (network byte order, `0` when unused).
+    sin_port: u16,
+    /// IPv4 address octets (`in_addr`).
+    sin_addr: [u8; 4],
+    /// Required trailing zero padding to match 16-byte WinSock `SOCKADDR_IN`.
+    sin_zero: [u8; 8],
+}
+
+/// Win32 IPv6 `SOCKADDR_IN6` (`#[repr(C)]`) ensuring proper 4-byte alignment for `GetBestInterfaceEx`.
+#[repr(C)]
+struct SockAddrIn6 {
+    /// Address family (`AF_INET6 = 23`).
+    sin6_family: u16,
+    /// Destination port (network byte order, `0` when unused).
+    sin6_port: u16,
+    /// Flow label (network byte order, `0` when unused).
+    sin6_flowinfo: u32,
+    /// IPv6 address octets (`in6_addr`).
+    sin6_addr: [u8; 16],
+    /// Interface scope identifier (`0` when unspecified).
+    sin6_scope_id: u32,
+}
+
 /// Resolves the outbound Windows interface index for `dst` via `GetBestInterfaceEx` when `ifout` is absent.
 fn resolve_best_if_idx(dst: IpAddr) -> u32 {
     /// Win32 `AF_INET` address family (`2`).
@@ -56,18 +84,25 @@ fn resolve_best_if_idx(dst: IpAddr) -> u32 {
     let mut best_idx = 0u32;
     let rc = match dst {
         IpAddr::V4(v4) => {
-            let mut sa = [0u8; 16];
-            sa[0..2].copy_from_slice(&AF_INET.to_ne_bytes());
-            sa[4..8].copy_from_slice(&v4.octets());
-            // SAFETY: `sa` is a 16-byte `SOCKADDR_IN` and `best_idx` is valid writable `DWORD`.
-            unsafe { GetBestInterfaceEx(sa.as_ptr(), &raw mut best_idx) }
+            let sa = SockAddrIn {
+                sin_family: AF_INET,
+                sin_port: 0,
+                sin_addr: v4.octets(),
+                sin_zero: [0u8; 8],
+            };
+            // SAFETY: `sa` is an initialized, naturally aligned 16-byte `SOCKADDR_IN`.
+            unsafe { GetBestInterfaceEx((&raw const sa).cast::<u8>(), &raw mut best_idx) }
         }
         IpAddr::V6(v6) => {
-            let mut sa = [0u8; 28];
-            sa[0..2].copy_from_slice(&AF_INET6.to_ne_bytes());
-            sa[8..24].copy_from_slice(&v6.octets());
-            // SAFETY: `sa` is a 28-byte `SOCKADDR_IN6` and `best_idx` is valid writable `DWORD`.
-            unsafe { GetBestInterfaceEx(sa.as_ptr(), &raw mut best_idx) }
+            let sa = SockAddrIn6 {
+                sin6_family: AF_INET6,
+                sin6_port: 0,
+                sin6_flowinfo: 0,
+                sin6_addr: v6.octets(),
+                sin6_scope_id: 0,
+            };
+            // SAFETY: `sa` is an initialized, 4-byte aligned 28-byte `SOCKADDR_IN6`.
+            unsafe { GetBestInterfaceEx((&raw const sa).cast::<u8>(), &raw mut best_idx) }
         }
     };
     if rc == 0 { best_idx } else { 0 }

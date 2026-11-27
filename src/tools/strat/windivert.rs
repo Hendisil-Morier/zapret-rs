@@ -19,22 +19,46 @@ impl FirewallHandle for WinDivertFilterGuard {
     }
 }
 
-/// Builds a WinDivert `NETWORK`-layer filter expression targeting `tcp_ports` and `udp_ports`.
-pub fn build_windivert_filter(tcp_ports: &[u16], udp_ports: &[u16]) -> String {
+/// Builds a WinDivert `NETWORK`-layer filter expression targeting inclusive TCP/UDP port ranges.
+pub fn build_windivert_filter_ranges(
+    tcp_ranges: &[(u16, u16)],
+    udp_ranges: &[(u16, u16)],
+) -> String {
     let mut clauses = Vec::new();
-    if !tcp_ports.is_empty() {
-        let ports: Vec<String> = tcp_ports.iter().map(|p| format!("tcp.DstPort == {p}")).collect();
-        clauses.push(format!("(tcp and ({}))", ports.join(" or ")));
+    let fmt_proto = |proto: &str, ranges: &[(u16, u16)]| -> Option<String> {
+        if ranges.is_empty() {
+            return None;
+        }
+        let terms: Vec<String> = ranges
+            .iter()
+            .map(|&(from, to)| {
+                if from == to {
+                    format!("{proto}.DstPort == {from}")
+                } else {
+                    format!("({proto}.DstPort >= {from} and {proto}.DstPort <= {to})")
+                }
+            })
+            .collect();
+        Some(format!("({proto} and ({}))", terms.join(" or ")))
+    };
+    if let Some(tcp_clause) = fmt_proto("tcp", tcp_ranges) {
+        clauses.push(tcp_clause);
     }
-    if !udp_ports.is_empty() {
-        let ports: Vec<String> = udp_ports.iter().map(|p| format!("udp.DstPort == {p}")).collect();
-        clauses.push(format!("(udp and ({}))", ports.join(" or ")));
+    if let Some(udp_clause) = fmt_proto("udp", udp_ranges) {
+        clauses.push(udp_clause);
     }
     if clauses.is_empty() {
         "outbound and (tcp or udp) and !impostor".to_owned()
     } else {
         format!("outbound and !impostor and ({})", clauses.join(" or "))
     }
+}
+
+/// Builds a WinDivert `NETWORK`-layer filter expression targeting `tcp_ports` and `udp_ports`.
+pub fn build_windivert_filter(tcp_ports: &[u16], udp_ports: &[u16]) -> String {
+    let tcp_ranges: Vec<(u16, u16)> = tcp_ports.iter().map(|&p| (p, p)).collect();
+    let udp_ranges: Vec<(u16, u16)> = udp_ports.iter().map(|&p| (p, p)).collect();
+    build_windivert_filter_ranges(&tcp_ranges, &udp_ranges)
 }
 
 /// Windows [`FirewallBackend`] producing WinDivert filter expressions without external firewall rules.

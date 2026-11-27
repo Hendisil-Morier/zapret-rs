@@ -144,3 +144,36 @@ fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot() {
     assert!(specific_cfg.profiles[1].lists.hostlist_auto.is_some());
     assert!(specific_cfg.profiles[2].lists.hostlist_auto.is_some());
 }
+
+#[test]
+fn merge_preserves_ipset_ip_profiles_across_slot_wide_updates() {
+    let tls_strats = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
+    let existing = r#"
+qnum = 200
+fwmark = 0x40000000
+
+[[profiles]]
+name = "custom_ipset_ip"
+filter_tcp = ["443"]
+filter_l7 = ["tls"]
+ipset_ip = ["104.16.0.0/12"]
+
+[[profiles.actions]]
+func = "fake"
+"#;
+    let incoming = render_nfqws2_toml_scoped(
+        &[CoveredProfile {
+            strategy: tls_strats[0].clone(),
+            domains: vec!["example.com".to_owned()],
+            avg_latency_ms: 20,
+        }],
+        &TomlRenderOptions::default(),
+        DomainScope::AutoHostlist,
+    );
+    let merged = merge_nfqws2_toml(existing, &incoming).expect("merge with ipset_ip succeeds");
+    let cfg = AppConfig::from_toml_str(&merged, None).expect("merged config parses");
+    assert!(
+        cfg.profiles.iter().any(|p| p.name.as_deref() == Some("custom_ipset_ip")),
+        "existing ipset_ip profile must be preserved across slot merge:\n{merged}"
+    );
+}

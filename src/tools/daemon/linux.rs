@@ -45,8 +45,8 @@ use crate::runtime::{
 use crate::telemetry::{PacketCounters, build_packet_record};
 /// Monotonic boottime clock, scheduled timer pool, and `--intercept=0` execution loop.
 use crate::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_callbacks};
-/// OS-agnostic firewall handle, nftables backend, and port collection helpers.
-use crate::tools::strat::firewall::{FirewallBackend, FirewallHandle, collect_config_ports};
+/// OS-agnostic firewall handle and range-aware port collection helpers.
+use crate::tools::strat::firewall::{FirewallHandle, collect_config_port_ranges};
 /// Temporary `nftables` firewall guard backend used by `--nft`.
 use crate::tools::strat::nft::NftFirewallBackend;
 
@@ -178,9 +178,14 @@ fn refresh_auto_nft_ports(
 ) {
     let mut cfg = AppConfig { qnum, fwmark, ..AppConfig::default() };
     cfg.profiles = engine.profiles().iter().map(|p| (**p).clone()).collect();
-    let (tcp, udp) = collect_config_ports(&cfg);
-    match NftFirewallBackend::default().install_non_interactive(qnum, fwmark, &tcp, &udp) {
-        Ok(new_guard) => *fw_guard = Some(new_guard),
+    let (tcp, udp) = collect_config_port_ranges(&cfg);
+    match NftFirewallBackend::default().install_ranges_non_interactive(qnum, fwmark, &tcp, &udp) {
+        Ok(new_guard) => {
+            if let Some(old) = fw_guard.as_mut() {
+                old.disarm();
+            }
+            *fw_guard = Some(new_guard);
+        }
         Err(err) => eprintln!("nfqws2: warning: could not refresh --nft rules after reload: {err}"),
     }
 }
@@ -190,9 +195,9 @@ fn maybe_install_auto_nft(config: &AppConfig) -> Result<Option<Box<dyn FirewallH
     if !config.auto_nft || !config.intercept {
         return Ok(None);
     }
-    let (tcp, udp) = collect_config_ports(config);
+    let (tcp, udp) = collect_config_port_ranges(config);
     let guard = NftFirewallBackend::default()
-        .install(config.qnum, config.fwmark, &tcp, &udp)
+        .install_ranges(config.qnum, config.fwmark, &tcp, &udp)
         .map_err(DaemonError::Nft)?;
     if config.debug {
         eprintln!(

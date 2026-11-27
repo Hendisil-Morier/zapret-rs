@@ -133,10 +133,29 @@ type WinDivertCloseFn = unsafe extern "system" fn(isize) -> i32;
 type WinDivertCalcChecksumsFn =
     unsafe extern "system" fn(*mut c_void, u32, *mut WinDivertAddress, u64) -> i32;
 
+/// Dynamically loaded `WinDivert.dll` module guard freeing `HMODULE` cleanly on drop or error.
+struct ModuleHandle(isize);
+
+impl Drop for ModuleHandle {
+    /// Frees the loaded `WinDivert.dll` module handle when the last handle drops or setup fails.
+    fn drop(&mut self) {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn FreeLibrary(h_lib_module: isize) -> i32;
+        }
+        if self.0 != 0 {
+            // SAFETY: `self.0` is an owned non-null `HMODULE` returned by `LoadLibraryExW`.
+            unsafe {
+                let _ = FreeLibrary(self.0);
+            }
+        }
+    }
+}
+
 /// Dynamically loaded `WinDivert.dll` function table.
 pub(crate) struct WinDivertApi {
-    /// Loaded `WinDivert.dll` module handle (`HMODULE`).
-    _module: isize,
+    /// Owned `WinDivert.dll` module handle freed automatically on `Drop`.
+    _module: ModuleHandle,
     /// `WinDivertOpen` entry point.
     open_fn: WinDivertOpenFn,
     /// `WinDivertRecv` entry point.
@@ -169,25 +188,49 @@ unsafe fn load_sym<T: Copy>(module: isize, name: &[u8]) -> io::Result<T> {
 }
 
 impl WinDivertApi {
-    /// Loads `WinDivert.dll` via `LoadLibraryW` and resolves the WinDivert 2.2 entry points.
+    /// Loads `WinDivert.dll` via `LoadLibraryExW` without searching CWD and resolves entry points.
     pub(crate) fn load() -> io::Result<Self> {
+        /// Restricts search to explicit DLL directory (`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`).
+        const LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR: u32 = 0x0000_0100;
+        /// Restricts search to the application executable directory (`LOAD_LIBRARY_SEARCH_APPLICATION_DIR`).
+        const LOAD_LIBRARY_SEARCH_APPLICATION_DIR: u32 = 0x0000_0200;
+        /// Includes `%SystemRoot%\System32` in the safe DLL search order (`LOAD_LIBRARY_SEARCH_SYSTEM32`).
+        const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x0000_0800;
+
         #[link(name = "kernel32")]
         unsafe extern "system" {
-            fn LoadLibraryW(lp_lib_file_name: *const u16) -> isize;
+            fn LoadLibraryExW(lp_lib_file_name: *const u16, h_file: isize, dw_flags: u32) -> isize;
         }
-        let wide: Vec<u16> = OsStr::new("WinDivert.dll")
+
+        let exe_dll = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|dir| dir.join("WinDivert.dll")))
+            .filter(|p| p.is_file());
+        let (target_os, flags): (&OsStr, u32) = match &exe_dll {
+            Some(path) => (
+                path.as_os_str(),
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+            ),
+            None => (
+                OsStr::new("WinDivert.dll"),
+                LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+            ),
+        };
+        let wide: Vec<u16> = target_os
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        // SAFETY: `wide` is a NUL-terminated UTF-16 string.
-        let module = unsafe { LoadLibraryW(wide.as_ptr()) };
-        if module == 0 {
+        // SAFETY: `wide` is NUL-terminated UTF-16 and flags prohibit current working directory search.
+        let raw_module = unsafe { LoadLibraryExW(wide.as_ptr(), 0, flags) };
+        if raw_module == 0 {
             return Err(io::Error::last_os_error());
         }
+        let module_guard = ModuleHandle(raw_module);
+        let module = module_guard.0;
         // SAFETY: Symbol signatures match WinDivert 2.2 (`windivert.h`).
         unsafe {
             Ok(Self {
-                _module: module,
+                _module: module_guard,
                 open_fn: load_sym(module, b"WinDivertOpen\0")?,
                 recv_fn: load_sym(module, b"WinDivertRecv\0")?,
                 recv_ex_fn: load_sym(module, b"WinDivertRecvEx\0")?,
@@ -244,30 +287,34 @@ impl WinDivertHandle {
     /// `pRecvLen` pointer is ever handed to asynchronous kernel I/O.
     ///
     /// # Safety
-    /// While `Ok(false)` is pending, `buf`, `addr`, `addr_len`, and `overlapped` must remain
-    /// pinned/unmoved and untouched until `GetOverlappedResult` (wait=TRUE) completes.
+    /// While `Ok(false)` is pending, all pointed-to heap buffers (`buf`, `addr`, `addr_len`,
+    /// `overlapped`) must remain allocated, pinned, and untouched by `&mut` references until
+    /// `GetOverlappedResult(..., wait=TRUE)` (after `CancelIoEx` on abort) completes.
     pub(crate) unsafe fn start_recv_ex(
         &self,
-        buf: &mut [u8],
-        addr: &mut WinDivertAddress,
-        addr_len: &mut u32,
-        overlapped: &mut Overlapped,
+        buf: *mut u8,
+        cap: u32,
+        addr: *mut WinDivertAddress,
+        addr_len: *mut u32,
+        overlapped: *mut Overlapped,
     ) -> io::Result<bool> {
         /// Win32 `ERROR_IO_PENDING` (`997`).
         const ERROR_IO_PENDING: i32 = 997;
-        let cap = u32::try_from(buf.len()).unwrap_or(u32::MAX);
-        *addr_len = u32::try_from(std::mem::size_of::<WinDivertAddress>()).unwrap_or(80);
-        // SAFETY: Caller guarantees `buf`, `addr`, `addr_len`, and `overlapped` stay valid until completion.
+        // SAFETY: Caller initializes `*addr_len` and keeps all targets valid across completion.
+        unsafe {
+            *addr_len = u32::try_from(std::mem::size_of::<WinDivertAddress>()).unwrap_or(80);
+        }
+        // SAFETY: Kernel reads/writes only within `[buf..buf+cap]`, `addr`, `addr_len`, and `overlapped`.
         let ok = unsafe {
             (self.api.recv_ex_fn)(
                 self.handle,
-                buf.as_mut_ptr().cast(),
+                buf.cast(),
                 cap,
                 ptr::null_mut(),
                 0,
-                ptr::from_mut(addr),
-                ptr::from_mut(addr_len),
-                ptr::from_mut(overlapped),
+                addr,
+                addr_len,
+                overlapped,
             )
         };
         if ok != 0 {

@@ -16,6 +16,8 @@ pub mod interactive;
 pub mod merge;
 /// Temporary `nftables` NFQUEUE rule management with RAII teardown (`zapret_strat_finder`).
 pub mod nft;
+/// Pure `nftables` rule script renderer supporting singletons and inclusive port intervals.
+pub mod nft_script;
 /// HTTP/TLS/QUIC connectivity probe backends (`curl` + mockable trait).
 pub mod probe;
 /// `curl` connectivity probe outcome classification and spoof-redirect detection.
@@ -47,7 +49,7 @@ pub use exclude::{
 /// Public API re-exports for OS-agnostic firewall backend traits and port collection.
 pub use firewall::{
     FirewallBackend, FirewallHandle, UnsupportedFirewallBackend, active_firewall_backend,
-    collect_config_ports,
+    collect_config_port_ranges, collect_config_ports,
 };
 /// Public API re-exports for `strat_finder` interactive terminal wizard and config path defaults.
 pub use interactive::{
@@ -79,4 +81,7 @@ pub use toml::{
 };
 /// Public API re-exports for Windows WinDivert filter [`FirewallBackend`].
 #[cfg(windows)]
-pub use windivert::{WinDivertFilterGuard, WinDivertFirewallBackend, build_windivert_filter};
+pub use windivert::{
+    WinDivertFilterGuard, WinDivertFirewallBackend, build_windivert_filter,
+    build_windivert_filter_ranges,
+};

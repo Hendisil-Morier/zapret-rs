@@ -73,7 +73,7 @@ pub use strat::{
     STRAT_FINDER_NFT_TABLE, ScanConfig, ScanLevel, ScanReport, StratFinderCli, StrategyApplier,
     StrategyMatch, StrategySpec, TargetScanResult, TomlRenderOptions, UnsupportedFirewallBackend,
     active_firewall_backend, build_catalog, build_nft_cleanup_cmd, classify_curl_output,
-    collect_config_ports, configured_autohostlist_paths, default_output_config_path, expand_tilde,
+    collect_config_port_ranges, collect_config_ports, configured_autohostlist_paths, default_output_config_path, expand_tilde,
     extract_exclude_domains, extract_hostlist_domains, extract_strat_finder_args,
     format_resolve_arg, is_nft_perm_denied, is_spoof_redirect, merge_nfqws2_toml,
     mutate_exclude_domains_toml, mutate_hostlist_file, normalize_domain, parse_clean_domain,
@@ -83,7 +83,10 @@ pub use strat::{
 };
 /// Public API re-exports for Windows WinDivert filter [`FirewallBackend`].
 #[cfg(windows)]
-pub use strat::{WinDivertFilterGuard, WinDivertFirewallBackend, build_windivert_filter};
+pub use strat::{
+    WinDivertFilterGuard, WinDivertFirewallBackend, build_windivert_filter,
+    build_windivert_filter_ranges,
+};
 /// Public API re-exports for the `zapret-rs web` HTTP/SSE remote dashboard.
 pub use web::{
     DEFAULT_WEB_BIND, HttpMethod, HttpReadError, HttpRequest, MAX_BODY_BYTES, MAX_HEADER_BYTES,

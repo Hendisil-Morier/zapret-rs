@@ -14,6 +14,9 @@ pub trait FirewallHandle: Send {
     fn needs_interactive_drop(&self) -> bool {
         false
     }
+
+    /// Disarms automatic rule deletion on drop (used when handing off ownership to a replacement guard).
+    fn disarm(&mut self) {}
 }
 
 /// Injectable firewall rule backend allowing live OS rule setup and offline mock tests.
@@ -99,26 +102,84 @@ pub fn active_firewall_backend() -> Box<dyn FirewallBackend> {
     }
 }
 
-/// Collects deduplicated TCP and UDP ports referenced by `cfg.profiles` (defaults to `80`/`443`).
-pub fn collect_config_ports(cfg: &AppConfig) -> (Vec<u16>, Vec<u16>) {
+/// Inclusive port interval `(from, to)` collected for TCP/UDP firewall queues.
+pub type PortInterval = (u16, u16);
+/// Deduplicated `(tcp_ranges, udp_ranges)` port interval pair extracted from [`AppConfig`].
+pub type PortRangePair = (Vec<PortInterval>, Vec<PortInterval>);
+
+/// Maximum span of a port range expanded into individual `Vec<u16>` entries by [`collect_config_ports`].
+const MAX_EXPANDED_PORT_SPAN: u16 = 256;
+
+/// Inserts one non-negative, non-wildcard `(from, to)` port filter interval into `out`.
+fn push_port_interval(out: &mut BTreeSet<(u16, u16)>, pf: &crate::config::PortFilter) {
+    if pf.neg || pf.to == 0 {
+        return;
+    }
+    let from = pf.from.max(1);
+    if from > pf.to || (from == 1 && pf.to == u16::MAX) {
+        return;
+    }
+    out.insert((from, pf.to));
+}
+
+/// Merges overlapping or adjacent inclusive `(from, to)` port intervals into canonical ascending form.
+fn merge_port_intervals(intervals: BTreeSet<(u16, u16)>) -> Vec<(u16, u16)> {
+    let mut merged: Vec<(u16, u16)> = Vec::with_capacity(intervals.len());
+    for (from, to) in intervals {
+        if let Some(last) = merged.last_mut()
+            && from <= last.1.saturating_add(1)
+        {
+            last.1 = last.1.max(to);
+        } else {
+            merged.push((from, to));
+        }
+    }
+    merged
+}
+
+/// Collects merged inclusive TCP and UDP port intervals `(from, to)` referenced by `cfg.profiles`
+/// (defaults to `(80, 80)`/`(443, 443)` and UDP `(443, 443)` when empty).
+pub fn collect_config_port_ranges(cfg: &AppConfig) -> PortRangePair {
     let mut tcp = BTreeSet::new();
     let mut udp = BTreeSet::new();
     for p in &cfg.profiles {
         for pf in &p.filter_tcp {
-            if !pf.neg && pf.from > 0 && pf.from == pf.to {
-                tcp.insert(pf.from);
-            }
+            push_port_interval(&mut tcp, pf);
         }
         for pf in &p.filter_udp {
-            if !pf.neg && pf.from > 0 && pf.from == pf.to {
-                udp.insert(pf.from);
-            }
+            push_port_interval(&mut udp, pf);
         }
     }
     if tcp.is_empty() && udp.is_empty() {
-        tcp.insert(80);
-        tcp.insert(443);
-        udp.insert(443);
+        tcp.insert((80, 80));
+        tcp.insert((443, 443));
+        udp.insert((443, 443));
     }
-    (tcp.into_iter().collect(), udp.into_iter().collect())
+    (merge_port_intervals(tcp), merge_port_intervals(udp))
+}
+
+/// Expands bounded port intervals into a sorted, deduplicated `Vec<u16>`.
+fn expand_intervals(intervals: Vec<(u16, u16)>) -> Vec<u16> {
+    let mut ports = BTreeSet::new();
+    for (from, to) in intervals {
+        let span = to.saturating_sub(from);
+        if span <= MAX_EXPANDED_PORT_SPAN {
+            for port in from..=to {
+                ports.insert(port);
+            }
+        }
+    }
+    ports.into_iter().collect()
+}
+
+/// Collects deduplicated TCP and UDP ports referenced by `cfg.profiles` (defaults to `80`/`443`).
+pub fn collect_config_ports(cfg: &AppConfig) -> (Vec<u16>, Vec<u16>) {
+    let (tcp_ranges, udp_ranges) = collect_config_port_ranges(cfg);
+    let mut tcp = expand_intervals(tcp_ranges);
+    let mut udp = expand_intervals(udp_ranges);
+    if tcp.is_empty() && udp.is_empty() {
+        tcp = vec![80, 443];
+        udp = vec![443];
+    }
+    (tcp, udp)
 }

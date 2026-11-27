@@ -136,11 +136,19 @@ fn filter_signature(prof: &toml::Table) -> FilterSignature {
     )
 }
 
-/// Returns `true` when `prof` uses non-auto external list or ipset filtering.
+/// Returns `true` when `prof` uses non-auto external list or ipset filtering (`hostlist`, `ipset`, `ipset_ip`).
 fn has_non_auto_lists(prof: &toml::Table) -> bool {
-    prof.contains_key("hostlist")
-        || prof.contains_key("ipset")
-        || prof.contains_key("ipset_domains")
+    prof.get("hostlist")
+        .and_then(toml::Value::as_array)
+        .is_some_and(|a| !a.is_empty())
+        || prof
+            .get("ipset")
+            .and_then(toml::Value::as_array)
+            .is_some_and(|a| !a.is_empty())
+        || prof
+            .get("ipset_ip")
+            .and_then(toml::Value::as_array)
+            .is_some_and(|a| !a.is_empty())
 }
 
 /// Returns `true` if `prof` references external/auto list or ipset sources besides inline domains.
