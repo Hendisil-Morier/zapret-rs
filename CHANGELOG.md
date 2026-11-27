@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [1.4.3] - 2026-11-27
 
+### Added
+
+- **Enhanced Autohostlist Discovery & Active DPI Confirmation (`src/lists/`, `src/desync/auto_confirm.rs`):** Extended passive autohostlist triggers to catch `TH_RST` forged at `server.seq0`, unencrypted TLS fatal `Alert` records, premature empty `TH_FIN` teardowns, `HTTP 451`, and external `<meta http-equiv="refresh">` HTML block stubs. Added per-host burst coalescing (`hostlist_auto_fail_cooldown`, default `2s`), public-suffix-safe sibling subdomain promotion (`hostlist_auto_sibling_threshold`, default `2`), and an opt-in background TCP/TLS/HTTP confirmation worker (`hostlist_auto_confirm`).
+
+### Changed
+
+- **Architecture, Crypto Cleanup & Error Ergonomics:** Replaced runtime `ring` usage in QUIC Initial decryption with internal pure-Rust crypto primitives (moving `ring` to `[dev-dependencies]`), introduced top-level `ZapretError` and shared `DaemonError`, decomposed TUI `AppState` into domain tab sub-states (`FinderState`, `RunState`, `ConfigTabState`, `StatusTabState`), removed unused `intercepter` shims, and decoupled internal crate modules into a strict acyclic dependency graph.
+
 ### Security
 
 - **Privilege, Filesystem, and Installer Hardening:** Restricted `nft`, `sudo`, `setcap`, `systemctl`, and daemon launches to verified root-owned system directories, cleared ambient capabilities properly across privilege transitions, limited directory ownership transfers to newly created leaf directories via `O_NOFOLLOW`, locked `setcap` target binary permissions before granting capabilities, rejected systemd template control characters and CWD `./lua` probing, and stopped exposing the live Web UI pairing passcode in diagnostics and `zapret-rs-debug.txt`.
@@ -15,6 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - **Windows `WinDivert`, Port Intervals, Live Reload, and Control IPC:** Pinned heap `OVERLAPPED` state across cancelled async I/O, restricted `WinDivert` DLL loading to safe search paths, used aligned `repr(C)` socket addresses, disarmed superseded firewall guards across reloads while rebinding `WinDivert` filters on port changes, preserved port intervals in `nftables`/`WinDivert` filter rules and `ipset_ip` checks, restored blocking mode and stateful `LineReader` framing on control streams, fixed shared-`Arc` Web IPC shutdown, and fixed an out-of-bounds `ClientHello` panic in `tls_mod`.
+- **Speed Test Probing, Startup Ordering & Ambient Caps:** Probed all selected IP families on Tab 4 Speed Test, bound `nftables` queue rules before opening the control socket, preserved systemd ambient `CAP_NET_ADMIN` alongside file capabilities, and skipped `sudo` re-exec under `NoNewPrivileges`.
 
 ### Performance
 
