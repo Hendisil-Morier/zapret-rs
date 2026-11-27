@@ -1,5 +1,7 @@
 //! Core stateful DPI desync profile routing, reassembly, hostlist matching, and Lua orchestration.
 
+/// Non-blocking background active DPI confirmation worker for autohostlist candidates.
+pub mod auto_confirm;
 /// Autohostlist failure detection, retrans RST injection, and self-append helpers.
 pub mod autohost;
 /// DNS IN A/AAAA response parsing populating the hostname/IP cache.
@@ -27,6 +29,8 @@ pub mod udp;
 /// Verdict aggregation, Lua verdict validation, postnat drop workaround, and baseline helpers.
 pub mod verdict;
 
+/// Re-exported non-blocking active DPI endpoint confirmation probe helper.
+pub use auto_confirm::probe_endpoint_for_dpi;
 /// Re-exported stateful desync execution engine.
 pub use engine::DesyncEngine;
 /// Re-exported high-level packet outcome classification (`Pass`, `Reasm`, `Modify`, `Desync`).

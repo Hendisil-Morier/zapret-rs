@@ -1,4 +1,4 @@
-//! Autohostlist failure counters, TCP/UDP failure triggers, and persistent self-append logic.
+//! Autohostlist failure counters, burst coalescing, sibling propagation, and self-append logic.
 
 /// Interior mutability for updating the profile's shared autohostlist file in place.
 use std::cell::RefCell;
@@ -7,8 +7,6 @@ use std::path::Path;
 /// Shared reference handle to the profile's autohostlist [`HostlistFile`].
 use std::rc::Rc;
 
-/// Conntrack flow, directional position, and retransmission-sentinel types.
-use crate::conntrack::{ConnState, CtrackEntry, CtrackPosition, CtrackPositions, RETRANS_COUNTER_STOP};
 /// Persistent list-file append, timestamped debug log, and mtime signature refresh helpers.
 use crate::lists::file_loader::{
     FileModSig, append_timestamped_debug_log, append_to_list_file,
@@ -17,12 +15,8 @@ use crate::lists::file_loader::{
 use crate::lists::hostfail::HostFailPool;
 /// Hostlist collections and underlying file-backed hostname pools.
 use crate::lists::hostlist::{HostlistCollection, HostlistFile};
-/// TCP RST wire flag constant matching `TH_RST` in `zapret2`.
-use crate::packet::constants::{IPPROTO_TCP, TH_RST};
-/// HTTP 302/307 off-SLD/off-IP DPI redirect classifier, L7 tags, and wire hostname sanitizer.
-use crate::protocol::{
-    L7Payload, L7Proto, http_reply_looks_like_dpi_redirect, sanitize_wire_hostname,
-};
+/// L7 protocol tag and wire hostname sanitizer preventing directive injection.
+use crate::protocol::{L7Proto, sanitize_wire_hostname};
 
 /// Default maximum in-memory and appended entries permitted in a `--hostlist-auto` pool.
 pub const DEFAULT_MAX_AUTOHOSTLIST_ENTRIES: usize = 65_536;
@@ -49,12 +43,18 @@ pub struct AutoHostlistSettings {
     pub retrans_maxseq: u32,
     /// Whether hitting `retrans_threshold` should trigger a synthetic TCP RST (`true`).
     pub retrans_reset: bool,
-    /// Maximum initial relative server TCP sequence watched for RST/302/307 failures (`4096`).
+    /// Maximum initial relative server TCP sequence watched for RST/Alert/FIN/HTTP failures (`4096`).
     pub incoming_maxseq: u32,
     /// Minimum outgoing UDP packet count required to declare a UDP stall failure (`4`, `0` disables).
     pub udp_out: u64,
     /// Maximum incoming UDP packet count still considered a UDP failure (`1`).
     pub udp_in: u64,
+    /// Minimum seconds between counted failures for the same hostname to coalesce parallel bursts (`2`, `0` disables).
+    pub fail_cooldown_sec: i64,
+    /// Distinct failing subdomains inside `fail_time_sec` required to promote their safe parent domain (`2`, `0` disables).
+    pub sibling_threshold: u32,
+    /// Run a non-blocking background TCP/TLS/HTTP confirmation probe before/alongside passive promotion (`false`).
+    pub confirm_block: bool,
 }
 
 impl Default for AutoHostlistSettings {
@@ -68,6 +68,9 @@ impl Default for AutoHostlistSettings {
             incoming_maxseq: 4_096,
             udp_out: 4,
             udp_in: 1,
+            fail_cooldown_sec: 2,
+            sibling_threshold: 2,
+            confirm_block: false,
         }
     }
 }
@@ -86,6 +89,12 @@ impl AutoHostlistSettings {
         if !valid_retrans.contains(&self.retrans_threshold) {
             return Err("auto hostlist retrans threshold must be in 2..=10");
         }
+        if self.fail_cooldown_sec < 0 {
+            return Err("auto hostlist fail cooldown must be >= 0");
+        }
+        if self.sibling_threshold == 1 {
+            return Err("auto hostlist sibling threshold must be 0 or >= 2");
+        }
         Ok(())
     }
 }
@@ -93,7 +102,7 @@ impl AutoHostlistSettings {
 /// High-level action taken by [`record_autohost_failure`] or [`reset_autohost_failure`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AutoHostlistAction {
-    /// No tracking or state transition applied.
+    /// No tracking or state transition applied (invalid host, cap reached, or burst-coalesced).
     Ignored,
     /// Failure incremented to `count` below `fail_threshold`.
     FailCounted(u32),
@@ -105,17 +114,7 @@ pub enum AutoHostlistAction {
     ResetOnSuccess,
 }
 
-/// Returns `true` when wrapping 32-bit sequence `s` lies in `[s1, s2]` (`seq_within` in `helpers.c`).
-pub const fn seq_within(s: u32, s1: u32, s2: u32) -> bool {
-    (s2 >= s1 && s >= s1 && s <= s2) || (s2 < s1 && (s <= s2 || s >= s1))
-}
-
-/// Returns `true` when the latest outgoing TCP segment overlaps previously sent data (`is_retransmission`).
-pub const fn is_tcp_retransmission(pos: &CtrackPosition) -> bool {
-    pos.is_retransmission()
-}
-
-/// Borrowed profile context passed when recording or resetting autohostlist failures.
+/// Borrowed profile context passed when recording or promoting autohostlist failures.
 pub struct AutoHostlistRecordCtx<'a> {
     /// Active autohostlist thresholds for the profile.
     pub settings: &'a AutoHostlistSettings,
@@ -188,32 +187,15 @@ pub fn reset_autohost_failure(
     }
 }
 
-/// Records one detected failure for `hostname` and promotes it when `fail_threshold` is reached.
-///
-/// Mirrors `auto_hostlist_failed` in `zapret2/nfq2/desync.c:439-486`.
-pub fn record_autohost_failure(
-    ctx: &mut AutoHostlistRecordCtx<'_>,
-    hostname: &str,
+/// Promotes sanitized `clean_host` into `ctx.autolist_file` after duplicate, exempt, and cap checks.
+pub fn promote_autohost(
+    ctx: &AutoHostlistRecordCtx<'_>,
+    clean_host: &str,
     no_subdomains: bool,
 ) -> AutoHostlistAction {
-    let Some(clean_host) = sanitize_wire_hostname(hostname) else {
-        return AutoHostlistAction::Ignored;
-    };
-    let count = ctx
-        .fail_pool
-        .record_failure(&clean_host, ctx.settings.fail_time_sec, ctx.now_sec);
-    if count == 0 {
-        return AutoHostlistAction::Ignored;
-    }
-    ctx.log(&clean_host, &format!("fail counter {count}/{}", ctx.settings.fail_threshold));
-    if count < ctx.settings.fail_threshold {
-        return AutoHostlistAction::FailCounted(count);
-    }
-
-    ctx.fail_pool.reset(&clean_host);
-    let outcome = ctx.hostlists.check(&clean_host, no_subdomains, false);
+    let outcome = ctx.hostlists.check(clean_host, no_subdomains, false);
     if outcome.matched || outcome.excluded {
-        ctx.log(&clean_host, "NOT adding, duplicate detected");
+        ctx.log(clean_host, "NOT adding, duplicate detected");
         return AutoHostlistAction::SkippedDuplicateOrExempt;
     }
 
@@ -225,16 +207,16 @@ pub fn record_autohost_failure(
         )
     };
     if at_cap {
-        ctx.log(&clean_host, "NOT adding, autohostlist entry limit reached");
+        ctx.log(clean_host, "NOT adding, autohostlist entry limit reached");
         return AutoHostlistAction::Ignored;
     }
     if let Some(path) = auto_path.as_ref() {
-        ctx.log(&clean_host, &format!("adding to {}", path.display()));
+        ctx.log(clean_host, &format!("adding to {}", path.display()));
     }
     let mut auto = ctx.autolist_file.borrow_mut();
-    auto.pool.add_host(&clean_host, 0);
+    auto.pool.add_host(clean_host, 0);
     if let Some(path) = auto_path {
-        if let Err(err) = append_to_list_file(&path, &clean_host) {
+        if let Err(err) = append_to_list_file(&path, clean_host) {
             eprintln!("write to auto hostlist '{}': {err}", path.display());
         } else if let Ok(sig) = FileModSig::read(&path) {
             auto.mod_sig = sig;
@@ -244,90 +226,46 @@ pub fn record_autohost_failure(
     AutoHostlistAction::AddedToList
 }
 
-/// Evaluates an outgoing payload segment for TCP retransmission failures (`auto_hostlist_retrans`).
-pub fn check_tcp_retrans_trigger(entry: &mut CtrackEntry, settings: &AutoHostlistSettings) -> Option<bool> {
-    if !entry.hostname_ah_check || entry.failure_detect_finalized || entry.req_retrans_counter == RETRANS_COUNTER_STOP {
-        return None;
+/// Records one detected failure for `hostname` and promotes it (or a failing sibling parent) at threshold.
+///
+/// Mirrors `auto_hostlist_failed` in `zapret2/nfq2/desync.c:439-486` with cooldown and sibling rollups.
+pub fn record_autohost_failure(
+    ctx: &mut AutoHostlistRecordCtx<'_>,
+    hostname: &str,
+    no_subdomains: bool,
+) -> AutoHostlistAction {
+    let Some(clean_host) = sanitize_wire_hostname(hostname) else {
+        return AutoHostlistAction::Ignored;
+    };
+    let count = ctx.fail_pool.record_failure_with_cooldown(
+        &clean_host,
+        ctx.settings.fail_time_sec,
+        ctx.settings.fail_cooldown_sec,
+        ctx.now_sec,
+    );
+    if count == 0 {
+        return AutoHostlistAction::Ignored;
+    }
+    ctx.log(&clean_host, &format!("fail counter {count}/{}", ctx.settings.fail_threshold));
+
+    if !no_subdomains
+        && ctx.settings.sibling_threshold >= 2
+        && let Some(parent) = ctx.fail_pool.record_sibling_failure(
+            &clean_host,
+            ctx.settings.fail_time_sec,
+            ctx.settings.sibling_threshold,
+            ctx.now_sec,
+        )
+        && promote_autohost(ctx, &parent, false) == AutoHostlistAction::AddedToList
+    {
+        ctx.fail_pool.reset(&clean_host);
+        return AutoHostlistAction::AddedToList;
     }
 
-    if entry.pos.ipproto == IPPROTO_TCP && entry.pos.state != ConnState::Syn {
-        let client = &entry.pos.client;
-        let max_seq = client.seq0.wrapping_add(settings.retrans_maxseq);
-        if !seq_within(client.seq_last, client.seq0, max_seq) {
-            entry.failure_detect_finalized = true;
-            entry.req_retrans_counter = RETRANS_COUNTER_STOP;
-            return Some(false);
-        }
-        if !is_tcp_retransmission(client) {
-            return None;
-        }
+    if count < ctx.settings.fail_threshold {
+        return AutoHostlistAction::FailCounted(count);
     }
 
-    entry.req_retrans_counter = entry.req_retrans_counter.saturating_add(1);
-    if entry.req_retrans_counter >= settings.retrans_threshold {
-        entry.req_retrans_counter = RETRANS_COUNTER_STOP;
-        entry.failure_detect_finalized = true;
-        return Some(true);
-    }
-    None
-}
-
-/// Evaluates an incoming server TCP segment for RST or HTTP 302/307 DPI redirect failures.
-pub fn check_tcp_incoming_trigger(
-    entry: &mut CtrackEntry,
-    tcp_flags: u8,
-    payload: Option<&[u8]>,
-    l7payload: L7Payload,
-    settings: &AutoHostlistSettings,
-) -> Option<bool> {
-    if !entry.hostname_ah_check || entry.failure_detect_finalized || settings.incoming_maxseq == 0 {
-        return None;
-    }
-
-    let server = &entry.pos.server;
-    if server.seq_last.wrapping_sub(server.seq0) == 0 {
-        return None;
-    }
-    if !seq_within(
-        server.seq_last,
-        server.seq0.wrapping_add(1),
-        server.seq0.wrapping_add(settings.incoming_maxseq),
-    ) {
-        entry.failure_detect_finalized = true;
-        return Some(false);
-    }
-
-    let is_fail = (tcp_flags & TH_RST) != 0
-        || (l7payload == L7Payload::HttpReply
-            && match (payload, entry.hostname.as_deref()) {
-                (Some(data), Some(host)) if !data.is_empty() => {
-                    http_reply_looks_like_dpi_redirect(data, host, entry.hostname_is_ip)
-                }
-                _ => false,
-            });
-    if !is_fail {
-        return None;
-    }
-    entry.failure_detect_finalized = true;
-    Some(true)
-}
-
-/// Evaluates UDP packet counters for unidirectional client stalls vs server replies (`process_udp_fail`).
-pub fn check_udp_trigger(
-    entry: &mut CtrackEntry,
-    tpos: &CtrackPositions,
-    settings: &AutoHostlistSettings,
-) -> Option<bool> {
-    if entry.hostname.is_none() || !entry.hostname_ah_check || entry.failure_detect_finalized || settings.udp_out == 0 {
-        return None;
-    }
-    if tpos.server.pcounter > settings.udp_in {
-        entry.failure_detect_finalized = true;
-        Some(false)
-    } else if tpos.client.pcounter >= settings.udp_out {
-        entry.failure_detect_finalized = true;
-        Some(true)
-    } else {
-        None
-    }
+    ctx.fail_pool.reset(&clean_host);
+    promote_autohost(ctx, &clean_host, no_subdomains)
 }

@@ -6,8 +6,12 @@ use crate::protocol::markers::{PosMarker, any_proto_pos, check_pos, host_pos};
 /// Maximum SNI hostname string length matching `char host[256]` buffers in `protocol.c`.
 const MAX_TLS_HOST_LEN: usize = 255;
 
+/// TLS content type for Alert records (`0x15`).
+const TLS_CONTENT_ALERT: u8 = 0x15;
 /// TLS content type for Handshake records (`0x16`).
 const TLS_CONTENT_HANDSHAKE: u8 = 0x16;
+/// TLS fatal alert severity level byte (`2`).
+const TLS_ALERT_LEVEL_FATAL: u8 = 2;
 /// TLS handshake message type for `ClientHello` (`0x01`).
 const TLS_HANDSHAKE_CLIENT_HELLO: u8 = 0x01;
 /// TLS handshake message type for `ServerHello` (`0x02`).
@@ -277,4 +281,14 @@ pub fn tls_pos(marker: PosMarker, pos: i16, data: &[u8]) -> Option<usize> {
         }
         _ => any_proto_pos(marker, pos, data.len()),
     }
+}
+
+/// Returns `true` when `data` begins with an unencrypted TLS fatal Alert record (`ContentType=0x15`, len `2`, level `2`).
+pub fn is_tls_fatal_alert(data: &[u8]) -> bool {
+    data.len() >= 7
+        && data[0] == TLS_CONTENT_ALERT
+        && data[1] == 0x03
+        && data[2] <= 0x04
+        && u16::from_be_bytes([data[3], data[4]]) == 2
+        && data[5] == TLS_ALERT_LEVEL_FATAL
 }

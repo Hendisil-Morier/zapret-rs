@@ -2,6 +2,8 @@
 
 /// Interior mutability for safely dropping `CtrackEntry` borrows prior to raw packet emission.
 use std::cell::RefCell;
+/// Destination IP address forwarded to optional background confirmation probes.
+use std::net::IpAddr;
 /// Optional path to `--hostlist-auto-debug`.
 use std::path::Path;
 /// Single-thread reference counting for shared [`CtrackEntry`] and [`PacketSender`] handles.
@@ -11,14 +13,16 @@ use std::rc::Rc;
 use crate::config::{DesyncProfile, L7Payload, L7Proto};
 /// Conntrack entry and frozen position snapshots checked by failure heuristics.
 use crate::conntrack::{CtrackEntry, CtrackPositions};
+/// Non-blocking background active DPI confirmation worker and request payload.
+use crate::desync::auto_confirm::{AutoConfirmRequest, AutoConfirmWorker};
 /// Shared runtime profile state holding fail counters and writable autolist handle.
 use crate::desync::profile_state::ProfileRuntime;
 /// Source/destination IP extraction shared with `verdict`.
 use crate::desync::verdict::extract_endpoint_ip;
 /// Autohostlist failure counters, trigger predicates, and self-append helpers.
 use crate::lists::{
-    AutoHostlistRecordCtx, check_tcp_incoming_trigger, check_tcp_retrans_trigger,
-    check_udp_trigger, record_autohost_failure, reset_autohost_failure,
+    AutoHostlistAction, AutoHostlistRecordCtx, check_tcp_incoming_trigger,
+    check_tcp_retrans_trigger, check_udp_trigger, record_autohost_failure, reset_autohost_failure,
 };
 /// TCP protocol number, header base size, and `TH_RST` control flag constant.
 use crate::packet::constants::{IPPROTO_TCP, TCP_BASE_LEN, TH_RST};
@@ -98,6 +102,8 @@ pub(crate) fn build_retrans_rst_packet(
 
 /// Shared profile target and diagnostic metadata passed into autohostlist failure handlers.
 pub(crate) struct AutohostFailTarget<'a> {
+    /// Zero-based index into engine `profiles`/`profile_runtimes`.
+    pub(crate) profile_slot: usize,
     /// Active desync profile owning the autohostlist thresholds and name.
     pub(crate) profile: &'a DesyncProfile,
     /// Profile runtime holding failure counters and writable autohostlist handle.
@@ -108,6 +114,10 @@ pub(crate) struct AutohostFailTarget<'a> {
     pub(crate) client_label: &'a str,
     /// Optional path to `--hostlist-auto-debug`.
     pub(crate) debug_log: Option<&'a Path>,
+    /// Remote destination endpoint passed to `auto_confirm` when enabled on the profile.
+    pub(crate) target_endpoint: (IpAddr, u16),
+    /// Optional background active confirmation worker owned by `DesyncEngine`.
+    pub(crate) auto_confirm: Option<&'a AutoConfirmWorker>,
 }
 
 /// Applies the `Option<bool>` trigger outcome from any TCP/UDP failure detector to `target`.
@@ -262,7 +272,21 @@ fn record_profile_failure(
         l7proto,
         now_sec: boottime_secs(),
     };
-    let _ = record_autohost_failure(&mut ctx, host, host_is_ip);
+    let action = record_autohost_failure(&mut ctx, host, host_is_ip);
+    if matches!(action, AutoHostlistAction::FailCounted(_))
+        && target.profile.lists.hostlist_auto_settings.confirm_block
+        && let Some(confirm) = target.auto_confirm
+    {
+        confirm.try_submit(AutoConfirmRequest {
+            profile_slot: target.profile_slot,
+            profile_index: target.profile.index,
+            host: host.to_owned(),
+            host_is_ip,
+            dst_ip: target.target_endpoint.0,
+            dst_port: target.target_endpoint.1,
+            l7proto,
+        });
+    }
 }
 
 /// Clears any active autohostlist fail counter for `host` after healthy response traffic.

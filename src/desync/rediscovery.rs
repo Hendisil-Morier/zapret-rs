@@ -174,11 +174,14 @@ pub(crate) fn dp_rediscovery(
 
     if dis.l4proto == IPPROTO_UDP {
         let fail_tgt = ps.profile_idx.map(|i| AutohostFailTarget {
+            profile_slot: i,
             profile: svc.profiles[i].as_ref(),
             runtime: &svc.profile_runtimes[i],
             server: svc.server,
             client_label: &ps.client_label,
             debug_log: svc.hostlist_auto_debug,
+            target_endpoint: (ps.target_ip, ps.target_port),
+            auto_confirm: None,
         });
         handle_udp_fail(ps.ctrack_replay.as_ref(), tpos_override, fail_tgt.as_ref());
     }

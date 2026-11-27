@@ -116,6 +116,12 @@ pub(super) struct RawProfile {
     hostlist_auto_udp_out: Option<u64>,
     /// Autohostlist maximum incoming UDP packet count still considered stalled.
     hostlist_auto_udp_in: Option<u64>,
+    /// Cooldown in seconds between counted failures on the same host (`0` disables burst coalescing).
+    hostlist_auto_fail_cooldown: Option<i64>,
+    /// Distinct failing subdomains inside `fail_time_sec` required to promote their safe parent (`0` disables).
+    hostlist_auto_sibling_threshold: Option<u32>,
+    /// Enable non-blocking background TCP/TLS/HTTP confirmation probes for failing hosts.
+    hostlist_auto_confirm: Option<bool>,
     /// Include CIDR ipset files (`--ipset`).
     #[serde(default)]
     ipset: Vec<PathBuf>,
@@ -249,6 +255,15 @@ fn build_profile_lists(
     }
     if let Some(v) = raw.hostlist_auto_udp_in {
         settings.udp_in = v;
+    }
+    if let Some(v) = raw.hostlist_auto_fail_cooldown {
+        settings.fail_cooldown_sec = v;
+    }
+    if let Some(v) = raw.hostlist_auto_sibling_threshold {
+        settings.sibling_threshold = v;
+    }
+    if let Some(v) = raw.hostlist_auto_confirm {
+        settings.confirm_block = v;
     }
     if let Err(msg) = settings.validate() {
         return Err(ConfigError::Validation(msg.to_owned()));

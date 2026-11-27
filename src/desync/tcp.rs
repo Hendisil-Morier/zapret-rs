@@ -119,11 +119,14 @@ pub(crate) fn process_tcp_packet(
             );
         }
         let fail_tgt = ps.profile_idx.map(|i| AutohostFailTarget {
+            profile_slot: i,
             profile: svc.profiles[i].as_ref(),
             runtime: &svc.profile_runtimes[i],
             server: engine.server,
             client_label: &ps.client_label,
             debug_log: engine.hostlist_auto_debug.as_deref(),
+            target_endpoint: (ps.target_ip, ps.target_port),
+            auto_confirm: svc.auto_confirm,
         });
         handle_tcp_incoming_fail(
             ps.ctrack.as_ref(),
@@ -145,11 +148,14 @@ pub(crate) fn process_tcp_packet(
         }
 
         let fail_tgt = ps.profile_idx.map(|i| AutohostFailTarget {
+            profile_slot: i,
             profile: svc.profiles[i].as_ref(),
             runtime: &svc.profile_runtimes[i],
             server: engine.server,
             client_label: &ps.client_label,
             debug_log: engine.hostlist_auto_debug.as_deref(),
+            target_endpoint: (ps.target_ip, ps.target_port),
+            auto_confirm: svc.auto_confirm,
         });
         handle_tcp_retrans_fail(
             ps.ctrack.as_ref(),

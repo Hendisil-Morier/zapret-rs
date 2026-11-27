@@ -33,7 +33,8 @@ pub use datagram::{
 };
 pub use http::{
     find_host_header_offset, find_nld, http_extract_header, http_extract_host, http_pos,
-    http_reply_code, http_reply_looks_like_dpi_redirect, is_http, is_http_reply, strip_host_to_ip,
+    http_reply_code, http_reply_looks_like_dpi_block, http_reply_looks_like_dpi_redirect,
+    is_http, is_http_reply, strip_host_to_ip,
 };
 pub use l7::{
     ALL_L7_PAYLOADS, L7_PAYLOAD_NONE_MASK, L7Payload, L7Proto, l7_payload_matches,
@@ -52,8 +53,8 @@ pub use quic_crypto::quic_decrypt_initial;
 pub use tls::{
     TLS_EXT_PADDING, TLS_EXT_SERVER_NAME, is_tls_client_hello, is_tls_client_hello_partial,
     is_tls_handshake_client_hello, is_tls_handshake_full, is_tls_handshake_hello,
-    is_tls_handshake_server_hello, is_tls_hello, is_tls_record_full, is_tls_server_hello,
-    is_tls_server_hello_partial, tls_advance_to_host_in_sni, tls_find_ext,
+    is_tls_handshake_server_hello, is_tls_hello, is_tls_fatal_alert, is_tls_record_full,
+    is_tls_server_hello, is_tls_server_hello_partial, tls_advance_to_host_in_sni, tls_find_ext,
     tls_find_ext_in_handshake, tls_find_ext_len, tls_find_ext_len_in_handshake,
     tls_handshake_data_len, tls_handshake_len, tls_hello_extract_host,
     tls_hello_extract_host_from_handshake, tls_pos, tls_record_data_len, tls_record_len,

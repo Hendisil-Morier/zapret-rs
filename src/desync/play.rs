@@ -71,6 +71,8 @@ pub(crate) struct EngineServices<'a> {
     pub(crate) server: bool,
     /// Optional autohostlist failure debug log path.
     pub(crate) hostlist_auto_debug: Option<&'a std::path::Path>,
+    /// Optional non-blocking active DPI confirmation worker (`confirm_block`).
+    pub(crate) auto_confirm: Option<&'a crate::desync::auto_confirm::AutoConfirmWorker>,
 }
 
 /// Mutable per-packet routing, target, L7, and conntrack state across TCP/UDP processing.

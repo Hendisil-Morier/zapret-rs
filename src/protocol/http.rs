@@ -175,29 +175,19 @@ pub fn http_extract_host(data: &[u8]) -> Option<String> {
     crate::protocol::sanitize_http_host(&raw)
 }
 
-/// Returns `true` when an HTTP 302/307 reply redirects to a different second-level domain or IP.
-///
-/// Mirrors `HttpReplyLooksLikeDPIRedirect` in `zapret2/nfq2/protocol.c:368-417`.
-pub fn http_reply_looks_like_dpi_redirect(data: &[u8], host: &str, host_is_ip: bool) -> bool {
-    if host.is_empty() || !is_http_reply(data) {
-        return false;
-    }
-    if !matches!(http_reply_code(data), Some(302 | 307)) {
-        return false;
-    }
-    let Some(loc) = http_extract_header(data, b"\nLocation:") else {
-        return false;
-    };
+/// Maximum body scan window in bytes for HTML `<meta http-equiv="refresh">` ISP block redirects.
+const MAX_HTTP_META_SCAN_LEN: usize = 2048;
 
-    let Some(after_scheme) = loc
+/// Returns `true` when `url` (`http://...` or `https://...`) targets a different IP or second-level domain than `host`.
+fn url_looks_off_domain(url: &str, host: &str, host_is_ip: bool) -> bool {
+    let Some(after_scheme) = url
         .strip_prefix("http://")
-        .or_else(|| loc.strip_prefix("https://"))
+        .or_else(|| url.strip_prefix("https://"))
     else {
         return false;
     };
-
     let auth_end = after_scheme
-        .find(['/', '?', '#'])
+        .find(['/', '?', '#', '"', '\'', ' ', '\t', '>'])
         .unwrap_or(after_scheme.len());
     let raw_target = &after_scheme[..auth_end];
     if raw_target.is_empty() {
@@ -219,6 +209,69 @@ pub fn http_reply_looks_like_dpi_redirect(data: &[u8], host: &str, host_is_ip: b
         return true;
     };
     !host[d_off..].eq_ignore_ascii_case(&redirect_host[dr_off..])
+}
+
+/// Extracts a lowercased external `http(s)://...` URL from an HTML `<meta http-equiv="refresh">` tag.
+fn extract_meta_refresh_url(data: &[u8]) -> Option<String> {
+    let body_start = data
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|pos| pos + 4)
+        .or_else(|| data.windows(2).position(|w| w == b"\n\n").map(|pos| pos + 2))?;
+    let body = &data[body_start..];
+    let scan_len = body.len().min(MAX_HTTP_META_SCAN_LEN);
+    let lower = String::from_utf8_lossy(&body[..scan_len]).to_ascii_lowercase();
+    let meta_pos = lower.find("<meta")?;
+    let meta_end = lower[meta_pos..].find('>')?;
+    let tag = &lower[meta_pos..meta_pos + meta_end + 1];
+    if !tag.contains("http-equiv") || !tag.contains("refresh") {
+        return None;
+    }
+    let url_idx = tag.find("url=")?;
+    let after_eq = tag[url_idx + 4..].trim_start_matches(['"', '\'', ' ']);
+    if after_eq.starts_with("http://") || after_eq.starts_with("https://") {
+        Some(after_eq.to_owned())
+    } else {
+        None
+    }
+}
+
+/// Returns `true` when an HTTP 302/307 reply redirects to a different second-level domain or IP.
+///
+/// Mirrors `HttpReplyLooksLikeDPIRedirect` in `zapret2/nfq2/protocol.c:368-417`.
+pub fn http_reply_looks_like_dpi_redirect(data: &[u8], host: &str, host_is_ip: bool) -> bool {
+    if host.is_empty() || !is_http_reply(data) {
+        return false;
+    }
+    if !matches!(http_reply_code(data), Some(302 | 307)) {
+        return false;
+    }
+    let Some(loc) = http_extract_header(data, b"\nLocation:") else {
+        return false;
+    };
+    url_looks_off_domain(&loc, host, host_is_ip)
+}
+
+/// Returns `true` when an HTTP reply shows a DPI redirect, HTTP `451`, or off-domain `<meta refresh>` stub.
+pub fn http_reply_looks_like_dpi_block(data: &[u8], host: &str, host_is_ip: bool) -> bool {
+    if host.is_empty() || !is_http_reply(data) {
+        return false;
+    }
+    if http_reply_looks_like_dpi_redirect(data, host, host_is_ip) {
+        return true;
+    }
+    let Some(code) = http_reply_code(data) else {
+        return false;
+    };
+    if code == 451 {
+        return true;
+    }
+    if matches!(code, 200 | 403)
+        && let Some(url) = extract_meta_refresh_url(data)
+    {
+        return url_looks_off_domain(&url, host, host_is_ip);
+    }
+    false
 }
 
 /// Resolves an HTTP-specific or generic payload marker (`HttpPos` in `protocol.c:418-458`).

@@ -296,6 +296,9 @@ fn autohostlist_fail_pool_append_and_tcp_udp_triggers() {
         incoming_maxseq: 4_096,
         udp_out: 3,
         udp_in: 1,
+        fail_cooldown_sec: 0,
+        sibling_threshold: 2,
+        confirm_block: false,
     };
     assert!(settings.validate().is_ok());
 

@@ -9,6 +9,8 @@ use std::rc::Rc;
 
 /// Profile definitions loaded into runtime structures and Lua validation.
 use crate::config::{AppConfig, DesyncProfile};
+/// Optional non-blocking background active DPI confirmation worker.
+use crate::desync::auto_confirm::AutoConfirmWorker;
 /// ICMP and non-TCP/UDP/ICMP raw IP packet processors.
 use crate::desync::icmp_ip::{process_icmp_packet, process_raw_ip_packet};
 /// Shared prolog state, replay metadata, packet outcome tag, and borrowed runtime services.
@@ -77,6 +79,8 @@ pub struct DesyncEngine {
     pub(crate) hostlist_auto_debug: Option<PathBuf>,
     /// High-level outcome recorded for the most recent packet (`Pass`, `Reasm`, `Modify`, `Desync`).
     pub(crate) last_outcome: RefCell<PacketOutcome>,
+    /// Optional non-blocking background active confirmation worker when any profile sets `confirm_block`.
+    auto_confirm: Option<AutoConfirmWorker>,
 }
 
 impl DesyncEngine {
@@ -113,11 +117,12 @@ impl DesyncEngine {
         runtime.apply_app_config(config)?;
         let (list_registry, profile_runtimes) =
             ListRegistry::load_from_config(config).map_err(|(_, err)| LuaEngineError::Io(err))?;
-        let profiles = config.profiles.iter().cloned().map(Rc::new).collect();
+        let profiles: Vec<Rc<DesyncProfile>> = config.profiles.iter().cloned().map(Rc::new).collect();
         let ipcache = RefCell::new(IpCache::new(
             i64::from(config.ipcache.lifetime_sec),
             config.ipcache.hostname,
         ));
+        let auto_confirm = AutoConfirmWorker::for_profiles(&profiles, config.fwmark);
         Ok(Self {
             runtime,
             sender,
@@ -132,6 +137,7 @@ impl DesyncEngine {
             reasm_disable: config.reasm_disable,
             hostlist_auto_debug: config.hostlist_auto_debug.clone(),
             last_outcome: RefCell::new(PacketOutcome::Pass),
+            auto_confirm,
         })
     }
 
@@ -156,6 +162,7 @@ impl DesyncEngine {
         self.list_registry = swapped.registry;
         self.profiles = swapped.profiles;
         self.profile_runtimes = swapped.runtimes;
+        self.auto_confirm = AutoConfirmWorker::for_profiles(&self.profiles, self.desync_fwmark);
         self.runtime.conntrack().borrow_mut().clear();
         self.ipcache.borrow_mut().clear();
         Ok(())
@@ -178,6 +185,7 @@ impl DesyncEngine {
             ctrack_disable: self.runtime.config().ctrack_disable,
             server: self.server,
             hostlist_auto_debug: self.hostlist_auto_debug.as_deref(),
+            auto_confirm: self.auto_confirm.as_ref(),
         }
     }
 
@@ -196,6 +204,8 @@ impl DesyncEngine {
 
     /// Processes one intercepted live packet and returns the kernel NFQUEUE [`Decision`].
     pub fn process_packet(&self, pkt: &QueuedPacket<'_>) -> Decision {
+        let dbg = self.hostlist_auto_debug.as_deref();
+        if let Some(c) = &self.auto_confirm { c.drain_and_apply(&self.profiles, &self.profile_runtimes, dbg); }
         self.last_outcome.replace(PacketOutcome::Pass);
         let now = boottime_now();
         self.ipcache.borrow_mut().purge_rate_limited(now.sec);
@@ -265,12 +275,8 @@ impl DesyncEngine {
 
         if all_actions_cut_off(profile, instances, track_rc, pos_opt.as_ref(), ps.incoming) {
             if let Some(entry_rc) = track_rc {
-                let mut entry = entry_rc.borrow_mut();
-                if ps.incoming {
-                    entry.lua_in_cutoff = true;
-                } else {
-                    entry.lua_out_cutoff = true;
-                }
+                let mut e = entry_rc.borrow_mut();
+                if ps.incoming { e.lua_in_cutoff = true; } else { e.lua_out_cutoff = true; }
             }
             return Decision::Pass;
         }
@@ -373,17 +379,16 @@ impl DesyncEngine {
             verdict = aggregate_verdict(verdict, parse_lua_verdict(&results)?);
             if ctx_state.borrow().cancel { break; }
 
-            if active_ctrack.is_none() {
-                let adopted = {
-                    let state = ctx_state.borrow();
-                    state.ctrack.as_ref().map(|rc| (Rc::clone(rc), state.incoming))
-                };
-                if let Some((rc, ctx_inc)) = adopted {
-                    active_ctrack = Some(rc);
-                    active_incoming = ctx_inc;
-                    active_b_reverse = active_incoming ^ self.server;
-                    pos_opt = extract_pos_for_side(active_ctrack.as_ref(), active_b_reverse);
+            if active_ctrack.is_none()
+                && let Some((rc, ctx_inc)) = {
+                    let s = ctx_state.borrow();
+                    s.ctrack.as_ref().map(|rc| (Rc::clone(rc), s.incoming))
                 }
+            {
+                active_ctrack = Some(rc);
+                active_incoming = ctx_inc;
+                active_b_reverse = active_incoming ^ self.server;
+                pos_opt = extract_pos_for_side(active_ctrack.as_ref(), active_b_reverse);
             }
         }
 

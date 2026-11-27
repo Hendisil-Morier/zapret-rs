@@ -309,6 +309,7 @@ fn autohostlist_tcp_retrans_rst_http_redirect_and_udp_stall() {
         filter_tcp = ["80"]
         hostlist_auto = "{tcp}"
         hostlist_auto_fail_threshold = 2
+        hostlist_auto_fail_cooldown = 0
         hostlist_auto_retrans_threshold = 2
         hostlist_auto_retrans_reset = true
         hostlist_auto_incoming_maxseq = 4096

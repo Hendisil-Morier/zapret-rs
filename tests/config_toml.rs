@@ -285,6 +285,9 @@ hostlist_auto_retrans_reset = false
 hostlist_auto_incoming_maxseq = 2048
 hostlist_auto_udp_out = 6
 hostlist_auto_udp_in = 2
+hostlist_auto_fail_cooldown = 5
+hostlist_auto_sibling_threshold = 3
+hostlist_auto_confirm = true
 ipset = ["lists/cidrs.txt"]
 ipset_ip = ["10.0.0.0/8,192.0.2.1"]
 ipset_exclude = ["lists/skip-cidrs.txt"]
@@ -317,6 +320,9 @@ ipset_exclude_ip = ["127.0.0.0/8"]
     assert!(!p.lists.hostlist_auto_settings.retrans_reset);
     assert_eq!(p.lists.hostlist_auto_settings.udp_out, 6);
     assert_eq!(p.lists.hostlist_auto_settings.udp_in, 2);
+    assert_eq!(p.lists.hostlist_auto_settings.fail_cooldown_sec, 5);
+    assert_eq!(p.lists.hostlist_auto_settings.sibling_threshold, 3);
+    assert!(p.lists.hostlist_auto_settings.confirm_block);
     assert_eq!(p.lists.ipset, vec![dir.join("lists/cidrs.txt")]);
     assert_eq!(p.lists.ipset_ip, vec!["10.0.0.0/8", "192.0.2.1"]);
     assert_eq!(p.lists.ipset_exclude, vec![dir.join("lists/skip-cidrs.txt")]);
