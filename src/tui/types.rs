@@ -271,6 +271,10 @@ pub enum AppAction {
     SubmitPrompt,
     /// Stop the in-TUI background Web UI HTTP server when currently running.
     StopWebUi,
+    /// Copy the active Web UI pairing passcode (or URL) to the clipboard / OSC 52.
+    CopyWebPasscode,
+    /// Open the active Web UI URL in the default browser and copy its pairing passcode.
+    OpenWebUi,
     /// Run the confirmed before/after speed comparison on Tab 4.
     RunSpeedTest,
     /// Cancel an in-flight before/after speed comparison on Tab 4 (`x` or `Esc`).

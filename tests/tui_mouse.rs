@@ -93,17 +93,17 @@ fn mouse_interacts_with_finder_run_config_and_speed_panels() {
     assert_eq!(state.focus.finder, FinderFocus::Log);
     assert_eq!(state.focus.finder_log_scroll, 3);
 
-    // Tab 2: inspector rows start at y = 3(body)+6(ctrl)+3(metrics)+2(border+hdr) = 14.
+    // Tab 2: inspector rows start at y = 3(body)+7(ctrl)+3(metrics)+2(border+hdr) = 15.
     state.tab = ActiveTab::Run;
     state.inspector.push(dummy_pkt(1));
     state.inspector.push(dummy_pkt(2));
-    handle_mouse_event(&mut state, click(20, 15), AREA);
+    handle_mouse_event(&mut state, click(20, 16), AREA);
     assert_eq!(state.focus.run, RunFocus::Inspector);
     assert_eq!(state.inspector.selected, 1);
     // Clicking already-selected row opens detail; next click closes it.
-    handle_mouse_event(&mut state, click(20, 15), AREA);
+    handle_mouse_event(&mut state, click(20, 16), AREA);
     assert!(state.inspector.detail_open);
-    handle_mouse_event(&mut state, click(20, 15), AREA);
+    handle_mouse_event(&mut state, click(20, 16), AREA);
     assert!(!state.inspector.detail_open);
 
     // Tab 3: scroll wheel in left TOML, top-right nft, bottom-right AutoHostlist focuses & scrolls.

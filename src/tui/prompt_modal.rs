@@ -105,7 +105,7 @@ fn prompt_rect(area: Rect, max_w: u16, max_h: u16) -> Rect {
 
 /// Renders [`PromptModal`] cleanly centered over the active screen.
 pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme) {
-    let popup = prompt_rect(frame.area(), 68, 11);
+    let popup = prompt_rect(frame.area(), 76, 12);
     frame.render_widget(Clear, popup);
 
     let (title, prompt, hint, border_col) = match modal.kind {
@@ -130,7 +130,7 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme) {
         PromptKind::LaunchWebUi => (
             " Launch Web Control UI ",
             "Expose mobile/browser UI with a fresh pairing passcode on port 8787:",
-            "[Enter] LAN (0.0.0.0:8787)   [l] Localhost (127.0.0.1:8787)   [Esc] Cancel",
+            "[Enter] LAN (0.0.0.0:8787)  [l] Localhost (127.0.0.1:8787)  [Esc] Cancel",
             t.info,
         ),
     };
@@ -148,7 +148,7 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme) {
             Constraint::Length(2),
             Constraint::Length(3),
             Constraint::Length(1),
-            Constraint::Min(1),
+            Constraint::Min(2),
         ])
         .split(inner);
 
@@ -190,7 +190,7 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme) {
         );
     }
     frame.render_widget(
-        Paragraph::new(Line::from(styled_key_hints(hint, t))),
+        Paragraph::new(Line::from(styled_key_hints(hint, t))).wrap(Wrap { trim: true }),
         rows[3],
     );
 }

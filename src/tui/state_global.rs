@@ -55,6 +55,12 @@ impl AppState {
                 self.prompt_modal = Some(PromptModal::open(PromptKind::LaunchWebUi));
                 self.dismiss_finder_hover();
             }
+            KeyCode::Char('y') if !detail_open && self.web_status.is_some() => {
+                return Some(AppAction::CopyWebPasscode);
+            }
+            KeyCode::Char('o') if !detail_open && self.web_status.is_some() => {
+                return Some(AppAction::OpenWebUi);
+            }
             _ => return None,
         }
         Some(AppAction::None)

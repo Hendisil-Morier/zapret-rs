@@ -142,8 +142,15 @@ fn web_ui_controller_line(state: &AppState, key_style: Style) -> Line<'static> {
     match &state.web_status {
         Some((url, passcode)) => Line::from(vec![
             Span::styled("Web UI        : ", key_style),
-            Span::styled(url.clone(), Style::default().fg(t.ok_bright).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  (passcode: {passcode}, 'W' to stop)"), Style::default().fg(t.warn_bright)),
+            Span::styled(
+                url.clone(),
+                Style::default()
+                    .fg(t.ok_bright)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            ),
+            Span::styled("  passcode: ", Style::default().fg(t.muted)),
+            Span::styled(passcode.clone(), Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
+            Span::styled("  [o] Open  [y] Copy  [W] Stop", Style::default().fg(t.info)),
         ]),
         None => Line::from(vec![
             Span::styled("Web UI        : ", key_style),
@@ -230,16 +237,22 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
     lines
 }
 
-/// Renders Tab 2: active config summary, live packet telemetry cards, and daemon log.
-fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
-    let t = &state.theme;
+/// Computes exact Tab 2 controller card height shared by renderer and mouse hit-testing.
+pub(crate) fn run_controller_height(state: &AppState, width: u16) -> u16 {
     let ctrl_lines = run_controller_lines(state);
-    let inner_w = usize::from(area.width.saturating_sub(2)).max(1);
+    let inner_w = usize::from(width.saturating_sub(2)).max(1);
     let ctrl_wrapped: usize = ctrl_lines
         .iter()
         .map(|l| l.width().max(1).div_ceil(inner_w))
         .sum();
-    let ctrl_h = u16::try_from(ctrl_wrapped + 2).unwrap_or(8).clamp(6, 9);
+    u16::try_from(ctrl_wrapped + 2).unwrap_or(8).clamp(6, 9)
+}
+
+/// Renders Tab 2: active config summary, live packet telemetry cards, and daemon log.
+fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState) {
+    let t = &state.theme;
+    let ctrl_lines = run_controller_lines(state);
+    let ctrl_h = run_controller_height(state, area.width);
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([

@@ -76,7 +76,16 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
     } else {
         "[1..5] Views  [Tab/Shift+Tab] Focus Panel  [W] Web UI  [t] Theme  [T] Save theme.toml  [?] Help  [q] Quit"
     };
-    push_help_section(&mut lines, "Global", false, &[global_row], t);
+    let web_hint = if state.web_status.is_some() {
+        Some("[o] Open Web UI   [y] Copy Passcode   [W] Stop Web UI   (click URL/passcode also works)")
+    } else {
+        None
+    };
+    if let Some(extra) = web_hint {
+        push_help_section(&mut lines, "Global", false, &[global_row, extra], t);
+    } else {
+        push_help_section(&mut lines, "Global", false, &[global_row], t);
+    }
 
     // Tab-specific section only.
     match state.tab {

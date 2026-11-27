@@ -5,11 +5,13 @@ use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 /// Exact same `Layout` engine used by renderers so click targets stay synchronized with visuals.
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 
+/// Shared Tab 2 controller card height matching the renderer for accurate hit-testing.
+use crate::tui::render::run_controller_height;
 /// Application state mutated on click or wheel scroll.
 use crate::tui::state::AppState;
-/// Navigation, focus, and scroll helpers reused by mouse handlers.
+/// Navigation, action, focus, and scroll helpers reused by mouse handlers.
 use crate::tui::types::{
-    ActiveTab, ConfigFocus, FinderField, FinderFocus, RunFocus, adjust_log_scroll,
+    ActiveTab, AppAction, ConfigFocus, FinderField, FinderFocus, RunFocus, adjust_log_scroll,
     adjust_pane_scroll,
 };
 
@@ -17,9 +19,9 @@ use crate::tui::types::{
 ///
 /// Overlays (`modal`, `help_open`, and packet `detail_open`) are respected so background widgets
 /// cannot accidentally activate while a modal is visible.
-pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) {
-    if state.modal.is_some() || area.width == 0 || area.height == 0 {
-        return;
+pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) -> AppAction {
+    if state.modal.is_some() || state.prompt_modal.is_some() || area.width == 0 || area.height == 0 {
+        return AppAction::None;
     }
     let pos = Position::new(mouse.column, mouse.row);
     let is_left = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left));
@@ -29,7 +31,7 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) {
         _ => None,
     };
     if !is_left && scroll_dir.is_none() {
-        return;
+        return AppAction::None;
     }
 
     if state.help_open {
@@ -37,14 +39,14 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) {
             state.help_open = false;
             state.reset_finder_hover();
         }
-        return;
+        return AppAction::None;
     }
     if state.tab == ActiveTab::Run && state.inspector.detail_open {
         if is_left {
             state.inspector.detail_open = false;
             state.status_banner = "Closed packet detail.".to_owned();
         }
-        return;
+        return AppAction::None;
     }
 
     let chunks = Layout::default()
@@ -54,18 +56,17 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) {
 
     if is_left && chunks[0].contains(pos) {
         handle_header_click(state, mouse.column, chunks[0]);
-        return;
+        return AppAction::None;
     }
     if is_left && chunks[2].contains(pos) {
-        handle_footer_click(state, mouse.column, chunks[2]);
-        return;
+        return handle_footer_click(state, mouse.column, chunks[2]);
     }
     if !chunks[1].contains(pos) {
-        return;
+        return AppAction::None;
     }
     match state.tab {
         ActiveTab::Finder => handle_finder_mouse(state, pos, is_left, scroll_dir, chunks[1]),
-        ActiveTab::Run => handle_run_mouse(state, pos, is_left, scroll_dir, chunks[1]),
+        ActiveTab::Run => return handle_run_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Config => handle_config_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Speed => handle_speed_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Status => {
@@ -75,6 +76,7 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) {
             }
         }
     }
+    AppAction::None
 }
 
 /// Switches tabs when clicking inside the top-left `Tabs` bar.
@@ -107,19 +109,44 @@ fn handle_header_click(state: &mut AppState, col: u16, header_area: Rect) {
     }
 }
 
-/// Handles clicks on `[?] Keys` and `[t] <theme>` in the single-line bottom strip.
-fn handle_footer_click(state: &mut AppState, col: u16, footer_area: Rect) {
-    let rel = col.saturating_sub(footer_area.x);
+/// Matches a click within a substring region of `haystack` starting at `base_offset`.
+fn hit_substring(rel: usize, base: usize, haystack: &str, needle: &str) -> bool {
+    haystack
+        .find(needle)
+        .is_some_and(|idx| rel >= base + idx && rel < base + idx + needle.len())
+}
+
+/// Handles clicks on `[?] Keys`, `[t] <theme>`, and active Web UI link/copy chips in the footer.
+fn handle_footer_click(state: &mut AppState, col: u16, footer_area: Rect) -> AppAction {
+    let rel = usize::from(col.saturating_sub(footer_area.x));
     if (1..=8).contains(&rel) {
         state.help_open = true;
         state.dismiss_finder_hover();
-        return;
+        return AppAction::None;
     }
-    let theme_end = 15 + u16::try_from(state.theme.name.len()).unwrap_or(10);
+    let theme_end = 15 + state.theme.name.len();
     if (11..=theme_end).contains(&rel) {
         state.theme = state.theme.next_preset();
         state.status_banner = format!("Theme: {} (press 'T' to save theme.toml)", state.theme.name);
+        return AppAction::None;
     }
+    let banner_start = theme_end + 5;
+    if state.web_status.is_some()
+        && state.status_banner.starts_with("Web UI:")
+        && rel >= banner_start
+    {
+        if hit_substring(rel, banner_start, &state.status_banner, "[W] Stop") {
+            return AppAction::StopWebUi;
+        }
+        if let Some((url, _)) = &state.web_status
+            && (hit_substring(rel, banner_start, &state.status_banner, url)
+                || hit_substring(rel, banner_start, &state.status_banner, "[o] Open"))
+        {
+            return AppAction::OpenWebUi;
+        }
+        return AppAction::CopyWebPasscode;
+    }
+    AppAction::None
 }
 
 /// Maps `ScrollUp`/`ScrollDown` into `n` repeated `Up`/`Down` key equivalents on a scroll offset.
@@ -209,23 +236,46 @@ fn handle_finder_mouse(
     }
 }
 
-/// Handles packet selection, detail toggle, and log scrolling on Tab 2 (`Run nfqws2`).
+/// Handles Web UI clicks, packet selection, detail toggle, and log scrolling on Tab 2 (`Run nfqws2`).
 fn handle_run_mouse(
     state: &mut AppState,
     pos: Position,
     is_left: bool,
     scroll_dir: Option<isize>,
     body: Rect,
-) {
+) -> AppAction {
+    let ctrl_h = run_controller_height(state, body.width);
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(6),
+            Constraint::Length(ctrl_h),
             Constraint::Length(3),
             Constraint::Min(6),
-            Constraint::Length(4),
+            Constraint::Length(5),
         ])
         .split(body);
+
+    if is_left
+        && rows[0].contains(pos)
+        && pos.y == rows[0].y + 5
+        && let Some((url, _)) = &state.web_status
+    {
+        let rel = usize::from(pos.x.saturating_sub(rows[0].x + 1));
+        let url_end = 16 + url.len();
+        if rel >= 16 && rel < url_end {
+            return AppAction::OpenWebUi;
+        }
+        if let Some((_, passcode)) = &state.web_status {
+            let line = format!("Web UI        : {url}  passcode: {passcode}  [o] Open  [y] Copy  [W] Stop");
+            if hit_substring(rel, 0, &line, "[o] Open") {
+                return AppAction::OpenWebUi;
+            }
+            if hit_substring(rel, 0, &line, "[W] Stop") {
+                return AppAction::StopWebUi;
+            }
+        }
+        return AppAction::CopyWebPasscode;
+    }
 
     if rows[2].contains(pos) {
         state.focus.run = RunFocus::Inspector;
@@ -236,7 +286,7 @@ fn handle_run_mouse(
             } else if visible_len > 0 {
                 state.inspector.selected = (state.inspector.selected + 3).min(visible_len - 1);
             }
-            return;
+            return AppAction::None;
         }
         if is_left && visible_len > 0 && pos.y >= rows[2].y + 2 && pos.y + 1 < rows[2].bottom() {
             let capacity = usize::from(rows[2].height.saturating_sub(3)).max(1);
@@ -258,6 +308,7 @@ fn handle_run_mouse(
             scroll_log_n(&mut state.focus.run_log_scroll, state.run_logs.len(), dir, 3);
         }
     }
+    AppAction::None
 }
 
 /// Focuses and scrolls `nfqws2.toml`, `nftables`, or `Auto Hostlist` panes on Tab 3.

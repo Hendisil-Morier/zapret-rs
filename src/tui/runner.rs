@@ -43,8 +43,10 @@ use crate::tui::daemon_cycle::{DaemonCycle, begin_restart, poll_daemon_cycle};
 use crate::tui::remote::detect_control_socket;
 /// Pure TUI frame renderer.
 use crate::tui::render::draw_app;
-/// Embedded Web UI server lifecycle handlers triggered via global `W`.
-use crate::tui::web_actions::{ActiveWebUi, stop_web_ui, submit_prompt_modal};
+/// Embedded Web UI server lifecycle, browser launch, and clipboard copy handlers.
+use crate::tui::web_actions::{
+    ActiveWebUi, copy_web_passcode, open_web_ui, stop_web_ui, submit_prompt_modal,
+};
 /// Terminal RAII session wrapper, seamless re-exec snapshot, and TOML file I/O helpers.
 use crate::tui::session::{
     REEXEC_STATE_ENV, ReexecSnapshot, SEAMLESS_REEXEC_ENV, TerminalSession, drop_fw_tui,
@@ -157,7 +159,12 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
             match event::read().map_err(|err| format!("event read failed: {err}"))? {
                 Event::Mouse(mouse) => {
                     if let Ok(sz) = session.terminal.size() {
-                        handle_mouse_event(&mut state, mouse, Rect::new(0, 0, sz.width, sz.height));
+                        match handle_mouse_event(&mut state, mouse, Rect::new(0, 0, sz.width, sz.height)) {
+                            AppAction::OpenWebUi => open_web_ui(&mut state),
+                            AppAction::CopyWebPasscode => copy_web_passcode(&mut state),
+                            AppAction::StopWebUi => stop_web_ui(&mut state, &mut web_ui),
+                            _ => {}
+                        }
                     }
                 }
                 Event::Key(key) if key.kind == KeyEventKind::Press => match state.handle_key(key) {
@@ -243,6 +250,8 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                 }
                 AppAction::SubmitPrompt => submit_prompt_modal(&mut state, &tab2_session, &mut web_ui),
                 AppAction::StopWebUi => stop_web_ui(&mut state, &mut web_ui),
+                AppAction::CopyWebPasscode => copy_web_passcode(&mut state),
+                AppAction::OpenWebUi => open_web_ui(&mut state),
                 },
                 Event::Key(_) | Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }
