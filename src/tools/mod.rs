@@ -83,6 +83,7 @@ pub use strat::{WinDivertFilterGuard, WinDivertFirewallBackend, build_windivert_
 /// Public API re-exports for the `zapret-rs web` HTTP/SSE remote dashboard.
 pub use web::{
     DEFAULT_WEB_BIND, HttpMethod, HttpReadError, HttpRequest, MAX_BODY_BYTES, MAX_HEADER_BYTES,
-    SESSION_COOKIE_NAME, WebAuth, WebCli, WebConfig, WebServerHandle, read_http_request,
-    run_web_cli, start_web_server, unix_now_secs, write_error, write_json, write_response,
+    MAX_SSE_CLIENTS, SESSION_COOKIE_NAME, WebAuth, WebCli, WebConfig, WebIpcBridge,
+    WebServerHandle, WebStatusSnapshot, read_http_request, run_web_cli, start_web_server,
+    unix_now_secs, write_error, write_json, write_response,
 };
