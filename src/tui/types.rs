@@ -3,16 +3,14 @@
 /// Timing primitives for tracking 1-second Strategy Finder focus dwell tooltips.
 use std::time::{Duration, Instant};
 
-/// Keyboard key codes handled by shared panel scroll helpers.
-use crossterm::event::KeyCode;
 /// Serialization support for preserving navigation state across seamless `setcap` restarts.
 use serde::{Deserialize, Serialize};
 
 /// Strategy catalog enums and completed scan reports forwarded into UI events.
 use crate::tools::{IpFamily, ProbeProtocol, ScanReport};
 
-/// Top-level navigation tabs, defined in their own module and re-exported here for existing paths.
-pub use crate::tui::tabs::ActiveTab;
+/// Top-level navigation tabs and shared scroll helpers, re-exported for existing paths.
+pub use crate::tui::tabs::{ActiveTab, adjust_log_scroll, adjust_pane_scroll};
 
 /// Interactive form rows on the Strategy Finder tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,6 +267,8 @@ pub enum AppAction {
     PushConfigToDaemon,
     /// Execute the active floating [`crate::tui::AuthModal`] action (`Enter` pressed).
     SubmitModal,
+    /// Execute the active floating [`crate::tui::PromptModal`] domain/web action (`Enter` pressed).
+    SubmitPrompt,
     /// Run the confirmed before/after speed comparison on Tab 4.
     RunSpeedTest,
     /// Cancel an in-flight before/after speed comparison on Tab 4 (`x` or `Esc`).
@@ -366,31 +366,4 @@ impl PanelFocusState {
             ActiveTab::Speed | ActiveTab::Status => {}
         }
     }
-}
-
-/// Adjusts a bottom-anchored log scroll offset (`0` = live tail) for vertical navigation keys.
-pub fn adjust_log_scroll(scroll: &mut u16, total_len: usize, code: KeyCode) -> bool {
-    let cap = u16::try_from(total_len.saturating_sub(1)).unwrap_or(u16::MAX);
-    match code {
-        KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_add(1).min(cap),
-        KeyCode::Down | KeyCode::Char('j') => *scroll = scroll.saturating_sub(1),
-        KeyCode::PageUp => *scroll = scroll.saturating_add(5).min(cap),
-        KeyCode::PageDown => *scroll = scroll.saturating_sub(5),
-        KeyCode::End => *scroll = 0,
-        _ => return false,
-    }
-    true
-}
-
-/// Adjusts a top-anchored preview scroll offset (`0` = top) for vertical navigation keys.
-pub fn adjust_pane_scroll(scroll: &mut u16, code: KeyCode) -> bool {
-    match code {
-        KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_sub(1),
-        KeyCode::Down | KeyCode::Char('j') => *scroll = scroll.saturating_add(1),
-        KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
-        KeyCode::PageDown => *scroll = scroll.saturating_add(10),
-        KeyCode::Home => *scroll = 0,
-        _ => return false,
-    }
-    true
 }

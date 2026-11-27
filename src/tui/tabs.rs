@@ -1,5 +1,7 @@
 //! Top-level navigation tabs and shared metadata descriptors of the `zapret-rs` TUI.
 
+/// Key codes matched by shared log/pane scrolling helpers.
+use crossterm::event::KeyCode;
 /// Serialization support for preserving the active tab across seamless `setcap` restarts.
 use serde::{Deserialize, Serialize};
 
@@ -114,4 +116,31 @@ impl ActiveTab {
     pub fn prev(self) -> Self {
         Self::SPECS[(self.index() + Self::SPECS.len() - 1) % Self::SPECS.len()].tab
     }
+}
+
+/// Adjusts a bottom-anchored log scroll offset (`0` = live tail) for vertical navigation keys.
+pub fn adjust_log_scroll(scroll: &mut u16, total_len: usize, code: KeyCode) -> bool {
+    let cap = u16::try_from(total_len.saturating_sub(1)).unwrap_or(u16::MAX);
+    match code {
+        KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_add(1).min(cap),
+        KeyCode::Down | KeyCode::Char('j') => *scroll = scroll.saturating_sub(1),
+        KeyCode::PageUp => *scroll = scroll.saturating_add(5).min(cap),
+        KeyCode::PageDown => *scroll = scroll.saturating_sub(5),
+        KeyCode::End => *scroll = 0,
+        _ => return false,
+    }
+    true
+}
+
+/// Adjusts a top-anchored preview scroll offset (`0` = top) for vertical navigation keys.
+pub fn adjust_pane_scroll(scroll: &mut u16, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') => *scroll = scroll.saturating_add(1),
+        KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
+        KeyCode::PageDown => *scroll = scroll.saturating_add(10),
+        KeyCode::Home => *scroll = 0,
+        _ => return false,
+    }
+    true
 }

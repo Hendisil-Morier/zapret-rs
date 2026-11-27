@@ -113,14 +113,23 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
             push_help_section(&mut lines, run_title, true, &run_rows, t);
         }
         ActiveTab::Config => {
-            let cfg_row = if state.run_status == RunStatus::Attached {
-                "[e/Enter] Edit ($EDITOR)  [p] Push Config  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn] Scroll"
+            let cfg_rows: [&'static str; 2] = if state.run_status == RunStatus::Attached {
+                [
+                    "[e/Enter] Edit ($EDITOR)  [p] Push Config  [s] Save  [l] Reload",
+                    "[b] Blacklist  [a] Auto-add  [d] Remove Domain  [Up/Down/PgUp/PgDn] Scroll",
+                ]
             } else if cfg!(windows) {
-                "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn/Home] Scroll TOML/Filter/Hostlist"
+                [
+                    "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [b] Blacklist  [a] Auto-add  [d] Remove",
+                    "[Up/Down/PgUp/PgDn/Home] Scroll TOML / Filter / Hostlist",
+                ]
             } else {
-                "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [Up/Down/PgUp/PgDn/Home] Scroll TOML/nft/Hostlist"
+                [
+                    "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [b] Blacklist  [a] Auto-add  [d] Remove",
+                    "[Up/Down/PgUp/PgDn/Home] Scroll TOML / nft / Hostlist",
+                ]
             };
-            push_help_section(&mut lines, "Config & Diagnostics", true, &[cfg_row], t);
+            push_help_section(&mut lines, "Config & Diagnostics", true, &cfg_rows, t);
         }
         ActiveTab::Speed => {
             push_help_section(

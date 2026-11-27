@@ -238,6 +238,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                         break;
                     }
                 }
+                AppAction::SubmitPrompt => crate::tui::web_actions::submit_prompt_modal(&mut state, &tab2_session),
                 },
                 Event::Key(_) | Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }

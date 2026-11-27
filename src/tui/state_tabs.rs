@@ -2,18 +2,18 @@
 
 /// Ordered deduplication when loading learned domains across `hostlist_auto` files.
 use std::collections::BTreeSet;
-/// Non-blocking file read for refreshing Tab 3's `Auto Hostlist` pane.
-use std::fs;
-/// Path resolution relative to `nfqws2.toml`'s parent directory.
-use std::path::PathBuf;
 
 /// Keyboard key codes handled on Tab 2, Tab 3, and Tab 4.
 use crossterm::event::KeyCode;
 
 /// Validated `AppConfig` parser used to locate configured `hostlist_auto` paths.
 use crate::config::AppConfig;
-/// `~/` path expansion shared with Tab 1 and config saving.
-use crate::tools::expand_tilde;
+/// `~/` path expansion and shared blacklist/autohostlist helpers.
+use crate::tools::{
+    configured_autohostlist_paths, expand_tilde, extract_exclude_domains, read_hostlist_lines,
+};
+/// Plain-text prompt modal variants for Blacklist / Auto Hostlist editing.
+use crate::tui::prompt_modal::{PromptKind, PromptModal};
 
 /// Floating confirmation modal built when stopping an attached daemon (`S`).
 use crate::tui::modal::{AuthModal, ModalPurpose};
@@ -102,15 +102,37 @@ impl AppState {
             KeyCode::Char('p') => return AppAction::PushConfigToDaemon,
             KeyCode::Char('s') => return AppAction::SaveConfig,
             KeyCode::Char('l') => return AppAction::ReloadConfig,
+            KeyCode::Char('b') => {
+                if self.parsed_profiles.is_empty() {
+                    self.status_banner = "No [[profiles]] in nfqws2.toml yet; scan or load a config first.".to_owned();
+                } else {
+                    self.prompt_modal = Some(PromptModal::open(PromptKind::BlacklistDomain));
+                }
+            }
+            KeyCode::Char('a') => {
+                if self.autohostlist_paths.is_empty() {
+                    self.status_banner = "Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first).".to_owned();
+                } else {
+                    self.prompt_modal = Some(PromptModal::open(PromptKind::AddAutoHostlist));
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Delete => {
+                if self.exclude_entries.is_empty() && self.autohostlist_entries.is_empty() {
+                    self.status_banner = "No Blacklist or Auto Hostlist entries to remove.".to_owned();
+                } else {
+                    self.prompt_modal = Some(PromptModal::open(PromptKind::RemoveListDomain));
+                }
+            }
             _ => {}
         }
         AppAction::None
     }
 
-    /// Re-reads `hostlist_auto` paths and learned domain lines referenced by `active_toml`.
+    /// Re-reads `hostlist_auto` paths, learned domains, and `hostlist_exclude` blacklist entries.
     pub fn refresh_autohostlist(&mut self) {
         self.autohostlist_paths.clear();
         self.autohostlist_entries.clear();
+        self.exclude_entries.clear();
         if self.active_toml.trim().is_empty() {
             return;
         }
@@ -118,27 +140,16 @@ impl AppState {
         let Ok(cfg) = AppConfig::from_toml_str(&self.active_toml, cfg_path.parent()) else {
             return;
         };
-        let mut seen_paths: Vec<PathBuf> = Vec::new();
-        for p in &cfg.profiles {
-            if let Some(path) = &p.lists.hostlist_auto
-                && !seen_paths.contains(path)
-            {
-                seen_paths.push(path.clone());
-            }
-        }
+        let seen_paths = configured_autohostlist_paths(&cfg);
         let mut domains = BTreeSet::new();
         for path in &seen_paths {
-            if let Ok(text) = fs::read_to_string(path) {
-                for line in text.lines() {
-                    let trimmed = line.trim();
-                    if !trimmed.is_empty() && !trimmed.starts_with('#') {
-                        domains.insert(trimmed.to_owned());
-                    }
-                }
+            for line in read_hostlist_lines(path) {
+                domains.insert(line);
             }
         }
         self.autohostlist_paths = seen_paths;
         self.autohostlist_entries = domains.into_iter().collect();
+        self.exclude_entries = extract_exclude_domains(&cfg);
     }
 
     /// Handles start, cancel, navigation, and clear keys on Tab 4 (Speed Test).

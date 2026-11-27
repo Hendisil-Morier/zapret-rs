@@ -11,8 +11,8 @@ use ratatui::{
 
 /// Live packet inspector table and detail overlay renderers.
 use crate::tui::inspect_ui::{draw_packet_detail_modal, draw_packet_inspector};
-/// Floating capability-grant, `sudo`, stop-confirm, and `?` keybindings overlays.
-use crate::tui::{keybinds::draw_keybinds_modal, modal::draw_auth_modal};
+/// Floating capability-grant, `sudo`, stop-confirm, domain list prompt, and `?` overlays.
+use crate::tui::{keybinds::draw_keybinds_modal, modal::draw_auth_modal, prompt_modal::draw_prompt_modal};
 /// Tab 3 Config & Diagnostics rendering helper.
 use crate::tui::render_config::draw_config_tab;
 /// Tab 1 Strategy Finder rendering helper.
@@ -61,6 +61,9 @@ pub fn draw_app(frame: &mut Frame, state: &AppState) {
     }
     if let Some(modal) = &state.modal {
         draw_auth_modal(frame, modal, &state.theme);
+    }
+    if let Some(prompt) = &state.prompt_modal {
+        draw_prompt_modal(frame, prompt, &state.theme);
     }
 }
 

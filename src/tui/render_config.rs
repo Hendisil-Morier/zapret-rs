@@ -74,18 +74,14 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(nft_pane, right[0]);
 
     let autolist_focused = state.focus.config == ConfigFocus::AutoHostlist;
-    let (autolist_title, autolist_border, autolist_lines) = if state.autohostlist_paths.is_empty() {
+    let (autolist_title, autolist_border, mut autolist_lines) = if state.autohostlist_paths.is_empty() {
         (
-            " Auto Hostlist (off) ".to_owned(),
-            if autolist_focused { t.accent_bright } else { t.frame },
+            format!(" Auto Hostlist (off) | Blacklist ({}) ", state.exclude_entries.len()),
+            if autolist_focused { t.accent_bright } else if !state.exclude_entries.is_empty() { t.warn } else { t.frame },
             vec![
                 Line::from(Span::styled(
-                    "No hostlist_auto configured in nfqws2.toml.",
+                    "Auto Hostlist off (set Tab 1 Domain Scope to Auto Hostlist).",
                     Style::default().fg(t.muted),
-                )),
-                Line::from(Span::styled(
-                    "Set Tab 1 'Domain Scope' to Auto Hostlist to learn blocked domains live.",
-                    Style::default().fg(t.subtle),
                 )),
             ],
         )
@@ -102,7 +98,7 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         ])];
         if state.autohostlist_entries.is_empty() {
             lines.push(Line::from(Span::styled(
-                "(empty yet — blocked domains are appended live on failure)",
+                "(empty yet — blocked domains append live or via [a])",
                 Style::default().fg(t.muted),
             )));
         } else {
@@ -114,11 +110,32 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             }
         }
         (
-            format!(" Auto Hostlist ({}) ", state.autohostlist_entries.len()),
+            format!(
+                " Auto Hostlist ({}) | Blacklist ({}) ",
+                state.autohostlist_entries.len(),
+                state.exclude_entries.len()
+            ),
             if autolist_focused { t.accent_bright } else { t.ok },
             lines,
         )
     };
+    autolist_lines.push(Line::from(Span::styled(
+        format!("Blacklist (never desync, {}):", state.exclude_entries.len()),
+        Style::default().fg(t.warn_bright),
+    )));
+    if state.exclude_entries.is_empty() {
+        autolist_lines.push(Line::from(Span::styled(
+            "  (none — press 'b' to blacklist, 'd' to remove)",
+            Style::default().fg(t.subtle),
+        )));
+    } else {
+        for domain in &state.exclude_entries {
+            autolist_lines.push(Line::from(Span::styled(
+                format!("  - {domain}"),
+                Style::default().fg(t.err_bright),
+            )));
+        }
+    }
     let autolist_pane = Paragraph::new(autolist_lines)
         .scroll((state.focus.autolist_scroll, 0))
         .wrap(Wrap { trim: false })

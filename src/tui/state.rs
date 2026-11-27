@@ -27,6 +27,8 @@ use crate::tui::inspect::PacketInspectorState;
 use crate::tui::speed::SpeedState;
 /// Floating capability-grant, `sudo` auth, and daemon-stop confirmation modal state.
 use crate::tui::modal::{AuthModal, ModalKeyResult, ModalPurpose};
+/// Centered plain-text domain/web prompt modal state.
+use crate::tui::prompt_modal::{PromptKeyResult, PromptModal};
 /// Attached background `nfqws2` daemon metadata shown on Tab 2.
 use crate::tui::remote::RemoteDaemonMeta;
 /// Configurable color theme palette and `theme.toml` load/save helpers.
@@ -148,6 +150,10 @@ pub struct AppState {
     pub autohostlist_paths: Vec<PathBuf>,
     /// Learned domain entries currently loaded from `autohostlist_paths`.
     pub autohostlist_entries: Vec<String>,
+    /// Excluded (blacklisted) domains configured via `hostlist_exclude` / `hostlist_exclude_domains`.
+    pub exclude_entries: Vec<String>,
+    /// Active centered plain-text input modal (Blacklist / Auto Hostlist / Web UI).
+    pub prompt_modal: Option<PromptModal>,
     /// Cached operational health checks displayed on Tab 5 (`Status`).
     pub status_checks: Vec<crate::tui::status_check::ComponentCheck>,
     /// Selected row index inside Tab 5's component status table.
@@ -231,6 +237,8 @@ impl AppState {
             pending_merge: None,
             autohostlist_paths: Vec::new(),
             autohostlist_entries: Vec::new(),
+            exclude_entries: Vec::new(),
+            prompt_modal: None,
             status_checks: Vec::new(),
             status_selected: 0,
             status_hscroll: 0,
@@ -352,6 +360,13 @@ impl AppState {
                     self.reset_finder_hover();
                     AppAction::None
                 }
+            };
+        }
+        if let Some(prompt) = self.prompt_modal.as_mut() {
+            return match prompt.handle_key(key) {
+                PromptKeyResult::KeepOpen => AppAction::None,
+                PromptKeyResult::Close => { self.prompt_modal = None; AppAction::None }
+                PromptKeyResult::Submit => AppAction::SubmitPrompt,
             };
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {

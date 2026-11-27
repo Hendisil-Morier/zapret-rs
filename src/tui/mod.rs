@@ -18,6 +18,8 @@ pub mod inspect_ui;
 pub mod keybinds;
 /// Centered floating modal popup for capability grants, `sudo` auth, and confirmations.
 pub mod modal;
+/// Centered plain-text input modal for Blacklist, Auto Hostlist, and Web UI actions.
+pub mod prompt_modal;
 /// Mouse click and scroll wheel hit-testing aligned to the `ratatui` panel layouts.
 pub mod mouse;
 /// Control socket auto-detection and remote daemon telemetry client for Tab 2 attach mode.
@@ -62,6 +64,8 @@ pub mod theme_config;
 pub mod theme_presets;
 /// Navigation enums, form field descriptors, telemetry counters, and worker events.
 pub mod types;
+/// TUI side-effect executors for Blacklist (`hostlist_exclude`), Auto Hostlist, and Web UI actions.
+pub mod web_actions;
 /// Background strategy scan and live `nfqws2` NFQUEUE worker handles.
 pub mod workers;
 
@@ -75,6 +79,8 @@ pub use inspect_ui::{draw_packet_detail_modal, draw_packet_inspector, format_hex
 pub use keybinds::draw_keybinds_modal;
 /// Re-exported floating authentication, confirmation, and keybindings modal overlays.
 pub use modal::{AuthModal, ModalKeyResult, ModalPurpose, draw_auth_modal};
+/// Re-exported plain-text prompt modal for Tab 3 domain list management and Web UI launch.
+pub use prompt_modal::{PromptKeyResult, PromptKind, PromptModal, draw_prompt_modal};
 /// Re-exported remote attach metadata and control socket auto-detection helpers.
 pub use remote::{RemoteDaemonMeta, connect_remote_daemon, detect_control_socket};
 /// Re-exported top-level frame renderer for headless tests and the event loop.
