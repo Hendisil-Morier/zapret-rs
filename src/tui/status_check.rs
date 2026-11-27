@@ -56,9 +56,30 @@ pub fn collect_component_statuses(state: &AppState) -> Vec<ComponentCheck> {
         check_dns_resolver(state),
         check_config(state),
         check_daemon_ipc(state),
+        check_web_ui(state),
         check_finder_summary(state),
         check_speed_summary(state),
     ]
+}
+
+/// Checks whether the embedded HTTP/SSE mobile/browser Web UI is running inside the TUI.
+fn check_web_ui(state: &AppState) -> ComponentCheck {
+    match &state.web_status {
+        Some((url, passcode)) => ComponentCheck {
+            name: "Web UI",
+            health: ComponentHealth::Ok,
+            summary: format!("Listening at {url} (passcode: {passcode})"),
+            detail: format!(
+                "Embedded mobile/browser Web UI is active at {url} with pairing passcode '{passcode}'. Press 'W' anywhere to stop it."
+            ),
+        },
+        None => ComponentCheck {
+            name: "Web UI",
+            health: ComponentHealth::Warn,
+            summary: "Stopped (press 'W' to start)".to_owned(),
+            detail: "Embedded Web UI is not running. Press 'W' anywhere to expose LAN (0.0.0.0:8787) or localhost (127.0.0.1:8787).".to_owned(),
+        },
+    }
 }
 
 /// Checks the active OS DNS servers and displays the currently selected DNS preset.

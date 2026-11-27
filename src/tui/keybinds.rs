@@ -72,9 +72,9 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
 
     // Global bindings shown regardless of active tab.
     let global_row = if !state.has_net_caps {
-        "[1/2/3/4] Views  [Tab/Shift+Tab] Panel  [t] Theme  [T] Save Theme  [g] Caps  [?] Help  [q] Quit"
+        "[1..5] Views  [Tab/Shift+Tab] Panel  [W] Web UI  [t/T] Theme  [g] Caps  [?] Help  [q] Quit"
     } else {
-        "[1/2/3/4] Views  [Tab/Shift+Tab] Focus Panel  [t] Theme  [T] Save theme.toml  [?] Help  [q] Quit"
+        "[1..5] Views  [Tab/Shift+Tab] Focus Panel  [W] Web UI  [t] Theme  [T] Save theme.toml  [?] Help  [q] Quit"
     };
     push_help_section(&mut lines, "Global", false, &[global_row], t);
 

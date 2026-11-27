@@ -136,11 +136,27 @@ fn profile_spans(profiles: &[String], empty_hint: &'static str, t: &Theme) -> Ve
     spans
 }
 
+/// Formats the Tab 2 Web UI status row shared between local and remote-attached views.
+fn web_ui_controller_line(state: &AppState, key_style: Style) -> Line<'static> {
+    let t = &state.theme;
+    match &state.web_status {
+        Some((url, passcode)) => Line::from(vec![
+            Span::styled("Web UI        : ", key_style),
+            Span::styled(url.clone(), Style::default().fg(t.ok_bright).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  (passcode: {passcode}, 'W' to stop)"), Style::default().fg(t.warn_bright)),
+        ]),
+        None => Line::from(vec![
+            Span::styled("Web UI        : ", key_style),
+            Span::styled("Off (press 'W' to start LAN / localhost UI)", Style::default().fg(t.muted)),
+        ]),
+    }
+}
+
 /// Formats controller summary lines for Tab 2 based on local vs remote-attached mode.
 fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
     let t = &state.theme;
     let key_style = Style::default().fg(t.info);
-    if state.run_status == RunStatus::Attached
+    let mut lines = if state.run_status == RunStatus::Attached
         && let Some(meta) = &state.remote_meta
     {
         let cfg_span = match meta.config_path.as_deref() {
@@ -152,7 +168,7 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
             key_style,
         )];
         prof_line.extend(profile_spans(&meta.profile_names, "none (pass-through)", t));
-        return vec![
+        vec![
             Line::from(vec![
                 Span::styled("Engine Status : ", key_style),
                 Span::styled("ATTACHED ", Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
@@ -166,50 +182,52 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>> {
                 Span::styled("daemon-managed ", Style::default().fg(t.ok_bright)),
                 Span::styled(format!("(fwmark 0x{:08x})", meta.fwmark), Style::default().fg(t.warn_bright)),
             ]),
-        ];
-    }
-
-    let (st_text, st_color) = match &state.run_status {
-        RunStatus::Running => ("RUNNING".to_owned(), t.ok_bright),
-        RunStatus::Attached => ("ATTACHED".to_owned(), t.accent_bright),
-        RunStatus::Stopped => match &state.detected_socket {
-            Some(sock) => (
-                format!("STOPPED (daemon socket found at {}; press 'r' to attach)", sock.display()),
-                t.warn_bright,
-            ),
-            None => ("STOPPED".to_owned(), t.warn_bright),
-        },
-        RunStatus::Error(e) => (format!("ERROR: {e}"), t.err_bright),
-    };
-    let mut prof_line = vec![Span::styled(
-        format!("Profiles ({})  : ", state.parsed_profiles.len()),
-        key_style,
-    )];
-    prof_line.extend(profile_spans(
-        &state.parsed_profiles,
-        "none loaded (run Strategy Finder or press 'l' to load config file)",
-        t,
-    ));
-    let (nft_text, nft_col) = if state.no_nft {
-        ("manual (--no-nft)", t.warn_bright)
+        ]
     } else {
-        ("managed (auto cleanup on stop)", t.ok_bright)
+        let (st_text, st_color) = match &state.run_status {
+            RunStatus::Running => ("RUNNING".to_owned(), t.ok_bright),
+            RunStatus::Attached => ("ATTACHED".to_owned(), t.accent_bright),
+            RunStatus::Stopped => match &state.detected_socket {
+                Some(sock) => (
+                    format!("STOPPED (daemon socket found at {}; press 'r' to attach)", sock.display()),
+                    t.warn_bright,
+                ),
+                None => ("STOPPED".to_owned(), t.warn_bright),
+            },
+            RunStatus::Error(e) => (format!("ERROR: {e}"), t.err_bright),
+        };
+        let mut prof_line = vec![Span::styled(
+            format!("Profiles ({})  : ", state.parsed_profiles.len()),
+            key_style,
+        )];
+        prof_line.extend(profile_spans(
+            &state.parsed_profiles,
+            "none loaded (run Strategy Finder or press 'l' to load config file)",
+            t,
+        ));
+        let (nft_text, nft_col) = if state.no_nft {
+            ("manual (--no-nft)", t.warn_bright)
+        } else {
+            ("managed (auto cleanup on stop)", t.ok_bright)
+        };
+        vec![
+            Line::from(vec![
+                Span::styled("Engine Status : ", key_style),
+                Span::styled(st_text, Style::default().fg(st_color).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled("Config Path   : ", key_style),
+                Span::styled(state.output_path.clone(), Style::default().fg(t.accent_bright)),
+            ]),
+            Line::from(prof_line),
+            Line::from(vec![
+                Span::styled("nftables Mode : ", key_style),
+                Span::styled(nft_text, Style::default().fg(nft_col)),
+            ]),
+        ]
     };
-    vec![
-        Line::from(vec![
-            Span::styled("Engine Status : ", key_style),
-            Span::styled(st_text, Style::default().fg(st_color).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled("Config Path   : ", key_style),
-            Span::styled(state.output_path.clone(), Style::default().fg(t.accent_bright)),
-        ]),
-        Line::from(prof_line),
-        Line::from(vec![
-            Span::styled("nftables Mode : ", key_style),
-            Span::styled(nft_text, Style::default().fg(nft_col)),
-        ]),
-    ]
+    lines.push(web_ui_controller_line(state, key_style));
+    lines
 }
 
 /// Renders Tab 2: active config summary, live packet telemetry cards, and daemon log.

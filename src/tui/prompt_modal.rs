@@ -25,6 +25,8 @@ pub enum PromptKind {
     AddAutoHostlist,
     /// Remove a domain from Blacklist (`hostlist_exclude_domains`) and/or `autohostlist.txt`.
     RemoveListDomain,
+    /// Choose LAN (`0.0.0.0:8787`) or localhost (`127.0.0.1:8787`) binding to start the Web UI.
+    LaunchWebUi,
 }
 
 /// Keyboard handling result returned by [`PromptModal::handle_key`].
@@ -59,6 +61,20 @@ impl PromptModal {
     pub fn handle_key(&mut self, key: KeyEvent) -> PromptKeyResult {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return PromptKeyResult::Close;
+        }
+        if self.kind == PromptKind::LaunchWebUi {
+            return match key.code {
+                KeyCode::Esc => PromptKeyResult::Close,
+                KeyCode::Enter | KeyCode::Char('1') => {
+                    self.input = "lan".to_owned();
+                    PromptKeyResult::Submit
+                }
+                KeyCode::Char('l' | 'L' | '2') => {
+                    self.input = "local".to_owned();
+                    PromptKeyResult::Submit
+                }
+                _ => PromptKeyResult::KeepOpen,
+            };
         }
         match key.code {
             KeyCode::Esc => PromptKeyResult::Close,
@@ -111,6 +127,12 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme) {
             "[Enter] Remove Domain   [Esc] Cancel",
             t.err,
         ),
+        PromptKind::LaunchWebUi => (
+            " Launch Web Control UI ",
+            "Expose mobile/browser UI with a fresh pairing passcode on port 8787:",
+            "[Enter] LAN (0.0.0.0:8787)   [l] Localhost (127.0.0.1:8787)   [Esc] Cancel",
+            t.info,
+        ),
     };
 
     let outer = Block::default()
@@ -134,17 +156,32 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme) {
         Paragraph::new(Span::styled(prompt, Style::default().fg(t.text))).wrap(Wrap { trim: true }),
         rows[0],
     );
-    let input_box = Paragraph::new(Line::from(vec![
-        Span::styled(modal.input.as_str(), Style::default().fg(t.text)),
-        Span::styled("_", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
-    ]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(t.accent))
-            .title(Span::styled(" Domain ", Style::default().fg(t.info))),
-    );
-    frame.render_widget(input_box, rows[1]);
+    let center_widget = if modal.kind == PromptKind::LaunchWebUi {
+        Paragraph::new(Line::from(vec![
+            Span::styled("Mode: ", Style::default().fg(t.muted)),
+            Span::styled("[Enter] LAN / Phone ", Style::default().fg(t.ok).add_modifier(Modifier::BOLD)),
+            Span::styled("or ", Style::default().fg(t.muted)),
+            Span::styled("[l] Localhost only", Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.accent))
+                .title(Span::styled(" Bind Interface ", Style::default().fg(t.info))),
+        )
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled(modal.input.as_str(), Style::default().fg(t.text)),
+            Span::styled("_", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.accent))
+                .title(Span::styled(" Domain ", Style::default().fg(t.info))),
+        )
+    };
+    frame.render_widget(center_widget, rows[1]);
 
     if let Some(err) = &modal.error {
         frame.render_widget(

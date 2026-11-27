@@ -269,6 +269,8 @@ pub enum AppAction {
     SubmitModal,
     /// Execute the active floating [`crate::tui::PromptModal`] domain/web action (`Enter` pressed).
     SubmitPrompt,
+    /// Stop the in-TUI background Web UI HTTP server when currently running.
+    StopWebUi,
     /// Run the confirmed before/after speed comparison on Tab 4.
     RunSpeedTest,
     /// Cancel an in-flight before/after speed comparison on Tab 4 (`x` or `Esc`).

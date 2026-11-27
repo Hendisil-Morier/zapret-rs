@@ -43,6 +43,8 @@ use crate::tui::daemon_cycle::{DaemonCycle, begin_restart, poll_daemon_cycle};
 use crate::tui::remote::detect_control_socket;
 /// Pure TUI frame renderer.
 use crate::tui::render::draw_app;
+/// Embedded Web UI server lifecycle handlers triggered via global `W`.
+use crate::tui::web_actions::{ActiveWebUi, stop_web_ui, submit_prompt_modal};
 /// Terminal RAII session wrapper, seamless re-exec snapshot, and TOML file I/O helpers.
 use crate::tui::session::{
     REEXEC_STATE_ENV, ReexecSnapshot, SEAMLESS_REEXEC_ENV, TerminalSession, drop_fw_tui,
@@ -127,6 +129,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     }
     let mut cycle: Option<DaemonCycle> = None;
     let mut speed_job: Option<SpeedJob> = None;
+    let mut web_ui: Option<ActiveWebUi> = None;
     let mut probe_tick = 0u8;
     let mut autolist_tick = 0u8;
     let mut reexec_after_exit = false;
@@ -238,7 +241,8 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                         break;
                     }
                 }
-                AppAction::SubmitPrompt => crate::tui::web_actions::submit_prompt_modal(&mut state, &tab2_session),
+                AppAction::SubmitPrompt => submit_prompt_modal(&mut state, &tab2_session, &mut web_ui),
+                AppAction::StopWebUi => stop_web_ui(&mut state, &mut web_ui),
                 },
                 Event::Key(_) | Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }
@@ -248,6 +252,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
     if let Some(mut scan) = active_scan.take() {
         scan.shutdown(|g| drop_fw_tui(&mut session, g));
     }
+    stop_web_ui(&mut state, &mut web_ui);
     if let Some(sess) = tab2_session.take() {
         match sess {
             Tab2Session::Local(mut daemon) => daemon.shutdown(|g| drop_fw_tui(&mut session, g)),

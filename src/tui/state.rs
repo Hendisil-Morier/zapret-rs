@@ -154,6 +154,8 @@ pub struct AppState {
     pub exclude_entries: Vec<String>,
     /// Active centered plain-text input modal (Blacklist / Auto Hostlist / Web UI).
     pub prompt_modal: Option<PromptModal>,
+    /// Active in-TUI Web UI `(url, pairing_passcode)` when running; `None` when stopped.
+    pub web_status: Option<(String, String)>,
     /// Cached operational health checks displayed on Tab 5 (`Status`).
     pub status_checks: Vec<crate::tui::status_check::ComponentCheck>,
     /// Selected row index inside Tab 5's component status table.
@@ -239,6 +241,7 @@ impl AppState {
             autohostlist_entries: Vec::new(),
             exclude_entries: Vec::new(),
             prompt_modal: None,
+            web_status: None,
             status_checks: Vec::new(),
             status_selected: 0,
             status_hscroll: 0,
@@ -276,45 +279,6 @@ impl AppState {
     /// Appends a bounded line to the Run daemon log buffer.
     pub fn push_run_log(&mut self, msg: impl Into<String>) {
         Self::push_bounded_log(&mut self.run_logs, msg.into());
-    }
-
-    /// Transitions Tab 2 into [`RunStatus::Attached`] with `meta` and logs attachment.
-    pub fn set_attached(&mut self, meta: RemoteDaemonMeta) {
-        let log_line = format!(
-            "[attach] connected to PID {} on queue {} ({}, {} profiles)",
-            meta.pid,
-            meta.qnum,
-            meta.socket_path.display(),
-            meta.profile_names.len()
-        );
-        self.status_banner =
-            "Attached to nfqws2. Press 'x' to detach, 'l' to reload lists, 'S' to stop daemon."
-                .to_owned();
-        self.detected_socket = Some(meta.socket_path.clone());
-        self.remote_meta = Some(meta);
-        self.run_status = RunStatus::Attached;
-        self.auto_reattach = true;
-        self.counter_baseline = (0, 0, 0, 0, 0);
-        self.push_run_log(log_line);
-    }
-
-    /// Transitions Tab 2 back from [`RunStatus::Attached`] to [`RunStatus::Stopped`].
-    pub fn set_detached(&mut self, log_line: String, banner: String) {
-        self.remote_meta = None;
-        self.run_status = RunStatus::Stopped;
-        self.counter_baseline = (0, 0, 0, 0, 0);
-        self.push_run_log(log_line);
-        self.status_banner = banner;
-    }
-
-    /// Returns `(total, passed, reassembled, modified, desynced)` minus [`Self::counter_baseline`].
-    pub fn visible_counters(&self) -> (u64, u64, u64, u64, u64) {
-        let (s0, s1, s2, s3, s4) = self.counters.snapshot();
-        let (b0, b1, b2, b3, b4) = self.counter_baseline;
-        if s0 < b0 || s1 < b1 || s2 < b2 || s3 < b3 || s4 < b4 {
-            return (s0, s1, s2, s3, s4);
-        }
-        (s0 - b0, s1 - b1, s2 - b2, s3 - b3, s4 - b4)
     }
 
     /// Opens the centered floating modal for granting `CAP_NET_ADMIN|CAP_NET_RAW`.

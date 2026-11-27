@@ -3,12 +3,16 @@
 /// Key codes matched against the global binding table.
 use crossterm::event::KeyCode;
 
+/// Domain and Web UI launcher modal state opened from global (`W`) or Tab 3 (`b`/`a`/`d`).
+use crate::tui::prompt_modal::{PromptKind, PromptModal};
+/// Attached background `nfqws2` daemon metadata stored when attaching from Tab 2.
+use crate::tui::remote::RemoteDaemonMeta;
 /// Mutable application state receiving global hotkey effects.
 use crate::tui::state::AppState;
 /// Theme persistence helper bound to the `T` key.
 use crate::tui::theme_config::save_theme_to_default_path;
 /// Navigation enums and the side-effect action returned to the runner.
-use crate::tui::types::{ActiveTab, AppAction};
+use crate::tui::types::{ActiveTab, AppAction, RunStatus};
 
 impl AppState {
     /// Handles a key that means the same on every tab; returns `None` when `code` is not global.
@@ -44,6 +48,13 @@ impl AppState {
                     Err(err) => format!("Save theme failed: {err}"),
                 };
             }
+            KeyCode::Char('W') if !detail_open => {
+                if self.web_status.is_some() {
+                    return Some(AppAction::StopWebUi);
+                }
+                self.prompt_modal = Some(PromptModal::open(PromptKind::LaunchWebUi));
+                self.dismiss_finder_hover();
+            }
             _ => return None,
         }
         Some(AppAction::None)
@@ -64,5 +75,44 @@ impl AppState {
         self.focus.cycle(self.tab, forward);
         self.reset_finder_hover();
         AppAction::None
+    }
+
+    /// Transitions Tab 2 into [`RunStatus::Attached`] with `meta` and logs attachment.
+    pub fn set_attached(&mut self, meta: RemoteDaemonMeta) {
+        let log_line = format!(
+            "[attach] connected to PID {} on queue {} ({}, {} profiles)",
+            meta.pid,
+            meta.qnum,
+            meta.socket_path.display(),
+            meta.profile_names.len()
+        );
+        self.status_banner =
+            "Attached to nfqws2. Press 'x' to detach, 'l' to reload lists, 'S' to stop daemon."
+                .to_owned();
+        self.detected_socket = Some(meta.socket_path.clone());
+        self.remote_meta = Some(meta);
+        self.run_status = RunStatus::Attached;
+        self.auto_reattach = true;
+        self.counter_baseline = (0, 0, 0, 0, 0);
+        self.push_run_log(log_line);
+    }
+
+    /// Transitions Tab 2 back from [`RunStatus::Attached`] to [`RunStatus::Stopped`].
+    pub fn set_detached(&mut self, log_line: String, banner: String) {
+        self.remote_meta = None;
+        self.run_status = RunStatus::Stopped;
+        self.counter_baseline = (0, 0, 0, 0, 0);
+        self.push_run_log(log_line);
+        self.status_banner = banner;
+    }
+
+    /// Returns `(total, passed, reassembled, modified, desynced)` minus [`Self::counter_baseline`].
+    pub fn visible_counters(&self) -> (u64, u64, u64, u64, u64) {
+        let (s0, s1, s2, s3, s4) = self.counters.snapshot();
+        let (b0, b1, b2, b3, b4) = self.counter_baseline;
+        if s0 < b0 || s1 < b1 || s2 < b2 || s3 < b3 || s4 < b4 {
+            return (s0, s1, s2, s3, s4);
+        }
+        (s0 - b0, s1 - b1, s2 - b2, s3 - b3, s4 - b4)
     }
 }
