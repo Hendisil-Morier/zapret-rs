@@ -102,13 +102,23 @@
         <section id="tab-domains" class="tab-panel">
           <div class="plate section-plate">
             <div class="feed-header">
-              <h2>Autohostlist Domains</h2>
+              <h2>Blacklist (Exclude from Bypass)</h2>
               <button id="domains-refresh-btn" class="btn btn-secondary btn-compact" type="button">Refresh</button>
             </div>
+            <p class="muted">Domains added here use hostlist_exclude and are never desynced.</p>
+            <form id="blacklist-add-form" class="inline-form">
+              <input id="blacklist-add-input" class="input" type="text" placeholder="bank.example.com" required>
+              <button class="btn btn-primary" type="submit">Blacklist</button>
+            </form>
+            <div id="blacklist-chips" class="domain-list"></div>
+          </div>
+
+          <div class="plate section-plate">
+            <h2>Auto Hostlist Domains</h2>
             <p id="autolist-path" class="muted mono"></p>
-            <form id="domain-add-form" class="inline-form">
-              <input id="domain-add-input" class="input" type="text" placeholder="example.com" required>
-              <button class="btn btn-primary" type="submit">Add Domain</button>
+            <form id="domain-add-form" class="inline-form hidden">
+              <input id="domain-add-input" class="input" type="text" placeholder="blocked.example.com" required>
+              <button class="btn btn-secondary" type="submit">Add</button>
             </form>
             <div id="autolist-chips" class="domain-list"></div>
           </div>

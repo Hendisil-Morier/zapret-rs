@@ -76,24 +76,45 @@ fn config_editor_rejects_invalid_toml_writes_valid_and_manages_domains() {
     assert!(out_ok.contains("\"ok\":true"));
     assert_eq!(fs::read_to_string(&cfg_path).expect("read updated"), valid_toml);
 
-    // Domains add / remove updates sibling autohostlist.txt and rejects malformed domain.
-    let add_body = "{\"domain\":\"YouTube.com\",\"action\":\"add\"}";
+    // Blacklist (`hostlist_exclude`) updates profiles in nfqws2.toml; autohostlist is gated off.
+    let add_body = "{\"domain\":\"Bank.Example.com\",\"action\":\"add\",\"list\":\"exclude\"}";
     let req_add = format!(
         "POST /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{add_body}",
         add_body.len()
     );
     let (st_add, out_add) = raw_http(addr, &req_add);
-    assert_eq!(st_add, 200);
-    assert!(out_add.contains("youtube.com"));
+    assert_eq!(st_add, 400, "no profiles in valid_toml yet returns clear 400");
+    assert!(out_add.contains("no [[profiles]]"));
 
-    let bad_dom = "{\"domain\":\"bad domain!!\",\"action\":\"add\"}";
+    // Restore a config with one profile and blacklist + test conditional autohostlist gating.
+    let with_prof = "qnum = 201\nfwmark = 0x40000000\n\n[[profiles]]\nname = \"p1\"\n";
+    let save_prof = serde_json::json!({ "toml": with_prof, "apply": false }).to_string();
+    let req_prof = format!(
+        "POST /api/config HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{save_prof}",
+        save_prof.len()
+    );
+    assert_eq!(raw_http(addr, &req_prof).0, 200);
+
+    let (st_ex, out_ex) = raw_http(addr, &req_add);
+    assert_eq!(st_ex, 200);
+    assert!(out_ex.contains("bank.example.com"));
+    assert!(fs::read_to_string(&cfg_path).expect("read").contains("hostlist_exclude_domains"));
+
+    let auto_off = "{\"domain\":\"blocked.test\",\"action\":\"add\",\"list\":\"auto\"}";
+    let req_auto_off = format!(
+        "POST /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{auto_off}",
+        auto_off.len()
+    );
+    assert_eq!(raw_http(addr, &req_auto_off).0, 400, "autohostlist edit refused when hostlist_auto unset");
+
+    let bad_dom = "{\"domain\":\"bad domain!!\",\"action\":\"add\",\"list\":\"exclude\"}";
     let req_bad_dom = format!(
         "POST /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{bad_dom}",
         bad_dom.len()
     );
     assert_eq!(raw_http(addr, &req_bad_dom).0, 400);
 
-    let rm_body = "{\"domain\":\"youtube.com\",\"action\":\"remove\"}";
+    let rm_body = "{\"domain\":\"bank.example.com\",\"action\":\"remove\",\"list\":\"exclude\"}";
     let req_rm = format!(
         "POST /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{rm_body}",
         rm_body.len()
@@ -104,7 +125,7 @@ fn config_editor_rejects_invalid_toml_writes_valid_and_manages_domains() {
         "GET /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\n\r\n",
     );
     assert_eq!(st_doms, 200);
-    assert!(out_doms.contains("\"autohostlist_domains\":[]"));
+    assert!(out_doms.contains("\"exclude_domains\":[]"));
 
     // Scan status starts idle.
     let (st_scan, out_scan) = raw_http(

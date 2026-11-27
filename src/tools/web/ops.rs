@@ -13,10 +13,12 @@ use crate::config::AppConfig;
 use crate::control::Request;
 /// Speed test measurement runner and target builders.
 use crate::tools::speed_probe::{control_target, domain_target, measure};
-/// Domain helpers, symlink-safe config writers, and hostlist extractors.
+/// Domain helpers, symlink-safe config writers, blacklist mutators, and hostlist extractors.
 use crate::tools::strat::{
-    CurlProbeBackend, DEFAULT_AUTOHOSTLIST_FILE, IpFamily, default_output_config_path,
-    extract_hostlist_domains, normalize_domain, write_config_nofollow,
+    CurlProbeBackend, DEFAULT_AUTOHOSTLIST_FILE, IpFamily, configured_autohostlist_paths,
+    default_output_config_path, extract_exclude_domains, extract_hostlist_domains,
+    mutate_exclude_domains_toml, mutate_hostlist_file, normalize_domain, read_hostlist_lines,
+    write_config_nofollow,
 };
 /// Runtime web configuration containing explicit `--config` path overrides.
 use crate::tools::web::cli::WebConfig;
@@ -40,10 +42,13 @@ struct SaveConfigPayload {
 /// Payload accepted by `POST /api/domains`.
 #[derive(serde::Deserialize)]
 struct UpdateDomainPayload {
-    /// Domain name to add or remove from `autohostlist.txt`.
+    /// Domain name to add or remove.
     domain: String,
     /// `"add"` or `"remove"`.
     action: String,
+    /// Target list: `"exclude"` (blacklist, never desync) or `"auto"` (autohostlist.txt).
+    #[serde(default)]
+    list: Option<String>,
 }
 
 /// Payload accepted by `POST /api/speed`.
@@ -135,79 +140,85 @@ fn save_config_toml(
     }))
 }
 
-/// Reads normalized lines from `autohostlist.txt` ignoring comments/blank lines.
-fn read_autohostlist_lines(path: &Path) -> Vec<String> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    raw.lines()
-        .filter_map(|line| {
-            let t = line.trim();
-            if t.is_empty() || t.starts_with('#') { None } else { Some(t.to_owned()) }
-        })
-        .collect()
-}
-
-/// Returns profile-inline `hostlist_domains` alongside `autohostlist.txt` entries.
+/// Returns blacklist (`hostlist_exclude`), profile `hostlist_domains`, and conditional `autohostlist.txt` entries.
 fn read_domains_json(config_path: &Path) -> serde_json::Value {
     let toml = std::fs::read_to_string(config_path).unwrap_or_default();
-    let hostlist_domains = AppConfig::from_toml_str(&toml, config_path.parent())
-        .ok()
-        .map_or_else(Vec::new, |cfg| extract_hostlist_domains(&cfg));
-    let auto_path = resolve_autohostlist_path(config_path);
-    let autohostlist_domains = read_autohostlist_lines(&auto_path);
+    let parsed = AppConfig::from_toml_str(&toml, config_path.parent()).ok();
+    let exclude_domains = parsed.as_ref().map_or_else(Vec::new, extract_exclude_domains);
+    let hostlist_domains = parsed.as_ref().map_or_else(Vec::new, extract_hostlist_domains);
+    let auto_paths = parsed.as_ref().map_or_else(Vec::new, configured_autohostlist_paths);
+    let autohostlist_enabled = !auto_paths.is_empty();
+    let autohostlist_path = auto_paths.first().cloned().unwrap_or_else(|| resolve_autohostlist_path(config_path));
+    let mut autohostlist_domains = Vec::new();
+    for p in &auto_paths {
+        for line in read_hostlist_lines(p) {
+            if !autohostlist_domains.iter().any(|d: &String| d.eq_ignore_ascii_case(&line)) {
+                autohostlist_domains.push(line);
+            }
+        }
+    }
     serde_json::json!({
+        "exclude_domains": exclude_domains,
         "hostlist_domains": hostlist_domains,
-        "autohostlist_path": auto_path.display().to_string(),
+        "autohostlist_enabled": autohostlist_enabled,
+        "autohostlist_path": autohostlist_path.display().to_string(),
         "autohostlist_domains": autohostlist_domains,
     })
 }
 
-/// Normalizes `raw` and rejects whitespace/control characters before persisting to `autohostlist.txt`.
-fn parse_clean_domain(raw: &str) -> Option<String> {
-    let domain = normalize_domain(raw)?;
-    let valid_chars = domain
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
-    if !valid_chars || !domain.contains('.') {
-        return None;
-    }
-    Some(domain)
-}
-
-/// Adds or removes a normalized domain from `autohostlist.txt` and triggers live list reload.
-fn mutate_autohostlist(
+/// Adds or removes a domain from either `hostlist_exclude_domains` (`"exclude"`) or `autohostlist.txt` (`"auto"`).
+fn mutate_domain_list(
     config_path: &Path,
     payload: &UpdateDomainPayload,
     ipc: &WebIpcBridge,
 ) -> Result<serde_json::Value, (u16, String)> {
-    let Some(domain) = parse_clean_domain(&payload.domain) else {
-        return Err((400, "invalid domain name".to_owned()));
-    };
-    let auto_path = resolve_autohostlist_path(config_path);
-    let mut domains = read_autohostlist_lines(&auto_path);
-    match payload.action.as_str() {
-        "add" => {
-            if !domains.iter().any(|d| d.eq_ignore_ascii_case(&domain)) {
-                domains.push(domain.clone());
-            }
-        }
-        "remove" => domains.retain(|d| !d.eq_ignore_ascii_case(&domain)),
+    let add = match payload.action.as_str() {
+        "add" => true,
+        "remove" => false,
         other => return Err((400, format!("unsupported domain action '{other}'"))),
+    };
+    let target_list = payload.list.as_deref().unwrap_or("exclude");
+    match target_list {
+        "exclude" => {
+            let current = std::fs::read_to_string(config_path)
+                .map_err(|err| (400, format!("missing {}: {err}", config_path.display())))?;
+            let updated = mutate_exclude_domains_toml(&current, &payload.domain, add, config_path.parent())
+                .map_err(|err| (400, err))?;
+            write_config_nofollow(config_path, &updated)
+                .map_err(|err| (500, format!("failed to write {}: {err}", config_path.display())))?;
+            let reloaded = ipc.send_command(&Request::ReloadConfig { toml: updated }).is_ok();
+            let domains = AppConfig::from_toml_str(&std::fs::read_to_string(config_path).unwrap_or_default(), config_path.parent())
+                .ok()
+                .map_or_else(Vec::new, |cfg| extract_exclude_domains(&cfg));
+            Ok(serde_json::json!({
+                "ok": true,
+                "list": "exclude",
+                "exclude_domains": domains,
+                "reloaded": reloaded,
+            }))
+        }
+        "auto" => {
+            let current = std::fs::read_to_string(config_path).unwrap_or_default();
+            let parsed = AppConfig::from_toml_str(&current, config_path.parent())
+                .map_err(|err| (400, format!("invalid config: {err}")))?;
+            let auto_paths = configured_autohostlist_paths(&parsed);
+            let Some(auto_path) = auto_paths.first() else {
+                return Err((
+                    400,
+                    "Auto Hostlist is disabled; set Domain Scope to Auto Hostlist first".to_owned(),
+                ));
+            };
+            let domains = mutate_hostlist_file(auto_path, &payload.domain, add).map_err(|e| (400, e))?;
+            let reloaded = ipc.send_command(&Request::ReloadLists).is_ok();
+            Ok(serde_json::json!({
+                "ok": true,
+                "list": "auto",
+                "autohostlist_domains": domains,
+                "reloaded": reloaded,
+            }))
+        }
+        other => Err((400, format!("unsupported list '{other}' (expected exclude or auto)"))),
     }
-    let mut rendered = domains.join("\n");
-    if !rendered.is_empty() {
-        rendered.push('\n');
-    }
-    write_config_nofollow(&auto_path, &rendered)
-        .map_err(|err| (500, format!("failed to write {}: {err}", auto_path.display())))?;
-    let reloaded = ipc.send_command(&Request::ReloadLists).is_ok();
-    Ok(serde_json::json!({
-        "ok": true,
-        "domain": domain,
-        "autohostlist_domains": domains,
-        "reloaded": reloaded,
-    }))
 }
 
 /// Measures throughput and handshake timing across requested domains + optional control target.
@@ -275,7 +286,7 @@ pub fn handle_ops_route(
                 let _ = write_error(stream, 400, "Bad Request", "expected JSON object with domain and action");
                 return true;
             };
-            match mutate_autohostlist(&config_path, &payload, ipc) {
+            match mutate_domain_list(&config_path, &payload, ipc) {
                 Ok(val) => { let _ = write_json(stream, 200, "OK", &[], &val); }
                 Err((code, msg)) => {
                     let _ = write_error(stream, code, if code == 400 { "Bad Request" } else { "Internal Server Error" }, &msg);

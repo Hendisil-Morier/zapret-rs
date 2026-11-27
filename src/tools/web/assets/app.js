@@ -237,35 +237,52 @@
     $("scan-toml-actions").classList.toggle("hidden", !state.foundToml);
   }
 
+  function renderDomainRows(box, items, listName, emptyText) {
+    box.replaceChildren();
+    if (items.length === 0) {
+      const p = document.createElement("p");
+      p.className = "empty-note";
+      p.textContent = emptyText;
+      box.appendChild(p);
+      return;
+    }
+    items.forEach((d) => {
+      const row = document.createElement("div");
+      row.className = "domain-row";
+      const txt = document.createElement("span");
+      txt.className = "mono";
+      txt.textContent = d;
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "btn btn-ghost btn-compact";
+      rm.textContent = "Remove";
+      rm.addEventListener("click", () => mutateDomain(d, "remove", listName));
+      row.appendChild(txt);
+      row.appendChild(rm);
+      box.appendChild(row);
+    });
+  }
+
   async function loadDomains() {
     try {
       const data = await apiFetch("/api/domains");
-      $("autolist-path").textContent = data.autohostlist_path || "";
-      const list = $("autolist-chips");
-      list.replaceChildren();
-      const auto = data.autohostlist_domains || [];
-      if (auto.length === 0) {
-        const p = document.createElement("p");
-        p.className = "empty-note";
-        p.textContent = "No autohostlist domains yet. Add a blocked domain above.";
-        list.appendChild(p);
-      } else {
-        auto.forEach((d) => {
-          const row = document.createElement("div");
-          row.className = "domain-row";
-          const txt = document.createElement("span");
-          txt.className = "mono";
-          txt.textContent = d;
-          const rm = document.createElement("button");
-          rm.type = "button";
-          rm.className = "btn btn-ghost btn-compact";
-          rm.textContent = "Remove";
-          rm.addEventListener("click", () => mutateDomain(d, "remove"));
-          row.appendChild(txt);
-          row.appendChild(rm);
-          list.appendChild(row);
-        });
-      }
+      renderDomainRows(
+        $("blacklist-chips"),
+        data.exclude_domains || [],
+        "exclude",
+        "No excluded domains yet."
+      );
+      const autoOn = Boolean(data.autohostlist_enabled);
+      $("domain-add-form").classList.toggle("hidden", !autoOn);
+      $("autolist-path").textContent = autoOn
+        ? (data.autohostlist_path || "")
+        : "Auto Hostlist is off (set Domain Scope to Auto Hostlist to enable).";
+      renderDomainRows(
+        $("autolist-chips"),
+        data.autohostlist_domains || [],
+        "auto",
+        autoOn ? "No autohostlist domains yet." : "Enable hostlist_auto on profiles to learn or edit entries."
+      );
       const inline = $("inline-domains-chips");
       inline.replaceChildren();
       (data.hostlist_domains || []).forEach((d) => {
@@ -279,14 +296,15 @@
     }
   }
 
-  async function mutateDomain(domain, action) {
+  async function mutateDomain(domain, action, list) {
     try {
       await apiFetch("/api/domains", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain, action })
+        body: JSON.stringify({ domain, action, list })
       });
-      showToast(action === "add" ? "Added " + domain : "Removed " + domain);
+      const verb = action === "add" ? (list === "exclude" ? "Blacklisted " : "Added ") : "Removed ";
+      showToast(verb + domain);
       await loadDomains();
     } catch (err) {
       showToast(err.message);
@@ -462,13 +480,21 @@
     });
 
     $("domains-refresh-btn").addEventListener("click", loadDomains);
+    $("blacklist-add-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = $("blacklist-add-input");
+      const val = input.value.trim();
+      if (!val) return;
+      input.value = "";
+      await mutateDomain(val, "add", "exclude");
+    });
     $("domain-add-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const input = $("domain-add-input");
       const val = input.value.trim();
       if (!val) return;
       input.value = "";
-      await mutateDomain(val, "add");
+      await mutateDomain(val, "add", "auto");
     });
 
     $("config-reload-btn").addEventListener("click", loadConfig);

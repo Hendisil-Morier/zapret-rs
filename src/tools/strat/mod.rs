@@ -4,8 +4,10 @@
 pub mod catalog;
 /// Shared CLI runner powering both `nfqws2 --strat-finder` and the standalone `strat_finder` binary.
 pub mod cli;
-/// JSON and stdout summary formatters for `strat_finder` reports.
+/// Strategy CLI summary and JSON report formatters.
 pub mod cli_report;
+/// Shared domain blacklist (`hostlist_exclude`) and autohostlist file editors.
+pub mod exclude;
 /// OS-agnostic firewall rule backend contract and target port collector.
 pub mod firewall;
 /// Interactive terminal setup wizard for `strat_finder`.
@@ -34,6 +36,13 @@ pub use catalog::{IpFamily, ProbeProtocol, ScanLevel, StrategySpec, build_catalo
 pub use cli::{
     DEFAULT_STRAT_QNUM, StratFinderCli, extract_strat_finder_args, run_strat_finder,
     run_strat_finder_cli,
+};
+/// Public API re-exports for JSON and stdout report formatters.
+pub use cli_report::{format_report_json, print_report_summary};
+/// Public API re-exports for blacklist (`hostlist_exclude`) and autohostlist editing.
+pub use exclude::{
+    configured_autohostlist_paths, extract_exclude_domains, mutate_exclude_domains_toml,
+    mutate_hostlist_file, parse_clean_domain, read_hostlist_lines,
 };
 /// Public API re-exports for OS-agnostic firewall backend traits and port collection.
 pub use firewall::{

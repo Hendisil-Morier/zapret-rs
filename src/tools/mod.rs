@@ -63,18 +63,18 @@ pub use speed_probe::{
 /// Public API re-exports for `strat_finder`, firewall backends, TOML rendering, and profile merge.
 pub use strat::{
     CoveredProfile, CurlProbeBackend, DEFAULT_AUTOHOSTLIST_FILE, DEFAULT_STRAT_QNUM, DomainScope,
-    DomainStrategies,
-    FirewallBackend, FirewallHandle, InProcessWorkerHandle, InteractiveDefaults,
+    DomainStrategies, FirewallBackend, FirewallHandle, InProcessWorkerHandle, InteractiveDefaults,
     InteractiveSelections, IpFamily, NftFirewallBackend, NftQueueGuard, PROBE_WRITE_OUT,
     ProbeBackend, ProbeOutcome, ProbeProtocol, ProbeRequest, ProgressEvent,
     STRAT_FINDER_NFT_TABLE, ScanConfig, ScanLevel, ScanReport, StratFinderCli, StrategyApplier,
     StrategyMatch, StrategySpec, TargetScanResult, TomlRenderOptions, UnsupportedFirewallBackend,
-    active_firewall_backend, build_catalog,
-    build_nft_cleanup_cmd, classify_curl_output, collect_config_ports, default_output_config_path,
-    expand_tilde, extract_hostlist_domains, extract_strat_finder_args, format_resolve_arg,
-    is_nft_perm_denied,
-    is_spoof_redirect, merge_nfqws2_toml, normalize_domain, prioritize_sticky, prompt_interactive_wizard,
-    rank_matches, render_nfqws2_toml, render_nfqws2_toml_scoped, run_scan, run_strat_finder,
+    active_firewall_backend, build_catalog, build_nft_cleanup_cmd, classify_curl_output,
+    collect_config_ports, configured_autohostlist_paths, default_output_config_path, expand_tilde,
+    extract_exclude_domains, extract_hostlist_domains, extract_strat_finder_args,
+    format_resolve_arg, is_nft_perm_denied, is_spoof_redirect, merge_nfqws2_toml,
+    mutate_exclude_domains_toml, mutate_hostlist_file, normalize_domain, parse_clean_domain,
+    prioritize_sticky, prompt_interactive_wizard, rank_matches, read_hostlist_lines,
+    render_nfqws2_toml, render_nfqws2_toml_scoped, run_scan, run_strat_finder,
     run_strat_finder_cli, select_minimal_cover, sudo_needs_password, write_config_nofollow,
 };
 /// Public API re-exports for Windows WinDivert filter [`FirewallBackend`].
