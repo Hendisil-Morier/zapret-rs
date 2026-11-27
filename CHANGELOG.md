@@ -4,6 +4,16 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-11-27
+
+### Added
+
+- **Interactive TUI Auto Hostlist Tab (`6: Hostlist`):** Added a dedicated Tab 6 (`src/tui/hostlist_tab.rs`, `src/tui/render_hostlist.rs`) with side-by-side cursor-selectable **Auto Hostlist** and **Blacklist** columns, keyboard and mouse row selection, live `/` substring filtering, direct single-key removal (`d`/`Delete`/`Backspace`) without retyping domain names, one-key Auto Hostlist to Blacklist moves (`x`/`m`), and automatic `autohostlist` reload syncing with attached daemons.
+
+### Changed
+
+- **Cleaner TUI Tab 3 Layout & Modal Removal:** Focused Tab 3 (`Config`) exclusively on `nfqws2.toml` and `nftables`/WinDivert filter previews, consolidated top-bar status width calculations in `ActiveTab::header_status_width`, and removed the old `PromptKind::RemoveListDomain` typing prompt.
+
 ## [1.4.3] - 2026-11-27
 
 ### Added
