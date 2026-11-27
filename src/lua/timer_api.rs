@@ -69,6 +69,7 @@ pub fn register_timer_functions(
             .borrow_mut()
             .set(name, func_key, period_ms, oneshot, data_key, now)
             .map_err(mlua::Error::external)?;
+        lua.expire_registry_values();
 
         Ok(())
     })?;
@@ -76,10 +77,13 @@ pub fn register_timer_functions(
 
     // timer_del(name)
     let pool_del = Rc::clone(&pool);
-    let timer_del = lua.create_function(move |_lua, args: Variadic<Value>| {
+    let timer_del = lua.create_function(move |lua, args: Variadic<Value>| {
         check_argc("timer_del", &args, 1)?;
         let name = require_strict_str(&args[0])?;
         let deleted = pool_del.borrow_mut().del(&name);
+        if deleted {
+            lua.expire_registry_values();
+        }
         Ok(deleted)
     })?;
     globals.set("timer_del", timer_del)?;

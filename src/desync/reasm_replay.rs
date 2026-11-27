@@ -53,7 +53,7 @@ pub(crate) fn reasm_client_start(
     max_size: usize,
     data: &[u8],
 ) -> bool {
-    entry.reasm_client.clear();
+    entry.clear_reasm();
     if target_size > max_size {
         return false;
     }
@@ -70,8 +70,16 @@ pub(crate) fn reasm_client_start(
         0
     };
     entry.reasm_client_payload = payload_kind;
-    entry.reasm_client.init(target_size, seq_start);
-    entry.reasm_client.feed(seq_start, data)
+    if !entry.try_start_reasm(target_size, seq_start) {
+        entry.reasm_client_payload = L7Payload::Unknown;
+        return false;
+    }
+    if !entry.reasm_client.feed(seq_start, data) {
+        entry.clear_reasm();
+        entry.reasm_client_payload = L7Payload::Unknown;
+        return false;
+    }
+    true
 }
 
 /// Feeds `data` into an active client reassembler, flushing queued packets if reassembly fails.
@@ -99,9 +107,9 @@ pub(crate) fn reasm_client_feed(
         if entry.reasm_client.feed(seq, data) {
             (true, None)
         } else {
-            entry.reasm_client.clear();
+            entry.clear_reasm();
             entry.reasm_client_payload = L7Payload::Unknown;
-            let drained = std::mem::take(&mut entry.delayed);
+            let drained = entry.take_delayed();
             (false, (!drained.is_empty()).then_some(drained))
         }
     };
@@ -124,10 +132,10 @@ pub(crate) fn reasm_client_stop(
     let leftover = {
         let mut entry = entry_rc.borrow_mut();
         if !entry.reasm_client.is_empty() {
-            entry.reasm_client.clear();
+            entry.clear_reasm();
             entry.reasm_client_payload = L7Payload::Unknown;
         }
-        let drained = std::mem::take(&mut entry.delayed);
+        let drained = entry.take_delayed();
         (!drained.is_empty()).then_some(drained)
     };
     if let Some(delayed) = leftover {

@@ -170,7 +170,9 @@ pub(crate) fn play_prolog(
     } else {
         let hit = if !svc.ctrack_disable {
             let mut pool = svc.conntrack.borrow_mut();
-            pool.purge_rate_limited(now.sec);
+            if pool.purge_rate_limited(now.sec) > 0 {
+                svc.lua.expire_registry_values();
+            }
             match pool.feed(Some(svc.lua), dis, now) {
                 Ok(found) => found,
                 Err(err) => {

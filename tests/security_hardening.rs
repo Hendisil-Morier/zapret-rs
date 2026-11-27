@@ -197,42 +197,88 @@ fn conntrack_pool_caps_entries_and_recovers_after_expiry() {
     assert_eq!(pool.max_entries(), DEFAULT_CTRACK_MAX_ENTRIES);
     pool.set_max_entries(4);
 
-    let t0 = MonotonicTime { sec: 100, nsec: 0 };
     for idx in 0..4u16 {
         let pkt = make_syn_or_ack(10 + idx as u8, 10_000 + idx, TH_SYN);
+        let t = MonotonicTime { sec: 100 + i64::from(idx), nsec: 0 };
         assert!(
-            pool.feed(None, &pkt, t0).expect("feed syn").is_some(),
+            pool.feed(None, &pkt, t).expect("feed syn").is_some(),
             "flow {idx} within cap must insert"
         );
     }
     assert_eq!(pool.len(), 4);
 
-    // 5th distinct SYN is rejected without evicting live connections.
-    let overflow_pkt = make_syn_or_ack(99, 20_000, TH_SYN);
+    // Refresh flow 0 so flow 1 (`sec=101`) becomes the oldest idle flow.
+    let flow0_ack = make_syn_or_ack(10, 10_000, TH_ACK);
     assert!(
-        pool.feed(None, &overflow_pkt, t0)
-            .expect("feed overflow syn")
-            .is_none()
-    );
-    assert_eq!(pool.len(), 4);
-
-    // Already-tracked flows continue updating even at capacity.
-    let existing_ack = make_syn_or_ack(10, 10_000, TH_ACK);
-    assert!(
-        pool.feed(None, &existing_ack, t0)
+        pool.feed(None, &flow0_ack, MonotonicTime { sec: 105, nsec: 0 })
             .expect("update tracked flow")
             .is_some()
     );
 
-    // Once un-ACKed SYN flows pass timeout (`60s`), cap check purges them while keeping the
-    // established flow (timeout `300s`), leaving room for `overflow_pkt` (2 entries total).
-    let expired_time = MonotonicTime { sec: 200, nsec: 0 };
+    // 5th distinct SYN evicts the oldest idle entry (`flow 1`) instead of locking out new flows.
+    let overflow_pkt = make_syn_or_ack(99, 20_000, TH_SYN);
     assert!(
-        pool.feed(None, &overflow_pkt, expired_time)
-            .expect("feed after expiry")
+        pool.feed(None, &overflow_pkt, MonotonicTime { sec: 106, nsec: 0 })
+            .expect("feed overflow syn")
             .is_some()
     );
-    assert_eq!(pool.len(), 2);
+    assert_eq!(pool.len(), 4);
+    let evicted_probe = make_syn_or_ack(11, 10_001, TH_ACK);
+    assert!(pool.double_search(&evicted_probe).is_none(), "oldest flow 1 must be evicted");
+    assert!(pool.double_search(&flow0_ack).is_some(), "refreshed flow 0 must remain tracked");
+
+    // Once un-ACKed SYN flows pass timeout (`60s`), cap check purges them while keeping the
+    // established flow (timeout `300s`), leaving room cleanly.
+    let expired_time = MonotonicTime { sec: 200, nsec: 0 };
+    assert_eq!(pool.purge_rate_limited(expired_time.sec), 3);
+    assert_eq!(pool.len(), 1);
+
+    // Spoofed/unexpected reverse-direction SYN against active flow 0 must NOT reinit state.
+    {
+        let (rc, _) = pool.double_search(&flow0_ack).expect("flow 0 active");
+        let mut entry = rc.borrow_mut();
+        entry.cutoff = true;
+        entry.hostname = Some("keep.example".to_owned());
+    }
+    let rev_syn = DissectedPacket {
+        ip: Some(Ipv4Header {
+            version: 4,
+            header_len: 5,
+            tos: 0,
+            total_len: 40,
+            id: 2,
+            frag_off: 0,
+            ttl: 64,
+            protocol: IPPROTO_TCP,
+            checksum: 0,
+            src: [93, 184, 216, 34],
+            dst: [10, 0, 0, 10],
+            options: Vec::new(),
+        }),
+        tcp: Some(TcpHeader {
+            s_port: 443,
+            d_port: 10_000,
+            seq: 9999,
+            ack: 0,
+            reserved: 0,
+            data_offset: 5,
+            flags: TH_SYN,
+            window: 65535,
+            checksum: 0,
+            urgent_ptr: 0,
+            options: Vec::new(),
+        }),
+        ..DissectedPacket::default()
+    };
+    let (_, b_rev) = pool
+        .feed(None, &rev_syn, MonotonicTime { sec: 201, nsec: 0 })
+        .expect("feed reverse syn")
+        .expect("entry remains");
+    assert!(b_rev);
+    let (rc, _) = pool.double_search(&flow0_ack).expect("flow 0 still exists");
+    let entry = rc.borrow();
+    assert!(entry.cutoff, "reverse SYN must not wipe cutoff");
+    assert_eq!(entry.hostname.as_deref(), Some("keep.example"), "reverse SYN must not wipe host");
 }
 
 #[test]
@@ -246,26 +292,30 @@ fn ipcache_caps_entries_and_recovers_after_expiry() {
             IpAddr::V4(Ipv4Addr::new(192, 0, 2, host_octet)),
             &format!("host{host_octet}.example"),
             false,
-            100,
+            100 + i64::from(host_octet),
         );
     }
     assert_eq!(cache.len(), 4);
 
-    // 5th distinct IP is refused while existing entry updates in place.
-    let overflow_ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 5));
-    cache.put_hostname(overflow_ip, "overflow.example", false, 105);
-    assert_eq!(cache.len(), 4);
-    assert_eq!(cache.get_hostname(overflow_ip), None);
-    assert!(cache.try_touch(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 6)), "", 105).is_none());
-
+    // Refresh entry 1 so entry 2 (`last_sec=102`) is oldest.
     let first_ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
     cache.put_hostname(first_ip, "updated.example", false, 105);
-    assert_eq!(cache.get_hostname(first_ip), Some(("updated.example", false)));
 
-    // After lifetime expiration (105 + 30 = 135), stale entries purge so new ones insert.
-    cache.put_hostname(overflow_ip, "recovered.example", false, 140);
+    // 5th distinct IP evicts the oldest entry (`192.0.2.2`) rather than failing closed.
+    let overflow_ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 5));
+    cache.put_hostname(overflow_ip, "overflow.example", false, 106);
+    assert_eq!(cache.len(), 4);
+    assert_eq!(cache.get_hostname(overflow_ip), Some(("overflow.example", false)));
+    assert_eq!(cache.get_hostname(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2))), None);
+    assert_eq!(cache.get_hostname(first_ip), Some(("updated.example", false)));
+    assert!(cache.try_touch(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 6)), "", 107).is_some());
+    assert_eq!(cache.len(), 4);
+
+    // After lifetime expiration (107 + 30 = 137), stale entries purge cleanly on next new insert.
+    let fresh_ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 99));
+    cache.put_hostname(fresh_ip, "recovered.example", false, 140);
     assert_eq!(cache.len(), 1);
-    assert_eq!(cache.get_hostname(overflow_ip), Some(("recovered.example", false)));
+    assert_eq!(cache.get_hostname(fresh_ip), Some(("recovered.example", false)));
 }
 
 #[test]

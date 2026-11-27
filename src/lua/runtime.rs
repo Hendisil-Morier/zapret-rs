@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// Embedded LuaJIT interpreter handle and registry/userdata types.
-use mlua::{AnyUserData, Lua, RegistryKey, Value};
+use mlua::{AnyUserData, Function, Lua, RegistryKey, Value, chunk::ChunkMode};
 
 /// Configuration structs applied when loading blobs, scripts, and verifying desync functions.
 use crate::config::{AppConfig, DesyncProfile, LuaInitEntry};
@@ -67,6 +67,8 @@ pub struct LuaRuntime {
     conntrack: Rc<RefCell<ConntrackPool>>,
     /// Scheduled timer pool accessible from Lua and event loops.
     timer_pool: Rc<RefCell<TimerPool>>,
+    /// Cached per-profile, per-action Lua callback registry handles for O(1) packet dispatch.
+    action_funcs: RefCell<Vec<Vec<RegistryKey>>>,
     /// Monotonic timestamp in milliseconds of the last completed garbage collection pass.
     last_gc_ms: Cell<u64>,
 }
@@ -126,6 +128,7 @@ impl LuaRuntime {
             desync_ctx_key,
             conntrack,
             timer_pool,
+            action_funcs: RefCell::new(Vec::new()),
             last_gc_ms: Cell::new(0),
         })
     }
@@ -179,17 +182,52 @@ impl LuaRuntime {
         Ok(())
     }
 
-    /// Verifies that every action function referenced by `profiles` exists as a Lua function in `_G`.
+    /// Verifies that every action function referenced by `profiles` exists and caches registry keys.
     pub fn verify_desync_functions(&self, profiles: &[DesyncProfile]) -> Result<(), LuaEngineError> {
         let globals = self.lua.globals();
+        let mut cached = Vec::with_capacity(profiles.len());
         for profile in profiles {
+            let mut funcs = Vec::with_capacity(profile.actions.len());
             for action in &profile.actions {
-                if !matches!(globals.get::<Value>(action.func.as_str())?, Value::Function(_)) {
+                let Value::Function(func) = globals.get::<Value>(action.func.as_str())? else {
                     return Err(LuaEngineError::MissingFunction(action.func.clone()));
-                }
+                };
+                funcs.push(self.lua.create_registry_value(func)?);
             }
+            cached.push(funcs);
         }
+        self.action_funcs.replace(cached);
+        self.lua.expire_registry_values();
         Ok(())
+    }
+
+    /// Resolves cached [`Function`] for `(profile_slot, action_slot)`, falling back to `_G` if uncached.
+    pub fn resolve_cached_action(
+        &self,
+        profile_slot: usize,
+        action_slot: usize,
+        func_name: &str,
+    ) -> Result<Function, String> {
+        if let Some(key) = self
+            .action_funcs
+            .borrow()
+            .get(profile_slot)
+            .and_then(|v| v.get(action_slot))
+        {
+            return self
+                .lua
+                .registry_value(key)
+                .map_err(|e| format!("failed to resolve '{func_name}': {e}"));
+        }
+        let val = self
+            .lua
+            .globals()
+            .get::<Value>(func_name)
+            .map_err(|e| format!("failed to resolve '{func_name}': {e}"))?;
+        let Value::Function(func) = val else {
+            return Err(format!("desync function '{func_name}' does not exist"));
+        };
+        Ok(func)
     }
 
     /// Loads `config.blobs`, executes `config.lua_init` scripts, and verifies profile action functions.
@@ -207,13 +245,13 @@ impl LuaRuntime {
         Ok(())
     }
 
-    /// Evaluates an inline Lua source string against this runtime.
+    /// Evaluates an inline Lua source string against this runtime (text chunks only).
     pub fn exec_str(&self, code: &str) -> Result<(), LuaEngineError> {
-        self.lua.load(code).exec()?;
+        self.lua.load(code).set_mode(ChunkMode::Text).exec()?;
         Ok(())
     }
 
-    /// Reads and executes a Lua script file from `path` using the file path as the chunk name.
+    /// Reads and executes a Lua script file from `path` using text mode only.
     pub fn exec_file(&self, path: &Path) -> Result<(), LuaEngineError> {
         let (resolved, source) = match std::fs::read(path) {
             Ok(bytes) => (path.to_path_buf(), bytes),
@@ -229,12 +267,15 @@ impl LuaRuntime {
         self.lua
             .load(&source)
             .set_name(resolved.to_string_lossy())
+            .set_mode(ChunkMode::Text)
             .exec()?;
         Ok(())
     }
 }
 
-/// Probes `./lua/<name>` and `<exe_dir>/lua/<name>` when a configured `zapret-*.lua` path moved.
+/// Probes installed/sibling Lua directories when a configured `zapret-*.lua` path moved.
+///
+/// Relative `./lua` in the caller's working directory is never probed automatically.
 fn fallback_lua_read(missing: &Path) -> Option<(PathBuf, Vec<u8>)> {
     let fname = missing.file_name()?.to_str()?;
     if !fname.starts_with("zapret-") || !fname.ends_with(".lua") {
@@ -245,8 +286,12 @@ fn fallback_lua_read(missing: &Path) -> Option<(PathBuf, Vec<u8>)> {
         && let Some(dir) = exe.parent()
     {
         candidates.push(dir.join("lua").join(fname));
+        if let Some(prefix) = dir.parent() {
+            candidates.push(prefix.join("share").join("zapret-rs").join("lua").join(fname));
+        }
     }
-    candidates.push(PathBuf::from("lua").join(fname));
+    candidates.push(PathBuf::from("/usr/local/share/zapret-rs/lua").join(fname));
+    candidates.push(PathBuf::from("/usr/share/zapret-rs/lua").join(fname));
     for cand in candidates {
         if let Ok(bytes) = std::fs::read(&cand) {
             return Some((cand, bytes));
@@ -256,8 +301,9 @@ fn fallback_lua_read(missing: &Path) -> Option<(PathBuf, Vec<u8>)> {
 }
 
 impl Drop for LuaRuntime {
-    /// Clears conntrack entries and `ctx.ctrack` handles so Lua registry keys drop before `Lua`.
+    /// Clears conntrack entries, cached action keys, and `ctx.ctrack` before `Lua` drops.
     fn drop(&mut self) {
+        self.action_funcs.borrow_mut().clear();
         self.desync_ctx.borrow_mut().ctrack = None;
         self.conntrack.borrow_mut().clear();
     }

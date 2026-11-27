@@ -290,7 +290,9 @@ pub fn register_desync_functions(
             let now = boottime_now();
             let hit = {
                 let mut pool = conntrack.borrow_mut();
-                pool.purge_rate_limited(now.sec);
+                if pool.purge_rate_limited(now.sec) > 0 {
+                    lua.expire_registry_values();
+                }
                 pool.feed(Some(lua), &dis, now)?
             };
 

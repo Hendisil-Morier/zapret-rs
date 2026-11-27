@@ -14,6 +14,8 @@ use mlua::Lua;
 use crate::conntrack::entry::{
     CtrackEntry, extract_tcp_mss, extract_tcp_scale, is_tcp_syn, is_tcp_synack,
 };
+/// Shared global reassembly/delayed byte budget tracked across pool flows.
+use crate::conntrack::reasm::{DEFAULT_GLOBAL_REASM_BUDGET_BYTES, GlobalBufferBudget};
 /// Connection tuple key, handshake state, capacity cap, and configurable timeout thresholds.
 use crate::conntrack::types::{
     ConnKey, ConnState, ConntrackTimeouts, DEFAULT_CTRACK_MAX_ENTRIES,
@@ -36,6 +38,8 @@ pub struct ConntrackPool {
     max_entries: usize,
     /// Monotonic second timestamp of the previous eviction sweep (`t_last_purge`).
     last_purge_sec: i64,
+    /// Shared memory budget bounding total reassembly and delayed packet bytes across flows.
+    budget: GlobalBufferBudget,
     /// Active connections keyed by normalized client-to-server 5-tuple [`ConnKey`].
     entries: HashMap<ConnKey, Rc<RefCell<CtrackEntry>>>,
 }
@@ -54,8 +58,24 @@ impl ConntrackPool {
             timeouts,
             max_entries: DEFAULT_CTRACK_MAX_ENTRIES,
             last_purge_sec: 0,
+            budget: GlobalBufferBudget::new(DEFAULT_GLOBAL_REASM_BUDGET_BYTES),
             entries: HashMap::new(),
         }
+    }
+
+    /// Returns the total currently buffered bytes across active reassembly and delayed queues.
+    pub fn queued_bytes(&self) -> usize {
+        self.budget.used_bytes()
+    }
+
+    /// Returns the configured global byte cap across all concurrent flows (`0` = unbounded).
+    pub fn max_buffer_bytes(&self) -> usize {
+        self.budget.max_bytes()
+    }
+
+    /// Configures the global byte ceiling across active reassembly and delayed buffers.
+    pub fn set_max_buffer_bytes(&mut self, max_bytes: usize) {
+        self.budget.set_max_bytes(max_bytes);
     }
 
     /// Returns the configured maximum active flow capacity (`0` = unbounded).
@@ -68,14 +88,36 @@ impl ConntrackPool {
         self.max_entries = max_entries;
     }
 
-    /// Ensures room exists for a new flow, performing at most one expiry sweep per second on cap hit.
-    fn has_insert_capacity(&mut self, now_sec: i64) -> bool {
+    /// Ensures room exists for a new flow, purging expired entries then evicting oldest idle flows.
+    fn ensure_insert_capacity(&mut self, lua: Option<&Lua>, now_sec: i64) -> bool {
         if self.max_entries == 0 || self.entries.len() < self.max_entries {
             return true;
         }
+        let before = self.entries.len();
         if self.last_purge_sec != now_sec {
             self.last_purge_sec = now_sec;
             self.purge_now(now_sec);
+        }
+        while self.entries.len() >= self.max_entries {
+            let oldest = self
+                .entries
+                .iter()
+                .filter_map(|(k, rc)| {
+                    rc.try_borrow()
+                        .ok()
+                        .map(|e| (*k, (e.pos.t_last.sec, e.pos.t_last.nsec)))
+                })
+                .min_by_key(|(_, ts)| *ts)
+                .map(|(k, _)| k);
+            let Some(evict_key) = oldest else {
+                break;
+            };
+            self.entries.remove(&evict_key);
+        }
+        if self.entries.len() < before
+            && let Some(l) = lua
+        {
+            l.expire_registry_values();
         }
         self.entries.len() < self.max_entries
     }
@@ -194,18 +236,20 @@ impl ConntrackPool {
                 (Rc::clone(hit), true)
             } else if let Some(tcp) = &dis.tcp {
                 if (is_tcp_syn(tcp.flags) || is_tcp_synack(tcp.flags))
-                    && self.has_insert_capacity(now.sec)
+                    && self.ensure_insert_capacity(lua, now.sec)
                 {
                     let is_synack = !is_tcp_syn(tcp.flags);
                     let key = if is_synack { rev_key } else { fwd_key };
-                    let created = Rc::new(RefCell::new(CtrackEntry::new(lua)?));
+                    let created =
+                        Rc::new(RefCell::new(CtrackEntry::with_budget(lua, self.budget.clone())?));
                     self.entries.insert(key, Rc::clone(&created));
                     (created, is_synack)
                 } else {
                     return Ok(None);
                 }
-            } else if dis.udp.is_some() && self.has_insert_capacity(now.sec) {
-                let created = Rc::new(RefCell::new(CtrackEntry::new(lua)?));
+            } else if dis.udp.is_some() && self.ensure_insert_capacity(lua, now.sec) {
+                let created =
+                    Rc::new(RefCell::new(CtrackEntry::with_budget(lua, self.budget.clone())?));
                 self.entries.insert(fwd_key, Rc::clone(&created));
                 (created, false)
             } else {
@@ -233,11 +277,18 @@ impl ConntrackPool {
 
         if let Some(tcp) = &dis.tcp {
             if is_tcp_syn(tcp.flags) {
+                if b_reverse {
+                    // Reject unexpected reverse-direction SYN so it cannot reset an active flow.
+                    return Ok(());
+                }
                 if entry.pos.state != ConnState::Syn {
                     entry.reinit(lua)?;
                 }
                 entry.pos.client.seq0 = tcp.seq;
             } else if is_tcp_synack(tcp.flags) {
+                if !b_reverse {
+                    return Ok(());
+                }
                 let derived_client_seq0 = tcp.ack.wrapping_sub(1);
                 if entry.pos.state != ConnState::Syn
                     && entry.pos.client.seq0 != derived_client_seq0

@@ -73,7 +73,7 @@ fn try_tcp_tls_reassembly(
         if !queue_delayed_packet(&mut entry, pkt.payload, pkt.mark, pkt.ifin, pkt.ifout) {
             overflowed = true;
         } else if entry.reasm_client.is_full() {
-            delayed_ready = Some(std::mem::take(&mut entry.delayed));
+            delayed_ready = Some(entry.take_delayed());
         }
     }
 

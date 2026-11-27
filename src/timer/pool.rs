@@ -176,6 +176,7 @@ impl TimerPool {
             now_ms = boottime_ms();
         }
 
+        let mut removed_any = false;
         loop {
             let next_to_run = {
                 let pool = pool_rc.borrow();
@@ -213,7 +214,7 @@ impl TimerPool {
 
             let Some((func, data)) = callback_data else {
                 let mut pool = pool_rc.borrow_mut();
-                pool.timers.remove(&name);
+                removed_any |= pool.timers.remove(&name).is_some();
                 continue;
             };
 
@@ -227,13 +228,16 @@ impl TimerPool {
             {
                 entry.fires = entry.fires.saturating_add(1);
                 if call_res.is_err() || oneshot {
-                    pool.timers.remove(&name);
+                    removed_any |= pool.timers.remove(&name).is_some();
                 } else {
                     entry.bt_next = now_ms.saturating_add(period_ms);
                 }
             }
         }
 
+        if removed_any {
+            lua.expire_registry_values();
+        }
         pool_rc.borrow_mut().next_deadline_ms()
     }
 }

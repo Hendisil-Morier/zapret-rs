@@ -21,6 +21,9 @@ use crate::intercepter::ifname::IfNameResolver;
 /// NFQUEUE configuration, borrowed packet metadata, [`PacketIntercepter`] trait, and verdict decisions.
 use crate::intercepter::types::{Decision, PacketIntercepter, QueueConfig, QueuedPacket};
 
+/// Maximum NFQUEUE messages drained per `poll()` wakeup so timers, IPC, and signals stay responsive.
+pub const MAX_NFQUEUE_BATCH_PACKETS: usize = 64;
+
 /// Attempts to grow the netlink socket `SO_RCVBUF` size, ignoring kernel clamping limits.
 fn set_socket_rcvbuf(fd: RawFd, rcvbuf_bytes: usize) {
     let val = rcvbuf_bytes.min(libc::c_int::MAX as usize) as libc::c_int;
@@ -75,6 +78,32 @@ pub struct QueueCatcher {
     config: QueueConfig,
     /// Persistent `SOCK_DGRAM` resolver for `SIOCGIFNAME` lookups.
     ifnames: IfNameResolver,
+}
+
+/// Drains up to `max_batch` items from `step`, yielding early on `WouldBlock` or `stop`.
+pub fn drain_batch_with<E, R>(
+    max_batch: usize,
+    stop: &AtomicBool,
+    is_would_block: impl Fn(&E) -> bool,
+    is_retryable: impl Fn(&E) -> bool,
+    mut step: R,
+) -> Result<bool, E>
+where
+    R: FnMut() -> Result<(), E>,
+{
+    for _ in 0..max_batch {
+        match step() {
+            Ok(()) => {
+                if stop.load(Ordering::Relaxed) {
+                    return Ok(true);
+                }
+            }
+            Err(err) if is_would_block(&err) => return Ok(false),
+            Err(err) if is_retryable(&err) => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(false)
 }
 
 impl QueueCatcher {
@@ -151,7 +180,7 @@ impl QueueCatcher {
         Ok(())
     }
 
-    /// Drains all queued NFQUEUE messages until `WouldBlock`; returns `true` if `stop` fired.
+    /// Drains up to [`MAX_NFQUEUE_BATCH_PACKETS`] NFQUEUE messages; returns `true` if `stop` fired.
     fn drain_ready_messages<F>(
         &mut self,
         stop: &AtomicBool,
@@ -160,53 +189,77 @@ impl QueueCatcher {
     where
         F: FnMut(&QueuedPacket<'_>) -> Decision,
     {
-        loop {
-            match self.queue.recv() {
-                Ok(msg) => {
-                    self.handle_message(msg, on_packet)?;
-                    if stop.load(Ordering::Relaxed) {
-                        return Ok(true);
-                    }
-                }
-                Err(err) if err.kind() == ErrorKind::WouldBlock => return Ok(false),
-                Err(err) if err.kind() == ErrorKind::Interrupted => continue,
-                Err(err) if err.raw_os_error() == Some(libc::ENOBUFS) => continue,
-                Err(err) => return Err(err.into()),
-            }
-        }
+        let queue = &mut self.queue;
+        let ifnames = &mut self.ifnames;
+        let desync_fwmark = self.config.desync_fwmark;
+        drain_batch_with(
+            MAX_NFQUEUE_BATCH_PACKETS,
+            stop,
+            |err| matches!(err, IntercepterError::Io(io_err) if io_err.kind() == ErrorKind::WouldBlock),
+            |err| matches!(
+                err,
+                IntercepterError::Io(io_err)
+                    if io_err.kind() == ErrorKind::Interrupted
+                        || io_err.raw_os_error() == Some(libc::ENOBUFS)
+            ),
+            || {
+                let msg = queue.recv().map_err(IntercepterError::from)?;
+                handle_queue_message(queue, ifnames, desync_fwmark, msg, on_packet)
+            },
+        )
     }
 
     /// Evaluates fwmark suppression before resolving interface names, then dispatches and submits the verdict.
-    fn handle_message<F>(&mut self, mut msg: Message, on_packet: &mut F) -> Result<(), IntercepterError>
+    #[allow(dead_code)]
+    fn handle_message<F>(&mut self, msg: Message, on_packet: &mut F) -> Result<(), IntercepterError>
     where
         F: FnMut(&QueuedPacket<'_>) -> Decision,
     {
-        let mark = msg.get_nfmark();
-        let desync_fwmark = self.config.desync_fwmark;
-        if desync_fwmark != 0 && (mark & desync_fwmark) != 0 {
-            apply_decision(&mut msg, Decision::Pass);
-            self.queue.verdict(msg)?;
-            return Ok(());
-        }
-
-        let packet_id = msg.get_packet_id();
-        let indev = msg.get_indev();
-        let outdev = msg.get_outdev();
-        let payload = msg.get_payload();
-        let decision = self.ifnames.resolve_pair(indev, outdev, |ifin, ifout| {
-            let pkt = QueuedPacket {
-                packet_id,
-                mark,
-                ifin,
-                ifout,
-                payload,
-            };
-            dispatch_packet(&pkt, desync_fwmark, on_packet)
-        });
-        apply_decision(&mut msg, decision);
-        self.queue.verdict(msg)?;
-        Ok(())
+        handle_queue_message(
+            &mut self.queue,
+            &mut self.ifnames,
+            self.config.desync_fwmark,
+            msg,
+            on_packet,
+        )
     }
+}
+
+/// Evaluates fwmark suppression, resolves interface names, and submits the kernel NFQUEUE verdict.
+fn handle_queue_message<F>(
+    queue: &mut Queue,
+    ifnames: &mut IfNameResolver,
+    desync_fwmark: u32,
+    mut msg: Message,
+    on_packet: &mut F,
+) -> Result<(), IntercepterError>
+where
+    F: FnMut(&QueuedPacket<'_>) -> Decision,
+{
+    let mark = msg.get_nfmark();
+    if desync_fwmark != 0 && (mark & desync_fwmark) != 0 {
+        apply_decision(&mut msg, Decision::Pass);
+        queue.verdict(msg)?;
+        return Ok(());
+    }
+
+    let packet_id = msg.get_packet_id();
+    let indev = msg.get_indev();
+    let outdev = msg.get_outdev();
+    let payload = msg.get_payload();
+    let decision = ifnames.resolve_pair(indev, outdev, |ifin, ifout| {
+        let pkt = QueuedPacket {
+            packet_id,
+            mark,
+            ifin,
+            ifout,
+            payload,
+        };
+        dispatch_packet(&pkt, desync_fwmark, on_packet)
+    });
+    apply_decision(&mut msg, decision);
+    queue.verdict(msg)?;
+    Ok(())
 }
 
 impl PacketIntercepter for QueueCatcher {

@@ -46,7 +46,7 @@ fn dns_extract_qname<'a>(packet: &'a [u8], cursor: &'a [u8]) -> Option<(String, 
 }
 
 /// Parses a DNS IN A/AAAA response packet and records `hostname -> IP` entries in `ipcache`.
-pub(crate) fn feed_dns_response(payload: &[u8], ipcache: &RefCell<IpCache>, now_sec: i64) -> bool {
+pub fn feed_dns_response(payload: &[u8], ipcache: &RefCell<IpCache>, now_sec: i64) -> bool {
     if !ipcache.borrow().cache_hostname() {
         return true;
     }
@@ -82,6 +82,9 @@ pub(crate) fn feed_dns_response(payload: &[u8], ipcache: &RefCell<IpCache>, now_
         return false;
     }
 
+    let Some(clean_name) = crate::lists::sanitize_wire_hostname(&query_name) else {
+        return false;
+    };
     let mut cache = ipcache.borrow_mut();
     for _ in 0..acount {
         let Some(rr) = dns_skip_name(cursor) else {
@@ -91,7 +94,7 @@ pub(crate) fn feed_dns_response(payload: &[u8], ipcache: &RefCell<IpCache>, now_
             return false;
         };
         if let Some(ip) = ip_opt {
-            cache.put_hostname(ip, &query_name, false, now_sec);
+            cache.put_hostname(ip, &clean_name, false, now_sec);
         }
         cursor = rest;
     }

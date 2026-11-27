@@ -255,7 +255,12 @@ pub fn tls_mod(spec: &FakeTlsMod, payload: Option<&[u8]>, fake_tls: &[u8]) -> Op
         return Some(fake_tls.to_vec());
     }
 
-    if !is_tls_client_hello(fake_tls, false) || fake_tls.len() < 44 + usize::from(fake_tls[43]) {
+    if !is_tls_client_hello(fake_tls, false) {
+        return None;
+    }
+    let sid_len = usize::from(*fake_tls.get(43)?);
+    let sid_end = 44usize.checked_add(sid_len)?;
+    if fake_tls.len() < sid_end {
         return None;
     }
 

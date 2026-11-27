@@ -154,27 +154,29 @@ impl IpCache {
         self.entries.get(&(addr, IfaceKey::new(iface)))
     }
 
-    /// Inserts or refreshes `(addr, iface)`, purging and optionally evicting when at `max_entries`.
+    /// Inserts or refreshes `(addr, iface)`, purging expired items and evicting the oldest if full.
     fn touch_inner(
         &mut self,
         addr: IpAddr,
         iface: &str,
         now_sec: i64,
-        evict_on_full: bool,
-    ) -> Option<&mut IpCacheEntry> {
+    ) -> &mut IpCacheEntry {
         let key = (addr, IfaceKey::new(iface));
         if self.max_entries > 0
             && self.entries.len() >= self.max_entries
             && !self.entries.contains_key(&key)
         {
             self.purge_rate_limited(now_sec);
-            if self.entries.len() >= self.max_entries {
-                if !evict_on_full {
-                    return None;
-                }
-                if let Some(evict_key) = self.entries.keys().next().cloned() {
-                    self.entries.remove(&evict_key);
-                }
+            while self.entries.len() >= self.max_entries {
+                let oldest = self
+                    .entries
+                    .iter()
+                    .min_by_key(|(_, e)| e.last_sec)
+                    .map(|(k, _)| k.clone());
+                let Some(evict_key) = oldest else {
+                    break;
+                };
+                self.entries.remove(&evict_key);
             }
         }
         let entry = self.entries.entry(key).or_insert_with(|| IpCacheEntry {
@@ -184,21 +186,19 @@ impl IpCache {
             ttl: 0,
         });
         entry.last_sec = now_sec;
-        Some(entry)
+        entry
     }
 
-    /// Refreshes or inserts an entry for `(addr, iface)`, returning `None` if at capacity after expiry sweep.
+    /// Refreshes or inserts an entry for `(addr, iface)`, evicting the oldest entry if at capacity.
     pub fn try_touch(&mut self, addr: IpAddr, iface: &str, now_sec: i64) -> Option<&mut IpCacheEntry> {
-        self.touch_inner(addr, iface, now_sec, false)
+        Some(self.touch_inner(addr, iface, now_sec))
     }
 
     /// Returns the entry for `(addr, iface)` after inserting/refreshing `last_sec` (`ipcacheTouch`).
     ///
-    /// Evicts expired entries (or one existing entry when full) to uphold `max_entries`.
+    /// Evicts expired entries (or the oldest entry when full) to uphold `max_entries`.
     pub fn touch(&mut self, addr: IpAddr, iface: &str, now_sec: i64) -> &mut IpCacheEntry {
-        // SAFETY invariant: `evict_on_full = true` guarantees an evicted slot before `entry()`, unless `max_entries == 0` which skips the cap branch.
-        self.touch_inner(addr, iface, now_sec, true)
-            .unwrap_or_else(|| unreachable!("evict_on_full ensures capacity for insert"))
+        self.touch_inner(addr, iface, now_sec)
     }
 
     /// Caches `hostname` under global key `(addr, "")` when `cache_hostname` is enabled (`ipcache_put_hostname`).
@@ -212,9 +212,7 @@ impl IpCache {
         if !self.cache_hostname {
             return;
         }
-        let Some(entry) = self.try_touch(addr, "", now_sec) else {
-            return;
-        };
+        let entry = self.touch(addr, "", now_sec);
         if entry.hostname.as_deref() != Some(hostname) {
             entry.hostname = Some(hostname.to_owned());
             entry.hostname_is_ip = hostname_is_ip;

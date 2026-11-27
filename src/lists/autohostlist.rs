@@ -2,8 +2,6 @@
 
 /// Interior mutability for updating the profile's shared autohostlist file in place.
 use std::cell::RefCell;
-/// Map keying failed hostnames to their fixed-window counter and expiration second.
-use std::collections::HashMap;
 /// Optional autohostlist debug log file path.
 use std::path::Path;
 /// Shared reference handle to the profile's autohostlist [`HostlistFile`].
@@ -17,6 +15,10 @@ use crate::conntrack::{ConnState, CtrackEntry, CtrackPosition, CtrackPositions, 
 use crate::lists::file_loader::{
     FileModSig, append_timestamped_debug_log, append_to_list_file,
 };
+/// Autohostlist capacity cap and wire hostname sanitizer preventing directive injection.
+use crate::lists::host_sanitize::{DEFAULT_MAX_AUTOHOSTLIST_ENTRIES, sanitize_wire_hostname};
+/// Bounded per-profile failure counter pool (`HostFailPool`).
+use crate::lists::hostfail::HostFailPool;
 /// Hostlist collections and underlying file-backed hostname pools.
 use crate::lists::hostlist::{HostlistCollection, HostlistFile};
 /// TCP RST wire flag constant matching `TH_RST` in `zapret2`.
@@ -84,87 +86,6 @@ impl AutoHostlistSettings {
             return Err("auto hostlist retrans threshold must be in 2..=10");
         }
         Ok(())
-    }
-}
-
-/// Active failure counter entry for one hostname inside [`HostFailPool`] (`hostfail_pool`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HostFailEntry {
-    /// Number of observed failures since initial insertion.
-    pub counter: u32,
-    /// Fixed monotonic boottime expiration second (`initial_now + fail_time_sec`).
-    pub expire_sec: i64,
-}
-
-/// Time-windowed per-profile failure counter map (`hostfail_pool` in `pools.c`).
-#[derive(Debug)]
-pub struct HostFailPool {
-    /// Active failure counters keyed by lowercase hostname.
-    entries: HashMap<String, HostFailEntry>,
-    /// Boottime second of the previous purge sweep (`purge_prev`).
-    last_purge_sec: i64,
-}
-
-impl Default for HostFailPool {
-    fn default() -> Self {
-        Self {
-            entries: HashMap::new(),
-            last_purge_sec: i64::MIN,
-        }
-    }
-}
-
-impl HostFailPool {
-    /// Creates an empty [`HostFailPool`].
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns the number of tracked hostnames in this pool.
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// Returns `true` when no failure entries are active.
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Looks up the active counter record for `host` (`HostFailPoolFind`).
-    pub fn get(&self, host: &str) -> Option<&HostFailEntry> {
-        self.entries.get(host)
-    }
-
-    /// Removes `host` from the pool, returning `true` if an entry existed (`HostFailPoolDel`).
-    pub fn reset(&mut self, host: &str) -> bool {
-        self.entries.remove(host).is_some()
-    }
-
-    /// Increments the failure count for `host` without refreshing its initial expiration timestamp.
-    pub fn record_failure(&mut self, host: &str, fail_time_sec: i64, now_sec: i64) -> u32 {
-        if self.entries.get(host).is_some_and(|e| now_sec >= e.expire_sec) {
-            self.entries.remove(host);
-        }
-        let expire_sec = now_sec.saturating_add(fail_time_sec);
-        let entry = self
-            .entries
-            .entry(host.to_owned())
-            .or_insert(HostFailEntry { counter: 0, expire_sec });
-        entry.counter = entry.counter.saturating_add(1);
-        entry.counter
-    }
-
-    /// Evicts all expired failure entries where `now_sec >= expire_sec` (`HostFailPoolPurge`).
-    pub fn purge(&mut self, now_sec: i64) {
-        self.entries.retain(|_, entry| now_sec < entry.expire_sec);
-    }
-
-    /// Runs [`Self::purge`] at most once per boottime second (`HostFailPoolPurgeRateLimited`).
-    pub fn purge_rate_limited(&mut self, now_sec: i64) {
-        if self.last_purge_sec != now_sec {
-            self.purge(now_sec);
-            self.last_purge_sec = now_sec;
-        }
     }
 }
 
@@ -274,28 +195,45 @@ pub fn record_autohost_failure(
     hostname: &str,
     no_subdomains: bool,
 ) -> AutoHostlistAction {
+    let Some(clean_host) = sanitize_wire_hostname(hostname) else {
+        return AutoHostlistAction::Ignored;
+    };
     let count = ctx
         .fail_pool
-        .record_failure(hostname, ctx.settings.fail_time_sec, ctx.now_sec);
-    ctx.log(hostname, &format!("fail counter {count}/{}", ctx.settings.fail_threshold));
+        .record_failure(&clean_host, ctx.settings.fail_time_sec, ctx.now_sec);
+    if count == 0 {
+        return AutoHostlistAction::Ignored;
+    }
+    ctx.log(&clean_host, &format!("fail counter {count}/{}", ctx.settings.fail_threshold));
     if count < ctx.settings.fail_threshold {
         return AutoHostlistAction::FailCounted(count);
     }
 
-    ctx.fail_pool.reset(hostname);
-    let outcome = ctx.hostlists.check(hostname, no_subdomains, false);
+    ctx.fail_pool.reset(&clean_host);
+    let outcome = ctx.hostlists.check(&clean_host, no_subdomains, false);
     if outcome.matched || outcome.excluded {
-        ctx.log(hostname, "NOT adding, duplicate detected");
+        ctx.log(&clean_host, "NOT adding, duplicate detected");
         return AutoHostlistAction::SkippedDuplicateOrExempt;
     }
 
-    if let Some(path) = ctx.autolist_file.borrow().path.clone() {
-        ctx.log(hostname, &format!("adding to {}", path.display()));
+    let (at_cap, auto_path) = {
+        let auto = ctx.autolist_file.borrow();
+        (
+            auto.pool.len() >= DEFAULT_MAX_AUTOHOSTLIST_ENTRIES,
+            auto.path.clone(),
+        )
+    };
+    if at_cap {
+        ctx.log(&clean_host, "NOT adding, autohostlist entry limit reached");
+        return AutoHostlistAction::Ignored;
+    }
+    if let Some(path) = auto_path.as_ref() {
+        ctx.log(&clean_host, &format!("adding to {}", path.display()));
     }
     let mut auto = ctx.autolist_file.borrow_mut();
-    auto.pool.add_host(hostname, 0);
-    if let Some(path) = auto.path.clone() {
-        if let Err(err) = append_to_list_file(&path, hostname) {
+    auto.pool.add_host(&clean_host, 0);
+    if let Some(path) = auto_path {
+        if let Err(err) = append_to_list_file(&path, &clean_host) {
             eprintln!("write to auto hostlist '{}': {err}", path.display());
         } else if let Ok(sig) = FileModSig::read(&path) {
             auto.mod_sig = sig;

@@ -8,8 +8,8 @@ use mlua::{Lua, RegistryKey};
 
 /// Discovered L7 protocol and reassembly payload classification tags stored on [`CtrackEntry`].
 use crate::config::{L7Payload, L7Proto};
-/// Continuous stream reassembly buffer attached to client-side flows.
-use crate::conntrack::reasm::StreamReassembler;
+/// Continuous stream reassembly buffer and shared pool memory budget attached to flows.
+use crate::conntrack::reasm::{GlobalBufferBudget, StreamReassembler};
 /// Connection position snapshots, delayed packet storage, and queue bounds.
 use crate::conntrack::types::{
     CtrackPositions, DelayedPacket, RAW_PACKET_QUEUE_DELAYED_MAX,
@@ -112,11 +112,22 @@ pub struct CtrackEntry {
     pub reasm_client: StreamReassembler,
     /// FIFO queue of delayed packets waiting for stream reassembly completion.
     pub delayed: VecDeque<DelayedPacket>,
+    /// Shared pool-level byte budget governing aggregate reassembly and delayed memory.
+    budget: GlobalBufferBudget,
+    /// Bytes currently charged to [`Self::budget`] by `reasm_client`.
+    reasm_reserved: usize,
+    /// Bytes currently charged to [`Self::budget`] by `delayed`.
+    delayed_reserved: usize,
 }
 
 impl CtrackEntry {
     /// Creates a fresh zeroed tracking entry, allocating an empty `lua_state` table if `lua` is present.
     pub fn new(lua: Option<&Lua>) -> mlua::Result<Self> {
+        Self::with_budget(lua, GlobalBufferBudget::default())
+    }
+
+    /// Creates a fresh tracking entry bound to the owning pool's shared [`GlobalBufferBudget`].
+    pub fn with_budget(lua: Option<&Lua>, budget: GlobalBufferBudget) -> mlua::Result<Self> {
         let lua_state = match lua {
             Some(l) => Some(l.create_registry_value(l.create_table()?)?),
             None => None,
@@ -145,12 +156,18 @@ impl CtrackEntry {
             reasm_client_payload: L7Payload::Unknown,
             reasm_client: StreamReassembler::default(),
             delayed: VecDeque::new(),
+            budget,
+            reasm_reserved: 0,
+            delayed_reserved: 0,
         })
     }
 
     /// Re-initializes all state (used when a new `SYN` or mismatched `SYN-ACK` reuses a 5-tuple).
     pub fn reinit(&mut self, lua: Option<&Lua>) -> mlua::Result<()> {
-        *self = Self::new(lua)?;
+        *self = Self::with_budget(lua, self.budget.clone())?;
+        if let Some(l) = lua {
+            l.expire_registry_values();
+        }
         Ok(())
     }
 
@@ -190,12 +207,54 @@ impl CtrackEntry {
         }
     }
 
-    /// Appends one delayed packet snapshot unless [`RAW_PACKET_QUEUE_DELAYED_MAX`] is reached.
+    /// Starts stream reassembly for `target_size` bytes if permitted by the shared pool byte budget.
+    pub fn try_start_reasm(&mut self, target_size: usize, seq_start: u32) -> bool {
+        self.clear_reasm();
+        if !self.budget.try_reserve(target_size) {
+            return false;
+        }
+        self.reasm_reserved = target_size;
+        self.reasm_client.init(target_size, seq_start);
+        true
+    }
+
+    /// Releases any buffered stream reassembly bytes back to [`Self::budget`] and resets the buffer.
+    pub fn clear_reasm(&mut self) {
+        if self.reasm_reserved > 0 {
+            self.budget.release(self.reasm_reserved);
+            self.reasm_reserved = 0;
+        }
+        self.reasm_client.clear();
+    }
+
+    /// Appends one delayed packet snapshot unless queue count or global byte budget is exhausted.
     pub fn push_delayed(&mut self, pkt: DelayedPacket) -> bool {
         if self.delayed.len() >= RAW_PACKET_QUEUE_DELAYED_MAX {
             return false;
         }
+        let pkt_bytes = pkt.raw.len();
+        if !self.budget.try_reserve(pkt_bytes) {
+            return false;
+        }
+        self.delayed_reserved = self.delayed_reserved.saturating_add(pkt_bytes);
         self.delayed.push_back(pkt);
         true
+    }
+
+    /// Drains all delayed packets and releases their accounted byte reservation back to the budget.
+    pub fn take_delayed(&mut self) -> VecDeque<DelayedPacket> {
+        if self.delayed_reserved > 0 {
+            self.budget.release(self.delayed_reserved);
+            self.delayed_reserved = 0;
+        }
+        std::mem::take(&mut self.delayed)
+    }
+}
+
+impl Drop for CtrackEntry {
+    /// Releases all accounted reassembly and delayed queue bytes on flow removal or reinit.
+    fn drop(&mut self) {
+        self.clear_reasm();
+        let _ = self.take_delayed();
     }
 }

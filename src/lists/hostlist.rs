@@ -93,7 +93,10 @@ impl HostlistPool {
             rest = &rest[1..];
         }
         if !rest.is_empty() {
-            self.add_host(rest, flags);
+            let Some(clean) = crate::lists::host_sanitize::sanitize_wire_hostname(rest) else {
+                return false;
+            };
+            self.add_host(&clean, flags);
         }
         true
     }

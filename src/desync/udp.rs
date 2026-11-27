@@ -111,7 +111,7 @@ fn process_quic_initial_flow(
                     {
                         started_ok = false;
                     } else if req_full {
-                        delayed_ready = Some(std::mem::take(&mut entry.delayed));
+                        delayed_ready = Some(entry.take_delayed());
                     } else {
                         engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
                         return Err(Decision::Drop);
@@ -119,6 +119,7 @@ fn process_quic_initial_flow(
                 }
             }
             if !started_ok {
+                reasm_client_stop(Some(ctrack_rc), engine.desync_fwmark, &engine.sender);
                 return Ok(None);
             }
             if let Some(delayed) = delayed_ready {

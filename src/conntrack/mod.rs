@@ -13,8 +13,8 @@ pub mod types;
 pub use entry::{CtrackEntry, is_tcp_syn, is_tcp_synack};
 /// Re-exported connection tracking pool.
 pub use pool::ConntrackPool;
-/// Re-exported linear stream reassembler.
-pub use reasm::StreamReassembler;
+/// Re-exported linear stream reassembler and global buffer budget.
+pub use reasm::{DEFAULT_GLOBAL_REASM_BUDGET_BYTES, GlobalBufferBudget, StreamReassembler};
 /// Re-exported conntrack constants, keys, position structs, and timeout defaults.
 pub use types::{
     ConnKey, ConnState, ConntrackTimeouts, CtrackPosition, CtrackPositions,

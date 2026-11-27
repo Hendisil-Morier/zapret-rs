@@ -1,8 +1,72 @@
 //! Continuous in-order TCP/UDP payload stream reassembler matching `zapret2/nfq2/conntrack.c`.
 
+/// Shared single-thread counters tracking global buffered bytes across active conntrack entries.
+use std::cell::Cell;
+/// Shared ownership handle letting [`crate::conntrack::CtrackEntry`] update pool memory budget.
+use std::rc::Rc;
+
 /// Maximum allowed negative overlap or forward sequence delta (`0x100000` = 1 MiB)
 /// before treating a segment as an unsupported out-of-order gap or wraparound mismatch.
 const REASM_MAX_NEG: u32 = 0x0010_0000;
+
+/// Conservative default cap (32 MiB) across all concurrent reassembly buffers and delayed queues.
+pub const DEFAULT_GLOBAL_REASM_BUDGET_BYTES: usize = 32 * 1024 * 1024;
+
+/// Shared memory budget enforcing a ceiling across all concurrent reassembly and delayed buffers.
+#[derive(Debug, Clone)]
+pub struct GlobalBufferBudget {
+    /// Total bytes reserved across all active flows backed by this budget.
+    used: Rc<Cell<usize>>,
+    /// Configured ceiling in bytes (`0` disables cap).
+    max_bytes: Rc<Cell<usize>>,
+}
+
+impl Default for GlobalBufferBudget {
+    fn default() -> Self {
+        Self::new(DEFAULT_GLOBAL_REASM_BUDGET_BYTES)
+    }
+}
+
+impl GlobalBufferBudget {
+    /// Creates a new shared budget capped at `max_bytes` (`0` disables global clamping).
+    pub fn new(max_bytes: usize) -> Self {
+        Self {
+            used: Rc::new(Cell::new(0)),
+            max_bytes: Rc::new(Cell::new(max_bytes)),
+        }
+    }
+
+    /// Returns total currently reserved bytes across all tracked flows sharing this budget.
+    pub fn used_bytes(&self) -> usize {
+        self.used.get()
+    }
+
+    /// Returns the configured byte limit (`0` = unbounded).
+    pub fn max_bytes(&self) -> usize {
+        self.max_bytes.get()
+    }
+
+    /// Updates the shared byte limit across existing and future flows.
+    pub fn set_max_bytes(&self, max_bytes: usize) {
+        self.max_bytes.set(max_bytes);
+    }
+
+    /// Attempts to reserve `bytes` under the budget, returning `false` when full.
+    pub fn try_reserve(&self, bytes: usize) -> bool {
+        let current = self.used.get();
+        let cap = self.max_bytes.get();
+        if cap > 0 && current.saturating_add(bytes) > cap {
+            return false;
+        }
+        self.used.set(current.saturating_add(bytes));
+        true
+    }
+
+    /// Releases `bytes` previously acquired via [`Self::try_reserve`].
+    pub fn release(&self, bytes: usize) {
+        self.used.set(self.used.get().saturating_sub(bytes));
+    }
+}
 
 /// Linear reassembly buffer accumulating contiguous payload bytes up to an expected message size.
 ///
