@@ -208,21 +208,6 @@ impl QueueCatcher {
             },
         )
     }
-
-    /// Evaluates fwmark suppression before resolving interface names, then dispatches and submits the verdict.
-    #[allow(dead_code)]
-    fn handle_message<F>(&mut self, msg: Message, on_packet: &mut F) -> Result<(), IntercepterError>
-    where
-        F: FnMut(&QueuedPacket<'_>) -> Decision,
-    {
-        handle_queue_message(
-            &mut self.queue,
-            &mut self.ifnames,
-            self.config.desync_fwmark,
-            msg,
-            on_packet,
-        )
-    }
 }
 
 /// Evaluates fwmark suppression, resolves interface names, and submits the kernel NFQUEUE verdict.

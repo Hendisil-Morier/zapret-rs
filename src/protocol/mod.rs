@@ -10,7 +10,7 @@ pub mod http;
 pub mod markers;
 /// QUIC Long Header parsers, varints, Initial classifier, and CRYPTO defragmenter.
 pub mod quic;
-/// QUIC Initial key derivation and `ring` AEAD/header-protection decryption.
+/// QUIC Initial key derivation and pure-Rust AEAD/header-protection decryption.
 pub mod quic_crypto;
 /// TLS record/handshake detectors, extension scanners, and SNI extractors.
 pub mod tls;

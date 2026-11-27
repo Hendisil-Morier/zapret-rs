@@ -108,9 +108,6 @@ pub(crate) struct Overlapped {
 
 /// Function pointer type for `WinDivertOpen`.
 type WinDivertOpenFn = unsafe extern "system" fn(*const c_char, i32, i16, u64) -> isize;
-/// Function pointer type for `WinDivertRecv`.
-type WinDivertRecvFn =
-    unsafe extern "system" fn(isize, *mut c_void, u32, *mut u32, *mut WinDivertAddress) -> i32;
 /// Function pointer type for `WinDivertRecvEx`.
 type WinDivertRecvExFn = unsafe extern "system" fn(
     isize,
@@ -158,8 +155,6 @@ pub(crate) struct WinDivertApi {
     _module: ModuleHandle,
     /// `WinDivertOpen` entry point.
     open_fn: WinDivertOpenFn,
-    /// `WinDivertRecv` entry point.
-    recv_fn: WinDivertRecvFn,
     /// `WinDivertRecvEx` entry point.
     recv_ex_fn: WinDivertRecvExFn,
     /// `WinDivertSend` entry point.
@@ -232,7 +227,6 @@ impl WinDivertApi {
             Ok(Self {
                 _module: module_guard,
                 open_fn: load_sym(module, b"WinDivertOpen\0")?,
-                recv_fn: load_sym(module, b"WinDivertRecv\0")?,
                 recv_ex_fn: load_sym(module, b"WinDivertRecvEx\0")?,
                 send_fn: load_sym(module, b"WinDivertSend\0")?,
                 shutdown_fn: load_sym(module, b"WinDivertShutdown\0")?,
@@ -326,27 +320,6 @@ impl WinDivertHandle {
         } else {
             Err(err)
         }
-    }
-
-    /// Receives one packet into `buf` and populates `addr`, returning the byte count read.
-    #[allow(dead_code)]
-    pub(crate) fn recv(&self, buf: &mut [u8], addr: &mut WinDivertAddress) -> io::Result<usize> {
-        let mut read_len = 0u32;
-        let cap = u32::try_from(buf.len()).unwrap_or(u32::MAX);
-        // SAFETY: `buf` and `addr` point to valid writable memory for `cap` bytes.
-        let ok = unsafe {
-            (self.api.recv_fn)(
-                self.handle,
-                buf.as_mut_ptr().cast(),
-                cap,
-                &raw mut read_len,
-                ptr::from_mut(addr),
-            )
-        };
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(read_len as usize)
     }
 
     /// Sends/reinjects `packet` with `addr` metadata.

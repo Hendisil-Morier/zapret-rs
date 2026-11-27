@@ -50,7 +50,6 @@ use crate::rawsend::WinDivertSender;
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(15);
 
 /// Control commands delivered from the scan coordinator to the worker thread.
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 enum WorkerCmd {
     /// Atomically replace active engine profiles and clear conntrack/ipcache, then reply on `ack`.
     Swap {
@@ -373,11 +372,19 @@ fn run_worker_thread(
 #[cfg(not(any(target_os = "linux", windows)))]
 fn run_worker_thread(
     _base: AppConfig,
-    _rx: Receiver<WorkerCmd>,
+    rx: Receiver<WorkerCmd>,
     ready_tx: SyncSender<Result<(), String>>,
     _wstop: Arc<AtomicBool>,
     _gstop: &'static AtomicBool,
     _stats: Arc<WorkerStats>,
 ) {
     let _ = ready_tx.send(Err("live packet interception is not yet implemented on this OS".to_owned()));
+    while let Ok(cmd) = rx.try_recv() {
+        match cmd {
+            WorkerCmd::Swap { ack, .. } => {
+                let _ = ack.send(Err("live packet interception unsupported".to_owned()));
+            }
+            WorkerCmd::Shutdown => break,
+        }
+    }
 }
