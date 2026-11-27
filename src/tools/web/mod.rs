@@ -8,6 +8,10 @@ pub mod cli;
 pub mod http;
 /// Background `ControlStream` subscriber bridging daemon status and packets to SSE.
 pub mod ipc_bridge;
+/// REST handlers for `nfqws2.toml` config, autohostlist domains, and speed tests.
+pub mod ops;
+/// Background Strategy Finder scan job coordinator streaming progress over SSE.
+pub mod scan_job;
 /// HTTP/1.1 router, SSE streamer, and bounded TCP listener.
 pub mod server;
 

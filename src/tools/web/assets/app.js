@@ -196,9 +196,170 @@
         renderPackets();
       } catch (_) {}
     });
+    es.addEventListener("scan", (ev) => {
+      try { applyScanSnapshot(JSON.parse(ev.data)); } catch (_) {}
+    });
     es.onerror = () => {
       $("sse-badge").textContent = "SSE retry";
     };
+  }
+
+  function applyScanSnapshot(scan) {
+    if (!scan) return;
+    const running = scan.status === "running";
+    $("scan-start-btn").disabled = running;
+    $("scan-stop-btn").disabled = !running;
+    $("scan-label").textContent = scan.label || "Ready to scan";
+    const pct = scan.progress_total > 0 ? Math.min(100, Math.round((scan.progress_done * 100) / scan.progress_total)) : (scan.status === "done" ? 100 : 0);
+    $("scan-bar").style.width = pct + "%";
+    $("scan-count").textContent = scan.progress_total > 0 ? (scan.progress_done + "/" + scan.progress_total) : "";
+
+    const resBox = $("scan-results");
+    resBox.replaceChildren();
+    (scan.targets || []).forEach((t) => {
+      const row = document.createElement("div");
+      row.className = "pkt-row";
+      const badge = document.createElement("span");
+      badge.className = t.best_strategy ? "verdict-chip v-desync" : "verdict-chip";
+      badge.textContent = t.skipped ? "OPEN" : (t.best_strategy ? "MATCH" : "NONE");
+      const main = document.createElement("div");
+      main.className = "pkt-main mono";
+      main.textContent = t.domain + " (" + t.proto + "/" + t.ipv + ") -> " + (t.best_strategy || t.baseline);
+      const lat = document.createElement("span");
+      lat.className = "muted mono";
+      lat.textContent = t.best_latency_ms != null ? (t.best_latency_ms + " ms") : "";
+      row.appendChild(badge);
+      row.appendChild(main);
+      row.appendChild(lat);
+      resBox.appendChild(row);
+    });
+    state.foundToml = scan.rendered_toml || "";
+    $("scan-toml-actions").classList.toggle("hidden", !state.foundToml);
+  }
+
+  async function loadDomains() {
+    try {
+      const data = await apiFetch("/api/domains");
+      $("autolist-path").textContent = data.autohostlist_path || "";
+      const list = $("autolist-chips");
+      list.replaceChildren();
+      const auto = data.autohostlist_domains || [];
+      if (auto.length === 0) {
+        const p = document.createElement("p");
+        p.className = "empty-note";
+        p.textContent = "No autohostlist domains yet. Add a blocked domain above.";
+        list.appendChild(p);
+      } else {
+        auto.forEach((d) => {
+          const row = document.createElement("div");
+          row.className = "domain-row";
+          const txt = document.createElement("span");
+          txt.className = "mono";
+          txt.textContent = d;
+          const rm = document.createElement("button");
+          rm.type = "button";
+          rm.className = "btn btn-ghost btn-compact";
+          rm.textContent = "Remove";
+          rm.addEventListener("click", () => mutateDomain(d, "remove"));
+          row.appendChild(txt);
+          row.appendChild(rm);
+          list.appendChild(row);
+        });
+      }
+      const inline = $("inline-domains-chips");
+      inline.replaceChildren();
+      (data.hostlist_domains || []).forEach((d) => {
+        const chip = document.createElement("span");
+        chip.className = "chip mono";
+        chip.textContent = d;
+        inline.appendChild(chip);
+      });
+    } catch (err) {
+      showToast(err.message);
+    }
+  }
+
+  async function mutateDomain(domain, action) {
+    try {
+      await apiFetch("/api/domains", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain, action })
+      });
+      showToast(action === "add" ? "Added " + domain : "Removed " + domain);
+      await loadDomains();
+    } catch (err) {
+      showToast(err.message);
+    }
+  }
+
+  async function loadConfig() {
+    try {
+      const data = await apiFetch("/api/config");
+      $("config-path-label").textContent = data.path || "";
+      $("config-editor").value = data.toml || "";
+      const chip = $("config-valid-chip");
+      chip.textContent = data.valid ? ("VALID (" + data.profiles + " profiles)") : "INVALID";
+      $("config-error").textContent = data.error || "";
+      $("config-error").classList.toggle("hidden", !data.error);
+    } catch (err) {
+      showToast(err.message);
+    }
+  }
+
+  async function saveConfig(apply, explicitToml) {
+    $("config-error").classList.add("hidden");
+    const tomlText = explicitToml != null ? explicitToml : $("config-editor").value;
+    try {
+      const res = await apiFetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toml: tomlText, apply })
+      });
+      showToast(apply ? (res.applied || "Saved & applied") : "Config saved");
+      await loadConfig();
+    } catch (err) {
+      $("config-error").textContent = err.message;
+      $("config-error").classList.remove("hidden");
+      showToast(err.message);
+    }
+  }
+
+  async function runSpeedTest() {
+    const btn = $("speed-run-btn");
+    btn.disabled = true;
+    const rawDomains = ($("scan-domains").value || "").split(/[\s,]+/).filter(Boolean);
+    try {
+      const res = await apiFetch("/api/speed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domains: rawDomains, include_control: true })
+      });
+      const box = $("speed-results");
+      box.replaceChildren();
+      (res.rows || []).forEach((r) => {
+        const row = document.createElement("div");
+        row.className = "pkt-row";
+        const badge = document.createElement("span");
+        badge.className = r.ok ? "verdict-chip v-desync" : "verdict-chip";
+        badge.textContent = r.ok ? "OK" : "FAIL";
+        const main = document.createElement("div");
+        main.className = "pkt-main mono";
+        main.textContent = r.label + "  " + r.summary;
+        const speed = document.createElement("span");
+        speed.className = "muted mono";
+        speed.textContent = r.bytes_per_sec > 0 ? ((r.bytes_per_sec / 1000000).toFixed(2) + " MB/s") : ("ttfb " + r.ttfb_ms + " ms");
+        row.appendChild(badge);
+        row.appendChild(main);
+        row.appendChild(speed);
+        box.appendChild(row);
+      });
+      showToast("Speed test finished");
+    } catch (err) {
+      showToast(err.message);
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   function hideStopConfirm() {
@@ -215,6 +376,8 @@
         btn.classList.add("active");
         const panel = $("tab-" + tab);
         if (panel) panel.classList.add("active");
+        if (tab === "domains") loadDomains();
+        if (tab === "config") loadConfig();
       });
     });
   }
@@ -297,6 +460,59 @@
       state.filter = e.target.value || "";
       renderPackets();
     });
+
+    $("domains-refresh-btn").addEventListener("click", loadDomains);
+    $("domain-add-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = $("domain-add-input");
+      const val = input.value.trim();
+      if (!val) return;
+      input.value = "";
+      await mutateDomain(val, "add");
+    });
+
+    $("config-reload-btn").addEventListener("click", loadConfig);
+    $("config-save-btn").addEventListener("click", () => saveConfig(false));
+    $("config-apply-btn").addEventListener("click", () => saveConfig(true));
+    $("apply-scan-toml-btn").addEventListener("click", () => {
+      if (state.foundToml) saveConfig(true, state.foundToml);
+    });
+
+    $("scan-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const domains = ($("scan-domains").value || "").split(/[\s,]+/).filter(Boolean);
+      const protos = Array.from(document.querySelectorAll('input[name="proto"]:checked')).map((el) => el.value);
+      try {
+        const snap = await apiFetch("/api/scan/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            domains,
+            protos,
+            level: $("scan-level").value,
+            stop_on_first: $("scan-stop-first").checked
+          })
+        });
+        applyScanSnapshot(snap);
+      } catch (err) {
+        showToast(err.message);
+      }
+    });
+
+    $("scan-stop-btn").addEventListener("click", async () => {
+      try {
+        await apiFetch("/api/scan/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        });
+        showToast("Scan stop requested");
+      } catch (err) {
+        showToast(err.message);
+      }
+    });
+
+    $("speed-run-btn").addEventListener("click", runSpeedTest);
   }
 
   async function bootSession() {
@@ -312,6 +528,8 @@
       showLogin(false);
       const snap = await apiFetch("/api/status");
       applyStatusSnapshot(snap);
+      const scan = await apiFetch("/api/scan");
+      applyScanSnapshot(scan);
       connectSse();
     } catch (_) {
       showLogin(true);

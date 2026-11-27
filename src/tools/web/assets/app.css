@@ -290,6 +290,60 @@ html, body {
 
 .empty-note { color: var(--ink-muted); margin: 8px 0; font-size: 0.9rem; }
 
+.inline-form { display: flex; gap: 8px; margin-top: 12px; }
+.inline-form .input { flex: 1; }
+.domain-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.domain-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--bg-recess);
+  border: 1px solid var(--border-hair);
+}
+
+.scan-form { display: flex; flex-direction: column; gap: 12px; }
+.scan-options { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.proto-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-hair);
+  background: var(--bg-recess);
+  font-size: 0.86rem;
+}
+.select-inline { width: auto; min-width: 112px; }
+
+.progress-wrap { margin: 14px 0; }
+.progress-meta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.progress-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-recess);
+  border: 1px solid var(--border-hair);
+  overflow: hidden;
+}
+.progress-fill { height: 100%; width: 0%; background: var(--signal-cobalt); transition: width 0.2s ease; }
+
+.toml-editor {
+  width: 100%;
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border-hair);
+  background: var(--bg-recess);
+  color: var(--ink-primary);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+
 .login-backdrop {
   position: fixed;
   inset: 0;

@@ -30,6 +30,10 @@ use crate::tools::web::http::{
 };
 /// Background daemon control IPC bridge and SSE fanout hub.
 use crate::tools::web::ipc_bridge::WebIpcBridge;
+/// Config, domain list, speed check, and scan API route handlers.
+use crate::tools::web::ops::handle_ops_route;
+/// Background Strategy Finder scan job coordinator.
+use crate::tools::web::scan_job::WebScanJob;
 
 /// Embedded mobile-first single-page dashboard HTML served at `/`.
 const INDEX_HTML: &str = include_str!("assets/index.html");
@@ -53,6 +57,8 @@ pub struct WebServerHandle {
     addr: SocketAddr,
     /// Background daemon control socket bridge shared with routes and SSE streams.
     ipc: Arc<WebIpcBridge>,
+    /// Background Strategy Finder scan coordinator stopped on shutdown.
+    scan_job: Arc<WebScanJob>,
     /// Shared shutdown signal observed by accept and SSE loops.
     stop: Arc<AtomicBool>,
     /// Accept thread joined cleanly on [`Self::shutdown`] or [`Drop`].
@@ -68,6 +74,7 @@ impl WebServerHandle {
     /// Signals the accept loop and IPC bridge to stop and joins background threads.
     pub fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.scan_job.stop();
         if let Some(handle) = self.join.take() {
             let _ = handle.join();
         }
@@ -206,7 +213,8 @@ fn handle_request(
     stream: &mut TcpStream,
     req: &HttpRequest,
     cfg: &WebConfig,
-    ipc: &WebIpcBridge,
+    ipc: &Arc<WebIpcBridge>,
+    scan_job: &WebScanJob,
     stop: &AtomicBool,
     slot: &mut WorkerSlotGuard<'_>,
 ) {
@@ -287,7 +295,9 @@ fn handle_request(
                     handle_daemon_action(stream, req, ipc);
                 }
                 _ => {
-                    let _ = write_error(stream, 404, "Not Found", "endpoint not found");
+                    if !handle_ops_route(stream, req, cfg, ipc, scan_job) {
+                        let _ = write_error(stream, 404, "Not Found", "endpoint not found");
+                    }
                 }
             }
         }
@@ -298,7 +308,8 @@ fn handle_request(
 fn serve_connection(
     mut stream: TcpStream,
     cfg: &WebConfig,
-    ipc: &WebIpcBridge,
+    ipc: &Arc<WebIpcBridge>,
+    scan_job: &WebScanJob,
     stop: &AtomicBool,
     active_workers: &AtomicUsize,
 ) {
@@ -311,7 +322,7 @@ fn serve_connection(
         Err(_) => return,
     };
     match read_http_request(&mut reader) {
-        Ok(Some(req)) => handle_request(&mut stream, &req, cfg, ipc, stop, &mut slot),
+        Ok(Some(req)) => handle_request(&mut stream, &req, cfg, ipc, scan_job, stop, &mut slot),
         Ok(None) => {}
         Err(err) => {
             let (status, reason, msg) = err.http_status();
@@ -333,6 +344,8 @@ pub fn start_web_server(cfg: WebConfig) -> Result<WebServerHandle, String> {
 
     let ipc = Arc::new(WebIpcBridge::spawn(cfg.control_socket.clone()));
     let ipc_accept = Arc::clone(&ipc);
+    let scan_job = Arc::new(WebScanJob::default());
+    let scan_accept = Arc::clone(&scan_job);
     let stop = Arc::new(AtomicBool::new(false));
     let stop_bg = Arc::clone(&stop);
     let active_workers = Arc::new(AtomicUsize::new(0));
@@ -352,11 +365,12 @@ pub fn start_web_server(cfg: WebConfig) -> Result<WebServerHandle, String> {
                         }
                         let cfg_req = Arc::clone(&cfg_arc);
                         let ipc_req = Arc::clone(&ipc_accept);
+                        let scan_req = Arc::clone(&scan_accept);
                         let stop_req = Arc::clone(&stop_bg);
                         let workers_req = Arc::clone(&active_workers);
                         if thread::Builder::new()
                             .name("zapret-web-req".to_owned())
-                            .spawn(move || serve_connection(stream, &cfg_req, &ipc_req, &stop_req, &workers_req))
+                            .spawn(move || serve_connection(stream, &cfg_req, &ipc_req, &scan_req, &stop_req, &workers_req))
                             .is_err()
                         {
                             active_workers.fetch_sub(1, Ordering::AcqRel);
@@ -371,5 +385,5 @@ pub fn start_web_server(cfg: WebConfig) -> Result<WebServerHandle, String> {
         })
         .map_err(|err| format!("failed to spawn web server thread: {err}"))?;
 
-    Ok(WebServerHandle { addr, ipc, stop, join: Some(join) })
+    Ok(WebServerHandle { addr, ipc, scan_job, stop, join: Some(join) })
 }

@@ -101,25 +101,93 @@
 
         <section id="tab-domains" class="tab-panel">
           <div class="plate section-plate">
-            <h2>Domains &amp; Hostlists</h2>
-            <p class="muted">Domain scope and autohostlist management.</p>
-            <div id="domains-body"></div>
+            <div class="feed-header">
+              <h2>Autohostlist Domains</h2>
+              <button id="domains-refresh-btn" class="btn btn-secondary btn-compact" type="button">Refresh</button>
+            </div>
+            <p id="autolist-path" class="muted mono"></p>
+            <form id="domain-add-form" class="inline-form">
+              <input id="domain-add-input" class="input" type="text" placeholder="example.com" required>
+              <button class="btn btn-primary" type="submit">Add Domain</button>
+            </form>
+            <div id="autolist-chips" class="domain-list"></div>
+          </div>
+
+          <div class="plate section-plate">
+            <h2>Profile Inline Domains</h2>
+            <p class="muted">Domains listed directly inside active TOML profiles.</p>
+            <div id="inline-domains-chips" class="profile-chips"></div>
           </div>
         </section>
 
         <section id="tab-scan" class="tab-panel">
           <div class="plate section-plate">
-            <h2>Strategy Finder &amp; Speed</h2>
-            <p class="muted">Probe blocked sites and compare bypass throughput.</p>
-            <div id="scan-body"></div>
+            <h2>Strategy Finder</h2>
+            <form id="scan-form" class="scan-form">
+              <label class="field-label" for="scan-domains">Target domains (comma or space separated)</label>
+              <input id="scan-domains" class="input mono" type="text" placeholder="youtube.com, discord.com" required>
+
+              <div class="scan-options">
+                <div class="proto-checks">
+                  <label class="pill-check"><input type="checkbox" name="proto" value="http" checked> HTTP</label>
+                  <label class="pill-check"><input type="checkbox" name="proto" value="tls12" checked> TLS 1.2</label>
+                  <label class="pill-check"><input type="checkbox" name="proto" value="tls13" checked> TLS 1.3</label>
+                  <label class="pill-check"><input type="checkbox" name="proto" value="http3"> HTTP/3</label>
+                </div>
+                <select id="scan-level" class="input input-compact select-inline" aria-label="Scan level">
+                  <option value="quick">quick</option>
+                  <option value="standard" selected>standard</option>
+                  <option value="force">force</option>
+                </select>
+                <label class="pill-check"><input id="scan-stop-first" type="checkbox" checked> Stop on first</label>
+              </div>
+
+              <div class="hero-actions">
+                <button id="scan-start-btn" class="btn btn-primary" type="submit">Start Scan</button>
+                <button id="scan-stop-btn" class="btn btn-danger-outline" type="button" disabled>Stop Scan</button>
+                <button id="speed-run-btn" class="btn btn-secondary" type="button">Run Speed Test</button>
+              </div>
+            </form>
+
+            <div class="progress-wrap">
+              <div class="progress-meta">
+                <span id="scan-label" class="muted mono">Ready to scan</span>
+                <span id="scan-count" class="muted mono"></span>
+              </div>
+              <div class="progress-track"><div id="scan-bar" class="progress-fill"></div></div>
+            </div>
+
+            <div id="scan-results" class="packet-list"></div>
+            <div id="scan-toml-actions" class="hero-actions hidden">
+              <button id="apply-scan-toml-btn" class="btn btn-primary" type="button">Save &amp; Apply Found Config</button>
+            </div>
+          </div>
+
+          <div class="plate section-plate">
+            <h2>Speed Test</h2>
+            <p class="muted">Connect time, first byte, and throughput for your domains plus Cloudflare control.</p>
+            <div id="speed-results" class="packet-list">
+              <p class="empty-note">Run Speed Test above to compare connection timings.</p>
+            </div>
           </div>
         </section>
 
         <section id="tab-config" class="tab-panel">
           <div class="plate section-plate">
-            <h2>Configuration</h2>
-            <p class="muted">Edit and hot-reload nfqws2.toml profiles.</p>
-            <div id="config-body"></div>
+            <div class="feed-header">
+              <div>
+                <h2>Configuration</h2>
+                <p id="config-path-label" class="muted mono"></p>
+              </div>
+              <span id="config-valid-chip" class="chip mono">--</span>
+            </div>
+            <textarea id="config-editor" class="toml-editor mono" spellcheck="false" rows="16"></textarea>
+            <p id="config-error" class="error-text hidden" role="alert"></p>
+            <div class="hero-actions">
+              <button id="config-save-btn" class="btn btn-secondary" type="button">Save</button>
+              <button id="config-apply-btn" class="btn btn-primary" type="button">Save &amp; Apply</button>
+              <button id="config-reload-btn" class="btn btn-ghost" type="button">Reload</button>
+            </div>
           </div>
         </section>
       </main>

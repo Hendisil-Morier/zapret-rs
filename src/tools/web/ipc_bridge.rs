@@ -148,6 +148,15 @@ impl WebIpcBridge {
             .unwrap_or_default()
     }
 
+    /// Broadcasts one custom SSE `event` + JSON payload across all active subscribers.
+    pub fn emit_event(&self, event: &str, value: &impl serde::Serialize) {
+        if let Ok(json) = serde_json::to_string(value)
+            && let Ok(mut guard) = self.shared.lock()
+        {
+            guard.broadcast(event, &json);
+        }
+    }
+
     /// Registers one SSE client queue if under [`MAX_SSE_CLIENTS`], returning `None` when full.
     pub fn subscribe_sse(&self) -> Option<(WebStatusSnapshot, Receiver<String>)> {
         let mut guard = self.shared.lock().ok()?;
