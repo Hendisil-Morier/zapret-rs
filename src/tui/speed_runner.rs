@@ -14,7 +14,7 @@ use crate::tui::actions::try_start_or_attach;
 use crate::tui::daemon_cycle::STOP_TIMEOUT;
 use crate::tui::remote::detect_control_socket;
 use crate::tui::session::TerminalSession;
-use crate::tui::speed::{Side, SpeedPhase, build_targets, effective_speed_domains};
+use crate::tui::speed::{Side, SpeedPhase, build_scoped_targets, effective_speed_domains};
 use crate::tui::state::AppState;
 use crate::tui::tab2_session::{Tab2Session, attach_and_stop_active_daemon};
 use crate::tui::types::RunStatus;
@@ -40,19 +40,17 @@ enum JobPhase {
 pub(crate) struct SpeedJob {
     /// Current phase of the stop -> measure -> start -> measure sequence.
     phase: JobPhase,
-    /// Ordered probe targets (`domains` from Tab 1 + fixed unaffected control target).
-    targets: Vec<SpeedTarget>,
-    /// Primary IP family selected on Tab 1.
-    ipv: IpFamily,
+    /// Ordered `(target, ip_family)` pairs matching `state.ip_mode.families()`.
+    targets: Vec<(SpeedTarget, IpFamily)>,
 }
 
-/// Spawns a background thread measuring all `targets` sequentially and streaming `(idx, sample)`.
-fn spawn_probe_worker(targets: Vec<SpeedTarget>, ipv: IpFamily) -> Receiver<(usize, SpeedSample)> {
+/// Spawns a background thread measuring all `(target, ipv)` entries sequentially and streaming `(idx, sample)`.
+fn spawn_probe_worker(targets: Vec<(SpeedTarget, IpFamily)>) -> Receiver<(usize, SpeedSample)> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let backend = CurlProbeBackend::default();
-        for (idx, target) in targets.iter().enumerate() {
-            let sample = measure(&backend, target, ipv);
+        for (idx, (target, ipv)) in targets.iter().enumerate() {
+            let sample = measure(&backend, target, *ipv);
             if tx.send((idx, sample)).is_err() {
                 break;
             }
@@ -105,11 +103,10 @@ pub(crate) fn begin_speed_test(
         return None;
     }
     let eff = effective_speed_domains(&state.domains_input, &state.active_toml);
-    let targets = build_targets(&eff);
-    let ipv = state.ip_mode.families().into_iter().next().unwrap_or(IpFamily::V4);
-    state.speed.start(&targets);
+    let targets = build_scoped_targets(&eff, &state.ip_mode.families());
+    state.speed.start_scoped(&targets);
     state.status_banner = "Speed test: waiting for daemon to stop...".to_owned();
-    Some(SpeedJob { phase: JobPhase::Stopping { started: Instant::now() }, targets, ipv })
+    Some(SpeedJob { phase: JobPhase::Stopping { started: Instant::now() }, targets })
 }
 
 /// Advances the active [`SpeedJob`] by one tick, driving worker spawns and daemon transitions.
@@ -134,7 +131,7 @@ pub(crate) fn poll_speed_test(
                 }
                 return;
             }
-            let rx = spawn_probe_worker(curr.targets.clone(), curr.ipv);
+            let rx = spawn_probe_worker(curr.targets.clone());
             curr.phase = JobPhase::ProbingBefore { rx };
             state.speed.phase = SpeedPhase::ProbingBefore;
             state.status_banner = "Speed test: measuring without zapret...".to_owned();
@@ -169,7 +166,7 @@ pub(crate) fn poll_speed_test(
             if started.elapsed() < SETTLE_DELAY {
                 return;
             }
-            let rx = spawn_probe_worker(curr.targets.clone(), curr.ipv);
+            let rx = spawn_probe_worker(curr.targets.clone());
             curr.phase = JobPhase::ProbingAfter { rx };
             state.speed.phase = SpeedPhase::ProbingAfter;
             state.status_banner = "Speed test: measuring with zapret...".to_owned();

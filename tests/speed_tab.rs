@@ -12,8 +12,8 @@ use zapret_rs::tools::{
 };
 /// Tab 4 model and formatting helpers under test.
 use zapret_rs::tui::speed::{
-    Change, Side, SpeedPhase, SpeedRow, SpeedState, build_targets, compare, describe_sample,
-    effective_speed_domains, format_rate,
+    Change, Side, SpeedPhase, SpeedRow, SpeedState, build_scoped_targets, build_targets, compare,
+    describe_sample, effective_speed_domains, format_rate,
 };
 /// Top-level TUI state, navigation enum, and frame renderer.
 use zapret_rs::tui::{ActiveTab, AppAction, AppState, ModalPurpose, draw_app};
@@ -46,6 +46,24 @@ fn build_targets_deduplicates_tab1_domains_and_appends_control() {
     let targets = build_targets("https://Example.COM/foo, youtube.com example.com");
     let labels: Vec<&str> = targets.iter().map(|t| t.label.as_str()).collect();
     assert_eq!(labels, vec!["example.com", "youtube.com", &format!("control ({CONTROL_HOST})")]);
+
+    let single = build_scoped_targets("example.com", &[IpFamily::V4]);
+    assert_eq!(single.len(), 2);
+    assert_eq!(single[0].0.label, "example.com");
+    assert_eq!(single[0].1, IpFamily::V4);
+
+    let dual = build_scoped_targets("example.com", &[IpFamily::V4, IpFamily::V6]);
+    let dual_labels: Vec<(&str, IpFamily)> =
+        dual.iter().map(|(t, fam)| (t.label.as_str(), *fam)).collect();
+    assert_eq!(
+        dual_labels,
+        vec![
+            ("example.com (v4)", IpFamily::V4),
+            ("example.com (v6)", IpFamily::V6),
+            ("control (speed.cloudflare.com) (v4)", IpFamily::V4),
+            ("control (speed.cloudflare.com) (v6)", IpFamily::V6),
+        ]
+    );
 }
 
 #[test]

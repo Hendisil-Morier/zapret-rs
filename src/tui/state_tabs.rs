@@ -18,7 +18,7 @@ use crate::tui::prompt_modal::{PromptKind, PromptModal};
 /// Floating confirmation modal built when stopping an attached daemon (`S`).
 use crate::tui::modal::{AuthModal, ModalPurpose};
 /// Tab 4 target builder used to populate the speed confirmation preview.
-use crate::tui::speed::{build_targets, effective_speed_domains};
+use crate::tui::speed::{build_scoped_targets, effective_speed_domains};
 /// Application state updated by Run and Config key handlers.
 use crate::tui::state::AppState;
 /// Tab focus enums, scroll helpers, action results, and daemon run lifecycle states.
@@ -165,7 +165,7 @@ impl AppState {
                     self.status_banner = "Speed comparison already in progress.".to_owned();
                 } else {
                     let eff = effective_speed_domains(&self.domains_input, &self.active_toml);
-                    let count = build_targets(&eff).len();
+                    let count = build_scoped_targets(&eff, &self.ip_mode.families()).len();
                     let preview = format!("stop nfqws2 -> measure {count} target(s) -> start nfqws2 -> re-measure");
                     self.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmSpeedTest, preview));
                 }

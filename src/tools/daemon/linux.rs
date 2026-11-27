@@ -208,20 +208,27 @@ fn maybe_install_auto_nft(config: &AppConfig) -> Result<Option<Box<dyn FirewallH
     Ok(Some(guard))
 }
 
-/// Daemonizes if requested, records the active PID, and starts the control socket if enabled.
-fn begin_loop_session(
-    socket_path: Option<&Path>,
+/// Daemonizes if requested and writes the active child PID file prior to firewall or IPC setup.
+fn prepare_daemon_runtime(
     config: &AppConfig,
-    engine: &DesyncEngine,
-    config_path: Option<&Path>,
     pid_guard: &mut Option<PidFileGuard>,
-) -> Result<(Option<Arc<TelemetryHub>>, Option<ControlServer>), DaemonError> {
+) -> Result<(), DaemonError> {
     if config.daemon {
         daemonize()?;
     }
     if let Some(guard) = pid_guard.as_mut() {
         guard.write_current_pid()?;
     }
+    Ok(())
+}
+
+/// Starts the Unix control socket listener and telemetry hub after firewall rules are installed.
+fn start_control_session(
+    socket_path: Option<&Path>,
+    config: &AppConfig,
+    engine: &DesyncEngine,
+    config_path: Option<&Path>,
+) -> Result<(Option<Arc<TelemetryHub>>, Option<ControlServer>), DaemonError> {
     let Some(path) = socket_path else {
         return Ok((None, None));
     };
@@ -299,12 +306,12 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
     let engine = RefCell::new(DesyncEngine::with_sender(&config, sender)?);
 
     if !config.intercept {
-        let (hub, srv) = begin_loop_session(
+        prepare_daemon_runtime(&config, &mut pid_guard)?;
+        let (hub, srv) = start_control_session(
             control_socket_path.as_deref(),
             &config,
             &engine.borrow(),
             cli.config.as_deref(),
-            &mut pid_guard,
         )?;
         run_no_intercept_callbacks(
             quit_flag(),
@@ -325,14 +332,15 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
     }
 
     let mut catcher = QueueCatcher::bind(config.to_queue_config())?;
-    let (hub, srv) = begin_loop_session(
+    prepare_daemon_runtime(&config, &mut pid_guard)?;
+    // Install nftables queue rules before opening control.sock so callers never race Packet Probes.
+    let mut fw_guard = maybe_install_auto_nft(&config)?;
+    let (hub, srv) = start_control_session(
         control_socket_path.as_deref(),
         &config,
         &engine.borrow(),
         cli.config.as_deref(),
-        &mut pid_guard,
     )?;
-    let mut fw_guard = maybe_install_auto_nft(&config)?;
     let loop_result = catcher.run_until(
         quit_flag(),
         || next_loop_timeout(&engine, hub.as_deref(), &config, config_dir, &mut fw_guard),

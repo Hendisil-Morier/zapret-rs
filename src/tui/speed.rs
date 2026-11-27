@@ -2,9 +2,9 @@
 
 /// Parsed config inspector used when falling back to active profile `hostlist_domains`.
 use crate::config::AppConfig;
-/// Domain normalization and config domain extraction shared with Tab 1 and config merging.
+/// Domain normalization, IP family selection, and config domain extraction shared across tabs.
 use crate::tools::{
-    SpeedSample, SpeedTarget, control_target, domain_target, extract_hostlist_domains,
+    IpFamily, SpeedSample, SpeedTarget, control_target, domain_target, extract_hostlist_domains,
     normalize_domain,
 };
 
@@ -80,14 +80,24 @@ pub struct SpeedState {
 }
 
 impl SpeedState {
-    /// Resets the table to one empty row per target and marks the run as starting.
-    pub fn start(&mut self, targets: &[SpeedTarget]) {
-        self.rows = targets
-            .iter()
-            .map(|t| SpeedRow { label: t.label.clone(), before: None, after: None })
+    /// Resets the table from preformatted row labels and marks the run as starting.
+    fn reset_rows(&mut self, labels: impl IntoIterator<Item = String>) {
+        self.rows = labels
+            .into_iter()
+            .map(|label| SpeedRow { label, before: None, after: None })
             .collect();
         self.phase = SpeedPhase::Stopping;
         self.selected = 0;
+    }
+
+    /// Resets the table to one empty row per target and marks the run as starting.
+    pub fn start(&mut self, targets: &[SpeedTarget]) {
+        self.reset_rows(targets.iter().map(|t| t.label.clone()));
+    }
+
+    /// Resets the table from family-expanded `(SpeedTarget, IpFamily)` entries.
+    pub fn start_scoped(&mut self, targets: &[(SpeedTarget, IpFamily)]) {
+        self.reset_rows(targets.iter().map(|(t, _)| t.label.clone()));
     }
 
     /// Stores `sample` for row `idx` on `side`; out-of-range indexes are ignored.
@@ -143,6 +153,28 @@ pub fn build_targets(domains_input: &str) -> Vec<SpeedTarget> {
     let mut targets: Vec<SpeedTarget> = seen.iter().map(|d| domain_target(d)).collect();
     targets.push(control_target());
     targets
+}
+
+/// Expands [`build_targets`] across `families`, appending `(v4)`/`(v6)` when probing multiple.
+pub fn build_scoped_targets(
+    domains_input: &str,
+    families: &[IpFamily],
+) -> Vec<(SpeedTarget, IpFamily)> {
+    let base = build_targets(domains_input);
+    let active = if families.is_empty() { &[IpFamily::V4][..] } else { families };
+    let multi = active.len() > 1;
+    let mut out = Vec::with_capacity(base.len() * active.len());
+    for target in base {
+        for &ipv in active {
+            let mut scoped = target.clone();
+            if multi {
+                let tag = if ipv == IpFamily::V4 { "v4" } else { "v6" };
+                scoped.label = format!("{} ({tag})", scoped.label);
+            }
+            out.push((scoped, ipv));
+        }
+    }
+    out
 }
 
 /// Formats bytes per second as a decimal `KB/s` or `MB/s` figure.
