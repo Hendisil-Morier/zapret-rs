@@ -14,6 +14,8 @@ pub mod protocol;
 pub mod server;
 /// Symlink-safe, umask-0177 socket binder, stale-socket prober, and poll helpers.
 pub mod socket;
+/// Symlink-safe socket parent directory creation and leaf-only ownership transfer.
+pub mod socket_dir;
 /// Cross-platform control IPC stream transport (`ControlStream`).
 pub mod transport;
 
@@ -33,10 +35,12 @@ pub use protocol::{
 };
 /// Re-exported Unix control socket server and configuration.
 pub use server::{ControlServer, ControlServerConfig};
-/// Re-exported socket binding error types and path/directory helpers.
+/// Re-exported socket binding error types and path discovery helpers.
 pub use socket::{
     ControlServerError, DEFAULT_SYSTEM_CONTROL_SOCKET, control_socket_candidates,
-    default_control_socket_path, prepare_control_socket_dir, resolve_control_socket_path,
+    default_control_socket_path, resolve_control_socket_path,
 };
+/// Re-exported symlink-safe socket parent directory preparer.
+pub use socket_dir::prepare_control_socket_dir;
 /// Re-exported cross-platform IPC stream and live-endpoint prober.
 pub use transport::{ControlStream, is_live_control_socket};

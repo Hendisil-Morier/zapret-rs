@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 use crate::config::AppConfig;
 /// Control socket path resolver shared with `nfqws2`.
 use crate::control::default_control_socket_path;
+/// Trusted system binary resolution preventing `PATH` hijacking on `sudo`/`systemctl`/`nfqws2`.
+use crate::runtime::resolve_trusted_system_bin;
 /// Symlink-safe TOML writer, `~/` expansion, and non-interactive `sudo` credential probe.
 use crate::tools::{expand_tilde, sudo_needs_password, write_config_nofollow};
 /// Tab 2 remote attach session and control-socket detector.
@@ -45,8 +47,8 @@ pub(crate) fn has_systemd_unit() -> bool {
         || Path::new("/usr/lib/systemd/system/zapret-rs.service").is_file()
 }
 
-/// Searches sibling of current TUI binary, `/usr/local/bin`, and `PATH` for `nfqws2`,
-/// falling back to `(current_exe, Some("daemon"))` so single-binary installs work without symlinks.
+/// Searches sibling of current TUI binary and trusted system directories for `nfqws2`,
+/// never consulting caller `PATH`, and falls back to `(current_exe, Some("daemon"))`.
 pub(crate) fn resolve_daemon_target() -> Option<(PathBuf, Option<&'static str>)> {
     let bin_name = format!("nfqws2{}", std::env::consts::EXE_SUFFIX);
     if let Ok(exe) = std::env::current_exe()
@@ -58,20 +60,41 @@ pub(crate) fn resolve_daemon_target() -> Option<(PathBuf, Option<&'static str>)>
         }
     }
     #[cfg(unix)]
-    {
-        let system_bin = PathBuf::from("/usr/local/bin/nfqws2");
-        if system_bin.is_file() {
-            return Some((system_bin, None));
-        }
-    }
-    if let Some(paths) = std::env::var_os("PATH")
-        && let Some(found) = std::env::split_paths(&paths)
-            .map(|dir| dir.join(&bin_name))
-            .find(|cand| cand.is_file())
-    {
-        return Some((found, None));
+    if let Ok(system_bin) = resolve_trusted_system_bin("nfqws2") {
+        return Some((system_bin, None));
     }
     std::env::current_exe().ok().map(|exe| (exe, Some("daemon")))
+}
+
+/// Resolves the active operator primary GID for `--uid uid:gid` when `uid` matches real UID.
+#[cfg(not(windows))]
+fn resolve_daemon_gid(uid: u32) -> u32 {
+    #[cfg(unix)]
+    {
+        // SAFETY: `getuid` and `getgid` take no arguments and cannot fail.
+        if unsafe { libc::getuid() } == uid {
+            // SAFETY: `getgid` takes no arguments and cannot fail.
+            return unsafe { libc::getgid() };
+        }
+    }
+    uid
+}
+
+/// Builds `--daemon` CLI arguments with valid `--nft=false`/`--nft` flag syntax (`AppConfig`).
+#[cfg(not(windows))]
+pub fn build_daemon_common_args(
+    cfg_path: &Path,
+    sock_path: &Path,
+    no_nft: bool,
+) -> Vec<std::ffi::OsString> {
+    vec![
+        "--daemon".into(),
+        "--config".into(),
+        cfg_path.as_os_str().to_owned(),
+        "--control-socket".into(),
+        sock_path.as_os_str().to_owned(),
+        if no_nft { "--nft=false" } else { "--nft" }.into(),
+    ]
 }
 
 /// Polls `detect_control_socket` until a live daemon socket appears or `timeout` elapses.
@@ -88,19 +111,30 @@ fn wait_for_control_socket(configured: Option<&Path>, timeout: Duration) -> Opti
     }
 }
 
-/// Starts (or restarts if still deactivating) `zapret-rs.service` via `systemctl` and attaches.
+/// Starts (or restarts if still deactivating) `zapret-rs.service` via trusted `systemctl` and attaches.
 fn start_via_systemd(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) -> DaemonLaunchOutcome {
     if state.uid != 0 && sudo_needs_password() {
         return DaemonLaunchOutcome::NeedSudo("sudo systemctl restart zapret-rs.service".to_owned());
     }
+    let systemctl_bin = match resolve_trusted_system_bin("systemctl") {
+        Ok(p) => p,
+        Err(err) => return DaemonLaunchOutcome::Failed(format!("cannot locate trusted systemctl: {err}")),
+    };
     let output = if state.uid == 0 {
-        Command::new("systemctl")
+        Command::new(&systemctl_bin)
             .args(["restart", "zapret-rs.service"])
             .stdin(Stdio::null())
             .output()
     } else {
-        Command::new("sudo")
-            .args(["-n", "systemctl", "restart", "zapret-rs.service"])
+        let sudo_bin = match resolve_trusted_system_bin("sudo") {
+            Ok(p) => p,
+            Err(err) => return DaemonLaunchOutcome::Failed(format!("cannot locate trusted sudo: {err}")),
+        };
+        Command::new(&sudo_bin)
+            .arg("-n")
+            .arg("--")
+            .arg(&systemctl_bin)
+            .args(["restart", "zapret-rs.service"])
             .stdin(Stdio::null())
             .output()
     };
@@ -156,8 +190,7 @@ fn start_standalone_daemon(
         .control_socket_override
         .clone()
         .unwrap_or_else(default_control_socket_path);
-    let nft_flag = if state.no_nft { "--no-nft" } else { "--nft" };
-    let uid_arg = state.uid.to_string();
+    let nft_flag = if state.no_nft { "--nft=false" } else { "--nft" };
     let sub_prefix = subcmd.map_or_else(String::new, |s| format!("{s} "));
 
     #[cfg(windows)]
@@ -165,7 +198,7 @@ fn start_standalone_daemon(
         if !state.has_net_caps {
             return DaemonLaunchOutcome::Unavailable;
         }
-        let _ = (sub_prefix, nft_flag, uid_arg);
+        let _ = (sub_prefix, nft_flag);
         let mut cmd = Command::new(bin);
         if let Some(sub) = subcmd {
             cmd.arg(sub);
@@ -207,13 +240,14 @@ fn start_standalone_daemon(
             }
             thread::sleep(Duration::from_millis(50));
         }
-        return DaemonLaunchOutcome::Failed(format!(
+        DaemonLaunchOutcome::Failed(format!(
             "WinDivert daemon started, but control IPC at {} did not appear",
             sock_path.display()
-        ));
+        ))
     }
     #[cfg(not(windows))]
     {
+        let uid_arg = format!("{}:{}", state.uid, resolve_daemon_gid(state.uid));
         if state.uid != 0 && sudo_needs_password() {
             return DaemonLaunchOutcome::NeedSudo(format!(
                 "sudo {} {sub_prefix}--daemon --config {} {nft_flag}",
@@ -228,7 +262,15 @@ fn start_standalone_daemon(
             }
             direct
         } else {
-            let mut s = Command::new("sudo");
+            let sudo_bin = match resolve_trusted_system_bin("sudo") {
+                Ok(p) => p,
+                Err(err) => {
+                    return DaemonLaunchOutcome::Failed(format!(
+                        "cannot locate trusted sudo: {err}"
+                    ));
+                }
+            };
+            let mut s = Command::new(sudo_bin);
             s.args(["-n", "--"]).arg(bin);
             if let Some(sub) = subcmd {
                 s.arg(sub);
@@ -236,11 +278,7 @@ fn start_standalone_daemon(
             s.args(["--uid", &uid_arg]);
             s
         };
-        cmd.args(["--daemon", "--config"])
-            .arg(&cfg_path)
-            .arg("--control-socket")
-            .arg(&sock_path)
-            .arg(nft_flag)
+        cmd.args(build_daemon_common_args(&cfg_path, &sock_path, state.no_nft))
             .stdin(Stdio::null());
 
         match cmd.output() {

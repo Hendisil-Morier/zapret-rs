@@ -168,18 +168,49 @@ pub fn retain_net_capabilities(require_net_caps: bool) -> Result<(), ProcessErro
     retain_net_capabilities_for(require_net_caps, false)
 }
 
-/// Retains `CAP_NET_ADMIN|CAP_NET_RAW`, optionally preserving pre-existing ambient `CAP_NET_ADMIN`
-/// so `--nft` can execute `nft -f -` under systemd `AmbientCapabilities` without `sudo`.
+/// Retains `CAP_NET_ADMIN|CAP_NET_RAW`, preserving pre-existing ambient `CAP_NET_ADMIN` only
+/// when already ambient (e.g., under systemd `AmbientCapabilities`), never promoting file caps.
 pub fn retain_net_capabilities_for(
     require_net_caps: bool,
     preserve_nft_ambient: bool,
 ) -> Result<(), ProcessError> {
-    let can_raise_nft_ambient = preserve_nft_ambient
+    retain_net_capabilities_internal(require_net_caps, preserve_nft_ambient, false)
+}
+
+/// Retains `CAP_NET_ADMIN|CAP_NET_RAW` immediately after dropping root UID, raising ambient
+/// `CAP_NET_ADMIN` when `raise_nft_ambient` is requested so `--nft` can spawn trusted `nft`.
+pub fn retain_net_capabilities_from_root(
+    require_net_caps: bool,
+    raise_nft_ambient: bool,
+) -> Result<(), ProcessError> {
+    retain_net_capabilities_internal(require_net_caps, raise_nft_ambient, true)
+}
+
+/// Shared capability-retention implementation optionally allowing root-dropped ambient promotion.
+fn retain_net_capabilities_internal(
+    require_net_caps: bool,
+    preserve_nft_ambient: bool,
+    allow_raise_from_permitted: bool,
+) -> Result<(), ProcessError> {
+    let can_keep_nft_ambient = preserve_nft_ambient
         && (ambient_cap_active(CAP_NET_ADMIN)
-            || capget_current()
-                .map(|d| (d[0].permitted & (1u32 << CAP_NET_ADMIN)) != 0)
-                .unwrap_or(false));
-    let inh = if can_raise_nft_ambient { 1u64 << CAP_NET_ADMIN } else { 0 };
+            || (allow_raise_from_permitted
+                && capget_current()
+                    .map(|d| (d[0].permitted & (1u32 << CAP_NET_ADMIN)) != 0)
+                    .unwrap_or(false)));
+    let inh = if can_keep_nft_ambient { 1u64 << CAP_NET_ADMIN } else { 0 };
+    if inh == 0 {
+        // SAFETY: `PR_CAP_AMBIENT` + `PR_CAP_AMBIENT_CLEAR_ALL` takes zero pointer arguments.
+        let _ = unsafe {
+            libc::prctl(
+                libc::PR_CAP_AMBIENT,
+                libc::PR_CAP_AMBIENT_CLEAR_ALL as c_ulong,
+                0,
+                0,
+                0,
+            )
+        };
+    }
     if set_process_caps_with_inheritable(CAP_MASK_NET | (1u64 << CAP_SETPCAP) | inh, inh).is_ok() {
         let max_cap = read_cap_last_cap();
         for cap in 0..=max_cap {
@@ -195,7 +226,7 @@ pub fn retain_net_capabilities_for(
     match set_process_caps_with_inheritable(CAP_MASK_NET, inh) {
         Ok(()) => {
             if inh != 0 && !ambient_cap_active(CAP_NET_ADMIN) {
-                // SAFETY: `PR_CAP_AMBIENT_RAISE` promotes permitted+inheritable `CAP_NET_ADMIN` so child `nft` runs unprivileged.
+                // SAFETY: `PR_CAP_AMBIENT_RAISE` promotes permitted+inheritable `CAP_NET_ADMIN` after root UID drop.
                 let _ = unsafe {
                     libc::prctl(
                         libc::PR_CAP_AMBIENT,

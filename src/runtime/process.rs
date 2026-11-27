@@ -12,7 +12,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 /// Linux capability retention helpers and `SECBIT_NO_SETUID_FIXUP` constant.
-use crate::runtime::caps::{SECBIT_NO_SETUID_FIXUP, retain_net_capabilities_for};
+use crate::runtime::caps::{SECBIT_NO_SETUID_FIXUP, retain_net_capabilities_from_root};
 /// Typed process lifecycle errors returned to the CLI binary or caller.
 use crate::runtime::error::ProcessError;
 /// Target UID/GID identity specification shared with `writable`.
@@ -174,6 +174,9 @@ pub fn drop_privileges_for(
         });
     }
 
+    // SAFETY: `geteuid` takes no arguments and cannot fail.
+    let was_root = unsafe { libc::geteuid() } == 0;
+
     // SAFETY: `PR_SET_KEEPCAPS` takes integer flag `1` and ignores trailing arguments on Linux.
     if unsafe { libc::prctl(libc::PR_SET_KEEPCAPS, 1 as libc::c_ulong, 0, 0, 0) } < 0 {
         let source = std::io::Error::last_os_error();
@@ -222,7 +225,7 @@ pub fn drop_privileges_for(
         });
     }
 
-    retain_net_capabilities_for(require_net_caps, preserve_nft_ambient)
+    retain_net_capabilities_from_root(require_net_caps, preserve_nft_ambient && was_root)
 }
 
 /// Drops UID 0 back to `SUDO_UID`/`SUDO_GID` when launched via `sudo`, retaining only

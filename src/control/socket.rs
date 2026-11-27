@@ -2,26 +2,20 @@
 
 /// Runtime directory creation (`$XDG_RUNTIME_DIR/zapret-rs`) and environment lookup.
 use std::env;
-/// C path encoding for symlink-safe parent directory validation via `open(O_NOFOLLOW)`.
-#[cfg(unix)]
-use std::ffi::CString;
-/// Scoped socket bind serialization so process-wide `umask(0177)` has no concurrent races.
-use std::fs::{self, DirBuilder};
+/// File removal and symlink metadata inspection during socket binding.
+use std::fs;
 /// File type and permission error matching when probing pre-existing socket paths.
 #[cfg(unix)]
 use std::io::ErrorKind;
 /// Loopback TCP listener used on non-Unix targets.
 #[cfg(not(unix))]
 use std::net::TcpListener;
-/// Raw FD access for polling the listening socket and `fchown`/`fstat` directory hardening.
+/// Raw FD access for polling the listening socket.
 #[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-/// Raw path bytes passed safely to `libc::open`.
+use std::os::fd::AsRawFd;
+/// Unix-specific socket file detection and permission bits (`0600`).
 #[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
-/// Unix-specific socket file detection, inode metadata, and permission bits (`0600` / `0700`).
-#[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 /// Unix domain listener binding and liveness probing via `connect`.
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -84,13 +78,11 @@ impl BoundSocket {
     /// Accepts one pending client stream in non-blocking mode.
     pub(crate) fn accept(&self) -> std::io::Result<ControlStream> {
         #[cfg(unix)]
-        {
-            self.listener.accept().map(|(s, _)| ControlStream::from_unix(s))
-        }
+        let accepted = self.listener.accept().map(|(s, _)| ControlStream::from_unix(s))?;
         #[cfg(not(unix))]
-        {
-            self.listener.accept().map(|(s, _)| ControlStream::from_tcp(s))
-        }
+        let accepted = self.listener.accept().map(|(s, _)| ControlStream::from_tcp(s))?;
+        accepted.set_nonblocking(false)?;
+        Ok(accepted)
     }
 
     /// Drops the listener and removes the socket/rendezvous file safely.
@@ -184,74 +176,6 @@ pub fn resolve_control_socket_path(
         ControlSocketConfig::Custom(path) => Some(path.clone()),
         ControlSocketConfig::Disabled => None,
     }
-}
-
-/// Ensures the parent directory of `socket_path` exists (`0700` on Unix), rejects symlinks, and chowns to `target_uid`.
-#[cfg(unix)]
-pub fn prepare_control_socket_dir(
-    socket_path: &Path,
-    target_uid: Option<u32>,
-    target_gid: Option<u32>,
-) -> Result<(), ControlServerError> {
-    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
-        return Ok(());
-    };
-
-    if !parent.exists() {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(parent)
-            .map_err(|source| ControlServerError::Io { path: parent.to_path_buf(), source })?;
-    }
-
-    let c_dir = CString::new(parent.as_os_str().as_bytes()).map_err(|_| ControlServerError::Io {
-        path: parent.to_path_buf(),
-        source: std::io::Error::from_raw_os_error(libc::EINVAL),
-    })?;
-    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-    // SAFETY: `c_dir` is a NUL-terminated path opened with `O_DIRECTORY | O_NOFOLLOW`.
-    let raw_fd = unsafe { libc::open(c_dir.as_ptr(), flags) };
-    if raw_fd < 0 {
-        return Err(ControlServerError::Io {
-            path: parent.to_path_buf(),
-            source: std::io::Error::last_os_error(),
-        });
-    }
-    // SAFETY: `raw_fd` is a valid directory FD exclusively owned here.
-    let dir_fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
-
-    if let Some(uid) = target_uid {
-        let gid = target_gid.unwrap_or(libc::gid_t::MAX);
-        // SAFETY: `dir_fd` is verified non-symlink via `O_NOFOLLOW`; `fchown` avoids path TOCTOU races.
-        if unsafe { libc::fchown(dir_fd.as_raw_fd(), uid, gid) } != 0 {
-            return Err(ControlServerError::Io {
-                path: parent.to_path_buf(),
-                source: std::io::Error::last_os_error(),
-            });
-        }
-    }
-    let _ = dir_fd;
-    Ok(())
-}
-
-/// Ensures the parent directory of `socket_path` exists on non-Unix targets.
-#[cfg(not(unix))]
-pub fn prepare_control_socket_dir(
-    socket_path: &Path,
-    _target_uid: Option<u32>,
-    _target_gid: Option<u32>,
-) -> Result<(), ControlServerError> {
-    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
-        return Ok(());
-    };
-    if !parent.exists() {
-        DirBuilder::new()
-            .recursive(true)
-            .create(parent)
-            .map_err(|source| ControlServerError::Io { path: parent.to_path_buf(), source })?;
-    }
-    Ok(())
 }
 
 /// Validates any pre-existing file at `path`, removing only confirmed stale sockets (`ECONNREFUSED`).

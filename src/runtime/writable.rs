@@ -133,8 +133,10 @@ fn validate_and_chown_dir(
     if !created_fresh {
         // SAFETY: `geteuid()` always succeeds and takes no arguments.
         let euid = unsafe { libc::geteuid() };
-        let target_uid = identity.map(|id| id.uid);
-        if st.st_uid != euid && target_uid != Some(st.st_uid) {
+        let expected_uid = identity.map_or(euid, |id| id.uid);
+        let non_sticky_world_writable =
+            (st.st_mode & 0o002) != 0 && (st.st_mode & 0o1000) == 0;
+        if st.st_uid != expected_uid || non_sticky_world_writable {
             return Err(ProcessError::WritableDir {
                 path: target.to_path_buf(),
                 source: io::Error::from_raw_os_error(libc::EACCES),
@@ -155,7 +157,11 @@ fn validate_and_chown_dir(
             source: io::Error::from_raw_os_error(libc::ELOOP),
         });
     }
-    let chowned = identity.is_some_and(|id| try_fchown_dir(&dir_fd, id.uid));
+    let chowned = if created_fresh {
+        identity.is_some_and(|id| try_fchown_dir(&dir_fd, id.uid))
+    } else {
+        false
+    };
     Ok((canonical, chowned))
 }
 

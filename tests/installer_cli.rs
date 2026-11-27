@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Installer symbols and symlink constants under test.
-use zapret_rs::tools::{BUNDLED_LUA_SCRIPTS, SYMLINK_NAMES, render_systemd_service};
+use zapret_rs::tools::{
+    BUNDLED_LUA_SCRIPTS, SYMLINK_NAMES, render_systemd_service, try_render_systemd_service,
+};
 
 /// Creates a clean temporary prefix directory scoped to `tag`.
 fn temp_prefix(tag: &str) -> PathBuf {
@@ -110,6 +112,65 @@ fn install_replaces_existing_symlink_pointing_to_source_bin() {
 
     let meta = fs::symlink_metadata(&dst_bin).expect("dst metadata");
     assert!(meta.file_type().is_file() && !meta.file_type().is_symlink(), "dst must become a real file for setcap");
+
+    let _ = fs::remove_dir_all(&prefix);
+}
+
+#[test]
+fn systemd_unit_rendering_rejects_and_strips_newline_injections() {
+    assert!(try_render_systemd_service(
+        Path::new("/usr/local/bin/zapret-rs"),
+        "alice\nExecStartPre=/bin/evil",
+        Path::new("/home/alice"),
+    ).is_err());
+    assert!(try_render_systemd_service(
+        Path::new("/usr/local/bin/zapret-rs"),
+        "alice",
+        Path::new("/home/alice\r\nEnvironment=PWN=1"),
+    ).is_err());
+
+    let baseline = render_systemd_service(
+        Path::new("/usr/local/bin/zapret-rs"),
+        "alice",
+        Path::new("/home/alice"),
+    );
+    let sanitized = render_systemd_service(
+        Path::new("/usr/local/bin/zapret-rs"),
+        "alice\nExecStart=/evil",
+        Path::new("/home/alice"),
+    );
+    assert_eq!(sanitized.lines().count(), baseline.lines().count(), "newlines must never inject extra unit lines");
+    assert!(sanitized.lines().all(|l| !l.trim_start().starts_with("ExecStart=/evil")));
+}
+
+#[cfg(unix)]
+#[test]
+fn uninstall_preserves_unrelated_non_symlink_binaries_in_bin_dir() {
+    let bin = env!("CARGO_BIN_EXE_zapret-rs");
+    let prefix = temp_prefix("preserve-foreign-bin");
+    let bin_dir = prefix.join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+
+    let inst = Command::new(bin)
+        .args(["install", "--prefix"])
+        .arg(&prefix)
+        .args(["--no-caps", "--source-bin", bin])
+        .output()
+        .expect("run install");
+    assert!(inst.status.success());
+
+    // Pre-existing regular binary colliding with a compatibility symlink name must not be deleted.
+    let custom_mdig = bin_dir.join("mdig");
+    fs::write(&custom_mdig, "custom-binary").expect("write custom binary");
+
+    let uninst = Command::new(bin)
+        .args(["uninstall", "--prefix"])
+        .arg(&prefix)
+        .output()
+        .expect("run uninstall");
+    assert!(uninst.status.success());
+    assert!(!bin_dir.join("zapret-rs").exists());
+    assert_eq!(fs::read_to_string(&custom_mdig).expect("custom binary kept"), "custom-binary");
 
     let _ = fs::remove_dir_all(&prefix);
 }

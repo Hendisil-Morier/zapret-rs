@@ -159,9 +159,11 @@ impl Drop for AuthModal {
     }
 }
 
-/// Runs `sudo` without leaving the alternate screen (`sudo -n` if `password` is `None`, or `sudo -S`).
+/// Runs trusted `sudo` without leaving the alternate screen (`sudo -n` if `password` is `None`, or `sudo -S`).
 pub fn run_sudo_silent(args: &[&str], password: Option<&str>) -> Result<(), String> {
-    let mut cmd = Command::new("sudo");
+    let sudo_bin = crate::runtime::resolve_trusted_system_bin("sudo")
+        .map_err(|err| format!("failed to locate trusted sudo: {err}"))?;
+    let mut cmd = Command::new(sudo_bin);
     if password.is_some() {
         cmd.args(["-S", "-p", ""]).args(args).stdin(Stdio::piped());
     } else {

@@ -2,38 +2,31 @@
 
 /// Argument forwarding matching multicall CLI runner signatures.
 use std::ffi::OsString;
-/// Filesystem operations for directory creation, atomic binary staging, symlink setup, and removal.
-use std::fs;
-/// Unix executable mode (`0o755`) and symlink creation helpers.
+/// Filesystem operations for directory creation, exclusive binary staging, symlink setup, and removal.
+use std::fs::{self, OpenOptions};
+/// Stream copy between source executable and exclusively created stage file.
+use std::io;
+/// Unix `O_NOFOLLOW` open flags and executable mode helpers preventing symlink stage races.
 #[cfg(unix)]
-use std::os::unix::fs::{PermissionsExt as _, symlink};
+use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _, symlink};
 /// Destination prefix and installed binary/share path construction.
 use std::path::{Path, PathBuf};
-/// Subprocess execution for `setcap` and `systemctl` on Linux.
-#[cfg(target_os = "linux")]
-use std::process::Command;
 /// Clean exit status reporting.
 use std::process::ExitCode;
 
 /// CLI flag parsing for `install` and `uninstall` subcommands.
 use clap::Parser;
 
+/// Linux host integration helpers for capabilities and systemd service installation/removal.
+#[cfg(target_os = "linux")]
+use crate::tools::installer_sys::{apply_net_caps, install_systemd_service, uninstall_systemd_service};
 /// Bundled Lua script extraction into `<prefix>/share/zapret-rs/lua`.
 use crate::tools::lua_bundle::extract_bundled_lua;
 /// Current invoking user's real home directory resolution (handling `sudo`).
 use crate::tools::strat::interactive::resolve_user_home;
-/// Symlink-safe unit file write helper using `O_NOFOLLOW`.
-#[cfg(target_os = "linux")]
-use crate::tools::strat::toml::write_config_nofollow;
 
 /// Compatibility symlink names optionally linked to `zapret-rs` inside `<prefix>/bin`.
 pub const SYMLINK_NAMES: &[&str] = &["nfqws2", "strat_finder", "ip2net", "mdig"];
-
-/// Systemd unit template embedded so `zapret-rs install --systemd` works outside the repo.
-const SYSTEMD_SERVICE_TEMPLATE: &str = include_str!("../../contrib/systemd/zapret-rs.service");
-/// Path where `zapret-rs install --systemd` installs the system service unit.
-#[cfg(target_os = "linux")]
-const SYSTEMD_SERVICE_DEST: &str = "/etc/systemd/system/zapret-rs.service";
 
 /// Command-line options for `zapret-rs install`.
 #[derive(Debug, Parser)]
@@ -89,18 +82,6 @@ fn current_euid() -> u32 {
     }
 }
 
-/// Resolves the target operator username and home directory even when invoked via `sudo`.
-#[cfg(target_os = "linux")]
-fn resolve_operator_identity() -> (String, PathBuf) {
-    let user = std::env::var("SUDO_USER")
-        .ok()
-        .filter(|u| !u.is_empty())
-        .or_else(|| std::env::var("USER").ok().filter(|u| !u.is_empty()))
-        .unwrap_or_else(|| "root".to_owned());
-    let home = resolve_user_home().unwrap_or_else(|| PathBuf::from("/root"));
-    (user, home)
-}
-
 /// Chooses the default install prefix (`~/.local` for unprivileged installs, `/usr/local` otherwise).
 fn default_install_prefix(prefer_system: bool) -> PathBuf {
     if prefer_system || current_euid() == 0 {
@@ -111,74 +92,93 @@ fn default_install_prefix(prefer_system: bool) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/usr/local"))
 }
 
-/// Renders the embedded systemd unit with concrete executable path, operator user, and home dir.
-pub fn render_systemd_service(bin_path: &Path, user: &str, home: &Path) -> String {
-    SYSTEMD_SERVICE_TEMPLATE
-        .replace("/usr/local/bin/zapret-rs", &bin_path.display().to_string())
-        .replace("__USER__", user)
-        .replace("__HOME__", &home.display().to_string())
+/// Verifies `dir` is a non-symlink directory (creating it cleanly when absent).
+fn ensure_real_dir(dir: &Path) -> Result<(), String> {
+    if let Ok(meta) = fs::symlink_metadata(dir) {
+        if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
+            return Err(format!(
+                "refusing symlink or non-directory installation path '{}'",
+                dir.display()
+            ));
+        }
+        return Ok(());
+    }
+    fs::create_dir_all(dir)
+        .map_err(|err| format!("failed to create '{}': {err}", dir.display()))
 }
 
-/// Atomically installs executable bytes from `src` to `dst` with mode `0755`.
+/// Atomically installs executable bytes from `src` to `dst` using `O_CREAT | O_EXCL | O_NOFOLLOW`
+/// staging so pre-existing symlinks or stale stage filenames cannot be hijacked.
 fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String> {
     let parent = dst
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| format!("invalid target path '{}'", dst.display()))?;
-    fs::create_dir_all(parent)
-        .map_err(|err| format!("failed to create '{}': {err}", parent.display()))?;
+    ensure_real_dir(parent)?;
 
-    let staged = parent.join(format!(".zapret-rs.stage.{}", std::process::id()));
-    fs::copy(src, &staged)
-        .map_err(|err| format!("failed to copy '{}' to '{}': {err}", src.display(), staged.display()))?;
+    let mut src_file = fs::File::open(src)
+        .map_err(|err| format!("failed to open source binary '{}': {err}", src.display()))?;
+    let mut staged = None;
+    let mut dst_file = None;
+    for attempt in 0..32u32 {
+        let candidate = parent.join(format!(".zapret-rs.stage.{}.{}", std::process::id(), attempt));
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        opts.mode(0o755).custom_flags(libc::O_NOFOLLOW);
+        match opts.open(&candidate) {
+            Ok(file) => {
+                staged = Some(candidate);
+                dst_file = Some(file);
+                break;
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(format!(
+                    "failed to create staged binary '{}': {err}",
+                    candidate.display()
+                ));
+            }
+        }
+    }
+    let (Some(staged_path), Some(mut out_file)) = (staged, dst_file) else {
+        return Err(format!("could not allocate exclusive stage file in '{}'", parent.display()));
+    };
+
+    if let Err(err) = io::copy(&mut src_file, &mut out_file) {
+        let _ = fs::remove_file(&staged_path);
+        return Err(format!(
+            "failed to copy '{}' to '{}': {err}",
+            src.display(),
+            staged_path.display()
+        ));
+    }
     #[cfg(unix)]
-    fs::set_permissions(&staged, fs::Permissions::from_mode(0o755))
-        .map_err(|err| format!("failed to chmod '{}': {err}", staged.display()))?;
-    fs::rename(&staged, dst).map_err(|err| {
-        let _ = fs::remove_file(&staged);
+    if let Err(err) = out_file.set_permissions(fs::Permissions::from_mode(0o755)) {
+        let _ = fs::remove_file(&staged_path);
+        return Err(format!("failed to chmod '{}': {err}", staged_path.display()));
+    }
+    drop(out_file);
+
+    fs::rename(&staged_path, dst).map_err(|err| {
+        let _ = fs::remove_file(&staged_path);
         format!("failed to install binary '{}': {err}", dst.display())
     })
 }
 
-/// Grants `CAP_NET_ADMIN` + `CAP_NET_RAW` via `setcap`, prepending `sudo` when not root.
-#[cfg(target_os = "linux")]
-fn apply_net_caps(bin_path: &Path) -> Result<(), String> {
-    let status = if current_euid() == 0 {
-        Command::new("setcap")
-            .arg("cap_net_admin,cap_net_raw+ep")
-            .arg(bin_path)
-            .status()
-    } else {
-        Command::new("sudo")
-            .args(["--", "setcap", "cap_net_admin,cap_net_raw+ep"])
-            .arg(bin_path)
-            .status()
+/// Returns `true` when `link_path` is a symlink targeting `zapret-rs`.
+fn symlink_points_to_zapret(link_path: &Path, dst_bin: &Path) -> bool {
+    let Ok(meta) = fs::symlink_metadata(link_path) else {
+        return false;
+    };
+    if !meta.file_type().is_symlink() {
+        return false;
     }
-    .map_err(|err| format!("failed to execute setcap: {err}"))?;
-    if !status.success() {
-        return Err(format!("setcap exited with status {status}"));
-    }
-    Ok(())
-}
-
-/// Installs `/etc/systemd/system/zapret-rs.service` and runs `systemctl daemon-reload && enable`.
-#[cfg(target_os = "linux")]
-fn install_systemd_service(bin_path: &Path) -> Result<(), String> {
-    let (user, home) = resolve_operator_identity();
-    let unit = render_systemd_service(bin_path, &user, &home);
-    write_config_nofollow(Path::new(SYSTEMD_SERVICE_DEST), &unit)
-        .map_err(|err| format!("failed to write {SYSTEMD_SERVICE_DEST} (run with sudo): {err}"))?;
-    let reload = Command::new("systemctl").args(["daemon-reload"]).status();
-    if !reload.as_ref().is_ok_and(|s| s.success()) {
-        return Err("systemctl daemon-reload failed".to_owned());
-    }
-    let enable = Command::new("systemctl")
-        .args(["enable", "zapret-rs.service"])
-        .status();
-    if !enable.as_ref().is_ok_and(|s| s.success()) {
-        return Err("systemctl enable zapret-rs.service failed".to_owned());
-    }
-    Ok(())
+    fs::read_link(link_path).is_ok_and(|target| {
+        target == Path::new("zapret-rs")
+            || target == dst_bin
+            || target.file_name() == Some(std::ffi::OsStr::new("zapret-rs"))
+    })
 }
 
 /// Installs `zapret-rs`, bundled Lua scripts, optional symlinks, capabilities, and systemd unit.
@@ -201,13 +201,20 @@ fn perform_install(cli: &InstallCli) -> Result<(), String> {
     }
 
     let lua_dir = prefix.join("share").join("zapret-rs").join("lua");
+    ensure_real_dir(&lua_dir)?;
     extract_bundled_lua(&lua_dir)?;
 
     if cli.symlinks {
         #[cfg(unix)]
         for name in SYMLINK_NAMES {
             let link = bin_dir.join(name);
-            let _ = fs::remove_file(&link);
+            if let Ok(meta) = fs::symlink_metadata(&link)
+                && (meta.file_type().is_symlink() || meta.file_type().is_file())
+            {
+                fs::remove_file(&link).map_err(|err| {
+                    format!("failed to replace '{}': {err}", link.display())
+                })?;
+            }
             symlink("zapret-rs", &link)
                 .map_err(|err| format!("failed to create symlink '{}': {err}", link.display()))?;
         }
@@ -231,7 +238,7 @@ fn perform_install(cli: &InstallCli) -> Result<(), String> {
     Ok(())
 }
 
-/// Removes installed files from `prefix` (preserving `~/.config/zapret-rs` user configs).
+/// Removes installed files from `prefix` (preserving `~/.config/zapret-rs` and unrelated binaries).
 fn perform_uninstall(cli: &UninstallCli) -> Result<(), String> {
     let prefix = cli.prefix.clone().unwrap_or_else(|| {
         let user_prefix = default_install_prefix(false);
@@ -242,29 +249,31 @@ fn perform_uninstall(cli: &UninstallCli) -> Result<(), String> {
         }
     });
     let bin_dir = prefix.join("bin");
-    for name in ["zapret-rs"].into_iter().chain(SYMLINK_NAMES.iter().copied()) {
+    let main_bin = bin_dir.join("zapret-rs");
+    if let Ok(meta) = fs::symlink_metadata(&main_bin)
+        && (meta.file_type().is_file() || meta.file_type().is_symlink())
+    {
+        fs::remove_file(&main_bin)
+            .map_err(|err| format!("failed to remove '{}': {err}", main_bin.display()))?;
+    }
+    for name in SYMLINK_NAMES {
         let target = bin_dir.join(name);
-        if fs::symlink_metadata(&target).is_ok() {
+        if symlink_points_to_zapret(&target, &main_bin) {
             fs::remove_file(&target)
                 .map_err(|err| format!("failed to remove '{}': {err}", target.display()))?;
         }
     }
     let lua_share = prefix.join("share").join("zapret-rs");
-    if lua_share.exists() {
+    if let Ok(meta) = fs::symlink_metadata(&lua_share)
+        && !meta.file_type().is_symlink()
+        && meta.file_type().is_dir()
+    {
         fs::remove_dir_all(&lua_share)
             .map_err(|err| format!("failed to remove '{}': {err}", lua_share.display()))?;
     }
     #[cfg(target_os = "linux")]
     if cli.systemd {
-        let _ = Command::new("systemctl")
-            .args(["disable", "--now", "zapret-rs.service"])
-            .status();
-        let unit = Path::new(SYSTEMD_SERVICE_DEST);
-        if unit.exists() {
-            fs::remove_file(unit)
-                .map_err(|err| format!("failed to remove {SYSTEMD_SERVICE_DEST}: {err}"))?;
-        }
-        let _ = Command::new("systemctl").args(["daemon-reload"]).status();
+        uninstall_systemd_service()?;
     }
     println!("Uninstalled zapret-rs artifacts under {}", prefix.display());
     Ok(())

@@ -12,6 +12,8 @@ pub mod privilege;
 pub mod process;
 /// Async-signal-safe termination and reload flags with Unix/Windows handler installation.
 pub mod signals;
+/// Trusted system binary resolution and executable safety checks avoiding `PATH` hijacking.
+pub mod trusted_bin;
 /// Writable Lua directory preparation and `WRITABLE` environment export (`--writable`).
 pub mod writable;
 
@@ -19,7 +21,8 @@ pub mod writable;
 #[cfg(target_os = "linux")]
 pub use caps::{
     CAP_MASK_NET, SECBIT_NO_SETUID_FIXUP, clear_child_privileges, has_effective_caps,
-    retain_net_capabilities, retain_net_capabilities_for, set_process_caps,
+    retain_net_capabilities, retain_net_capabilities_for, retain_net_capabilities_from_root,
+    set_process_caps,
 };
 /// Re-exported process lifecycle error type.
 pub use error::ProcessError;
@@ -37,6 +40,8 @@ pub use process::{
 pub use signals::{
     install_signal_handlers, quit_flag, reload_flag, reset_signal_flags, take_reload_requested,
 };
+/// Re-exported trusted binary resolution and path validation helpers.
+pub use trusted_bin::{resolve_trusted_system_bin, validate_trusted_bin_path};
 /// Re-exported `--writable` directory defaults and preparation helpers.
 pub use writable::{
     DEFAULT_WRITABLE_SUBDIR, ensure_writable_dir, prepare_writable_dir,

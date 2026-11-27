@@ -421,7 +421,7 @@ fn assert_pcap_record(raw: &[u8], off: usize, pkt: &[u8]) -> usize {
 #[test]
 fn zapret_pcap_writes_valid_nanosecond_pcap_under_writable() {
     let tmp = TempDir::new("zapret_rs_pcap");
-    let dir = prepare_writable_dir(&WritableDirConfig::Custom(tmp.0.clone()), None)
+    let dir = prepare_writable_dir(&WritableDirConfig::Custom(tmp.0.join("writable")), None)
         .expect("prepare writable dir");
     let toml = r#"
 lua_init = ["zapret-lib.lua", "zapret-pcap.lua"]

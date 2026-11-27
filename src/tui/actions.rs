@@ -273,7 +273,13 @@ pub(crate) fn submit_auth_modal(
 
     let result = match purpose {
         ModalPurpose::GrantCaps => {
-            run_sudo_silent(&["--", "setcap", "cap_net_admin,cap_net_raw+ep", &state.exe_path], pw_ref)
+            let setcap_cmd = crate::runtime::resolve_trusted_system_bin("setcap")
+                .map(|p| p.display().to_string())
+                .map_err(|err| format!("cannot locate trusted setcap: {err}"));
+            match setcap_cmd {
+                Ok(bin) => run_sudo_silent(&["--", &bin, "cap_net_admin,cap_net_raw+ep", &state.exe_path], pw_ref),
+                Err(err) => Err(err),
+            }
         }
         ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => {
             run_sudo_silent(&["-v"], pw_ref)

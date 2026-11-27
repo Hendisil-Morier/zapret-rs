@@ -6,6 +6,8 @@ pub mod daemon;
 pub mod dns;
 /// Self-installing CLI (`install` / `uninstall`) for binary, Lua scripts, caps, and systemd.
 pub mod installer;
+/// Linux capability-target lockdown, trusted `systemctl` runner, and sanitized systemd unit renderer.
+pub mod installer_sys;
 /// IPv4/IPv6 single-address and CIDR subnet aggregator (`zapret2/ip2net`).
 pub mod ip2net;
 /// Shared `ip2net` CLI runner (`run_ip2net_cli`).
@@ -28,7 +30,9 @@ pub use daemon::run_nfqws2_cli;
 /// Public API re-exports for OS DNS/DoH preset status, apply, and CLI runner.
 pub use dns::{DnsPreset, DnsStatus, apply_dns_preset, detect_dns_status, run_dns_cli};
 /// Public API re-exports for `install` / `uninstall` CLI commands and systemd unit rendering.
-pub use installer::{SYMLINK_NAMES, render_systemd_service, run_install_cli, run_uninstall_cli};
+pub use installer::{SYMLINK_NAMES, run_install_cli, run_uninstall_cli};
+/// Public API re-exports for validated/sanitized systemd unit rendering.
+pub use installer_sys::{render_systemd_service, try_render_systemd_service};
 /// Public API re-exports for `ip2net` configuration, validation, and streaming execution.
 pub use ip2net::{
     Ip2NetConfig, Ip2NetError, Ip2NetFamily, parse_prefix_length, parse_v4_threshold,

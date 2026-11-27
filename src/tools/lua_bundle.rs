@@ -40,18 +40,22 @@ pub fn default_user_lua_dir() -> Option<PathBuf> {
 }
 
 /// Returns candidate directories searched for `zapret-lib.lua` and `zapret-antidpi.lua`.
+///
+/// Relative CWD directories (`./lua`) are intentionally excluded unless passed via `--lua-dir`.
 fn candidate_lua_dirs(explicit_dir: Option<&Path>) -> Vec<PathBuf> {
     if let Some(dir) = explicit_dir {
         return vec![expand_tilde(&dir.to_string_lossy())];
     }
-    let mut dirs = vec![PathBuf::from("lua")];
+    let mut dirs = Vec::new();
     if let Ok(exe) = std::env::current_exe()
         && let Some(parent) = exe.parent()
     {
         dirs.push(parent.join("lua"));
+        if let Some(prefix) = parent.parent() {
+            dirs.push(prefix.join("share").join("zapret-rs").join("lua"));
+        }
         if let Some(grand) = parent.parent().and_then(Path::parent) {
             dirs.push(grand.join("lua"));
-            dirs.push(grand.join("../zapret2/lua"));
         }
     }
     if let Some(user_dir) = default_user_lua_dir() {
@@ -61,7 +65,6 @@ fn candidate_lua_dirs(explicit_dir: Option<&Path>) -> Vec<PathBuf> {
         [
             "/usr/local/share/zapret-rs/lua",
             "/usr/share/zapret-rs/lua",
-            "../zapret2/lua",
             "/opt/zapret2/lua",
             "/usr/share/zapret2/lua",
         ]
