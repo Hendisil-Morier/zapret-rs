@@ -16,4 +16,4 @@ pub use aes_gcm::aes_gcm_crypt;
 /// Re-exported cryptographic error enum.
 pub use error::CryptoError;
 /// Re-exported SHA-2 algorithm selector and hash/HMAC/HKDF functions.
-pub use sha2::{HashAlg, hkdf_sha2, hmac_sha2, sha2_hash};
+pub use sha2::{HashAlg, hkdf_sha2, hkdf_sha2_expand, hkdf_sha2_extract, hmac_sha2, sha2_hash};

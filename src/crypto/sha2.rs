@@ -254,6 +254,41 @@ pub fn hmac_sha2(alg: HashAlg, key: &[u8], data: &[u8]) -> Vec<u8> {
     hmac_sha2_parts(alg, key, &[data])
 }
 
+/// Computes RFC 5869 `HKDF-Extract` (`HMAC-Hash(salt, ikm)`), using an all-zero salt when `None`.
+pub fn hkdf_sha2_extract(alg: HashAlg, salt: Option<&[u8]>, ikm: &[u8]) -> Vec<u8> {
+    let hash_len = alg.digest_len();
+    let zero_salt = [0u8; 32];
+    let effective_salt = salt.unwrap_or(&zero_salt[..hash_len]);
+    hmac_sha2(alg, effective_salt, ikm)
+}
+
+/// Computes RFC 5869 `HKDF-Expand` over pseudorandom key `prk` and context `info`.
+///
+/// Rejects `okm_len == 0` and `okm_len > 255 * hash_len` prior to allocating output storage.
+pub fn hkdf_sha2_expand(
+    alg: HashAlg,
+    prk: &[u8],
+    info: &[u8],
+    okm_len: usize,
+) -> Result<Vec<u8>, CryptoError> {
+    let hash_len = alg.digest_len();
+    if okm_len == 0 || okm_len > 255 * hash_len {
+        return Err(CryptoError::InvalidOkmLength(okm_len));
+    }
+
+    let blocks = okm_len.div_ceil(hash_len);
+    let mut okm = Vec::with_capacity(okm_len);
+    let mut prev: Vec<u8> = Vec::new();
+    for idx in 1..=blocks {
+        let counter = [idx as u8];
+        let t = hmac_sha2_parts(alg, prk, &[&prev, info, &counter]);
+        let take = (okm_len - okm.len()).min(hash_len);
+        okm.extend_from_slice(&t[..take]);
+        prev = t;
+    }
+    Ok(okm)
+}
+
 /// Derives `okm_len` keying material bytes via RFC 5869 HKDF matching `zapret2/nfq2/crypto/hkdf.c`.
 ///
 /// Rejects `okm_len == 0` and `okm_len > 255 * hash_len` prior to allocating output storage.
@@ -268,20 +303,6 @@ pub fn hkdf_sha2(
     if okm_len == 0 || okm_len > 255 * hash_len {
         return Err(CryptoError::InvalidOkmLength(okm_len));
     }
-
-    let zero_salt = [0u8; 32];
-    let effective_salt = salt.unwrap_or(&zero_salt[..hash_len]);
-    let prk = hmac_sha2(alg, effective_salt, ikm);
-
-    let blocks = okm_len.div_ceil(hash_len);
-    let mut okm = Vec::with_capacity(okm_len);
-    let mut prev: Vec<u8> = Vec::new();
-    for idx in 1..=blocks {
-        let counter = [idx as u8];
-        let t = hmac_sha2_parts(alg, &prk, &[&prev, info, &counter]);
-        let take = (okm_len - okm.len()).min(hash_len);
-        okm.extend_from_slice(&t[..take]);
-        prev = t;
-    }
-    Ok(okm)
+    let prk = hkdf_sha2_extract(alg, salt, ikm);
+    hkdf_sha2_expand(alg, &prk, info, okm_len)
 }

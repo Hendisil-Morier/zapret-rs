@@ -1,11 +1,9 @@
-//! QUIC Initial key derivation (HKDF-SHA256) and AEAD/header-protection decryption via `ring`.
+//! Pure-Rust QUIC Initial key derivation (HKDF-SHA256) and AEAD/header-protection decryption.
 
-/// Cryptographic primitives from offline `ring` used for RFC 9001 Initial packet decryption.
-use ring::{
-    aead::{AES_128_GCM, Aad, LessSafeKey, Nonce, UnboundKey, quic::HeaderProtectionKey},
-    hkdf::{HKDF_SHA256, KeyType, Prk, Salt},
+/// Pure-Rust AES block cipher, AES-GCM, and HKDF primitives replacing external `ring` runtime deps.
+use crate::crypto::{
+    AesKey, HashAlg, aes_gcm_crypt, hkdf_sha2_expand, hkdf_sha2_extract,
 };
-
 /// QUIC header parsers and draft/v1/v2 version classifiers.
 use crate::protocol::quic::{
     is_quic_v2, parse_initial_scid_token_payload, quic_draft_version, quic_extract_dcid,
@@ -56,18 +54,6 @@ const HANDSHAKE_SALT_T051: [u8; 20] = [
     0xcc, 0xda, 0x6e, 0x03, 0x3d,
 ];
 
-/// Arbitrary-length OKM helper implementing [`ring::hkdf::KeyType`].
-struct RawLen(
-    /// Requested derived key byte count.
-    usize,
-);
-
-impl KeyType for RawLen {
-    fn len(&self) -> usize {
-        self.0
-    }
-}
-
 /// Selects the RFC/draft Initial salt slice corresponding to QUIC wire `version`.
 fn select_initial_salt(version: u32) -> &'static [u8; 20] {
     let draft = quic_draft_version(version);
@@ -91,7 +77,7 @@ fn select_initial_salt(version: u32) -> &'static [u8; 20] {
 }
 
 /// Runs TLS 1.3 `HKDF-Expand-Label` with an empty transcript context (`quic_hkdf_expand_label`).
-fn hkdf_expand_label(prk: &Prk, label: &[u8], out: &mut [u8]) -> Option<()> {
+fn hkdf_expand_label(prk: &[u8], label: &[u8], out: &mut [u8]) -> Option<()> {
     let mut info_buf = [0u8; 64];
     let out_len_u16 = u16::try_from(out.len()).ok()?;
     let label_len_u8 = u8::try_from(label.len()).ok()?;
@@ -105,10 +91,21 @@ fn hkdf_expand_label(prk: &Prk, label: &[u8], out: &mut [u8]) -> Option<()> {
     info_buf[3..3 + label.len()].copy_from_slice(label);
     info_buf[3 + label.len()] = 0;
 
-    let info_slices = [&info_buf[..total_len]];
-    let okm = prk.expand(&info_slices, RawLen(out.len())).ok()?;
-    okm.fill(out).ok()?;
+    let okm = hkdf_sha2_expand(HashAlg::Sha256, prk, &info_buf[..total_len], out.len()).ok()?;
+    out.copy_from_slice(&okm);
     Some(())
+}
+
+/// Constant-time 16-byte AEAD authentication tag comparison.
+fn ct_eq_16(computed: &[u8; 16], received: &[u8]) -> bool {
+    if received.len() != 16 {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..16 {
+        diff |= computed[i] ^ received[i];
+    }
+    std::hint::black_box(diff) == 0
 }
 
 /// Decrypts a QUIC client Initial packet payload using DCID-derived secrets (`QUICDecryptInitial`).
@@ -120,27 +117,26 @@ pub fn quic_decrypt_initial(data: &[u8]) -> Option<Vec<u8>> {
     let dcid = quic_extract_dcid(data)?;
 
     let salt = select_initial_salt(ver);
-    let initial_prk = Salt::new(HKDF_SHA256, salt).extract(dcid.as_slice());
+    let initial_prk = hkdf_sha2_extract(HashAlg::Sha256, Some(salt), dcid.as_slice());
     let mut client_initial_secret = [0u8; 32];
     hkdf_expand_label(&initial_prk, b"tls13 client in", &mut client_initial_secret)?;
-    let client_prk = Prk::new_less_safe(HKDF_SHA256, &client_initial_secret);
 
     let v1_label = !is_quic_v2(ver);
     let mut aeskey = [0u8; 16];
     let mut aesiv = [0u8; 12];
     let mut aeshp = [0u8; 16];
     hkdf_expand_label(
-        &client_prk,
+        &client_initial_secret,
         if v1_label { b"tls13 quic key" } else { b"tls13 quicv2 key" },
         &mut aeskey,
     )?;
     hkdf_expand_label(
-        &client_prk,
+        &client_initial_secret,
         if v1_label { b"tls13 quic iv" } else { b"tls13 quicv2 iv" },
         &mut aesiv,
     )?;
     hkdf_expand_label(
-        &client_prk,
+        &client_initial_secret,
         if v1_label { b"tls13 quic hp" } else { b"tls13 quicv2 hp" },
         &mut aeshp,
     )?;
@@ -151,9 +147,9 @@ pub fn quic_decrypt_initial(data: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
 
-    let sample = data.get(pn_offset + 4..pn_offset + 20)?;
-    let hp_key = HeaderProtectionKey::new(&ring::aead::quic::AES_128, &aeshp).ok()?;
-    let mask = hp_key.new_mask(sample).ok()?;
+    let sample: [u8; 16] = data.get(pn_offset + 4..pn_offset + 20)?.try_into().ok()?;
+    let hp_key = AesKey::new(&aeshp).ok()?;
+    let mask = hp_key.encrypt_block(&sample);
 
     let packet0 = data[0] ^ (mask[0] & 0x0f);
     let pkn_len = usize::from((packet0 & 0x03) + 1);
@@ -176,13 +172,13 @@ pub fn quic_decrypt_initial(data: &[u8]) -> Option<Vec<u8>> {
     aesiv[4..12].copy_from_slice(&iv_tail.to_be_bytes());
 
     let sealed_len = payload_len_us.checked_sub(pkn_len)?;
-    let mut buf = data.get(header_len..header_len + sealed_len)?.to_vec();
-    let unbound = UnboundKey::new(&AES_128_GCM, &aeskey).ok()?;
-    let aead_key = LessSafeKey::new(unbound);
-    let plain_len = aead_key
-        .open_in_place(Nonce::assume_unique_for_key(aesiv), Aad::from(&header[..]), &mut buf)
-        .ok()?
-        .len();
-    buf.truncate(plain_len);
-    Some(buf)
+    let cipher_len = sealed_len.checked_sub(16)?;
+    let sealed = data.get(header_len..header_len + sealed_len)?;
+    let (ciphertext, received_tag) = sealed.split_at(cipher_len);
+    let (plaintext, computed_tag) =
+        aes_gcm_crypt(false, &aeskey, &aesiv, ciphertext, &header).ok()?;
+    if !ct_eq_16(&computed_tag, received_tag) {
+        return None;
+    }
+    Some(plaintext)
 }
