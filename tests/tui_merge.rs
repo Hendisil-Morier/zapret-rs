@@ -202,7 +202,7 @@ fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains() {
     let mut state = AppState::new(Some(cfg_path), None, false);
     state.finder.domains_input = "blocked-one.example, blocked-two.example".to_owned();
     seed_autohostlists_from_domains(&mut state);
-    state.tab = ActiveTab::Config;
+    state.tab = ActiveTab::Hostlist;
     assert_eq!(state.config.autohostlist_paths, vec![autolist_path]);
     assert_eq!(
         state.config.autohostlist_entries,

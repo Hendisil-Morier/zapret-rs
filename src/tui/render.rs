@@ -17,6 +17,8 @@ use crate::tui::{keybinds::draw_keybinds_modal, modal::draw_auth_modal, prompt_m
 use crate::tui::render_config::draw_config_tab;
 /// Tab 1 Strategy Finder rendering helper.
 use crate::tui::render_finder::draw_finder_tab;
+/// Tab 6 interactive Auto Hostlist and Blacklist rendering helper.
+use crate::tui::render_hostlist::draw_hostlist_tab;
 /// Tab 4 Speed Test rendering helper.
 use crate::tui::render_speed::draw_speed_tab;
 /// Tab 5 Status rendering helper.
@@ -48,6 +50,7 @@ pub fn draw_app(frame: &mut Frame, state: &AppState) {
         ActiveTab::Config => draw_config_tab(frame, chunks[1], state),
         ActiveTab::Speed => draw_speed_tab(frame, chunks[1], state),
         ActiveTab::Status => draw_status_tab(frame, chunks[1], state),
+        ActiveTab::Hostlist => draw_hostlist_tab(frame, chunks[1], state),
     }
     draw_footer(frame, chunks[2], state);
     if state.tab == ActiveTab::Run
@@ -74,7 +77,7 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState) {
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Min(40),
-            Constraint::Length(if area.width < 100 { 30 } else { 36 }),
+            Constraint::Length(ActiveTab::header_status_width(area.width)),
         ])
         .split(area);
     let compact = ActiveTab::use_compact_labels(cols[0].width);

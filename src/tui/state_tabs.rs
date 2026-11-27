@@ -1,4 +1,4 @@
-//! Tab 2 (Run `nfqws2`), Tab 3 (Config & Auto Hostlist), and Tab 4 (Speed Test) handlers.
+//! Tab 2 (Run `nfqws2`), Tab 3 (Config), and Tab 4 (Speed Test) keyboard handlers.
 
 /// Ordered deduplication when loading learned domains across `hostlist_auto` files.
 use std::collections::BTreeSet;
@@ -12,8 +12,6 @@ use crate::config::AppConfig;
 use crate::tools::{
     configured_autohostlist_paths, expand_tilde, extract_exclude_domains, read_hostlist_lines,
 };
-/// Plain-text prompt modal variants for Blacklist / Auto Hostlist editing.
-use crate::tui::prompt_modal::{PromptKind, PromptModal};
 
 /// Floating confirmation modal built when stopping an attached daemon (`S`).
 use crate::tui::modal::{AuthModal, ModalPurpose};
@@ -87,12 +85,11 @@ impl AppState {
         }
     }
 
-    /// Handles TOML, `nftables`, and `Auto Hostlist` scrolling, editing, saving, and reloading on Tab 3.
+    /// Handles TOML and `nftables` scrolling, editing, saving, and reloading on Tab 3.
     pub(crate) fn handle_config_key(&mut self, code: KeyCode) -> AppAction {
         let scroll = match self.focus.config {
             ConfigFocus::Toml => &mut self.config.toml_scroll,
             ConfigFocus::Nft => &mut self.focus.nft_scroll,
-            ConfigFocus::AutoHostlist => &mut self.focus.autolist_scroll,
         };
         if adjust_pane_scroll(scroll, code) {
             return AppAction::None;
@@ -102,27 +99,6 @@ impl AppState {
             KeyCode::Char('p') => return AppAction::PushConfigToDaemon,
             KeyCode::Char('s') => return AppAction::SaveConfig,
             KeyCode::Char('l') => return AppAction::ReloadConfig,
-            KeyCode::Char('b') => {
-                if self.config.parsed_profiles.is_empty() {
-                    self.status_banner = "No [[profiles]] in nfqws2.toml yet; scan or load a config first.".to_owned();
-                } else {
-                    self.prompt_modal = Some(PromptModal::open(PromptKind::BlacklistDomain));
-                }
-            }
-            KeyCode::Char('a') => {
-                if self.config.autohostlist_paths.is_empty() {
-                    self.status_banner = "Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first).".to_owned();
-                } else {
-                    self.prompt_modal = Some(PromptModal::open(PromptKind::AddAutoHostlist));
-                }
-            }
-            KeyCode::Char('d') | KeyCode::Delete => {
-                if self.config.exclude_entries.is_empty() && self.config.autohostlist_entries.is_empty() {
-                    self.status_banner = "No Blacklist or Auto Hostlist entries to remove.".to_owned();
-                } else {
-                    self.prompt_modal = Some(PromptModal::open(PromptKind::RemoveListDomain));
-                }
-            }
             _ => {}
         }
         AppAction::None
@@ -134,10 +110,12 @@ impl AppState {
         self.config.autohostlist_entries.clear();
         self.config.exclude_entries.clear();
         if self.config.active_toml.trim().is_empty() {
+            self.hostlist.clamp_selection(&self.config);
             return;
         }
         let cfg_path = expand_tilde(&self.finder.output_path);
         let Ok(cfg) = AppConfig::from_toml_str(&self.config.active_toml, cfg_path.parent()) else {
+            self.hostlist.clamp_selection(&self.config);
             return;
         };
         let seen_paths = configured_autohostlist_paths(&cfg);
@@ -150,6 +128,7 @@ impl AppState {
         self.config.autohostlist_paths = seen_paths;
         self.config.autohostlist_entries = domains.into_iter().collect();
         self.config.exclude_entries = extract_exclude_domains(&cfg);
+        self.hostlist.clamp_selection(&self.config);
     }
 
     /// Handles start, cancel, navigation, and clear keys on Tab 4 (Speed Test).

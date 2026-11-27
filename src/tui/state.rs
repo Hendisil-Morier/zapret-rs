@@ -10,6 +10,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Interactive path expansion for loading initial `nfqws2.toml`.
 use crate::tools::expand_tilde;
+/// Tab 6 interactive Auto Hostlist and Blacklist manager state.
+use crate::tui::hostlist_tab::HostlistTabState;
 /// Live packet inspector state for Tab 2.
 use crate::tui::inspect::PacketInspectorState;
 /// Before/after speed comparison state for Tab 4.
@@ -60,6 +62,8 @@ pub struct AppState {
     pub web_status: Option<(String, String)>,
     /// Tab 5 operational diagnostics table, DNS preset, and process privilege state.
     pub status: StatusTabState,
+    /// Tab 6 interactive Auto Hostlist and Blacklist selection and filter state.
+    pub hostlist: HostlistTabState,
 }
 
 impl AppState {
@@ -84,6 +88,7 @@ impl AppState {
             prompt_modal: None,
             web_status: None,
             status: StatusTabState::default(),
+            hostlist: HostlistTabState::default(),
         };
         let cfg_path = expand_tilde(&state.finder.output_path);
         if let Ok(text) = std::fs::read_to_string(&cfg_path) {
@@ -187,6 +192,9 @@ impl AppState {
         if self.inspector.filter_editing {
             return self.handle_run_key(key.code);
         }
+        if self.hostlist.filter_editing {
+            return self.handle_hostlist_key(key.code);
+        }
         if let Some(action) = self.handle_global_key(key.code) {
             return action;
         }
@@ -196,6 +204,7 @@ impl AppState {
             ActiveTab::Config => self.handle_config_key(key.code),
             ActiveTab::Speed => self.handle_speed_key(key.code),
             ActiveTab::Status => self.handle_status_key(key.code),
+            ActiveTab::Hostlist => self.handle_hostlist_key(key.code),
         }
     }
 }

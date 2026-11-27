@@ -32,6 +32,10 @@ use crate::tui::actions::{
 };
 /// Mouse click and scroll wheel handler aligned to `ratatui` panel layouts.
 use crate::tui::mouse::handle_mouse_event;
+/// Tab 6 Auto Hostlist / Blacklist deletion, exclude transfer, and reload helpers.
+use crate::tui::hostlist_tab::{
+    delete_selected_hostlist_domain, move_selected_auto_to_blacklist, reload_hostlist_entries,
+};
 /// Tab 2 daemon session lifecycle: active session type, remote IPC control, and idle socket polling.
 use crate::tui::tab2_session::{
     Tab2Session, attach_to_socket, execute_remote_stop, poll_tab2_session, push_config_to_daemon,
@@ -140,7 +144,7 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
         poll_active_scan(&mut state, &mut active_scan, &mut session);
         poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick, active_scan.is_some());
         poll_pending_scan(&mut pending_scan, &mut state, &mut active_scan, &tab2_session);
-        if state.tab == crate::tui::ActiveTab::Config {
+        if state.tab == crate::tui::ActiveTab::Hostlist {
             autolist_tick = autolist_tick.wrapping_add(1);
             if autolist_tick.is_multiple_of(16) {
                 state.refresh_autohostlist();
@@ -242,6 +246,9 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String> {
                     }
                 }
                 AppAction::CancelSpeedTest => cancel_speed_test(&mut speed_job, &mut state),
+                AppAction::DeleteSelectedDomain => delete_selected_hostlist_domain(&mut state, &tab2_session),
+                AppAction::MoveAutoToBlacklist => move_selected_auto_to_blacklist(&mut state, &tab2_session),
+                AppAction::ReloadLists => reload_hostlist_entries(&mut state, &tab2_session),
                 AppAction::SubmitModal => {
                     if submit_auth_modal(&mut state, &mut active_scan, &mut tab2_session) {
                         reexec_after_exit = true;

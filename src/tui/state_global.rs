@@ -33,6 +33,7 @@ impl AppState {
             KeyCode::Char('3') => return Some(self.switch_tab(ActiveTab::Config)),
             KeyCode::Char('4') => return Some(self.switch_tab(ActiveTab::Speed)),
             KeyCode::Char('5') => return Some(self.switch_tab(ActiveTab::Status)),
+            KeyCode::Char('6') => return Some(self.switch_tab(ActiveTab::Hostlist)),
             KeyCode::Tab => return Some(self.cycle_panel_focus(true)),
             KeyCode::BackTab => return Some(self.cycle_panel_focus(false)),
             KeyCode::Char('t') if !detail_open => {
@@ -66,11 +67,13 @@ impl AppState {
         Some(AppAction::None)
     }
 
-    /// Switches top-level tab, refreshing Tab 5 component diagnostics and resetting tooltips cleanly.
+    /// Switches top-level tab, refreshing Tab 5/6 state and resetting tooltips cleanly.
     fn switch_tab(&mut self, tab: ActiveTab) -> AppAction {
         self.tab = tab;
         if tab == ActiveTab::Status {
             self.refresh_status_checks();
+        } else if tab == ActiveTab::Hostlist {
+            self.refresh_autohostlist();
         }
         self.reset_finder_hover();
         AppAction::None
@@ -78,7 +81,11 @@ impl AppState {
 
     /// Cycles focused panel inside the active tab (`Tab` / `Shift+Tab`) and updates tooltip state.
     fn cycle_panel_focus(&mut self, forward: bool) -> AppAction {
-        self.focus.cycle(self.tab, forward);
+        if self.tab == ActiveTab::Hostlist {
+            self.hostlist.toggle_focus();
+        } else {
+            self.focus.cycle(self.tab, forward);
+        }
         self.reset_finder_hover();
         AppAction::None
     }

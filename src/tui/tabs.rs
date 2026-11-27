@@ -44,29 +44,31 @@ pub enum ActiveTab {
     Speed,
     /// Tab 5: operational health status for privileges, driver, Lua, `curl`, config, and IPC.
     Status,
+    /// Tab 6: interactive Auto Hostlist and Blacklist domain manager.
+    Hostlist,
 }
 
 impl ActiveTab {
     /// Single source of truth for tab order, header widths, and keybind popup titles.
-    pub const SPECS: [TabSpec; 5] = [
+    pub const SPECS: [TabSpec; 6] = [
         TabSpec {
             tab: Self::Finder,
             num_prefix: " 1:",
-            short_label: " Strategy Finder ",
+            short_label: " Finder ",
             compact_label: "Find ",
             full_title: "1: Strategy Finder",
         },
         TabSpec {
             tab: Self::Run,
             num_prefix: " 2:",
-            short_label: if cfg!(windows) { " Run WinDivert " } else { " Run nfqws2 " },
+            short_label: " Run ",
             compact_label: "Run ",
             full_title: if cfg!(windows) { "2: Run WinDivert" } else { "2: Run nfqws2" },
         },
         TabSpec {
             tab: Self::Config,
             num_prefix: " 3:",
-            short_label: " Config & Diag ",
+            short_label: " Config ",
             compact_label: "Cfg ",
             full_title: "3: Config & Diagnostics",
         },
@@ -84,11 +86,23 @@ impl ActiveTab {
             compact_label: "Stat ",
             full_title: "5: Status",
         },
+        TabSpec {
+            tab: Self::Hostlist,
+            num_prefix: " 6:",
+            short_label: " Hostlist ",
+            compact_label: "List ",
+            full_title: "6: Auto Hostlist",
+        },
     ];
 
     /// Returns `true` when `tabs_box_width` is too narrow to show full tab titles cleanly.
     pub fn use_compact_labels(tabs_box_width: u16) -> bool {
-        tabs_box_width < 68
+        tabs_box_width < 86
+    }
+
+    /// Fixed width allocated to the right-hand status badge in the top header row.
+    pub const fn header_status_width(total_width: u16) -> u16 {
+        if total_width < 100 { 28 } else { 34 }
     }
 
     /// Returns the shared [`TabSpec`] metadata for `self`.
@@ -99,6 +113,7 @@ impl ActiveTab {
             Self::Config => &Self::SPECS[2],
             Self::Speed => &Self::SPECS[3],
             Self::Status => &Self::SPECS[4],
+            Self::Hostlist => &Self::SPECS[5],
         }
     }
 

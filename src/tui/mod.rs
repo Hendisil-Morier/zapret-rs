@@ -10,6 +10,8 @@ pub mod daemon_launch;
 pub mod debug_report;
 /// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML builder for Tab 3.
 pub mod editor;
+/// Tab 6 interactive Auto Hostlist and Blacklist selection, deletion, and transfer handlers.
+pub mod hostlist_tab;
 /// Live packet inspector record decoding, state, and verdict filter model.
 pub mod inspect;
 /// Live packet inspector `ratatui` table, detail popup, and hex dump renderer.
@@ -30,6 +32,8 @@ pub mod render;
 pub mod render_config;
 /// Strategy Finder Tab 1 panel widgets extracted to keep renderer modules focused.
 pub mod render_finder;
+/// Auto Hostlist & Blacklist Tab 6 panel renderer.
+pub mod render_hostlist;
 /// Before/after Speed Test Tab 4 table and status card renderer.
 pub mod render_speed;
 /// Operational component Status Tab 5 table and detail renderer.
@@ -81,7 +85,9 @@ pub use inspect_ui::{draw_packet_detail_modal, draw_packet_inspector, format_hex
 pub use keybinds::draw_keybinds_modal;
 /// Re-exported floating authentication, confirmation, and keybindings modal overlays.
 pub use modal::{AuthModal, ModalKeyResult, ModalPurpose, draw_auth_modal};
-/// Re-exported plain-text prompt modal for Tab 3 domain list management and Web UI launch.
+/// Re-exported Tab 6 interactive Auto Hostlist focus and selection state.
+pub use hostlist_tab::{HostlistFocus, HostlistTabState};
+/// Re-exported plain-text prompt modal for Tab 6 domain additions and Web UI launch.
 pub use prompt_modal::{PromptKeyResult, PromptKind, PromptModal, draw_prompt_modal};
 /// Re-exported remote attach metadata and control socket auto-detection helpers.
 pub use remote::{RemoteDaemonMeta, connect_remote_daemon, detect_control_socket};

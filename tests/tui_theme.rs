@@ -133,9 +133,10 @@ fn tab_cycles_panel_focus_within_tabs_and_scrolls_logs_results_and_nft_preview()
     state.handle_key(key(KeyCode::Down));
     assert_eq!(state.focus.nft_scroll, 1);
     state.handle_key(key(KeyCode::Tab));
-    assert_eq!(state.focus.config, ConfigFocus::AutoHostlist);
-    state.handle_key(key(KeyCode::Down));
-    assert_eq!(state.focus.autolist_scroll, 1);
-    state.handle_key(key(KeyCode::Tab));
     assert_eq!(state.focus.config, ConfigFocus::Toml);
+
+    state.handle_key(key(KeyCode::Char('6')));
+    assert_eq!(state.tab, ActiveTab::Hostlist);
+    state.handle_key(key(KeyCode::Tab));
+    assert_eq!(state.hostlist.focus, zapret_rs::tui::HostlistFocus::Blacklist);
 }

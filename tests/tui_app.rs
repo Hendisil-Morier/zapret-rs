@@ -215,7 +215,10 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
         let expected_filter_title = state.filter_preview().0.trim();
         assert!(cfg_screen.contains(expected_filter_title));
         assert!(cfg_screen.contains("table inet zapret_strat_finder {"));
-        assert!(cfg_screen.contains("Auto Hostlist"));
+
+        state.tab = ActiveTab::Hostlist;
+        let host_screen = render_to_string(&state, w, h);
+        assert!(host_screen.contains("Auto Hostlist") && host_screen.contains("Blacklist"));
     }
 }
 

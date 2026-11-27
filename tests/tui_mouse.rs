@@ -54,13 +54,15 @@ fn mouse_clicks_switch_header_tabs_and_trigger_footer_help_and_theme() {
     let mut state = AppState::new(None, None, false);
     assert_eq!(state.tab, ActiveTab::Finder);
 
-    // Header row y = 1: tabs at x=1 (Finder), 24 (Run), 42 (Config), 62 (Speed).
-    handle_mouse_event(&mut state, click(26, 1), AREA);
+    // Header row y = 1: 1:Finder [1..12], 2:Run [15..23], 3:Config [26..37], 4:Speed [40..55], 5:Status [58..69], 6:Hostlist [72..85].
+    handle_mouse_event(&mut state, click(17, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Run);
-    handle_mouse_event(&mut state, click(45, 1), AREA);
+    handle_mouse_event(&mut state, click(28, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Config);
-    handle_mouse_event(&mut state, click(64, 1), AREA);
+    handle_mouse_event(&mut state, click(45, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Speed);
+    handle_mouse_event(&mut state, click(75, 1), AREA);
+    assert_eq!(state.tab, ActiveTab::Hostlist);
     handle_mouse_event(&mut state, click(3, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Finder);
 
@@ -106,14 +108,21 @@ fn mouse_interacts_with_finder_run_config_and_speed_panels() {
     handle_mouse_event(&mut state, click(20, 16), AREA);
     assert!(!state.inspector.detail_open);
 
-    // Tab 3: scroll wheel in left TOML, top-right nft, bottom-right AutoHostlist focuses & scrolls.
+    // Tab 3: scroll wheel in left TOML and right nft focuses & scrolls.
     state.tab = ActiveTab::Config;
     handle_mouse_event(&mut state, scroll(20, 10, true), AREA);
     assert_eq!((state.focus.config, state.config.toml_scroll), (ConfigFocus::Toml, 3));
     handle_mouse_event(&mut state, scroll(90, 10, true), AREA);
     assert_eq!((state.focus.config, state.focus.nft_scroll), (ConfigFocus::Nft, 3));
-    handle_mouse_event(&mut state, scroll(90, 25, true), AREA);
-    assert_eq!((state.focus.config, state.focus.autolist_scroll), (ConfigFocus::AutoHostlist, 3));
+
+    // Tab 6: click row 1 in Auto Hostlist (body starts at y=3, header strip=3, list border=1 -> rows at y>=7).
+    state.tab = ActiveTab::Hostlist;
+    state.config.autohostlist_entries = vec!["a.example".to_owned(), "b.example".to_owned()];
+    state.config.exclude_entries = vec!["skip1.example".to_owned(), "skip2.example".to_owned()];
+    handle_mouse_event(&mut state, click(10, 8), AREA);
+    assert_eq!(state.hostlist.auto_sel, 1);
+    handle_mouse_event(&mut state, scroll(90, 8, true), AREA);
+    assert_eq!(state.hostlist.blacklist_sel, 1);
 
     // Tab 4: click row 1 in Comparison Table (y = 3(body)+4(hdr)+2(border+table_hdr) + 1 = 10).
     state.tab = ActiveTab::Speed;

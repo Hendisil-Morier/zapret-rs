@@ -226,7 +226,7 @@ pub fn stop_web_ui(state: &mut AppState, web_ui: &mut Option<ActiveWebUi>) {
 }
 
 /// Saves `updated_toml` to disk, updates [`AppState`], and live-reloads any attached daemon.
-fn commit_updated_toml(
+pub(crate) fn commit_updated_toml(
     state: &mut AppState,
     tab2_session: &Option<Tab2Session>,
     updated_toml: String,
@@ -305,49 +305,6 @@ pub(crate) fn submit_prompt_modal(
                         state.status_banner = format!("Added {clean} to Auto Hostlist");
                     }
                 })
-            }
-        }
-        PromptKind::RemoveListDomain => {
-            let Some(clean) = parse_clean_domain(&raw_input) else {
-                if let Some(m) = state.prompt_modal.as_mut() {
-                    m.error = Some("invalid domain name".to_owned());
-                }
-                return;
-            };
-            let mut removed_any = false;
-            if state.config.exclude_entries.iter().any(|d| d.eq_ignore_ascii_case(&clean)) {
-                let cfg_path = expand_tilde(&state.finder.output_path);
-                if let Ok(updated) =
-                    mutate_exclude_domains_toml(&state.config.active_toml, &clean, false, cfg_path.parent())
-                {
-                    let _ = commit_updated_toml(
-                        state,
-                        tab2_session,
-                        updated,
-                        &format!("Removed {clean} from Blacklist"),
-                    );
-                    removed_any = true;
-                }
-            }
-            for path in state.config.autohostlist_paths.clone() {
-                let prev_len = state.config.autohostlist_entries.len();
-                if let Ok(after) = mutate_hostlist_file(&path, &clean, false)
-                    && after.len() < prev_len
-                {
-                    removed_any = true;
-                }
-            }
-            if removed_any {
-                state.refresh_autohostlist();
-                if let Some(Tab2Session::Remote(remote)) = tab2_session.as_ref() {
-                    let _ = remote.send_command(&Request::ReloadLists);
-                }
-                if !state.status_banner.contains(&clean) {
-                    state.status_banner = format!("Removed {clean} from list(s)");
-                }
-                Ok(())
-            } else {
-                Err(format!("{clean} not found in Blacklist or Auto Hostlist"))
             }
         }
         PromptKind::LaunchWebUi => {

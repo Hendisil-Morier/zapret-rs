@@ -279,6 +279,12 @@ pub enum AppAction {
     RunSpeedTest,
     /// Cancel an in-flight before/after speed comparison on Tab 4 (`x` or `Esc`).
     CancelSpeedTest,
+    /// Delete the currently selected domain in Tab 6 (`Auto Hostlist` or `Blacklist`).
+    DeleteSelectedDomain,
+    /// Move the selected Auto Hostlist domain into Blacklist (`hostlist_exclude_domains`) on Tab 6.
+    MoveAutoToBlacklist,
+    /// Re-read Auto Hostlist / Blacklist entries and reload any attached daemon.
+    ReloadLists,
 }
 
 /// Action deferred until after a seamless `setcap` capability-grant restart finishes.
@@ -318,10 +324,8 @@ pub enum ConfigFocus {
     /// Left scrollable `nfqws2.toml` viewer.
     #[default]
     Toml,
-    /// Top-right scrollable temporary `nftables` ruleset preview.
+    /// Right scrollable temporary `nftables` / WinDivert filter preview.
     Nft,
-    /// Bottom-right scrollable `autohostlist` learned-domains viewer.
-    AutoHostlist,
 }
 
 /// Per-tab focused panel and scroll offsets updated via `Tab`, `BackTab`, and vertical keys.
@@ -341,8 +345,6 @@ pub struct PanelFocusState {
     pub run_log_scroll: u16,
     /// Top visible line inside Tab 3's `Temporary nftables Script` pane.
     pub nft_scroll: u16,
-    /// Top visible line inside Tab 3's `Auto Hostlist` pane.
-    pub autolist_scroll: u16,
 }
 
 impl PanelFocusState {
@@ -363,13 +365,12 @@ impl PanelFocusState {
                 };
             }
             ActiveTab::Config => {
-                self.config = match (self.config, forward) {
-                    (ConfigFocus::Toml, true) | (ConfigFocus::AutoHostlist, false) => ConfigFocus::Nft,
-                    (ConfigFocus::Nft, true) | (ConfigFocus::Toml, false) => ConfigFocus::AutoHostlist,
-                    (ConfigFocus::AutoHostlist, true) | (ConfigFocus::Nft, false) => ConfigFocus::Toml,
+                self.config = match self.config {
+                    ConfigFocus::Toml => ConfigFocus::Nft,
+                    ConfigFocus::Nft => ConfigFocus::Toml,
                 };
             }
-            ActiveTab::Speed | ActiveTab::Status => {}
+            ActiveTab::Speed | ActiveTab::Status | ActiveTab::Hostlist => {}
         }
     }
 }

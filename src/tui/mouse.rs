@@ -5,6 +5,8 @@ use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 /// Exact same `Layout` engine used by renderers so click targets stay synchronized with visuals.
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 
+/// Tab 6 interactive Auto Hostlist / Blacklist row click and scroll handler.
+use crate::tui::hostlist_tab::handle_hostlist_mouse;
 /// Shared Tab 2 controller card height matching the renderer for accurate hit-testing.
 use crate::tui::render::run_controller_height;
 /// Application state mutated on click or wheel scroll.
@@ -75,6 +77,7 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) -
                 state.status.selected = next.clamp(0, state.status.checks.len() as isize - 1) as usize;
             }
         }
+        ActiveTab::Hostlist => handle_hostlist_mouse(state, pos, is_left, scroll_dir, chunks[1]),
     }
     AppAction::None
 }
@@ -85,7 +88,7 @@ fn handle_header_click(state: &mut AppState, col: u16, header_area: Rect) {
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Min(40),
-            Constraint::Length(if header_area.width < 100 { 30 } else { 36 }),
+            Constraint::Length(ActiveTab::header_status_width(header_area.width)),
         ])
         .split(header_area);
     let tabs_box = cols[0];
@@ -100,6 +103,8 @@ fn handle_header_click(state: &mut AppState, col: u16, header_area: Rect) {
             state.tab = spec.tab;
             if spec.tab == ActiveTab::Status {
                 state.refresh_status_checks();
+            } else if spec.tab == ActiveTab::Hostlist {
+                state.refresh_autohostlist();
             }
             state.finder.editing_text = false;
             state.reset_finder_hover();
@@ -311,7 +316,7 @@ fn handle_run_mouse(
     AppAction::None
 }
 
-/// Focuses and scrolls `nfqws2.toml`, `nftables`, or `Auto Hostlist` panes on Tab 3.
+/// Focuses and scrolls `nfqws2.toml` or `nftables` panes on Tab 3.
 fn handle_config_mouse(
     state: &mut AppState,
     pos: Position,
@@ -323,25 +328,16 @@ fn handle_config_mouse(
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
         .split(body);
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
-        .split(cols[1]);
 
     if cols[0].contains(pos) {
         state.focus.config = ConfigFocus::Toml;
         if let Some(dir) = scroll_dir {
             scroll_pane_n(&mut state.config.toml_scroll, dir, 3);
         }
-    } else if right[0].contains(pos) {
+    } else if cols[1].contains(pos) {
         state.focus.config = ConfigFocus::Nft;
         if let Some(dir) = scroll_dir {
             scroll_pane_n(&mut state.focus.nft_scroll, dir, 3);
-        }
-    } else if right[1].contains(pos) {
-        state.focus.config = ConfigFocus::AutoHostlist;
-        if let Some(dir) = scroll_dir {
-            scroll_pane_n(&mut state.focus.autolist_scroll, dir, 3);
         }
     }
 }

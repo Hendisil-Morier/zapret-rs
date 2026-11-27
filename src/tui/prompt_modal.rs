@@ -23,8 +23,6 @@ pub enum PromptKind {
     BlacklistDomain,
     /// Append a blocked domain to the configured `autohostlist.txt` file.
     AddAutoHostlist,
-    /// Remove a domain from Blacklist (`hostlist_exclude_domains`) and/or `autohostlist.txt`.
-    RemoveListDomain,
     /// Choose LAN (`0.0.0.0:8787`) or localhost (`127.0.0.1:8787`) binding to start the Web UI.
     LaunchWebUi,
 }
@@ -120,12 +118,6 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme) {
             "Enter blocked domain to append into configured autohostlist.txt:",
             "[Enter] Add Domain   [Esc] Cancel",
             t.accent_bright,
-        ),
-        PromptKind::RemoveListDomain => (
-            " Remove Blacklist / Auto Hostlist Domain ",
-            "Enter domain to remove from Blacklist and/or Auto Hostlist:",
-            "[Enter] Remove Domain   [Esc] Cancel",
-            t.err,
         ),
         PromptKind::LaunchWebUi => (
             " Launch Web Control UI ",

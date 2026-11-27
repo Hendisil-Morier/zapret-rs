@@ -125,17 +125,17 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
             let cfg_rows: [&'static str; 2] = if state.run.status == RunStatus::Attached {
                 [
                     "[e/Enter] Edit ($EDITOR)  [p] Push Config  [s] Save  [l] Reload",
-                    "[b] Blacklist  [a] Auto-add  [d] Remove Domain  [Up/Down/PgUp/PgDn] Scroll",
+                    "[Up/Down/PgUp/PgDn/Home] Scroll TOML / nft  [Tab] Switch Pane",
                 ]
             } else if cfg!(windows) {
                 [
-                    "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [b] Blacklist  [a] Auto-add  [d] Remove",
-                    "[Up/Down/PgUp/PgDn/Home] Scroll TOML / Filter / Hostlist",
+                    "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload",
+                    "[Up/Down/PgUp/PgDn/Home] Scroll TOML / Filter  [Tab] Switch Pane",
                 ]
             } else {
                 [
-                    "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload  [b] Blacklist  [a] Auto-add  [d] Remove",
-                    "[Up/Down/PgUp/PgDn/Home] Scroll TOML / nft / Hostlist",
+                    "[e/Enter] Edit ($EDITOR)  [s] Save  [l] Reload",
+                    "[Up/Down/PgUp/PgDn/Home] Scroll TOML / nft  [Tab] Switch Pane",
                 ]
             };
             push_help_section(&mut lines, "Config & Diagnostics", true, &cfg_rows, t);
@@ -155,6 +155,18 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState) {
                 "Status",
                 true,
                 &["[r/Enter] Refresh  [n] DNS Preset  [a] Apply DNS  [d] Debug Report  [Up/Down/Left/Right]"],
+                t,
+            );
+        }
+        ActiveTab::Hostlist => {
+            push_help_section(
+                &mut lines,
+                "Auto Hostlist & Blacklist",
+                true,
+                &[
+                    "[Up/Down/j/k/PgUp/PgDn] Select  [Tab/Left/Right] Switch List  [d/Del] Remove Selected",
+                    "[x/m] Move Selected -> Blacklist  [a] Add Auto  [b] Add Blacklist  [/] Filter  [r] Reload",
+                ],
                 t,
             );
         }
