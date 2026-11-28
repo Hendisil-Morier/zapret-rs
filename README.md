@@ -1,6 +1,6 @@
 # zapret-rs
 
-`zapret-rs` (`v1.4.2`) is a fast, memory-safe DPI (Deep Packet Inspection) bypass tool and terminal UI written in Rust, compatible with [`zapret2`](https://github.com/bol-van/zapret2) Lua strategies.
+`zapret-rs` is a fast, memory-safe DPI (Deep Packet Inspection) bypass tool and terminal UI written in Rust, compatible with [`zapret2`](https://github.com/bol-van/zapret2) Lua strategies.
 
 It ships as a single executable (`zapret-rs`) with built-in Lua scripts, an interactive Strategy Finder, a live packet monitor, and `systemd` integration on Linux (plus experimental Windows 10/11 support via WinDivert).
 
@@ -8,7 +8,7 @@ It ships as a single executable (`zapret-rs`) with built-in Lua scripts, an inte
 
 ### 1. Download or Build
 
-Download `zapret-rs-v1.4.2-linux-x86_64.tar.gz` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it, or build from source:
+Download the latest `zapret-rs-*-linux-x86_64.tar.gz` archive from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases/latest) and extract it, or build from source:
 
 ```bash
 cargo build --release
@@ -36,15 +36,21 @@ Run `zapret-rs` in your terminal:
 zapret-rs
 ```
 
-The TUI has five tabs:
+The TUI has seven tabs (switch with `1`–`7`, or cycle with `H` / `L`):
 
-1. **Strategy Finder (`1`):** Enter one or more blocked domains, choose a scan level, and run the finder to automatically discover working bypass rules and save `~/.config/zapret-rs/nfqws2.toml` (with options to merge, replace, or keep your existing config).
-2. **Run `nfqws2` / `WinDivert` (`2`):** Start (`r`), stop (`S`), or restart (`R`) the engine, watch live packet counters, and inspect intercepted traffic. On Linux, press `x` to detach and leave the daemon running in the background.
-3. **Config & Diag (`3`):** View or edit `nfqws2.toml`, push profile changes to the running daemon (`p`), or grant network capabilities (`g`) if needed.
+1. **Finder (`1`):** Enter one or more blocked domains, choose a scan level, and run the finder to automatically discover working bypass rules and save `~/.config/zapret-rs/nfqws2.toml` (with options to merge, replace, or keep your existing config).
+2. **Run (`2`):** Start (`r`), stop (`S`), or restart (`R`) `nfqws2` / `WinDivert`, watch live packet counters, and inspect intercepted traffic. On Linux, press `x` to detach and leave the daemon running in the background.
+3. **Config (`3`):** View or edit `nfqws2.toml`, inspect temporary `nftables`/filter rules, push profile changes to the running daemon (`p`), or grant network capabilities (`g`) if needed.
 4. **Speed Test (`4`):** Measure connection speed before and after enabling your active bypass rules.
 5. **Status (`5`):** Inspect live operational health checks (`[OK]` / `[WARN]` / `[ERR]`) for privileges, packet driver (`WinDivert` or `NFQUEUE`/`nftables`), Lua scripts, `curl`, DNS resolver (`n` to cycle DoH/DNS presets, `a` to apply), config, daemon IPC, strategy scan, and speed test (`r` to refresh, `d` to export `zapret-rs-debug.txt`).
+6. **Hostlist (`6`):** Browse, search (`/`), add (`a`/`b`), remove directly (`d`/`Delete`), and move (`x`) domains or IPs between Auto Hostlist and Blacklist.
+7. **Settings (`7`):** Configure `~/.config/zapret-rs/config.toml` interactively — choose a theme preset, edit `nfqws2_config` / `lua_dir` / `control_socket`, toggle `no_nft`, live-rebind any global or per-tab keybinding (`Enter`), and save sparsely (`s`) while preserving comments and `import` entries.
 
 Press `?` at any time to see the keybindings for the current tab.
+
+### Centralized TUI Settings (`config.toml`)
+
+User UI preferences (`nfqws2_config`, `[theme]`, `[keybinds.*]`, and modular `import = "./theme.toml"` fragments) live in `~/.config/zapret-rs/config.toml`, kept separate from generated DPI profiles in `nfqws2.toml`. Passing `--config <file>` auto-detects centralized `config.toml` vs. standalone `nfqws2.toml`, and `--nfqws2-config <path>` explicitly overrides the daemon profile path.
 
 ## Command-Line Mode
 
@@ -76,11 +82,11 @@ If you installed with `--symlinks`, you can also invoke `nfqws2`, `strat_finder`
 
 Windows 10 and 11 (`x64`) are supported via WinDivert, and all required DLL/driver/Lua files are already bundled in the release archive:
 
-1. Download `zapret-rs-v1.4.2-windows-x86_64.zip` from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases) and extract it.
+1. Download the latest `zapret-rs-*-windows-x86_64.zip` archive from [GitHub Releases](https://github.com/Hendisil-Morier/zapret-rs/releases/latest) and extract it.
 2. Open **Windows Terminal (Admin)** (`Win + X` -> **Terminal (Admin)**), change into the extracted folder, and launch the TUI:
 
 ```powershell
-cd "$HOME\Downloads\zapret-rs-v1.4.2-windows-x86_64"
+cd "$HOME\Downloads\zapret-rs-windows-x86_64"
 .\zapret-rs.exe
 ```
 
@@ -128,9 +134,18 @@ When installed with `--systemd`, `zapret-rs.service` runs under your user accoun
 
 ## For Developers
 
+### Architecture & ADRs
+
+- [Architecture Overview & Module DAG](docs/architecture/README.md)
+  - [Packet Pipeline, Conntrack & Autohostlist Engine](docs/architecture/packet-pipeline.md)
+  - [Embedded LuaJIT VM, Timers & Pure-Rust Cryptography](docs/architecture/lua-crypto-runtime.md)
+  - [Privilege Lifecycle, Platform Backends, Control IPC & CLI/Web Tools](docs/architecture/runtime-ipc-security.md)
+  - [TUI State Machine, Centralized `config.toml` & Remappable Keybinds](docs/architecture/tui-and-config.md)
+- [Architecture Decision Records (ADRs)](docs/decisions/)
+
 ### Project Layout
 
-Core subsystems live under [src/](src): `packet`, `rawsend`, `intercepter`, `config`, `conntrack`, `protocol`, `lists`, `desync`, `crypto`, `lua`, `timer`, `runtime`, `telemetry`, `control`, `tools` (`daemon/`, `mdig/`, `strat/`), and `tui`.
+Core subsystems live under [src/](src): `packet`, `rawsend`, `intercepter`, `config`, `conntrack`, `protocol`, `lists`, `desync`, `crypto`, `lua`, `timer`, `runtime`, `telemetry`, `control`, `tools` (`daemon/`, `mdig/`, `strat/`, `web/`), and `tui`.
 
 ### Running Checks & Tests
 
