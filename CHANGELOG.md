@@ -4,13 +4,17 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-11-28
 
 ### Added
 
 - **Centralized `config.toml`, Modular `import`, & Tab 7 (`Settings`):** Added `~/.config/zapret-rs/config.toml` to centralize `nfqws2_config`, `lua_dir`, `no_nft`, `control_socket`, `[theme]`, and `[keybinds.*]`, with recursive `import` / `imports` resolution for standalone `theme.toml` and `keybinds.toml` fragments (plus circular import rejection). Added Tab 7 (`7: Settings`) for interactive preset cycling, path/option editing, live keybind capture, and comment-preserving sparse saves (`s`), alongside `--config` auto-detection (`config.toml` vs. `nfqws2.toml`), `--nfqws2-config` override, and `setcap` re-exec preservation.
 - **Fully Remappable TUI Keybindings (`src/tui/keybind_spec.rs`, `src/tui/keybind_schema.rs`):** Made all global, directional (`[keybinds.nav]`), Packet Inspector, and per-tab bindings remappable via single key strings or arrays (including `Ctrl+`/`Alt+`/`Shift+` chords), with dynamic keycap updates across the footer, `?` help popup, tab hint bars, Web UI banners, and mouse click offsets.
 - **Cyclic `H` / `L` Tab Navigation & Bidirectional Tab 6 Moves:** Bound `H` and `L` globally to cycle backward and forward across all seven top-level tabs, and extended `m`/`x` on Tab 6 to move selected entries in both directions between **Auto Hostlist** and **Blacklist**.
+
+### Changed
+
+- **TUI Helper Consolidation & Code Quality Gates:** Unified clamped centered popup sizing, scrollable table/list viewport slicing (aligning renderers with Finder/Inspector mouse hit-testing), vertical navigation key ladders/clamping, inline text-buffer editing, and runner-side remote reload forwarding across `src/tui/`, paired with Allman formatting (`rustfmt.toml`), strict Clippy lints, and structural checks in `tests/repo_hygiene.rs`.
 
 ### Fixed
 
