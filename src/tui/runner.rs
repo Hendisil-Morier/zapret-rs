@@ -244,6 +244,33 @@ fn handle_daemon_or_speed_action(action: AppAction, state: &mut AppState, rt: &m
     }
 }
 
+/// Forwards an optional config/list reload command to an attached remote daemon and updates status.
+fn forward_remote_reload(state: &mut AppState, tab2_session: &Option<Tab2Session>, req: Option<Request>)
+{
+    let (Some(req), Some(Tab2Session::Remote(remote))) = (req, tab2_session.as_ref())
+    else
+    {
+        return;
+    };
+    let is_lists = matches!(req, Request::ReloadLists);
+    let res = remote.send_command(&req);
+    if is_lists
+    {
+        if res.is_ok()
+        {
+            state.status_banner.push_str(" & reloaded daemon");
+        }
+        return;
+    }
+    let label =
+        state.status_banner.rsplit_once(" (saved to ").map_or(state.status_banner.as_str(), |(l, _)| l);
+    state.status_banner = match res
+    {
+        Ok(()) => format!("{label} (saved & reloaded daemon)"),
+        Err(err) => format!("{label} (saved; daemon reload failed: {err})"),
+    };
+}
+
 /// Dispatches one keyboard [`AppAction`] against background workers and daemon controls.
 ///
 /// Returns `true` when the main TUI event loop should exit.
@@ -294,9 +321,21 @@ fn handle_tui_key_action(action: AppAction, state: &mut AppState, rt: &mut TuiSe
         | AppAction::RestartDaemon
         | AppAction::RunSpeedTest
         | AppAction::CancelSpeedTest => handle_daemon_or_speed_action(action, state, rt),
-        AppAction::DeleteSelectedDomain => delete_selected_hostlist_domain(state, &rt.tab2_session),
-        AppAction::MoveHostlistEntry => move_selected_hostlist_entry(state, &rt.tab2_session),
-        AppAction::ReloadLists => reload_hostlist_entries(state, &rt.tab2_session),
+        AppAction::DeleteSelectedDomain =>
+        {
+            let req = delete_selected_hostlist_domain(state);
+            forward_remote_reload(state, &rt.tab2_session, req);
+        }
+        AppAction::MoveHostlistEntry =>
+        {
+            let req = move_selected_hostlist_entry(state);
+            forward_remote_reload(state, &rt.tab2_session, req);
+        }
+        AppAction::ReloadLists =>
+        {
+            let req = reload_hostlist_entries(state);
+            forward_remote_reload(state, &rt.tab2_session, req);
+        }
         AppAction::SaveAppConfig => save_app_config_from_settings(state),
         AppAction::ReloadAppConfig => reload_app_config_from_disk(state),
         AppAction::EditAppConfig => edit_app_config_in_editor(state, &mut rt.session),
@@ -308,7 +347,11 @@ fn handle_tui_key_action(action: AppAction, state: &mut AppState, rt: &mut TuiSe
                 return true;
             }
         }
-        AppAction::SubmitPrompt => submit_prompt_modal(state, &rt.tab2_session, &mut rt.web_ui),
+        AppAction::SubmitPrompt =>
+        {
+            let req = submit_prompt_modal(state, &mut rt.web_ui);
+            forward_remote_reload(state, &rt.tab2_session, req);
+        }
         AppAction::StopWebUi => stop_web_ui(state, &mut rt.web_ui),
         AppAction::CopyWebPasscode => copy_web_passcode(state),
         AppAction::OpenWebUi => open_web_ui(state),

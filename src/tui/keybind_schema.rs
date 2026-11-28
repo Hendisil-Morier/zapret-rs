@@ -1,5 +1,7 @@
 //! Complete remappable keybinding table spanning global chrome, navigation, and all six tabs.
 
+/// Terminal key event type matched against configured directional bindings.
+use crossterm::event::KeyEvent;
 /// Serialization/deserialization helpers for partial `[keybinds.*]` overrides in `config.toml`.
 use serde::{Deserialize, Serialize};
 
@@ -128,6 +130,43 @@ keybind_section! {
         home: home = ["Home"],
         /// Jumps to the bottom or live log tail.
         end: end = ["End"],
+    }
+}
+
+impl NavKeybinds
+{
+    /// Maps vertical movement bindings (`up`, `down`, `page_up`, `page_down`, `home`, `end`) into a
+    /// signed row step using `page_step` for page jumps, or `None` if `key` is not vertical navigation.
+    pub fn vertical_delta(&self, key: KeyEvent, page_step: isize) -> Option<isize>
+    {
+        if self.up.contains(key)
+        {
+            Some(-1)
+        }
+        else if self.down.contains(key)
+        {
+            Some(1)
+        }
+        else if self.page_up.contains(key)
+        {
+            Some(-page_step)
+        }
+        else if self.page_down.contains(key)
+        {
+            Some(page_step)
+        }
+        else if self.home.contains(key)
+        {
+            Some(isize::MIN / 2)
+        }
+        else if self.end.contains(key)
+        {
+            Some(isize::MAX / 2)
+        }
+        else
+        {
+            None
+        }
     }
 }
 

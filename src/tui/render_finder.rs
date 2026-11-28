@@ -17,8 +17,8 @@ use crate::tui::state::AppState;
 use crate::tui::theme::{panel_block, styled_key_hints_owned};
 /// Configurable TUI color palette.
 use crate::tui::theme_config::Theme;
-/// Strategy Finder form descriptor, panel focus state, and scan lifecycle status.
-use crate::tui::types::{FinderField, FinderFocus, FinderStatus};
+/// Strategy Finder form descriptor, panel focus state, scan lifecycle status, and window helper.
+use crate::tui::types::{FinderField, FinderFocus, FinderStatus, visible_window};
 
 /// Returns a display-width-limited window of `text` driven by active edit `cursor` or `scroll`.
 ///
@@ -291,15 +291,15 @@ fn draw_results_table(frame: &mut Frame, area: Rect, state: &AppState)
 
     let capacity = usize::from(area.height.saturating_sub(3)).max(1);
     let clamped_sel = state.focus.finder_results_sel.min(state.finder.targets.len().saturating_sub(1));
-    let start = if clamped_sel >= capacity { clamped_sel + 1 - capacity } else { 0 };
+    let (start, end) = visible_window(state.finder.targets.len(), clamped_sel, capacity);
 
     let rows: Vec<Row> = state
         .finder
         .targets
         .iter()
         .enumerate()
+        .take(end)
         .skip(start)
-        .take(capacity)
         .map(|(idx, res)| {
             let (best, rtt, col) = if res.skipped_unblocked
             {

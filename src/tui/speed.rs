@@ -7,6 +7,8 @@ use crate::tools::{
     IpFamily, SpeedSample, SpeedTarget, control_target, domain_target, extract_hostlist_domains,
     normalize_domain,
 };
+/// Clamped cursor-stepping helper shared across selectable TUI tables.
+use crate::tui::types::step_selection;
 
 /// Which side of the comparison a sample belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,8 +138,7 @@ impl SpeedState
     /// Moves the row selection by `delta`, clamped to the table.
     pub fn move_selection(&mut self, delta: isize)
     {
-        let last = self.rows.len().saturating_sub(1);
-        self.selected = self.selected.saturating_add_signed(delta).min(last);
+        self.selected = step_selection(self.selected, self.rows.len(), delta);
     }
 }
 

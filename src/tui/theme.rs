@@ -22,6 +22,15 @@ pub fn centered_rect(area: Rect, width: u16, height: u16) -> Rect
     }
 }
 
+/// Computes a centered [`Rect`] inside `area` with width clamped to `min_w..=max_w` (4px horizontal
+/// margin) and height clamped to `min_h..=max_h` (2px vertical margin).
+pub fn clamped_centered_rect(area: Rect, max_w: u16, min_w: u16, max_h: u16, min_h: u16) -> Rect
+{
+    let w = max_w.min(area.width.saturating_sub(4)).max(min_w.min(area.width));
+    let h = max_h.min(area.height.saturating_sub(2)).max(min_h.min(area.height));
+    centered_rect(area, w, h)
+}
+
 /// Builds a bordered [`Block`] with colored border lines and a bold colored title.
 pub fn panel_block(title: impl Into<String>, border: Color, title_color: Color) -> Block<'static>
 {

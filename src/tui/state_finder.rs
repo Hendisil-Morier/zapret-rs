@@ -13,7 +13,7 @@ use crate::tui::state::AppState;
 /// Navigation, form descriptors, dwell delay, action results, and background scan events.
 use crate::tui::types::{
     ActiveTab, AppAction, FINDER_HOVER_DELAY, FinderField, FinderFocus, FinderStatus, ScanUiEvent,
-    adjust_log_scroll_key,
+    adjust_log_scroll_key, step_selection,
 };
 
 impl AppState
@@ -271,36 +271,13 @@ impl AppState
             }
             FinderFocus::Results =>
             {
-                let last = self.finder.targets.len().saturating_sub(1);
-                let sel = &mut self.focus.finder_results_sel;
-                if nav.up.contains(key)
-                {
-                    *sel = sel.saturating_sub(1);
-                }
-                else if nav.down.contains(key) && !self.finder.targets.is_empty()
-                {
-                    *sel = (*sel + 1).min(last);
-                }
-                else if nav.page_up.contains(key)
-                {
-                    *sel = sel.saturating_sub(5);
-                }
-                else if nav.page_down.contains(key) && !self.finder.targets.is_empty()
-                {
-                    *sel = (*sel + 5).min(last);
-                }
-                else if nav.home.contains(key)
-                {
-                    *sel = 0;
-                }
-                else if nav.end.contains(key) && !self.finder.targets.is_empty()
-                {
-                    *sel = last;
-                }
+                let Some(delta) = nav.vertical_delta(key, 5)
                 else
                 {
                     return false;
-                }
+                };
+                self.focus.finder_results_sel =
+                    step_selection(self.focus.finder_results_sel, self.finder.targets.len(), delta);
                 true
             }
             FinderFocus::Log =>

@@ -16,10 +16,8 @@ use crate::tools::{
 };
 /// Prompt modal variants handled on Tab 3 submission and Web UI launch.
 use crate::tui::prompt_modal::PromptKind;
-/// Shared TUI state mutated after disk/daemon/Web UI updates.
+/// Shared TUI state mutated after disk/Web UI updates.
 use crate::tui::state::AppState;
-/// Remote daemon session handle used to live-reload modified configs or lists.
-use crate::tui::tab2_session::Tab2Session;
 
 /// Wildcard LAN bind address (`0.0.0.0:8787`) exposed when user picks LAN / Phone mode.
 pub const LAN_WEB_BIND: &str = "0.0.0.0:8787";
@@ -244,48 +242,30 @@ pub fn stop_web_ui(state: &mut AppState, web_ui: &mut Option<ActiveWebUi>)
     state.push_run_log("[web] stopped HTTP dashboard");
 }
 
-/// Saves `updated_toml` to disk, updates [`AppState`], and live-reloads any attached daemon.
+/// Saves `updated_toml` to disk, updates [`AppState`], and returns a daemon reload request.
 pub(crate) fn commit_updated_toml(
     state: &mut AppState,
-    tab2_session: &Option<Tab2Session>,
     updated_toml: String,
     label: &str,
-) -> Result<(), String>
+) -> Result<Request, String>
 {
     let cfg_path = expand_tilde(&state.finder.output_path);
     write_config_nofollow(&cfg_path, &updated_toml)
         .map_err(|err| format!("failed to write {}: {err}", cfg_path.display()))?;
     state.set_active_toml(updated_toml.clone());
-
-    if let Some(Tab2Session::Remote(remote)) = tab2_session.as_ref()
-    {
-        if let Err(err) = remote.send_command(&Request::ReloadConfig { toml: updated_toml })
-        {
-            state.status_banner = format!("{label} (saved; daemon reload failed: {err})");
-            return Ok(());
-        }
-        state.status_banner = format!("{label} (saved & reloaded daemon)");
-    }
-    else
-    {
-        state.status_banner = format!("{label} (saved to {})", cfg_path.display());
-    }
-    Ok(())
+    state.status_banner = format!("{label} (saved to {})", cfg_path.display());
+    Ok(Request::ReloadConfig { toml: updated_toml })
 }
 
 /// Executes [`AppState::prompt_modal`] without a live daemon session (used by offline TUI tests).
 pub fn apply_prompt_offline(state: &mut AppState)
 {
     let mut no_web = None;
-    submit_prompt_modal(state, &None, &mut no_web);
+    let _ = submit_prompt_modal(state, &mut no_web);
 }
 
-/// Appends a clean domain from `raw_input` to configured autohostlist files and reloads remote lists.
-fn submit_add_autohostlist(
-    state: &mut AppState,
-    tab2_session: &Option<Tab2Session>,
-    raw_input: &str,
-) -> Result<(), String>
+/// Appends a clean domain from `raw_input` to configured autohostlist files and queues list reload.
+fn submit_add_autohostlist(state: &mut AppState, raw_input: &str) -> Result<Option<Request>, String>
 {
     if state.config.autohostlist_paths.is_empty()
     {
@@ -297,16 +277,8 @@ fn submit_add_autohostlist(
     }
     state.refresh_autohostlist();
     let clean = parse_clean_domain(raw_input).unwrap_or_else(|| raw_input.to_owned());
-    if let Some(Tab2Session::Remote(remote)) = tab2_session.as_ref()
-        && remote.send_command(&Request::ReloadLists).is_ok()
-    {
-        state.status_banner = format!("Added {clean} to Auto Hostlist & reloaded daemon");
-    }
-    else
-    {
-        state.status_banner = format!("Added {clean} to Auto Hostlist");
-    }
-    Ok(())
+    state.status_banner = format!("Added {clean} to Auto Hostlist");
+    Ok(Some(Request::ReloadLists))
 }
 
 /// Parses bind address input, launches the embedded Web UI server, and updates status banners.
@@ -347,20 +319,12 @@ fn submit_launch_web_ui(
     Ok(())
 }
 
-/// Executes the confirmed Tab 3 domain list or Web UI modal action and closes on success.
-pub(crate) fn submit_prompt_modal(
-    state: &mut AppState,
-    tab2_session: &Option<Tab2Session>,
-    web_ui: &mut Option<ActiveWebUi>,
-)
+/// Executes the confirmed Tab 3 domain list or Web UI modal action and returns any reload request.
+pub(crate) fn submit_prompt_modal(state: &mut AppState, web_ui: &mut Option<ActiveWebUi>) -> Option<Request>
 {
-    let Some((kind, raw_input)) = state.prompt_modal.as_ref().map(|m| (m.kind, m.input.trim().to_owned()))
-    else
-    {
-        return;
-    };
+    let (kind, raw_input) = state.prompt_modal.as_ref().map(|m| (m.kind, m.input.trim().to_owned()))?;
 
-    let outcome: Result<(), String> = match kind
+    let outcome: Result<Option<Request>, String> = match kind
     {
         PromptKind::BlacklistDomain =>
         {
@@ -376,23 +340,28 @@ pub(crate) fn submit_prompt_modal(
             mutate_exclude_domains_toml(&source_toml, &raw_input, true, cfg_path.parent()).and_then(
                 |updated| {
                     let clean = parse_clean_domain(&raw_input).unwrap_or_else(|| raw_input.clone());
-                    commit_updated_toml(state, tab2_session, updated, &format!("Blacklisted {clean}"))
+                    commit_updated_toml(state, updated, &format!("Blacklisted {clean}")).map(Some)
                 },
             )
         }
-        PromptKind::AddAutoHostlist => submit_add_autohostlist(state, tab2_session, &raw_input),
-        PromptKind::LaunchWebUi => submit_launch_web_ui(state, web_ui, &raw_input),
+        PromptKind::AddAutoHostlist => submit_add_autohostlist(state, &raw_input),
+        PromptKind::LaunchWebUi => submit_launch_web_ui(state, web_ui, &raw_input).map(|()| None),
     };
 
     match outcome
     {
-        Ok(()) => state.prompt_modal = None,
+        Ok(req) =>
+        {
+            state.prompt_modal = None;
+            req
+        }
         Err(err) =>
         {
             if let Some(modal) = state.prompt_modal.as_mut()
             {
                 modal.error = Some(err);
             }
+            None
         }
     }
 }

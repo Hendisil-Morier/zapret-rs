@@ -13,9 +13,11 @@ use crate::tui::editor::{resolve_editor_command, spawn_unprivileged_editor};
 /// Terminal alternate-screen session wrapper suspended cleanly while `$EDITOR` runs.
 use crate::tui::session::TerminalSession;
 /// Tab 7 table metrics and selectable option/keybind descriptors.
-use crate::tui::settings_tab::{KEYBIND_ENTRIES, SettingRow, SettingsFocus, SettingsTabState};
+use crate::tui::settings_tab::{KEYBIND_ENTRIES, SettingRow, SettingsFocus};
 /// Mutable top-level TUI state updated by Tab 7 actions.
 use crate::tui::state::AppState;
+/// Shared visible-window slice helper aligned with `draw_settings_tab`.
+use crate::tui::types::visible_window;
 
 /// Saves active Tab 7 settings, theme, and customized keybinds sparsely into `state.app_config_path`.
 pub(crate) fn save_app_config_from_settings(state: &mut AppState)
@@ -150,10 +152,9 @@ pub(crate) fn handle_settings_mouse(
         else if is_left && pos.y > cols[1].y + 1 && pos.y + 1 < cols[1].bottom()
         {
             let cap = usize::from(cols[1].height.saturating_sub(3)).max(1);
-            let (start, _) =
-                SettingsTabState::visible_window(KEYBIND_ENTRIES.len(), state.settings.keybind_sel, cap);
+            let (start, end) = visible_window(KEYBIND_ENTRIES.len(), state.settings.keybind_sel, cap);
             let idx = start + usize::from(pos.y - (cols[1].y + 2));
-            if idx < KEYBIND_ENTRIES.len()
+            if idx < end
             {
                 state.settings.keybind_sel = idx;
             }

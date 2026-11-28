@@ -230,3 +230,65 @@ pub fn adjust_pane_scroll(scroll: &mut u16, code: KeyCode) -> bool
 {
     adjust_pane_scroll_key(scroll, KeyEvent::from(code), &NavKeybinds::default())
 }
+
+/// Computes the inclusive-start/exclusive-end visible slice keeping `selected` inside `capacity` rows.
+pub(crate) fn visible_window(len: usize, selected: usize, capacity: usize) -> (usize, usize)
+{
+    if len == 0 || capacity == 0
+    {
+        return (0, 0);
+    }
+    let clamped = selected.min(len - 1);
+    let end = (clamped + 1).max(capacity.min(len)).min(len);
+    let start = end.saturating_sub(capacity);
+    (start, end)
+}
+
+/// Steps a cursor index `selected` by signed `delta`, clamped within `0..len` (`0` when `len == 0`).
+pub(crate) fn step_selection(selected: usize, len: usize, delta: isize) -> usize
+{
+    if len == 0
+    {
+        return 0;
+    }
+    selected.saturating_add_signed(delta).min(len - 1)
+}
+
+/// Result of applying a single key event to an inline plain-text `String` buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextInputOutcome
+{
+    /// `Esc` pressed: buffer was cleared and inline editing should abort.
+    Cancelled,
+    /// `Enter` pressed: caller should commit or submit the buffer contents.
+    Submitted,
+    /// `Backspace` or printable character modified the buffer.
+    Edited,
+    /// Key was not part of inline text editing.
+    Ignored,
+}
+
+/// Applies `Esc`, `Enter`, `Backspace`, and non-control `Char` edits uniformly to `buf`.
+pub(crate) fn handle_inline_text_key(buf: &mut String, key: KeyEvent) -> TextInputOutcome
+{
+    match key.code
+    {
+        KeyCode::Esc =>
+        {
+            buf.clear();
+            TextInputOutcome::Cancelled
+        }
+        KeyCode::Enter => TextInputOutcome::Submitted,
+        KeyCode::Backspace =>
+        {
+            buf.pop();
+            TextInputOutcome::Edited
+        }
+        KeyCode::Char(c) if !c.is_control() =>
+        {
+            buf.push(c);
+            TextInputOutcome::Edited
+        }
+        _ => TextInputOutcome::Ignored,
+    }
+}

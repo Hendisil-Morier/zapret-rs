@@ -17,9 +17,11 @@ use crate::telemetry::{PacketRecord, PacketVerdict};
 /// Live inspector state rendered here.
 use crate::tui::inspect::PacketInspectorState;
 /// Shared theme panel border and centered modal rect builders.
-use crate::tui::theme::{centered_rect, panel_block};
+use crate::tui::theme::{clamped_centered_rect, panel_block};
 /// Configurable TUI color palette.
 use crate::tui::theme_config::Theme;
+/// Shared visible-window slice helper aligned with mouse hit-testing.
+use crate::tui::types::visible_window;
 
 /// Maps a [`PacketVerdict`] to its terminal badge color from `theme`.
 const fn verdict_color(verdict: PacketVerdict, theme: &Theme) -> Color
@@ -178,7 +180,7 @@ pub fn draw_packet_inspector(
     let visible = inspector.visible_packets();
     let capacity = usize::from(area.height.saturating_sub(3)).max(1);
     let clamped_sel = inspector.selected.min(visible.len().saturating_sub(1));
-    let start = if clamped_sel >= capacity { clamped_sel + 1 - capacity } else { 0 };
+    let (start, end) = visible_window(visible.len(), clamped_sel, capacity);
 
     let header = Row::new(["#", "Dir", "Proto", "Flow", "Len", "Verdict", "Info"])
         .style(Style::default().fg(theme.warn_bright).bg(theme.highlight_bg).add_modifier(Modifier::BOLD));
@@ -186,8 +188,8 @@ pub fn draw_packet_inspector(
     let rows: Vec<Row> = visible
         .iter()
         .enumerate()
+        .take(end)
         .skip(start)
-        .take(capacity)
         .map(|(idx, rec)| build_inspector_row(rec, idx == clamped_sel, theme))
         .collect();
 
@@ -257,10 +259,7 @@ fn hex_dump_lines(bytes: &[u8], theme: &Theme) -> Vec<Line<'static>>
 /// Renders a centered floating detail modal showing headers and hex/ASCII dump for `rec`.
 pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord, theme: &Theme)
 {
-    let area = frame.area();
-    let w = 82u16.min(area.width.saturating_sub(4)).max(40.min(area.width));
-    let h = 20u16.min(area.height.saturating_sub(2)).max(12.min(area.height));
-    let popup = centered_rect(area, w, h);
+    let popup = clamped_centered_rect(frame.area(), 82, 40, 20, 12);
     frame.render_widget(Clear, popup);
 
     let v_col = verdict_color(rec.verdict, theme);

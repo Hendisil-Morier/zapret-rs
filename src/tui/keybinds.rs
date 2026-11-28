@@ -12,7 +12,7 @@ use ratatui::{
 /// Application state inspected to determine the active tab and daemon lifecycle status.
 use crate::tui::state::AppState;
 /// Shared keycap styling helper, centered modal rect, and bordered panel builders.
-use crate::tui::theme::{centered_rect, panel_block, styled_key_hints_owned};
+use crate::tui::theme::{clamped_centered_rect, panel_block, styled_key_hints_owned};
 /// Configurable TUI color palette.
 use crate::tui::theme_config::Theme;
 /// Active tab and daemon lifecycle status used to select the correct binding section.
@@ -312,10 +312,7 @@ fn push_management_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState
 pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
 {
     let t = &state.theme;
-    let area = frame.area();
-    let w = 84u16.min(area.width.saturating_sub(4)).max(44.min(area.width));
-    let h = 14u16.min(area.height.saturating_sub(2)).max(8.min(area.height));
-    let popup = centered_rect(area, w, h);
+    let popup = clamped_centered_rect(frame.area(), 84, 44, 14, 8);
     frame.render_widget(Clear, popup);
 
     let tab_label = state.tab.spec().full_title;

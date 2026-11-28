@@ -9,12 +9,14 @@ use ratatui::{
     widgets::{List, ListItem, Paragraph, Wrap},
 };
 
-/// Tab 6 column focus and shared visible-window calculator aligned with mouse clicks.
-use crate::tui::hostlist_tab::{HostlistFocus, visible_list_window};
+/// Tab 6 column focus variant.
+use crate::tui::hostlist_tab::HostlistFocus;
 /// Top-level TUI application state read while rendering Tab 6.
 use crate::tui::state::AppState;
 /// Shared bordered panel builder for Tab 6 cards.
 use crate::tui::theme::panel_block;
+/// Shared visible-window slice helper aligned with mouse hit-testing.
+use crate::tui::types::visible_window;
 
 /// Display parameters for rendering one selectable domain column inside Tab 6.
 struct DomainColumnView<'a>
@@ -193,7 +195,7 @@ fn draw_domain_column(frame: &mut Frame, view: &DomainColumnView<'_>, state: &Ap
     }
 
     let capacity = usize::from(view.area.height.saturating_sub(2)).max(1);
-    let (start, end) = visible_list_window(view.items.len(), view.selected, capacity);
+    let (start, end) = visible_window(view.items.len(), view.selected, capacity);
     let rows: Vec<ListItem> = (start..end)
         .map(|idx| {
             let domain = view.items[idx];

@@ -16,7 +16,7 @@ use crate::tui::state::AppState;
 /// Navigation, action, focus, and scroll helpers reused by mouse handlers.
 use crate::tui::types::{
     ActiveTab, AppAction, ConfigFocus, FinderField, FinderFocus, RunFocus, adjust_log_scroll,
-    adjust_pane_scroll,
+    adjust_pane_scroll, step_selection, visible_window,
 };
 
 /// Maps a left click or wheel scroll event at `(mouse.column, mouse.row)` onto `state`.
@@ -88,10 +88,8 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) -
         ActiveTab::Status =>
         {
             if let Some(dir) = scroll_dir
-                && !state.status.checks.is_empty()
             {
-                let next = state.status.selected as isize + dir;
-                state.status.selected = next.clamp(0, state.status.checks.len() as isize - 1) as usize;
+                state.status.selected = step_selection(state.status.selected, state.status.checks.len(), dir);
             }
         }
         ActiveTab::Hostlist => handle_hostlist_mouse(state, pos, is_left, scroll_dir, chunks[1]),
@@ -279,17 +277,19 @@ fn handle_finder_mouse(
         state.reset_finder_hover();
         if let Some(dir) = scroll_dir
         {
-            let last = state.finder.targets.len().saturating_sub(1);
-            let sel = &mut state.focus.finder_results_sel;
-            *sel = if dir < 0 { sel.saturating_sub(1) } else { (*sel + 1).min(last) };
+            state.focus.finder_results_sel =
+                step_selection(state.focus.finder_results_sel, state.finder.targets.len(), dir);
         }
         else if is_left
             && !state.finder.targets.is_empty()
             && pos.y >= right[1].y + 2
             && pos.y + 1 < right[1].bottom()
         {
-            let row = usize::from(pos.y - (right[1].y + 2));
-            if row < state.finder.targets.len()
+            let capacity = usize::from(right[1].height.saturating_sub(3)).max(1);
+            let (start, end) =
+                visible_window(state.finder.targets.len(), state.focus.finder_results_sel, capacity);
+            let row = start + usize::from(pos.y - (right[1].y + 2));
+            if row < end
             {
                 state.focus.finder_results_sel = row;
             }
@@ -363,23 +363,16 @@ fn handle_run_mouse(
         let visible_len = state.inspector.visible_packets().len();
         if let Some(dir) = scroll_dir
         {
-            if dir < 0
-            {
-                state.inspector.selected = state.inspector.selected.saturating_sub(3);
-            }
-            else if visible_len > 0
-            {
-                state.inspector.selected = (state.inspector.selected + 3).min(visible_len - 1);
-            }
+            state.inspector.selected = step_selection(state.inspector.selected, visible_len, dir * 3);
             return AppAction::None;
         }
         if is_left && visible_len > 0 && pos.y >= rows[2].y + 2 && pos.y + 1 < rows[2].bottom()
         {
             let capacity = usize::from(rows[2].height.saturating_sub(3)).max(1);
             let clamped = state.inspector.selected.min(visible_len - 1);
-            let start = if clamped >= capacity { clamped + 1 - capacity } else { 0 };
+            let (start, end) = visible_window(visible_len, clamped, capacity);
             let target = start + usize::from(pos.y - (rows[2].y + 2));
-            if target < visible_len
+            if target < end
             {
                 if target == clamped
                 {

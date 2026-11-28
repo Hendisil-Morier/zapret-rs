@@ -11,8 +11,8 @@ use crate::tui::keybind_schema::Keybinds;
 use crate::tui::keybind_spec::{KeyBind, KeyList};
 /// Top-level mutable TUI state updated by Tab 7 interactions.
 use crate::tui::state::AppState;
-/// Side-effect actions returned from [`AppState::handle_settings_key`].
-use crate::tui::types::AppAction;
+/// Side-effect actions, inline text editing, and clamped cursor-stepping helpers for Tab 7.
+use crate::tui::types::{AppAction, TextInputOutcome, handle_inline_text_key, step_selection};
 
 /// Focused column on Tab 7 (`Settings`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -179,37 +179,12 @@ impl SettingsTabState
     /// Moves row cursor inside the focused Tab 7 column cleanly within bounds.
     pub fn move_selection(&mut self, delta: isize)
     {
-        let len = match self.focus
+        let (len, target) = match self.focus
         {
-            SettingsFocus::Options => SettingRow::ALL.len(),
-            SettingsFocus::Keybinds => KEYBIND_ENTRIES.len(),
+            SettingsFocus::Options => (SettingRow::ALL.len(), &mut self.option_sel),
+            SettingsFocus::Keybinds => (KEYBIND_ENTRIES.len(), &mut self.keybind_sel),
         };
-        if len == 0
-        {
-            return;
-        }
-        let target = match self.focus
-        {
-            SettingsFocus::Options => &mut self.option_sel,
-            SettingsFocus::Keybinds => &mut self.keybind_sel,
-        };
-        let next = (*target as isize + delta).clamp(0, len.saturating_sub(1) as isize);
-        *target = next as usize;
-    }
-
-    /// Computes visible `(start, end)` window keeping `selected` inside `capacity` rows.
-    pub fn visible_window(len: usize, selected: usize, capacity: usize) -> (usize, usize)
-    {
-        let cap = capacity.max(1);
-        if len <= cap
-        {
-            return (0, len);
-        }
-        let sel = selected.min(len - 1);
-        let half = cap / 2;
-        let max_start = len.saturating_sub(cap);
-        let start = sel.saturating_sub(half).min(max_start);
-        (start, (start + cap).min(len))
+        *target = step_selection(*target, len, delta);
     }
 }
 
@@ -259,27 +234,15 @@ impl AppState
 
         if self.settings.editing_option
         {
-            match key.code
+            match handle_inline_text_key(&mut self.settings.edit_buf, key)
             {
-                KeyCode::Esc =>
+                TextInputOutcome::Cancelled =>
                 {
                     self.settings.editing_option = false;
-                    self.settings.edit_buf.clear();
                     self.status_banner = "Cancelled option edit.".to_owned();
                 }
-                KeyCode::Enter =>
-                {
-                    self.apply_edited_setting_row();
-                }
-                KeyCode::Backspace =>
-                {
-                    self.settings.edit_buf.pop();
-                }
-                KeyCode::Char(c) if !c.is_control() =>
-                {
-                    self.settings.edit_buf.push(c);
-                }
-                _ =>
+                TextInputOutcome::Submitted => self.apply_edited_setting_row(),
+                TextInputOutcome::Edited | TextInputOutcome::Ignored =>
                 {}
             }
             return AppAction::None;
@@ -291,29 +254,9 @@ impl AppState
         {
             self.settings.toggle_focus();
         }
-        else if nav.up.contains(key)
+        else if let Some(delta) = nav.vertical_delta(key, 10)
         {
-            self.settings.move_selection(-1);
-        }
-        else if nav.down.contains(key)
-        {
-            self.settings.move_selection(1);
-        }
-        else if nav.page_up.contains(key)
-        {
-            self.settings.move_selection(-10);
-        }
-        else if nav.page_down.contains(key)
-        {
-            self.settings.move_selection(10);
-        }
-        else if nav.home.contains(key)
-        {
-            self.settings.move_selection(isize::MIN / 2);
-        }
-        else if nav.end.contains(key)
-        {
-            self.settings.move_selection(isize::MAX / 2);
+            self.settings.move_selection(delta);
         }
         else if sk.save.contains(key)
         {

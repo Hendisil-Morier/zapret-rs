@@ -18,8 +18,8 @@ use ratatui::{
 
 /// Non-interactive `sudo` credential probe shared with `nftables` setup.
 use crate::tools::sudo_needs_password;
-/// Shared keycap styling helper.
-use crate::tui::theme::styled_key_hints;
+/// Shared centered popup clamping and keycap styling helpers.
+use crate::tui::theme::{clamped_centered_rect, styled_key_hints};
 /// Active configurable color palette.
 use crate::tui::theme_config::Theme;
 
@@ -208,16 +208,6 @@ pub fn run_sudo_silent(args: &[&str], password: Option<&str>) -> Result<(), Stri
     }
 }
 
-/// Computes a centered popup [`Rect`] of at most `(max_w, max_h)` clamped inside `area`.
-fn centered_rect(area: Rect, max_w: u16, max_h: u16) -> Rect
-{
-    let w = max_w.min(area.width.saturating_sub(4)).max(24.min(area.width));
-    let h = max_h.min(area.height.saturating_sub(2)).max(9.min(area.height));
-    let x = area.x + area.width.saturating_sub(w) / 2;
-    let y = area.y + area.height.saturating_sub(h) / 2;
-    Rect { x, y, width: w, height: h }
-}
-
 /// Returns `(title, summary, border_color, action_hint)` for each auth/confirmation [`ModalPurpose`].
 fn auth_modal_metadata(purpose: ModalPurpose, t: &Theme)
 -> (&'static str, &'static str, Color, &'static str)
@@ -358,7 +348,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
             | ModalPurpose::ConfirmMergeConfig
             | ModalPurpose::ConfirmApplyDns
     );
-    let popup = centered_rect(frame.area(), 70, if is_confirm { 11 } else { 13 });
+    let popup = clamped_centered_rect(frame.area(), 70, 24, if is_confirm { 11 } else { 13 }, 9);
     frame.render_widget(Clear, popup);
 
     let (title, summary, border_col, action_hint) = auth_modal_metadata(modal.purpose, t);

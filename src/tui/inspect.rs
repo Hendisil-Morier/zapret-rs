@@ -10,6 +10,8 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::telemetry::{PacketRecord, PacketVerdict};
 /// Configurable inspector and navigation keymaps (`[keybinds.inspector]` and `[keybinds.nav]`).
 use crate::tui::keybind_schema::Keybinds;
+/// Shared inline text editing and clamped cursor-stepping helpers.
+use crate::tui::types::{TextInputOutcome, handle_inline_text_key, step_selection};
 
 /// Maximum recent packets retained in memory for live TUI inspection.
 const MAX_INSPECT_PACKETS: usize = 300;
@@ -198,55 +200,45 @@ impl PacketInspectorState
         }
         if self.filter_editing
         {
-            return match key.code
+            let msg = match handle_inline_text_key(&mut self.filter_query, key)
             {
-                KeyCode::Esc =>
+                TextInputOutcome::Cancelled =>
                 {
                     self.filter_editing = false;
-                    self.filter_query.clear();
                     self.selected = 0;
-                    Some("Packet filter cleared.".to_owned())
+                    "Packet filter cleared.".to_owned()
                 }
-                KeyCode::Enter =>
+                TextInputOutcome::Submitted =>
                 {
                     self.filter_editing = false;
-                    let msg = if self.filter_query.trim().is_empty()
+                    let trimmed = self.filter_query.trim();
+                    if trimmed.is_empty()
                     {
                         "Packet filter cleared.".to_owned()
                     }
                     else
                     {
-                        format!("Filter applied: {}", self.filter_query.trim())
-                    };
-                    Some(msg)
+                        format!("Filter applied: {trimmed}")
+                    }
                 }
-                KeyCode::Backspace =>
+                TextInputOutcome::Edited =>
                 {
-                    self.filter_query.pop();
                     self.selected = 0;
-                    Some(String::new())
+                    String::new()
                 }
-                KeyCode::Char(c) =>
-                {
-                    self.filter_query.push(c);
-                    self.selected = 0;
-                    Some(String::new())
-                }
-                _ => Some(String::new()),
+                TextInputOutcome::Ignored => String::new(),
             };
+            return Some(msg);
         }
         let count = self.visible_packets().len();
         if nav.up.contains(key)
         {
-            self.selected = self.selected.saturating_sub(1);
+            self.selected = step_selection(self.selected, count, -1);
             return Some(String::new());
         }
         if nav.down.contains(key)
         {
-            if count > 0
-            {
-                self.selected = (self.selected + 1).min(count - 1);
-            }
+            self.selected = step_selection(self.selected, count, 1);
             return Some(String::new());
         }
         if insp.filter_cycle.contains(key)

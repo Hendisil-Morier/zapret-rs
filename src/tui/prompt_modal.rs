@@ -5,16 +5,18 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 /// `ratatui` overlay widgets (`Clear`, layout, bordered inputs, styled spans).
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-/// Shared keycap badge styling helper.
-use crate::tui::theme::styled_key_hints;
+/// Shared centered popup clamping and keycap badge styling helpers.
+use crate::tui::theme::{clamped_centered_rect, styled_key_hints};
 /// Active configurable TUI color palette.
 use crate::tui::theme_config::Theme;
+/// Shared inline text buffer editor and outcome signal.
+use crate::tui::types::{TextInputOutcome, handle_inline_text_key};
 
 /// Target operation performed when [`PromptModal`] submits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,41 +87,24 @@ impl PromptModal
                 _ => PromptKeyResult::KeepOpen,
             };
         }
-        match key.code
+        match handle_inline_text_key(&mut self.input, key)
         {
-            KeyCode::Esc => PromptKeyResult::Close,
-            KeyCode::Enter => PromptKeyResult::Submit,
-            KeyCode::Backspace =>
+            TextInputOutcome::Cancelled => PromptKeyResult::Close,
+            TextInputOutcome::Submitted => PromptKeyResult::Submit,
+            TextInputOutcome::Edited =>
             {
-                self.input.pop();
                 self.error = None;
                 PromptKeyResult::KeepOpen
             }
-            KeyCode::Char(c) if !c.is_control() =>
-            {
-                self.input.push(c);
-                self.error = None;
-                PromptKeyResult::KeepOpen
-            }
-            _ => PromptKeyResult::KeepOpen,
+            TextInputOutcome::Ignored => PromptKeyResult::KeepOpen,
         }
     }
-}
-
-/// Computes a centered floating rect bounded cleanly inside `area`.
-fn prompt_rect(area: Rect, max_w: u16, max_h: u16) -> Rect
-{
-    let w = max_w.min(area.width.saturating_sub(4)).max(24.min(area.width));
-    let h = max_h.min(area.height.saturating_sub(2)).max(9.min(area.height));
-    let x = area.x + area.width.saturating_sub(w) / 2;
-    let y = area.y + area.height.saturating_sub(h) / 2;
-    Rect { x, y, width: w, height: h }
 }
 
 /// Renders [`PromptModal`] cleanly centered over the active screen.
 pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme)
 {
-    let popup = prompt_rect(frame.area(), 76, 12);
+    let popup = clamped_centered_rect(frame.area(), 76, 24, 12, 9);
     frame.render_widget(Clear, popup);
 
     let (title, prompt, hint, border_col) = match modal.kind

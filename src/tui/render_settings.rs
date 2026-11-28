@@ -12,11 +12,13 @@ use ratatui::{
 /// Default keybinding baseline used to highlight customized keymaps cleanly.
 use crate::tui::keybind_schema::Keybinds;
 /// Selected column, setting row, and ordered keybinding entry descriptors on Tab 7.
-use crate::tui::settings_tab::{KEYBIND_ENTRIES, SettingRow, SettingsFocus, SettingsTabState};
+use crate::tui::settings_tab::{KEYBIND_ENTRIES, SettingRow, SettingsFocus};
 /// Shared TUI state rendered inside Tab 7.
 use crate::tui::state::AppState;
 /// Shared bordered panel builder for Tab 7 cards.
 use crate::tui::theme::panel_block;
+/// Shared visible-window slice helper aligned with mouse hit-testing.
+use crate::tui::types::visible_window;
 
 /// Renders Tab 7: top settings status strip, left `Options` pane, and right `Keybindings` table.
 pub(crate) fn draw_settings_tab(frame: &mut Frame, area: Rect, state: &AppState)
@@ -198,8 +200,7 @@ fn draw_keybinds_column(frame: &mut Frame, area: Rect, state: &AppState)
     let border = if focused { t.accent_bright } else { t.frame };
     let defaults = Keybinds::default();
     let cap = usize::from(area.height.saturating_sub(3)).max(1);
-    let (start, end) =
-        SettingsTabState::visible_window(KEYBIND_ENTRIES.len(), state.settings.keybind_sel, cap);
+    let (start, end) = visible_window(KEYBIND_ENTRIES.len(), state.settings.keybind_sel, cap);
 
     let header = Row::new(["Action", "Binding", "State"])
         .style(Style::default().fg(t.warn_bright).bg(t.highlight_bg).add_modifier(Modifier::BOLD));
