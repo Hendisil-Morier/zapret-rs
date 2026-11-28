@@ -58,9 +58,8 @@ fn push_global_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState)
     let global_row = if !state.status.has_net_caps
     {
         format!(
-            "[{tab_nav}] Tabs  [{panel_nav}] Panel  [{}] Web UI  [{}] Theme  [{}] Caps  [{}] Help  [{}] Quit",
+            "[{tab_nav}] Tabs  [{panel_nav}] Panel  [{}] Web UI  [{}] Caps  [{}] Help  [{}] Quit",
             g.web_ui.primary_label(),
-            g.cycle_theme.primary_label(),
             g.caps_modal.primary_label(),
             g.help.primary_label(),
             g.quit.primary_label(),
@@ -69,9 +68,8 @@ fn push_global_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState)
     else
     {
         format!(
-            "[{tab_nav}] Tabs  [{panel_nav}] Focus Panel  [{}] Web UI  [{}] Theme  [{}] Help  [{}] Quit",
+            "[{tab_nav}] Tabs  [{panel_nav}] Focus Panel  [{}] Web UI  [{}] Help  [{}] Quit",
             g.web_ui.primary_label(),
-            g.cycle_theme.primary_label(),
             g.help.primary_label(),
             g.quit.primary_label(),
         )

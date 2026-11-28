@@ -68,18 +68,6 @@ impl AppState
         {
             return Some(self.cycle_panel_focus(false));
         }
-        if !detail_open && g.cycle_theme.contains(key)
-        {
-            let settings_tab = self.keybinds.global.tab_7.primary_label();
-            let save_key = self.keybinds.settings.save.primary_label();
-            self.theme = self.theme.next_preset();
-            self.settings.dirty = true;
-            self.status_banner = format!(
-                "Theme preview: {} (Tab {settings_tab} Settings -> '{save_key}' to save)",
-                self.theme.name
-            );
-            return Some(AppAction::None);
-        }
         if !detail_open && g.web_ui.contains(key)
         {
             if self.web_status.is_some()

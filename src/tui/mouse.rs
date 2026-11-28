@@ -142,13 +142,12 @@ fn hit_substring(rel: usize, base: usize, haystack: &str, needle: &str) -> bool
     haystack.find(needle).is_some_and(|idx| rel >= base + idx && rel < base + idx + needle.len())
 }
 
-/// Handles clicks on `[?] Keys`, `[t] <theme>`, and active Web UI link/copy chips in the footer.
+/// Handles clicks on `[?] Keys` and active Web UI link/copy chips in the footer.
 fn handle_footer_click(state: &mut AppState, col: u16, footer_area: Rect) -> AppAction
 {
     let rel = usize::from(col.saturating_sub(footer_area.x));
     let g = &state.keybinds.global;
     let help_chip = format!("[{}] Keys", g.help.primary_label());
-    let theme_prefix = format!("[{}] ", g.cycle_theme.primary_label());
     let help_start = 1usize;
     let help_end = help_start + help_chip.len();
     if (help_start..help_end).contains(&rel)
@@ -157,21 +156,7 @@ fn handle_footer_click(state: &mut AppState, col: u16, footer_area: Rect) -> App
         state.dismiss_finder_hover();
         return AppAction::None;
     }
-    let theme_start = help_end + 2;
-    let theme_end = theme_start + theme_prefix.len() + state.theme.name.len();
-    if (theme_start..theme_end).contains(&rel)
-    {
-        state.theme = state.theme.next_preset();
-        state.settings.dirty = true;
-        let settings_tab = g.tab_7.primary_label();
-        let save_key = state.keybinds.settings.save.primary_label();
-        state.status_banner = format!(
-            "Theme preview: {} (Tab {settings_tab} Settings -> '{save_key}' to save)",
-            state.theme.name
-        );
-        return AppAction::None;
-    }
-    let banner_start = theme_end + 5;
+    let banner_start = help_end + 5;
     if state.web_status.is_some() && state.status_banner.starts_with("Web UI:") && rel >= banner_start
     {
         let stop_chip = format!("[{}] Stop", g.web_ui.primary_label());

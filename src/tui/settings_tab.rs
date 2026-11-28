@@ -90,7 +90,6 @@ pub(crate) const KEYBIND_ENTRIES: &[KeybindEntrySpec] = kb_specs!(
     global.next_tab,
     global.next_panel,
     global.prev_panel,
-    global.cycle_theme,
     global.web_ui,
     global.copy_web_passcode,
     global.open_web_ui,

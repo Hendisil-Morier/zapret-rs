@@ -63,7 +63,10 @@ fn theme_syntax_highlighters_and_buffer_palette_apply_distinct_colors()
     let mut state = AppState::new(None, None, false);
     let before_theme = state.theme.name;
     state.handle_key(key(KeyCode::Char('t')));
-    assert_ne!(state.theme.name, before_theme, "'t' must cycle built-in presets");
+    assert_eq!(state.theme.name, before_theme, "global 't' theme shortcut was removed");
+    state.handle_key(key(KeyCode::Char('7')));
+    state.handle_key(key(KeyCode::Enter));
+    assert_ne!(state.theme.name, before_theme, "Tab 7 Theme Preset must cycle built-in presets");
     state.tab = ActiveTab::Run;
     let backend = TestBackend::new(120, 32);
     let mut terminal = Terminal::new(backend).expect("create TestBackend terminal");

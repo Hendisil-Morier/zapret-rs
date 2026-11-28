@@ -58,7 +58,7 @@ fn dummy_pkt(seq: u64) -> PacketRecord
 }
 
 #[test]
-fn mouse_clicks_switch_header_tabs_and_trigger_footer_help_and_theme()
+fn mouse_clicks_switch_header_tabs_and_trigger_footer_help()
 {
     let mut state = AppState::new(None, None, false);
     assert_eq!(state.tab, ActiveTab::Finder);
@@ -77,11 +77,7 @@ fn mouse_clicks_switch_header_tabs_and_trigger_footer_help_and_theme()
     handle_mouse_event(&mut state, click(3, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Finder);
 
-    // Footer row y = 31: `[t] <theme>` around x = 12, `[?] Keys` at x = 3.
-    let prev_theme = state.theme.name;
-    handle_mouse_event(&mut state, click(12, 31), AREA);
-    assert_ne!(state.theme.name, prev_theme);
-
+    // Footer row y = 31: `[?] Keys` at x = 3.
     handle_mouse_event(&mut state, click(3, 31), AREA);
     assert!(state.help_open);
     handle_mouse_event(&mut state, click(3, 31), AREA);

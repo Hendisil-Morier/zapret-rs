@@ -421,14 +421,13 @@ pub(crate) fn draw_log_list(
     frame.render_widget(list, area);
 }
 
-/// Renders the compact single-line bottom status strip with `[?] Keys` and active theme name.
+/// Renders the compact single-line bottom status strip with `[?] Keys` and the live status banner.
 fn draw_footer(frame: &mut Frame, area: Rect, state: &AppState)
 {
     let t = &state.theme;
     let g = &state.keybinds.global;
-    let footer_keys = format!(" [{}] Keys  [{}] ", g.help.primary_label(), g.cycle_theme.primary_label());
+    let footer_keys = format!(" [{}] Keys", g.help.primary_label());
     let mut line_spans = styled_key_hints_owned(&footer_keys, t);
-    line_spans.push(Span::styled(t.name, Style::default().fg(t.special_bright).add_modifier(Modifier::BOLD)));
     line_spans.push(Span::styled("  |  ", Style::default().fg(t.muted)));
     line_spans.push(Span::styled(
         state.status_banner.as_str(),

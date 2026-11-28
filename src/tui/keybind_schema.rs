@@ -100,8 +100,6 @@ keybind_section! {
         next_panel: next_panel = ["Tab"],
         /// Moves focus backward to the previous pane inside the current tab.
         prev_panel: prev_panel = ["Shift+Tab"],
-        /// Cycles across built-in color theme presets (`neon`, `tokyo`, `dracula`, `gruvbox`, `ansi`).
-        cycle_theme: cycle_theme = ["t"],
         /// Starts or stops the embedded Web UI dashboard.
         web_ui: web_ui = ["W"],
         /// Copies the active Web UI pairing passcode to the system clipboard.
