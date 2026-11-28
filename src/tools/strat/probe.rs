@@ -90,8 +90,20 @@ pub trait ProbeBackend
     }
 }
 
-/// Thread-safe per-scan DNS resolution cache mapping `(domain, family)` to the resolved IP.
-type ResolveCache = Arc<RwLock<HashMap<(String, IpFamily), Option<IpAddr>>>>;
+/// Cached outcome of resolving `(domain, IpFamily)` for `--resolve` pinning and SSRF gating.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolvedTarget
+{
+    /// First matching public/routable IP safe to probe with `curl --resolve`.
+    Public(IpAddr),
+    /// DNS resolved only to loopback, unspecified, link-local, or multicast space (`is_ssrf_blocked_ip`).
+    BlockedLocal(IpAddr),
+    /// DNS lookup failed or returned no matching address family records.
+    Unresolved,
+}
+
+/// Thread-safe per-scan DNS resolution cache mapping `(domain, family)` to the resolved target status.
+type ResolveCache = Arc<RwLock<HashMap<(String, IpFamily), ResolvedTarget>>>;
 
 /// Live [`ProbeBackend`] invoking the system `curl` binary with per-scan DNS resolution caching.
 #[derive(Debug, Clone)]
@@ -126,8 +138,8 @@ impl CurlProbeBackend
         &self.curl_bin
     }
 
-    /// Looks up or populates the cached IP for `(domain, ipv)` matching the target address family.
-    fn cached_ip(&self, domain: &str, port: u16, ipv: IpFamily) -> Option<IpAddr>
+    /// Looks up or populates the cached [`ResolvedTarget`] for `(domain, ipv)` matching `ipv`.
+    fn resolve_target(&self, domain: &str, port: u16, ipv: IpFamily) -> ResolvedTarget
     {
         let key = (domain.to_owned(), ipv);
         if let Ok(guard) = self
@@ -137,17 +149,35 @@ impl CurlProbeBackend
         {
             return cached;
         }
-        let resolved = (domain, port)
-            .to_socket_addrs()
-            .ok()
-            .and_then(|addrs| {
-                addrs
-                    .map(|sa| sa.ip())
-                    .find(|ip| {
-                        matches!((ipv, ip), (IpFamily::V4, IpAddr::V4(_)) | (IpFamily::V6, IpAddr::V6(_)))
-                    })
-            })
-            .filter(|ip| !is_ssrf_blocked_ip(*ip));
+        let mut first_blocked = None;
+        let mut resolved = ResolvedTarget::Unresolved;
+        if let Ok(addrs) = (domain, port).to_socket_addrs()
+        {
+            for sa in addrs
+            {
+                let ip = sa.ip();
+                let matches_family =
+                    matches!((ipv, ip), (IpFamily::V4, IpAddr::V4(_)) | (IpFamily::V6, IpAddr::V6(_)));
+                if !matches_family
+                {
+                    continue;
+                }
+                if !is_ssrf_blocked_ip(ip)
+                {
+                    resolved = ResolvedTarget::Public(ip);
+                    break;
+                }
+                if first_blocked.is_none()
+                {
+                    first_blocked = Some(ip);
+                }
+            }
+        }
+        if resolved == ResolvedTarget::Unresolved
+            && let Some(ip) = first_blocked
+        {
+            resolved = ResolvedTarget::BlockedLocal(ip);
+        }
         if let Ok(mut guard) = self
             .resolve_cache
             .write()
@@ -239,6 +269,17 @@ fn is_ssrf_blocked_ip(ip: IpAddr) -> bool
     }
 }
 
+/// Constructs an actionable probe failure when DNS resolves to a local/blocked IP.
+fn blocked_local_outcome(domain: &str, ip: IpAddr) -> ProbeOutcome
+{
+    ProbeOutcome::Failed {
+        code: -1,
+        detail: format!(
+            "DNS resolved {domain} to blocked/local IP {ip} (check hosts file or switch DNS preset to DoH)"
+        ),
+    }
+}
+
 impl ProbeBackend for CurlProbeBackend
 {
     /// Runs `curl --version` unprivileged and checks whether `HTTP3` appears in `Features:`.
@@ -285,12 +326,13 @@ impl ProbeBackend for CurlProbeBackend
             return ProbeOutcome::Failed { code: -1, detail: "invalid probe domain name".to_owned() };
         }
         let mut args = Self::build_args(req);
-        if let Some(ip) = self.cached_ip(
+        let resolved = self.resolve_target(
             &req.domain,
             req.proto
                 .default_port(),
             req.ipv,
-        )
+        );
+        if let ResolvedTarget::Public(ip) = resolved
         {
             let resolve = format_resolve_arg(
                 &req.domain,
@@ -312,6 +354,10 @@ impl ProbeBackend for CurlProbeBackend
             Ok(out) => out,
             Err(err) =>
             {
+                if let ResolvedTarget::BlockedLocal(ip) = resolved
+                {
+                    return blocked_local_outcome(&req.domain, ip);
+                }
                 return ProbeOutcome::Failed {
                     code: -1,
                     detail: format!(
@@ -334,7 +380,13 @@ impl ProbeBackend for CurlProbeBackend
             .unwrap_or(-1);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        classify_curl_output(&req.domain, exit_code, &stdout, &stderr, elapsed_ms)
+        let outcome = classify_curl_output(&req.domain, exit_code, &stdout, &stderr, elapsed_ms);
+        if matches!(outcome, ProbeOutcome::Failed { code: 7, .. })
+            && let ResolvedTarget::BlockedLocal(ip) = resolved
+        {
+            return blocked_local_outcome(&req.domain, ip);
+        }
+        outcome
     }
 
     /// Runs independent probes concurrently across a bounded worker pool preserving request order.

@@ -284,6 +284,69 @@ fn probe_uses_globoff_and_domain_parser_rejects_ssrf_and_globs()
     assert_eq!(parse_clean_domain("ok-host.example.com").as_deref(), Some("ok-host.example.com"));
 }
 
+/// Verifies `CurlProbeBackend::probe` halts early when DNS resolves to loopback without spawning `curl`,
+/// and `run_scan` skips candidate sweeps for that target.
+#[test]
+fn probe_aborts_early_when_dns_resolves_to_loopback()
+{
+    use std::path::PathBuf;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+    use zapret_rs::config::DesyncProfile;
+    use zapret_rs::tools::{
+        CurlProbeBackend, IpFamily, ProbeBackend, ProbeOutcome, ProbeProtocol, ProbeRequest, ScanConfig,
+        ScanLevel, StrategyApplier, run_scan,
+    };
+
+    /// Minimal applier tracking how many strategy profiles were installed.
+    struct NoopApplier(usize);
+    impl StrategyApplier for NoopApplier
+    {
+        fn apply_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), String>
+        {
+            if !profiles.is_empty()
+            {
+                self.0 += 1;
+            }
+            Ok(())
+        }
+    }
+
+    let backend = CurlProbeBackend::new(PathBuf::from("/nonexistent/curl-never-spawned"));
+    let req = ProbeRequest {
+        domain: "localhost".to_owned(),
+        proto: ProbeProtocol::Tls13,
+        ipv: IpFamily::V4,
+        timeout: Duration::from_secs(1),
+    };
+    let outcome = backend.probe(&req);
+    assert!(
+        matches!(&outcome, ProbeOutcome::Failed { code: -1, detail } if detail.contains("blocked/local IP")),
+        "expected early loopback diagnostic, got {outcome:?}"
+    );
+
+    let cfg = ScanConfig {
+        domains: vec!["localhost".to_owned()],
+        protos: vec![ProbeProtocol::Tls13],
+        families: vec![IpFamily::V4],
+        level: ScanLevel::Quick,
+        timeout: Duration::from_secs(1),
+        stop_on_first: true,
+        force_blocked: false,
+    };
+    let mut applier = NoopApplier(0);
+    let stop = AtomicBool::new(false);
+    let report = run_scan(&cfg, &backend, &mut applier, &stop, |_| {}).expect("scan report");
+    assert_eq!(applier.0, 0, "candidate sweep should be skipped when baseline resolves to loopback");
+    assert_eq!(
+        report
+            .targets
+            .len(),
+        1
+    );
+    assert_eq!(report.targets[0].tested_count, 0);
+}
+
 /// Verifies `WebIpcBridge::shutdown` succeeds cleanly even while held behind shared `Arc` clones.
 #[test]
 fn web_ipc_bridge_shutdown_works_through_shared_arc()

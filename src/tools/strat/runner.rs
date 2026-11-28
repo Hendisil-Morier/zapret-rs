@@ -266,6 +266,12 @@ fn finalize_scan_report(mut targets: Vec<TargetScanResult>, interrupted: bool) -
     ScanReport { targets, cover, interrupted }
 }
 
+/// Returns `true` when baseline DNS resolved to a local/blocked address and cannot be desynced.
+fn is_dns_blocked_outcome(outcome: &ProbeOutcome) -> bool
+{
+    matches!(outcome, ProbeOutcome::Failed { code: -1, detail } if detail.starts_with("DNS resolved "))
+}
+
 /// Executes parallel baseline checks, sticky strategy sweeps, ranking, and minimal cross-domain cover.
 pub fn run_scan<P, A, F>(
     cfg: &ScanConfig,
@@ -316,7 +322,10 @@ where
             }
             let mut active: Vec<usize> = (0..targets.len())
                 .filter(|&i| {
-                    !targets[i].skipped_unblocked && targets[i].ipv == ipv && targets[i].proto == proto
+                    !targets[i].skipped_unblocked
+                        && !is_dns_blocked_outcome(&targets[i].baseline)
+                        && targets[i].ipv == ipv
+                        && targets[i].proto == proto
                 })
                 .collect();
             if active.is_empty()
