@@ -225,8 +225,11 @@ pub fn append_to_list_file(path: &Path, entry: &str) -> std::io::Result<()>
 #[cfg(unix)]
 fn format_debug_timestamp() -> String
 {
+    // SAFETY: passing null `tloc` safely queries current UNIX epoch seconds from `time(2)`.
     let now = unsafe { libc::time(std::ptr::null_mut()) };
+    // SAFETY: `libc::tm` is C plain-old-data initialized before `localtime_r` populates it.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: `now` and `tm` point to valid initialized stack storage; return checked for null.
     if !unsafe { libc::localtime_r(&raw const now, &raw mut tm) }.is_null()
     {
         format!(

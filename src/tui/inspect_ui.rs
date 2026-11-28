@@ -72,89 +72,64 @@ pub fn format_hex_dump(bytes: &[u8]) -> Vec<String>
         .collect()
 }
 
-/// Renders the live scrollable Packet Inspector table on Tab 2 using `theme`.
-pub fn draw_packet_inspector(
-    frame: &mut Frame,
-    area: Rect,
+/// Builds one styled table row for a captured packet record.
+fn build_inspector_row<'a>(rec: &'a PacketRecord, selected: bool, theme: &Theme) -> Row<'a>
+{
+    let dim = if selected { theme.subtle } else { theme.muted };
+    let dir_col = if rec.direction == "OUT"
+    {
+        theme.info
+    }
+    else if rec.direction == "IN"
+    {
+        theme.ok_bright
+    }
+    else
+    {
+        theme.subtle
+    };
+    let proto_col = match rec.proto.as_str()
+    {
+        "TCP" => theme.accent_bright,
+        "UDP" => theme.special_bright,
+        "ICMP" => theme.warn_bright,
+        _ => theme.subtle,
+    };
+    let row_style = if selected
+    {
+        Style::default().bg(theme.highlight_bg).fg(theme.text).add_modifier(Modifier::BOLD)
+    }
+    else
+    {
+        Style::default().fg(theme.text)
+    };
+    let flow = Line::from(vec![
+        Span::styled(rec.src.as_str(), Style::default().fg(theme.text)),
+        Span::styled(" -> ", Style::default().fg(dim)),
+        Span::styled(rec.dst.as_str(), Style::default().fg(theme.accent_bright)),
+    ]);
+    let body_col = if selected { theme.text } else { theme.subtle };
+    Row::new([
+        Cell::from(rec.seq.to_string()).style(Style::default().fg(dim)),
+        Cell::from(rec.direction.as_str()).style(Style::default().fg(dir_col).add_modifier(Modifier::BOLD)),
+        Cell::from(rec.proto.as_str()).style(Style::default().fg(proto_col)),
+        Cell::from(flow),
+        Cell::from(format!("{}B", rec.payload_len)).style(Style::default().fg(body_col)),
+        Cell::from(rec.verdict.label())
+            .style(Style::default().fg(verdict_color(rec.verdict, theme)).add_modifier(Modifier::BOLD)),
+        Cell::from(rec.info.as_str()).style(Style::default().fg(body_col)),
+    ])
+    .style(row_style)
+}
+
+/// Builds the Packet Inspector border color and styled title line showing pause/filter status.
+fn build_inspector_title<'a>(
     inspector: &PacketInspectorState,
     focused: bool,
+    visible_len: usize,
     theme: &Theme,
-)
+) -> (Color, Line<'a>)
 {
-    let visible = inspector.visible_packets();
-    let capacity = usize::from(area.height.saturating_sub(3)).max(1);
-    let clamped_sel = inspector.selected.min(visible.len().saturating_sub(1));
-    let start = if clamped_sel >= capacity { clamped_sel + 1 - capacity } else { 0 };
-
-    let header = Row::new(["#", "Dir", "Proto", "Flow", "Len", "Verdict", "Info"])
-        .style(Style::default().fg(theme.warn_bright).bg(theme.highlight_bg).add_modifier(Modifier::BOLD));
-
-    let rows: Vec<Row> = visible
-        .iter()
-        .enumerate()
-        .skip(start)
-        .take(capacity)
-        .map(|(idx, rec)| {
-            let selected = idx == clamped_sel;
-            let dim = if selected { theme.subtle } else { theme.muted };
-            let dir_col = if rec.direction == "OUT"
-            {
-                theme.info
-            }
-            else if rec.direction == "IN"
-            {
-                theme.ok_bright
-            }
-            else
-            {
-                theme.subtle
-            };
-            let proto_col = match rec.proto.as_str()
-            {
-                "TCP" => theme.accent_bright,
-                "UDP" => theme.special_bright,
-                "ICMP" => theme.warn_bright,
-                _ => theme.subtle,
-            };
-            let row_style = if selected
-            {
-                Style::default().bg(theme.highlight_bg).fg(theme.text).add_modifier(Modifier::BOLD)
-            }
-            else
-            {
-                Style::default().fg(theme.text)
-            };
-            let flow = Line::from(vec![
-                Span::styled(rec.src.as_str(), Style::default().fg(theme.text)),
-                Span::styled(" -> ", Style::default().fg(dim)),
-                Span::styled(rec.dst.as_str(), Style::default().fg(theme.accent_bright)),
-            ]);
-            let body_col = if selected { theme.text } else { theme.subtle };
-            Row::new([
-                Cell::from(rec.seq.to_string()).style(Style::default().fg(dim)),
-                Cell::from(rec.direction.as_str())
-                    .style(Style::default().fg(dir_col).add_modifier(Modifier::BOLD)),
-                Cell::from(rec.proto.as_str()).style(Style::default().fg(proto_col)),
-                Cell::from(flow),
-                Cell::from(format!("{}B", rec.payload_len)).style(Style::default().fg(body_col)),
-                Cell::from(rec.verdict.label()).style(
-                    Style::default().fg(verdict_color(rec.verdict, theme)).add_modifier(Modifier::BOLD),
-                ),
-                Cell::from(rec.info.as_str()).style(Style::default().fg(body_col)),
-            ])
-            .style(row_style)
-        })
-        .collect();
-
-    let widths = [
-        Constraint::Length(5),
-        Constraint::Length(4),
-        Constraint::Length(5),
-        Constraint::Percentage(36),
-        Constraint::Length(6),
-        Constraint::Length(7),
-        Constraint::Percentage(34),
-    ];
     let (state_tag, state_col, border_col) = if inspector.paused
     {
         ("PAUSED", theme.warn_bright, theme.warn)
@@ -186,10 +161,46 @@ pub fn draw_packet_inspector(
         ));
     }
     title_spans.push(Span::styled(" | ", Style::default().fg(theme.subtle)));
-    title_spans
-        .push(Span::styled(format!("{} shown", visible.len()), Style::default().fg(theme.accent_bright)));
+    title_spans.push(Span::styled(format!("{visible_len} shown"), Style::default().fg(theme.accent_bright)));
     title_spans.push(Span::styled("] ", Style::default().fg(theme.info).add_modifier(Modifier::BOLD)));
-    let title = Line::from(title_spans);
+    (border_col, Line::from(title_spans))
+}
+
+/// Renders the live scrollable Packet Inspector table on Tab 2 using `theme`.
+pub fn draw_packet_inspector(
+    frame: &mut Frame,
+    area: Rect,
+    inspector: &PacketInspectorState,
+    focused: bool,
+    theme: &Theme,
+)
+{
+    let visible = inspector.visible_packets();
+    let capacity = usize::from(area.height.saturating_sub(3)).max(1);
+    let clamped_sel = inspector.selected.min(visible.len().saturating_sub(1));
+    let start = if clamped_sel >= capacity { clamped_sel + 1 - capacity } else { 0 };
+
+    let header = Row::new(["#", "Dir", "Proto", "Flow", "Len", "Verdict", "Info"])
+        .style(Style::default().fg(theme.warn_bright).bg(theme.highlight_bg).add_modifier(Modifier::BOLD));
+
+    let rows: Vec<Row> = visible
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(capacity)
+        .map(|(idx, rec)| build_inspector_row(rec, idx == clamped_sel, theme))
+        .collect();
+
+    let widths = [
+        Constraint::Length(5),
+        Constraint::Length(4),
+        Constraint::Length(5),
+        Constraint::Percentage(36),
+        Constraint::Length(6),
+        Constraint::Length(7),
+        Constraint::Percentage(34),
+    ];
+    let (border_col, title) = build_inspector_title(inspector, focused, visible.len(), theme);
     let table = Table::new(rows, widths).header(header).block(
         Block::default().borders(Borders::ALL).border_style(Style::default().fg(border_col)).title(title),
     );

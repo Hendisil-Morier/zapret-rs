@@ -128,13 +128,9 @@ pub struct CliArgs
 }
 
 /// Loads TOML config (when specified) and merges any explicit CLI overrides.
-pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError>
+/// Copies optional scalar network/runtime flags from `cli` into `cfg`.
+fn apply_scalar_cli_overrides(cli: &CliArgs, cfg: &mut AppConfig)
 {
-    let mut cfg = match &cli.config
-    {
-        Some(path) => AppConfig::from_toml_file(path)?,
-        None => AppConfig::default(),
-    };
     if let Some(qnum) = cli.qnum
     {
         cfg.qnum = qnum;
@@ -167,6 +163,35 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError>
     {
         cfg.daemon = daemon;
     }
+    if let Some(lua_gc) = cli.lua_gc
+    {
+        cfg.lua_gc = lua_gc;
+    }
+    if let Some(ctrack_disable) = cli.ctrack_disable
+    {
+        cfg.conntrack.disable = ctrack_disable;
+    }
+    if let Some(lifetime) = cli.ipcache_lifetime
+    {
+        cfg.ipcache.lifetime_sec = lifetime;
+    }
+    if let Some(hostname) = cli.ipcache_hostname
+    {
+        cfg.ipcache.hostname = hostname;
+    }
+    if let Some(sample) = cli.control_pass_sample
+    {
+        cfg.control_pass_sample = sample;
+    }
+    if let Some(nft) = cli.nft
+    {
+        cfg.auto_nft = nft;
+    }
+}
+
+/// Copies optional path and string-parsed overrides from `cli` into `cfg`.
+fn apply_parsed_cli_overrides(cli: &CliArgs, cfg: &mut AppConfig) -> Result<(), ConfigError>
+{
     if let Some(pidfile) = &cli.pidfile
     {
         cfg.pidfile = Some(pidfile.clone());
@@ -183,25 +208,13 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError>
     {
         cfg.uid = Some(uid.clone());
     }
-    if let Some(lua_gc) = cli.lua_gc
+    if let Some(debug_log) = &cli.hostlist_auto_debug
     {
-        cfg.lua_gc = lua_gc;
+        cfg.hostlist_auto_debug = Some(debug_log.clone());
     }
     if let Some(raw_timeouts) = cli.ctrack_timeouts.as_deref()
     {
         cfg.conntrack.timeouts = parse_timeouts(raw_timeouts)?;
-    }
-    if let Some(ctrack_disable) = cli.ctrack_disable
-    {
-        cfg.conntrack.disable = ctrack_disable;
-    }
-    if let Some(lifetime) = cli.ipcache_lifetime
-    {
-        cfg.ipcache.lifetime_sec = lifetime;
-    }
-    if let Some(hostname) = cli.ipcache_hostname
-    {
-        cfg.ipcache.hostname = hostname;
     }
     if let Some(payload_disable) = &cli.payload_disable
     {
@@ -210,10 +223,6 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError>
     if let Some(reasm_disable) = &cli.reasm_disable
     {
         cfg.reasm_disable = parse_l7_disable_mask(std::slice::from_ref(reasm_disable))?;
-    }
-    if let Some(debug_log) = &cli.hostlist_auto_debug
-    {
-        cfg.hostlist_auto_debug = Some(debug_log.clone());
     }
     if let Some(raw_writable) = &cli.writable
     {
@@ -233,14 +242,6 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError>
     {
         cfg.control_socket = parse_control_socket_str(raw_ctrl, None)?;
     }
-    if let Some(sample) = cli.control_pass_sample
-    {
-        cfg.control_pass_sample = sample;
-    }
-    if let Some(nft) = cli.nft
-    {
-        cfg.auto_nft = nft;
-    }
     for entry in &cli.lua_init
     {
         if let Some(path) = entry.strip_prefix('@')
@@ -256,7 +257,19 @@ pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError>
             cfg.lua_init.push(LuaInitEntry::Inline(entry.clone()));
         }
     }
+    Ok(())
+}
 
+/// Resolves runtime configuration by merging optional TOML config with CLI overrides and validating invariants.
+pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError>
+{
+    let mut cfg = match &cli.config
+    {
+        Some(path) => AppConfig::from_toml_file(path)?,
+        None => AppConfig::default(),
+    };
+    apply_scalar_cli_overrides(cli, &mut cfg);
+    apply_parsed_cli_overrides(cli, &mut cfg)?;
     cfg.validate()?;
     Ok(cfg)
 }

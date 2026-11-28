@@ -17,6 +17,133 @@ use crate::packet::constants::IPPROTO_UDP;
 /// Host-to-IP normalization helper (`strip_host_to_ip`).
 use crate::protocol::strip_host_to_ip;
 
+/// Marks L7 discovery once on `ctrack_replay` or returns whether stateless `ps.l7proto` is known.
+fn consume_discovered_l7(ps: &PlayState) -> bool
+{
+    let Some(entry_rc) = &ps.ctrack_replay
+    else
+    {
+        return ps.l7proto != L7Proto::Unknown;
+    };
+    let mut entry = entry_rc.borrow_mut();
+    if !entry.l7proto_discovered && entry.l7proto != L7Proto::Unknown
+    {
+        entry.l7proto_discovered = true;
+        true
+    }
+    else
+    {
+        false
+    }
+}
+
+/// Applies newly extracted `ps.host` to conntrack/IPCache, returning `(effective_host, is_ip, changed)`.
+fn ingest_discovered_hostname(
+    svc: &EngineServices<'_>,
+    ps: &mut PlayState,
+    now_sec: i64,
+) -> (Option<String>, bool, bool)
+{
+    let Some(raw_host) = ps.host.take()
+    else
+    {
+        return (None, false, false);
+    };
+    let (norm, is_ip) = strip_host_to_ip(&raw_host);
+    let mut discovered_hostname = false;
+    if let Some(entry_rc) = &ps.ctrack_replay
+    {
+        let mut entry = entry_rc.borrow_mut();
+        if let Some(prev) = &entry.hostname
+            && (is_ip != entry.hostname_is_ip || norm != *prev)
+        {
+            entry.clear_hostname();
+            entry.check_done = false;
+            entry.hostname_ah_check = false;
+        }
+        if entry.hostname.is_none()
+        {
+            entry.hostname = Some(norm.clone());
+            entry.hostname_is_ip = is_ip;
+            svc.ipcache.borrow_mut().put_hostname(ps.target_ip, &norm, is_ip, now_sec);
+            discovered_hostname = true;
+        }
+    }
+    else
+    {
+        discovered_hostname = true;
+    }
+    (Some(norm), is_ip, discovered_hostname)
+}
+
+/// Checks `autolist` membership for `idx`, caching outcome on conntrack and updating retrans suppression.
+fn evaluate_autolist_membership(
+    svc: &EngineServices<'_>,
+    ps: &PlayState,
+    idx: usize,
+    effective_host: Option<&str>,
+    effective_is_ip: bool,
+    is_tcp: bool,
+    state: &mut (bool, bool, bool),
+)
+{
+    let (check_done, check_result, check_excluded) = state;
+    if !*check_done
+    {
+        let owned_host;
+        let host_str = match effective_host
+        {
+            Some(h) => h,
+            None =>
+            {
+                let Some(rc) = &ps.ctrack_replay
+                else
+                {
+                    return;
+                };
+                let Some(h) = rc.borrow().hostname.clone()
+                else
+                {
+                    return;
+                };
+                owned_host = h;
+                &owned_host
+            }
+        };
+        let is_ip = effective_is_ip || ps.ctrack_replay.as_ref().is_some_and(|rc| rc.borrow().hostname_is_ip);
+        let outcome = svc.profile_runtimes[idx].hostlists.check(host_str, is_ip, false);
+        *check_result = outcome.matched;
+        *check_excluded = outcome.excluded;
+        *check_done = true;
+        if let Some(entry_rc) = &ps.ctrack_replay
+        {
+            let mut e = entry_rc.borrow_mut();
+            e.check_done = true;
+            e.check_result = *check_result;
+            e.check_excluded = *check_excluded;
+        }
+    }
+    if let Some(entry_rc) = &ps.ctrack_replay
+    {
+        let mut e = entry_rc.borrow_mut();
+        if *check_result
+        {
+            if is_tcp
+            {
+                e.req_retrans_counter = RETRANS_COUNTER_STOP;
+            }
+        }
+        else
+        {
+            e.hostname_ah_check = !*check_excluded;
+            if is_tcp && !e.hostname_ah_check
+            {
+                e.req_retrans_counter = RETRANS_COUNTER_STOP;
+            }
+        }
+    }
+}
+
 /// Applies newly learned hostname/L7 tags, updates IPCache, and re-runs profile + autohostlist selection.
 pub(crate) fn dp_rediscovery(
     svc: &EngineServices<'_>,
@@ -26,66 +153,22 @@ pub(crate) fn dp_rediscovery(
     now_sec: i64,
 ) -> bool
 {
-    let discovered_l7 = if let Some(entry_rc) = &ps.ctrack_replay
-    {
-        let mut entry = entry_rc.borrow_mut();
-        if !entry.l7proto_discovered && entry.l7proto != L7Proto::Unknown
-        {
-            entry.l7proto_discovered = true;
-            true
-        }
-        else
-        {
-            false
-        }
-    }
-    else
-    {
-        ps.l7proto != L7Proto::Unknown
-    };
+    let discovered_l7 = consume_discovered_l7(ps);
+    let (mut effective_host, mut effective_is_ip, discovered_hostname) =
+        ingest_discovered_hostname(svc, ps, now_sec);
 
-    let (mut effective_host, mut effective_is_ip, mut discovered_hostname) = (None::<String>, false, false);
-    if let Some(raw_host) = ps.host.take()
-    {
-        let (norm, is_ip) = strip_host_to_ip(&raw_host);
-        if let Some(entry_rc) = &ps.ctrack_replay
-        {
-            let mut entry = entry_rc.borrow_mut();
-            if let Some(prev) = &entry.hostname
-                && (is_ip != entry.hostname_is_ip || norm != *prev)
-            {
-                entry.clear_hostname();
-                entry.check_done = false;
-                entry.hostname_ah_check = false;
-            }
-            if entry.hostname.is_none()
-            {
-                entry.hostname = Some(norm.clone());
-                entry.hostname_is_ip = is_ip;
-                svc.ipcache.borrow_mut().put_hostname(ps.target_ip, &norm, is_ip, now_sec);
-                discovered_hostname = true;
-            }
-        }
-        else
-        {
-            discovered_hostname = true;
-        }
-        effective_host = Some(norm);
-        effective_is_ip = is_ip;
-    }
-
-    let (mut check_done, mut check_result, mut check_excluded, entry_has_host) = match &ps.ctrack_replay
+    let (mut check_state, entry_has_host) = match &ps.ctrack_replay
     {
         Some(rc) =>
         {
             let e = rc.borrow();
-            (e.check_done, e.check_result, e.check_excluded, e.hostname.is_some())
+            ((e.check_done, e.check_result, e.check_excluded), e.hostname.is_some())
         }
-        None => (false, false, false, false),
+        None => ((false, false, false), false),
     };
 
     let needs_autolist_check =
-        !check_done && ps.profile_idx.is_some_and(|i| svc.profile_runtimes[i].autolist.is_some());
+        !check_state.0 && ps.profile_idx.is_some_and(|i| svc.profile_runtimes[i].autolist.is_some());
     if effective_host.is_none() && (discovered_l7 || needs_autolist_check)
     {
         if let Some(entry_rc) = &ps.ctrack_replay
@@ -131,9 +214,7 @@ pub(crate) fn dp_rediscovery(
         if next_idx != prev_idx
         {
             on_profile_changed(ps.ctrack_replay.as_ref());
-            check_done = false;
-            check_result = false;
-            check_excluded = false;
+            check_state = (false, false, false);
         }
     }
 
@@ -141,51 +222,15 @@ pub(crate) fn dp_rediscovery(
         && svc.profile_runtimes[idx].autolist.is_some()
         && (effective_host.is_some() || entry_has_host)
     {
-        if !check_done
-        {
-            let host = match effective_host.as_deref()
-            {
-                Some(h) => Some(h.to_owned()),
-                None => ps.ctrack_replay.as_ref().and_then(|rc| rc.borrow().hostname.clone()),
-            };
-            if let Some(host_str) = host.as_deref()
-            {
-                let outcome = svc.profile_runtimes[idx].hostlists.check(
-                    host_str,
-                    effective_is_ip || ps.ctrack_replay.as_ref().is_some_and(|rc| rc.borrow().hostname_is_ip),
-                    false,
-                );
-                check_result = outcome.matched;
-                check_excluded = outcome.excluded;
-                check_done = true;
-                if let Some(entry_rc) = &ps.ctrack_replay
-                {
-                    let mut e = entry_rc.borrow_mut();
-                    e.check_done = check_done;
-                    e.check_result = check_result;
-                    e.check_excluded = check_excluded;
-                }
-            }
-        }
-        if let Some(entry_rc) = &ps.ctrack_replay
-        {
-            let mut e = entry_rc.borrow_mut();
-            if check_result
-            {
-                if dis.tcp.is_some()
-                {
-                    e.req_retrans_counter = RETRANS_COUNTER_STOP;
-                }
-            }
-            else
-            {
-                e.hostname_ah_check = !check_excluded;
-                if dis.tcp.is_some() && !e.hostname_ah_check
-                {
-                    e.req_retrans_counter = RETRANS_COUNTER_STOP;
-                }
-            }
-        }
+        evaluate_autolist_membership(
+            svc,
+            ps,
+            idx,
+            effective_host.as_deref(),
+            effective_is_ip,
+            dis.tcp.is_some(),
+            &mut check_state,
+        );
     }
 
     if dis.l4proto == IPPROTO_UDP
@@ -203,5 +248,5 @@ pub(crate) fn dp_rediscovery(
         handle_udp_fail(ps.ctrack_replay.as_ref(), tpos_override, fail_tgt.as_ref());
     }
 
-    !(check_done && !check_result)
+    !(check_state.0 && !check_state.1)
 }

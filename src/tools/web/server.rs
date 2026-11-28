@@ -216,6 +216,55 @@ fn handle_daemon_action(stream: &mut TcpStream, req: &HttpRequest, ipc: &WebIpcB
     }
 }
 
+/// Enforces authentication and CSRF checks and dispatches protected HTTP routes.
+fn handle_protected_route(
+    stream: &mut TcpStream,
+    req: &HttpRequest,
+    st: &WebServerState,
+    slot: &mut WorkerSlotGuard<'_>,
+    now: u64,
+)
+{
+    if !st.cfg.auth.is_authorized(req, now)
+    {
+        let _ = write_error(stream, 401, "Unauthorized", "authentication required");
+        return;
+    }
+    if req.method == HttpMethod::Post && !WebAuth::passes_csrf_guard(req)
+    {
+        let _ = write_error(stream, 403, "Forbidden", "missing JSON or X-Zapret-Action header");
+        return;
+    }
+    match (&req.method, req.path.as_str())
+    {
+        (HttpMethod::Get, "/api/status") =>
+        {
+            let snap = st.ipc.snapshot();
+            let _ = write_json(stream, 200, "OK", &[], &snap);
+        }
+        (HttpMethod::Get, "/api/events") =>
+        {
+            // Release short-request worker slot before entering long-lived SSE loop.
+            if let Some(c) = slot.0.take()
+            {
+                c.fetch_sub(1, Ordering::AcqRel);
+            }
+            stream_sse_loop(stream, &st.ipc, &st.stop);
+        }
+        (HttpMethod::Post, p) if p.starts_with("/api/daemon/") =>
+        {
+            handle_daemon_action(stream, req, &st.ipc);
+        }
+        _ =>
+        {
+            if !handle_ops_route(stream, req, &st.cfg, &st.ipc, &st.scan_job)
+            {
+                let _ = write_error(stream, 404, "Not Found", "endpoint not found");
+            }
+        }
+    }
+}
+
 /// Dispatches one parsed HTTP request against auth, SSE, and API endpoints.
 fn handle_request(
     stream: &mut TcpStream,
@@ -289,47 +338,7 @@ fn handle_request(
                 &serde_json::json!({ "authenticated": false }),
             );
         }
-        _ =>
-        {
-            if !st.cfg.auth.is_authorized(req, now)
-            {
-                let _ = write_error(stream, 401, "Unauthorized", "authentication required");
-                return;
-            }
-            if req.method == HttpMethod::Post && !WebAuth::passes_csrf_guard(req)
-            {
-                let _ = write_error(stream, 403, "Forbidden", "missing JSON or X-Zapret-Action header");
-                return;
-            }
-            match (&req.method, req.path.as_str())
-            {
-                (HttpMethod::Get, "/api/status") =>
-                {
-                    let snap = st.ipc.snapshot();
-                    let _ = write_json(stream, 200, "OK", &[], &snap);
-                }
-                (HttpMethod::Get, "/api/events") =>
-                {
-                    // Release short-request worker slot before entering long-lived SSE loop.
-                    if let Some(c) = slot.0.take()
-                    {
-                        c.fetch_sub(1, Ordering::AcqRel);
-                    }
-                    stream_sse_loop(stream, &st.ipc, &st.stop);
-                }
-                (HttpMethod::Post, p) if p.starts_with("/api/daemon/") =>
-                {
-                    handle_daemon_action(stream, req, &st.ipc);
-                }
-                _ =>
-                {
-                    if !handle_ops_route(stream, req, &st.cfg, &st.ipc, &st.scan_job)
-                    {
-                        let _ = write_error(stream, 404, "Not Found", "endpoint not found");
-                    }
-                }
-            }
-        }
+        _ => handle_protected_route(stream, req, st, slot, now),
     }
 }
 
@@ -340,10 +349,10 @@ fn serve_connection(mut stream: TcpStream, st: &WebServerState)
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(CLIENT_IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(CLIENT_IO_TIMEOUT));
-    let mut reader = match stream.try_clone()
+    let Ok(mut reader) = stream.try_clone()
+    else
     {
-        Ok(cloned) => cloned,
-        Err(_) => return,
+        return;
     };
     match read_http_request(&mut reader)
     {

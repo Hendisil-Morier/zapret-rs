@@ -72,11 +72,9 @@ fn register_pack_uint(lua: &Lua, name: &'static str, width: usize, max: i64) -> 
     lua.globals().set(name, f)
 }
 
-/// Registers all 48-bit bitwise, integer unpack/pack, byte-swap, and `divint` Lua globals.
-pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()>
+/// Registers bitwise shift, mask, and bitfield extract/insert Lua globals.
+fn register_bitwise_ops(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
 {
-    let globals = lua.globals();
-
     globals.set(
         "bitlshift",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -151,6 +149,12 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()>
         })?,
     )?;
 
+    register_bitfield_ops(lua, globals)
+}
+
+/// Registers `bitget` and `bitset` range extraction/replacement Lua globals.
+fn register_bitfield_ops(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
+{
     globals.set(
         "bitget",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -188,31 +192,12 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()>
         })?,
     )?;
 
-    register_bitnot(lua, "bitnot", MASK_48)?;
-    register_bitnot(lua, "bitnot8", 0xFF)?;
-    register_bitnot(lua, "bitnot16", 0xFFFF)?;
-    register_bitnot(lua, "bitnot24", 0xFF_FFFF)?;
-    register_bitnot(lua, "bitnot32", 0xFFFF_FFFF)?;
-    register_bitnot(lua, "bitnot48", MASK_48)?;
+    Ok(())
+}
 
-    register_unpack_uint(lua, "u8", 1)?;
-    register_unpack_uint(lua, "u16", 2)?;
-    register_unpack_uint(lua, "u24", 3)?;
-    register_unpack_uint(lua, "u32", 4)?;
-    register_unpack_uint(lua, "u48", 6)?;
-
-    register_uxadd(lua, "u8add", 0xFF)?;
-    register_uxadd(lua, "u16add", 0xFFFF)?;
-    register_uxadd(lua, "u24add", 0xFF_FFFF)?;
-    register_uxadd(lua, "u32add", 0xFFFF_FFFF)?;
-    register_uxadd(lua, "u48add", MASK_48)?;
-
-    register_pack_uint(lua, "bu8", 1, 0xFF)?;
-    register_pack_uint(lua, "bu16", 2, 0xFFFF)?;
-    register_pack_uint(lua, "bu24", 3, 0xFF_FFFF)?;
-    register_pack_uint(lua, "bu32", 4, 0xFFFF_FFFF)?;
-    register_pack_uint(lua, "bu48", 6, MASK_48)?;
-
+/// Registers byte-swap helpers and `divint` Lua globals.
+fn register_swap_and_div(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
+{
     globals.set(
         "swap16",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -258,4 +243,38 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()>
     )?;
 
     Ok(())
+}
+
+/// Registers all 48-bit bitwise, integer unpack/pack, byte-swap, and `divint` Lua globals.
+pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()>
+{
+    let globals = lua.globals();
+    register_bitwise_ops(lua, &globals)?;
+
+    register_bitnot(lua, "bitnot", MASK_48)?;
+    register_bitnot(lua, "bitnot8", 0xFF)?;
+    register_bitnot(lua, "bitnot16", 0xFFFF)?;
+    register_bitnot(lua, "bitnot24", 0xFF_FFFF)?;
+    register_bitnot(lua, "bitnot32", 0xFFFF_FFFF)?;
+    register_bitnot(lua, "bitnot48", MASK_48)?;
+
+    register_unpack_uint(lua, "u8", 1)?;
+    register_unpack_uint(lua, "u16", 2)?;
+    register_unpack_uint(lua, "u24", 3)?;
+    register_unpack_uint(lua, "u32", 4)?;
+    register_unpack_uint(lua, "u48", 6)?;
+
+    register_uxadd(lua, "u8add", 0xFF)?;
+    register_uxadd(lua, "u16add", 0xFFFF)?;
+    register_uxadd(lua, "u24add", 0xFF_FFFF)?;
+    register_uxadd(lua, "u32add", 0xFFFF_FFFF)?;
+    register_uxadd(lua, "u48add", MASK_48)?;
+
+    register_pack_uint(lua, "bu8", 1, 0xFF)?;
+    register_pack_uint(lua, "bu16", 2, 0xFFFF)?;
+    register_pack_uint(lua, "bu24", 3, 0xFF_FFFF)?;
+    register_pack_uint(lua, "bu32", 4, 0xFFFF_FFFF)?;
+    register_pack_uint(lua, "bu48", 6, MASK_48)?;
+
+    register_swap_and_div(lua, &globals)
 }

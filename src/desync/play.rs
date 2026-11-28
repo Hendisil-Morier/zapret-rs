@@ -138,6 +138,194 @@ pub(crate) fn profile_slot_by_id(profiles: &[Rc<DesyncProfile>], id: u32) -> Opt
     profiles.iter().position(|p| p.index == id)
 }
 
+/// Resolved conntrack handles and packet direction flags produced by endpoint resolution.
+struct ResolvedCtrackEndpoints
+{
+    /// Live conntrack handle when processing a non-replayed packet (`None` on replays).
+    ctrack: Option<Rc<RefCell<CtrackEntry>>>,
+    /// Conntrack handle readable during both live and replayed packet inspection.
+    ctrack_replay: Option<Rc<RefCell<CtrackEntry>>>,
+    /// Whether the matched flow is in the server-to-client direction.
+    b_reverse: bool,
+    /// Effective incoming direction flag after accounting for server mode.
+    incoming: bool,
+}
+
+/// Resolves live/replay conntrack handles and direction flags for packet processing.
+fn resolve_ctrack_endpoints(
+    svc: &EngineServices<'_>,
+    replay: &ReplayContext<'_>,
+    dis: &DissectedPacket,
+    ifin: Option<&str>,
+    ifout: Option<&str>,
+    now: MonotonicTime,
+) -> Option<ResolvedCtrackEndpoints>
+{
+    if replay.is_replay()
+    {
+        let (entry_rc, rev) = svc.conntrack.borrow().double_search(dis)?;
+        if rev
+        {
+            return None;
+        }
+        return Some(ResolvedCtrackEndpoints {
+            ctrack: None,
+            ctrack_replay: Some(entry_rc),
+            b_reverse: rev,
+            incoming: rev ^ svc.server,
+        });
+    }
+    let hit = if !svc.ctrack_disable
+    {
+        let mut pool = svc.conntrack.borrow_mut();
+        if pool.purge_rate_limited(now.sec) > 0
+        {
+            svc.lua.expire_registry_values();
+        }
+        match pool.feed(Some(svc.lua), dis, now)
+        {
+            Ok(found) => found,
+            Err(err) =>
+            {
+                eprintln!("conntrack ERROR: {err}. skipping conntrack for packet.");
+                None
+            }
+        }
+    }
+    else
+    {
+        None
+    };
+    Some(match hit
+    {
+        Some((rc, rev)) => ResolvedCtrackEndpoints {
+            ctrack: Some(Rc::clone(&rc)),
+            ctrack_replay: Some(rc),
+            b_reverse: rev,
+            incoming: rev ^ svc.server,
+        },
+        None =>
+        {
+            let inc = ifin.is_some_and(|s| !s.is_empty()) && !ifout.is_some_and(|s| !s.is_empty());
+            ResolvedCtrackEndpoints { ctrack: None, ctrack_replay: None, b_reverse: inc, incoming: inc }
+        }
+    })
+}
+
+/// Resolves cached or initial matching profile index and populates tracked hostname if absent.
+#[allow(clippy::too_many_arguments)]
+fn resolve_initial_profile(
+    svc: &EngineServices<'_>,
+    ctrack_replay: Option<&Rc<RefCell<CtrackEntry>>>,
+    replay: &ReplayContext<'_>,
+    dis: &DissectedPacket,
+    target_ip: IpAddr,
+    target_port: u16,
+    b_reverse: bool,
+    fwmark: u32,
+    l7proto: &mut L7Proto,
+) -> Option<usize>
+{
+    let mut host = None;
+    let mut host_is_ip = false;
+    let mut cached_prof_id = None;
+    let mut prof_searched = false;
+    if let Some(entry_rc) = ctrack_replay
+    {
+        let mut entry = entry_rc.borrow_mut();
+        *l7proto = entry.l7proto;
+        cached_prof_id = entry.profile_index;
+        prof_searched = entry.profile_searched;
+        if !replay.is_replay()
+            && entry.hostname.is_none()
+            && !b_reverse
+            && let Some((cached, is_ip)) = svc.ipcache.borrow().get_hostname(target_ip)
+        {
+            entry.hostname = Some(cached.to_owned());
+            entry.hostname_is_ip = is_ip;
+        }
+        if cached_prof_id.is_none() && !prof_searched
+        {
+            host = entry.hostname.clone();
+            host_is_ip = entry.hostname_is_ip;
+        }
+    }
+    else if !b_reverse && let Some((cached, is_ip)) = svc.ipcache.borrow().get_hostname(target_ip)
+    {
+        host = Some(cached.to_owned());
+        host_is_ip = is_ip;
+    }
+
+    if let Some(id) = cached_prof_id
+        && let Some(idx) = profile_slot_by_id(svc.profiles, id)
+    {
+        return Some(idx);
+    }
+    if prof_searched
+    {
+        return None;
+    }
+
+    let match_input = FullMatchInput {
+        base: ProfileMatchInput {
+            is_v6: dis.ip6.is_some(),
+            l4proto: dis.l4proto,
+            port: target_port,
+            icmp_type: 0xFF,
+            icmp_code: 0xFF,
+            fwmark,
+            l7proto: *l7proto,
+        },
+        primary_ip: target_ip,
+        reverse_ip: None,
+        hostname: host.as_deref(),
+        hostname_is_ip: host_is_ip,
+    };
+    let found = find_matching_profile(svc.profiles, svc.profile_runtimes, &match_input);
+    if let Some(entry_rc) = ctrack_replay
+    {
+        let mut entry = entry_rc.borrow_mut();
+        entry.profile_searched = true;
+        entry.profile_index = found.map(|idx| svc.profiles[idx].index);
+    }
+    found
+}
+
+/// Synchronizes incoming server TTL between [`IpCache`] and live conntrack entries.
+fn sync_ipcache_ttl(
+    svc: &EngineServices<'_>,
+    ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
+    dis: &DissectedPacket,
+    target_ip: IpAddr,
+    iface: &str,
+    incoming: bool,
+    now_sec: i64,
+)
+{
+    if incoming
+    {
+        let mut ttl = extract_l3_ttl(dis);
+        svc.ipcache.borrow_mut().update_ttl(target_ip, iface, &mut ttl, svc.server, now_sec);
+        if let Some(entry_rc) = ctrack
+        {
+            let mut entry = entry_rc.borrow_mut();
+            if entry.incoming_ttl == 0
+            {
+                entry.incoming_ttl = ttl;
+            }
+        }
+    }
+    else if let Some(entry_rc) = ctrack
+    {
+        let mut entry = entry_rc.borrow_mut();
+        if entry.incoming_ttl == 0
+            && let Some(ttl) = svc.ipcache.borrow().get_ttl(target_ip, iface, svc.server)
+        {
+            entry.incoming_ttl = ttl;
+        }
+    }
+}
+
 /// Initializes conntrack, direction, TTL/hostname IPCache, and initial profile selection (`play_prolog`).
 pub(crate) fn play_prolog(
     svc: &EngineServices<'_>,
@@ -153,139 +341,35 @@ pub(crate) fn play_prolog(
     {
         return None;
     }
-
     let has_payload = dis.payload.as_deref().is_some_and(|p| !p.is_empty());
     let mut l7proto = L7Proto::Unknown;
     let l7payload = if has_payload { L7Payload::Unknown } else { L7Payload::Empty };
 
-    let (ctrack, ctrack_replay, b_reverse, incoming) = if replay.is_replay()
-    {
-        let hit = svc.conntrack.borrow().double_search(dis);
-        let (entry_rc, rev) = hit?;
-        if rev
-        {
-            return None;
-        }
-        (None, Some(entry_rc), rev, rev ^ svc.server)
-    }
-    else
-    {
-        let hit = if !svc.ctrack_disable
-        {
-            let mut pool = svc.conntrack.borrow_mut();
-            if pool.purge_rate_limited(now.sec) > 0
-            {
-                svc.lua.expire_registry_values();
-            }
-            match pool.feed(Some(svc.lua), dis, now)
-            {
-                Ok(found) => found,
-                Err(err) =>
-                {
-                    eprintln!("conntrack ERROR: {err}. skipping conntrack for packet.");
-                    None
-                }
-            }
-        }
-        else
-        {
-            None
-        };
-        match hit
-        {
-            Some((rc, rev)) => (Some(Rc::clone(&rc)), Some(rc), rev, rev ^ svc.server),
-            None =>
-            {
-                let inc = ifin.is_some_and(|s| !s.is_empty()) && !ifout.is_some_and(|s| !s.is_empty());
-                (None, None, inc, inc)
-            }
-        }
-    };
+    let ResolvedCtrackEndpoints { ctrack, ctrack_replay, b_reverse, incoming } =
+        resolve_ctrack_endpoints(svc, replay, dis, ifin, ifout, now)?;
 
     let target_ip4 = dis.ip.as_ref().map(|ip| if incoming { ip.src } else { ip.dst });
     let target_ip6 = dis.ip6.as_ref().map(|ip6| if incoming { ip6.src } else { ip6.dst });
     let target_ip = extract_endpoint_ip(dis, incoming)?;
     let port_from_src = incoming ^ svc.server;
-    let target_port = if let Some(tcp) = &dis.tcp
-    {
-        if port_from_src { tcp.s_port } else { tcp.d_port }
-    }
-    else if let Some(udp) = &dis.udp
-    {
-        if port_from_src { udp.s_port } else { udp.d_port }
-    }
-    else
-    {
-        0
-    };
+    let target_port = dis
+        .tcp
+        .as_ref()
+        .map(|tcp| if port_from_src { tcp.s_port } else { tcp.d_port })
+        .or_else(|| dis.udp.as_ref().map(|udp| if port_from_src { udp.s_port } else { udp.d_port }))
+        .unwrap_or(0);
 
-    let mut host = None;
-    let mut host_is_ip = false;
-    let mut cached_prof_id = None;
-    let mut prof_searched = false;
-    if let Some(entry_rc) = &ctrack_replay
-    {
-        let mut entry = entry_rc.borrow_mut();
-        l7proto = entry.l7proto;
-        cached_prof_id = entry.profile_index;
-        prof_searched = entry.profile_searched;
-
-        if !replay.is_replay() && entry.hostname.is_none() && !b_reverse
-        {
-            let cache = svc.ipcache.borrow();
-            if let Some((cached, is_ip)) = cache.get_hostname(target_ip)
-            {
-                entry.hostname = Some(cached.to_owned());
-                entry.hostname_is_ip = is_ip;
-            }
-        }
-        if cached_prof_id.is_none() && !prof_searched
-        {
-            host = entry.hostname.clone();
-            host_is_ip = entry.hostname_is_ip;
-        }
-    }
-    else if !b_reverse
-    {
-        let cache = svc.ipcache.borrow();
-        if let Some((cached, is_ip)) = cache.get_hostname(target_ip)
-        {
-            host = Some(cached.to_owned());
-            host_is_ip = is_ip;
-        }
-    }
-
-    let profile_idx = match cached_prof_id.and_then(|id| profile_slot_by_id(svc.profiles, id))
-    {
-        Some(idx) => Some(idx),
-        None if prof_searched => None,
-        None =>
-        {
-            let match_input = FullMatchInput {
-                base: ProfileMatchInput {
-                    is_v6: dis.ip6.is_some(),
-                    l4proto: dis.l4proto,
-                    port: target_port,
-                    icmp_type: 0xFF,
-                    icmp_code: 0xFF,
-                    fwmark,
-                    l7proto,
-                },
-                primary_ip: target_ip,
-                reverse_ip: None,
-                hostname: host.as_deref(),
-                hostname_is_ip: host_is_ip,
-            };
-            let found = find_matching_profile(svc.profiles, svc.profile_runtimes, &match_input);
-            if let Some(entry_rc) = &ctrack_replay
-            {
-                let mut entry = entry_rc.borrow_mut();
-                entry.profile_searched = true;
-                entry.profile_index = found.map(|idx| svc.profiles[idx].index);
-            }
-            found
-        }
-    };
+    let profile_idx = resolve_initial_profile(
+        svc,
+        ctrack_replay.as_ref(),
+        replay,
+        dis,
+        target_ip,
+        target_port,
+        b_reverse,
+        fwmark,
+        &mut l7proto,
+    );
 
     if !replay.is_replay()
     {
@@ -293,28 +377,8 @@ pub(crate) fn play_prolog(
         {
             svc.profile_runtimes[idx].fail_pool.borrow_mut().purge_rate_limited(now.sec);
         }
-        if incoming
-        {
-            let mut ttl = extract_l3_ttl(dis);
-            svc.ipcache.borrow_mut().update_ttl(target_ip, ifin.unwrap_or(""), &mut ttl, svc.server, now.sec);
-            if let Some(entry_rc) = &ctrack
-            {
-                let mut entry = entry_rc.borrow_mut();
-                if entry.incoming_ttl == 0
-                {
-                    entry.incoming_ttl = ttl;
-                }
-            }
-        }
-        else if let Some(entry_rc) = &ctrack
-        {
-            let mut entry = entry_rc.borrow_mut();
-            if entry.incoming_ttl == 0
-                && let Some(ttl) = svc.ipcache.borrow().get_ttl(target_ip, ifout.unwrap_or(""), svc.server)
-            {
-                entry.incoming_ttl = ttl;
-            }
-        }
+        let iface = if incoming { ifin.unwrap_or("") } else { ifout.unwrap_or("") };
+        sync_ipcache_ttl(svc, ctrack.as_ref(), dis, target_ip, iface, incoming, now.sec);
     }
 
     Some(PlayState {

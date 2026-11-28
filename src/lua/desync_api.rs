@@ -107,20 +107,9 @@ fn parse_cutoff_direction(opt: Option<&Value>) -> mlua::Result<(bool, bool)>
     }
 }
 
-/// Registers `raw_packet`, `execution_plan`, `execution_plan_cancel`, `instance_cutoff`,
-/// `lua_cutoff`, and `conntrack_feed` into Lua `_G`.
-pub fn register_desync_functions(
-    lua: &Lua,
-    config: &LuaConfig,
-    ctx_state: Rc<RefCell<DesyncContextState>>,
-    conntrack: Rc<RefCell<ConntrackPool>>,
-) -> mlua::Result<()>
+/// Registers `raw_packet`, `execution_plan_cancel`, and `execution_plan` in Lua `_G`.
+fn register_execution_plan_fns(lua: &Lua, globals: &mlua::Table, debug: bool) -> mlua::Result<()>
 {
-    let globals = lua.globals();
-    let debug = config.debug;
-    let ctrack_disable = config.ctrack_disable;
-    let server = config.server;
-
     globals.set(
         "raw_packet",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -195,6 +184,12 @@ pub fn register_desync_functions(
         })?,
     )?;
 
+    Ok(())
+}
+
+/// Registers `instance_cutoff` and `lua_cutoff` in Lua `_G`.
+fn register_cutoff_fns(lua: &Lua, globals: &mlua::Table, debug: bool) -> mlua::Result<()>
+{
     globals.set(
         "instance_cutoff",
         lua.create_function(move |_, args: Variadic<Value>| {
@@ -271,6 +266,20 @@ pub fn register_desync_functions(
         })?,
     )?;
 
+    Ok(())
+}
+
+/// Registers `conntrack_feed` in Lua `_G`.
+fn register_conntrack_feed(
+    lua: &Lua,
+    globals: &mlua::Table,
+    config: &LuaConfig,
+    ctx_state: Rc<RefCell<DesyncContextState>>,
+    conntrack: Rc<RefCell<ConntrackPool>>,
+) -> mlua::Result<()>
+{
+    let ctrack_disable = config.ctrack_disable;
+    let server = config.server;
     globals.set(
         "conntrack_feed",
         lua.create_function(move |lua, args: Variadic<Value>| {
@@ -325,7 +334,20 @@ pub fn register_desync_functions(
 
             Ok((Value::Table(track_tbl), Value::Boolean(!b_reverse)))
         })?,
-    )?;
+    )
+}
 
-    Ok(())
+/// Registers `raw_packet`, `execution_plan`, `execution_plan_cancel`, `instance_cutoff`,
+/// `lua_cutoff`, and `conntrack_feed` into Lua `_G`.
+pub fn register_desync_functions(
+    lua: &Lua,
+    config: &LuaConfig,
+    ctx_state: Rc<RefCell<DesyncContextState>>,
+    conntrack: Rc<RefCell<ConntrackPool>>,
+) -> mlua::Result<()>
+{
+    let globals = lua.globals();
+    register_execution_plan_fns(lua, &globals, config.debug)?;
+    register_cutoff_fns(lua, &globals, config.debug)?;
+    register_conntrack_feed(lua, &globals, config, ctx_state, conntrack)
 }

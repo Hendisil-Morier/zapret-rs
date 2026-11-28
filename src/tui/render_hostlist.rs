@@ -16,6 +16,60 @@ use crate::tui::state::AppState;
 /// Shared bordered panel builder and keycap badge helper.
 use crate::tui::theme::{panel_block, styled_key_hints_owned};
 
+/// Builds the top search/shortcut bar line for Tab 6.
+fn build_hostlist_header<'a>(state: &AppState, auto_count: usize, black_count: usize) -> Line<'a>
+{
+    let t = &state.theme;
+    if state.hostlist.filter_editing
+    {
+        return Line::from(vec![
+            Span::styled(" Filter: ", Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{}_", state.hostlist.filter),
+                Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("   [Enter] Keep  [Esc] Clear", Style::default().fg(t.muted)),
+        ]);
+    }
+    if !state.hostlist.filter.is_empty()
+    {
+        return Line::from(vec![
+            Span::styled(
+                format!(" Filter: \"{}\"  ", state.hostlist.filter),
+                Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("([/] Edit  [Esc] Clear)  ", Style::default().fg(t.muted)),
+            Span::styled(
+                format!("Auto: {auto_count}  Blacklist: {black_count}"),
+                Style::default().fg(t.info),
+            ),
+        ]);
+    }
+    let hl = &state.keybinds.hostlist;
+    let nav = &state.keybinds.nav;
+    let move_lbl = hl.move_entry.joined_label();
+    let dir_label =
+        if state.hostlist.focus == HostlistFocus::AutoHostlist { "->Blacklist" } else { "->Auto" };
+    let del_label = if hl.delete.joined_label() == "d/Del/Backspace"
+    {
+        "d/Del".to_owned()
+    }
+    else
+    {
+        hl.delete.joined_label()
+    };
+    let hint = format!(
+        " [{}/{}] Select  [{del_label}] Remove  [{move_lbl}] {dir_label}  [{}] Add  [{}] Blacklist  [{}] Filter  [{}] Reload",
+        nav.up.primary_label(),
+        nav.down.primary_label(),
+        hl.add_auto.primary_label(),
+        hl.add_blacklist.primary_label(),
+        hl.filter.primary_label(),
+        hl.reload.primary_label(),
+    );
+    Line::from(styled_key_hints_owned(&hint, t))
+}
+
 /// Renders Tab 6: top status/filter strip plus selectable Auto Hostlist and Blacklist columns.
 pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
 {
@@ -29,57 +83,7 @@ pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
     let black_items = state.hostlist.filtered_blacklist(&state.config);
     let auto_on = !state.config.autohostlist_paths.is_empty();
 
-    let header_line = if state.hostlist.filter_editing
-    {
-        Line::from(vec![
-            Span::styled(" Filter: ", Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
-            Span::styled(
-                format!("{}_", state.hostlist.filter),
-                Style::default().fg(t.text).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("   [Enter] Keep  [Esc] Clear", Style::default().fg(t.muted)),
-        ])
-    }
-    else if !state.hostlist.filter.is_empty()
-    {
-        Line::from(vec![
-            Span::styled(
-                format!(" Filter: \"{}\"  ", state.hostlist.filter),
-                Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("([/] Edit  [Esc] Clear)  ", Style::default().fg(t.muted)),
-            Span::styled(
-                format!("Auto: {}  Blacklist: {}", auto_items.len(), black_items.len()),
-                Style::default().fg(t.info),
-            ),
-        ])
-    }
-    else
-    {
-        let hl = &state.keybinds.hostlist;
-        let nav = &state.keybinds.nav;
-        let move_lbl = hl.move_entry.joined_label();
-        let dir_label =
-            if state.hostlist.focus == HostlistFocus::AutoHostlist { "->Blacklist" } else { "->Auto" };
-        let del_label = if hl.delete.joined_label() == "d/Del/Backspace"
-        {
-            "d/Del".to_owned()
-        }
-        else
-        {
-            hl.delete.joined_label()
-        };
-        let hint = format!(
-            " [{}/{}] Select  [{del_label}] Remove  [{move_lbl}] {dir_label}  [{}] Add  [{}] Blacklist  [{}] Filter  [{}] Reload",
-            nav.up.primary_label(),
-            nav.down.primary_label(),
-            hl.add_auto.primary_label(),
-            hl.add_blacklist.primary_label(),
-            hl.filter.primary_label(),
-            hl.reload.primary_label(),
-        );
-        Line::from(styled_key_hints_owned(&hint, t))
-    };
+    let header_line = build_hostlist_header(state, auto_items.len(), black_items.len());
     let bar = Paragraph::new(header_line).block(panel_block(
         if auto_on
         {

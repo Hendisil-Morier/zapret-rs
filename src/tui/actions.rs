@@ -237,6 +237,66 @@ fn try_start_local_daemon(state: &mut AppState, session_tab2: &mut Option<Tab2Se
 
 /// Executes the confirmed floating modal action (`setcap`, `sudo -v`, or remote stop).
 ///
+/// Handles confirmation modals that require no `sudo` invocation; returns `true` when handled.
+fn handle_confirmation_modal(
+    purpose: ModalPurpose,
+    state: &mut AppState,
+    session_tab2: &mut Option<Tab2Session>,
+) -> bool
+{
+    match purpose
+    {
+        ModalPurpose::ConfirmStopDaemon =>
+        {
+            state.modal = None;
+            execute_remote_stop(state, session_tab2);
+            true
+        }
+        #[cfg(windows)]
+        ModalPurpose::GrantCaps =>
+        {
+            state.modal = None;
+            state.pending_caps_action = None;
+            true
+        }
+        ModalPurpose::ConfirmApplyDns =>
+        {
+            state.modal = None;
+            state.status_banner = match crate::tools::apply_dns_preset(state.status.dns_preset)
+            {
+                Ok(msg) =>
+                {
+                    state.refresh_status_checks();
+                    msg
+                }
+                Err(err) => format!("DNS update failed: {err}"),
+            };
+            true
+        }
+        ModalPurpose::ConfirmMergeConfig =>
+        {
+            state.modal = None;
+            if let Some((prev, new_toml)) = state.config.pending_merge.take()
+            {
+                match merge_nfqws2_toml(&prev, &new_toml)
+                {
+                    Ok(merged) =>
+                    {
+                        state.set_active_toml(merged);
+                        state.status_banner = format!(
+                            "Merged into {} profile(s). Press 's' to save.",
+                            state.config.parsed_profiles.len()
+                        );
+                    }
+                    Err(err) => state.status_banner = format!("Merge failed (kept new scan): {err}"),
+                }
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Returns `true` when `setcap` succeeded and the TUI should re-`exec` cleanly with active caps.
 pub(crate) fn submit_auth_modal(
     state: &mut AppState,
@@ -251,54 +311,16 @@ pub(crate) fn submit_auth_modal(
     };
     let purpose = modal.purpose;
 
-    if purpose == ModalPurpose::ConfirmStopDaemon
+    if handle_confirmation_modal(purpose, state, session_tab2)
     {
-        state.modal = None;
-        execute_remote_stop(state, session_tab2);
-        return false;
-    }
-    #[cfg(windows)]
-    if purpose == ModalPurpose::GrantCaps
-    {
-        state.modal = None;
-        state.pending_caps_action = None;
-        return false;
-    }
-    if purpose == ModalPurpose::ConfirmApplyDns
-    {
-        state.modal = None;
-        state.status_banner = match crate::tools::apply_dns_preset(state.status.dns_preset)
-        {
-            Ok(msg) =>
-            {
-                state.refresh_status_checks();
-                msg
-            }
-            Err(err) => format!("DNS update failed: {err}"),
-        };
-        return false;
-    }
-    if purpose == ModalPurpose::ConfirmMergeConfig
-    {
-        state.modal = None;
-        if let Some((prev, new_toml)) = state.config.pending_merge.take()
-        {
-            match merge_nfqws2_toml(&prev, &new_toml)
-            {
-                Ok(merged) =>
-                {
-                    state.set_active_toml(merged);
-                    state.status_banner = format!(
-                        "Merged into {} profile(s). Press 's' to save.",
-                        state.config.parsed_profiles.len()
-                    );
-                }
-                Err(err) => state.status_banner = format!("Merge failed (kept new scan): {err}"),
-            }
-        }
         return false;
     }
 
+    let Some(modal) = state.modal.as_mut()
+    else
+    {
+        return false;
+    };
     let mut pw_buf = if modal.needs_password { Some(modal.take_password()) } else { None };
     let pw_ref = pw_buf.as_deref();
 

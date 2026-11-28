@@ -297,6 +297,96 @@ fn push_scan_log(st: &mut WebScanSnapshot, line: String)
     st.logs.push(line);
 }
 
+/// Updates live scan snapshot state and pushes an SSE `scan` event for each progress callback.
+fn record_scan_progress(ev: ProgressEvent<'_>, state: &Arc<Mutex<WebScanSnapshot>>, ipc: &WebIpcBridge)
+{
+    let Ok(mut st) = state.lock()
+    else
+    {
+        return;
+    };
+    match ev
+    {
+        ProgressEvent::Http3Unavailable =>
+        {
+            push_scan_log(&mut st, "[warn] curl lacks HTTP/3 support; skipping http3".to_owned());
+        }
+        ProgressEvent::Baseline { domain, proto, ipv, outcome } =>
+        {
+            let tag = if outcome.is_success() { "reachable (skip)" } else { "blocked" };
+            st.label = format!("Baseline {domain} ({proto}/{ipv}): {}", outcome.summary());
+            push_scan_log(
+                &mut st,
+                format!("[baseline] {domain} ({proto}/{ipv}) -> {} [{tag}]", outcome.summary()),
+            );
+        }
+        ProgressEvent::Candidate { domain, index, total, strategy, outcome } =>
+        {
+            st.progress_done = index;
+            st.progress_total = total;
+            st.label = format!("{domain} [{index}/{total}] {}", strategy.id);
+            if outcome.is_success()
+            {
+                push_scan_log(
+                    &mut st,
+                    format!("[PASS {index}/{total}] {domain} :: {} -> {}", strategy.id, outcome.summary()),
+                );
+            }
+        }
+    }
+    ipc.emit_event("scan", &*st);
+}
+
+/// Renders minimal covering `nfqws2.toml` and stores final scan target summaries into shared state.
+fn finalize_scan_snapshot(
+    report: crate::tools::strat::ScanReport,
+    lua_scripts: Vec<std::path::PathBuf>,
+    state: &Arc<Mutex<WebScanSnapshot>>,
+    ipc: &WebIpcBridge,
+)
+{
+    let rendered_toml = if report.cover.is_empty()
+    {
+        String::new()
+    }
+    else
+    {
+        render_nfqws2_toml_scoped(
+            &report.cover,
+            &TomlRenderOptions { qnum: 200, fwmark: DEFAULT_DESYNC_FWMARK, lua_init: lua_scripts },
+            DomainScope::ScannedOnly,
+        )
+    };
+    if let Ok(mut st) = state.lock()
+    {
+        st.status = "done".to_owned();
+        st.progress_done = st.progress_total;
+        st.label = if report.interrupted
+        {
+            format!("Stopped early: {} covering profile(s)", report.cover.len())
+        }
+        else
+        {
+            format!("Done: {} minimal covering profile(s)", report.cover.len())
+        };
+        st.targets = report
+            .targets
+            .iter()
+            .map(|t| ScanTargetSummary {
+                domain: t.domain.clone(),
+                proto: t.proto.as_str().to_owned(),
+                ipv: t.ipv.as_str().to_owned(),
+                baseline: t.baseline.summary(),
+                skipped: t.skipped_unblocked,
+                best_strategy: t.matches.first().map(|m| m.strategy.id.clone()),
+                best_latency_ms: t.matches.first().map(|m| m.latency_ms),
+            })
+            .collect();
+        st.rendered_toml = rendered_toml;
+        ipc.emit_event("scan", &*st);
+    }
+}
+
 /// Runs the background capture worker, firewall guard lifetime, and scan orchestration.
 fn run_scan_worker(
     scan_cfg: ScanConfig,
@@ -325,94 +415,14 @@ fn run_scan_worker(
     };
     let probe = CurlProbeBackend::default();
     let res = run_scan(&scan_cfg, &probe, &mut worker, &stop, |ev| {
-        let Ok(mut st) = state.lock()
-        else
-        {
-            return;
-        };
-        match ev
-        {
-            ProgressEvent::Http3Unavailable =>
-            {
-                push_scan_log(&mut st, "[warn] curl lacks HTTP/3 support; skipping http3".to_owned());
-            }
-            ProgressEvent::Baseline { domain, proto, ipv, outcome } =>
-            {
-                let tag = if outcome.is_success() { "reachable (skip)" } else { "blocked" };
-                st.label = format!("Baseline {domain} ({proto}/{ipv}): {}", outcome.summary());
-                push_scan_log(
-                    &mut st,
-                    format!("[baseline] {domain} ({proto}/{ipv}) -> {} [{tag}]", outcome.summary()),
-                );
-            }
-            ProgressEvent::Candidate { domain, index, total, strategy, outcome } =>
-            {
-                st.progress_done = index;
-                st.progress_total = total;
-                st.label = format!("{domain} [{index}/{total}] {}", strategy.id);
-                if outcome.is_success()
-                {
-                    push_scan_log(
-                        &mut st,
-                        format!(
-                            "[PASS {index}/{total}] {domain} :: {} -> {}",
-                            strategy.id,
-                            outcome.summary()
-                        ),
-                    );
-                }
-            }
-        }
-        ipc.emit_event("scan", &*st);
+        record_scan_progress(ev, &state, &ipc);
     });
     drop(worker);
     drop(fw_guard);
 
     match res
     {
-        Ok(report) =>
-        {
-            let rendered_toml = if report.cover.is_empty()
-            {
-                String::new()
-            }
-            else
-            {
-                render_nfqws2_toml_scoped(
-                    &report.cover,
-                    &TomlRenderOptions { qnum: 200, fwmark: DEFAULT_DESYNC_FWMARK, lua_init: lua_scripts },
-                    DomainScope::ScannedOnly,
-                )
-            };
-            if let Ok(mut st) = state.lock()
-            {
-                st.status = "done".to_owned();
-                st.progress_done = st.progress_total;
-                st.label = if report.interrupted
-                {
-                    format!("Stopped early: {} covering profile(s)", report.cover.len())
-                }
-                else
-                {
-                    format!("Done: {} minimal covering profile(s)", report.cover.len())
-                };
-                st.targets = report
-                    .targets
-                    .iter()
-                    .map(|t| ScanTargetSummary {
-                        domain: t.domain.clone(),
-                        proto: t.proto.as_str().to_owned(),
-                        ipv: t.ipv.as_str().to_owned(),
-                        baseline: t.baseline.summary(),
-                        skipped: t.skipped_unblocked,
-                        best_strategy: t.matches.first().map(|m| m.strategy.id.clone()),
-                        best_latency_ms: t.matches.first().map(|m| m.latency_ms),
-                    })
-                    .collect();
-                st.rendered_toml = rendered_toml;
-                ipc.emit_event("scan", &*st);
-            }
-        }
+        Ok(report) => finalize_scan_snapshot(report, lua_scripts, &state, &ipc),
         Err(err) => finish_scan_error(&state, &ipc, err),
     }
 }

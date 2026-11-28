@@ -298,6 +298,114 @@ fn dispatch_live_worker_packet(
     decision
 }
 
+/// Channels and shared atomic flags passed into the background live-interception thread.
+struct LiveWorkerContext
+{
+    /// Stop signal checked by the interception loop.
+    stop: Arc<AtomicBool>,
+    /// Shared flag gating packet capture when Tab 2 is visible and unpaused.
+    capture_enabled: Arc<AtomicBool>,
+    /// Shared packet verdict counters displayed on Tab 2.
+    counters: Arc<PacketCounters>,
+    /// Channel carrying intercepted packets into the Packet Inspector ring buffer.
+    pkt_tx: mpsc::SyncSender<PacketRecord>,
+    /// Channel carrying modified/dropped packet records into the Tab 2 event log.
+    desync_tx: mpsc::SyncSender<PacketRecord>,
+    /// One-shot readiness notification sent after socket/filter bind and Lua engine init.
+    ready_tx: mpsc::SyncSender<Result<(), String>>,
+}
+
+/// Executes the Linux NFQUEUE live-packet capture thread for `start_live_daemon`.
+#[cfg(target_os = "linux")]
+fn run_live_worker_loop(cfg: AppConfig, ctx: LiveWorkerContext)
+{
+    let mut catcher = match QueueCatcher::bind(QueueConfig::with_fwmark(cfg.qnum, cfg.fwmark))
+    {
+        Ok(c) => c,
+        Err(err) =>
+        {
+            let _ = ctx.ready_tx.send(Err(format!("NFQUEUE bind failed: {err}")));
+            return;
+        }
+    };
+    let engine = match DesyncEngine::new(&cfg)
+    {
+        Ok(e) => e,
+        Err(err) =>
+        {
+            let _ = ctx.ready_tx.send(Err(format!("Lua engine init failed: {err}")));
+            return;
+        }
+    };
+    let _ = ctx.ready_tx.send(Ok(()));
+    let mut pass_seen = 0u64;
+    let _ = catcher.run_until(
+        &ctx.stop,
+        || Some(Duration::from_millis(50)),
+        |pkt| {
+            dispatch_live_worker_packet(
+                &engine,
+                &ctx.counters,
+                &mut pass_seen,
+                &ctx.capture_enabled,
+                &ctx.desync_tx,
+                &ctx.pkt_tx,
+                pkt,
+            )
+        },
+    );
+}
+
+/// Executes the Windows WinDivert live-packet capture thread for `start_live_daemon`.
+#[cfg(windows)]
+fn run_live_worker_loop(cfg: AppConfig, ctx: LiveWorkerContext)
+{
+    let (tcp_ports, udp_ports) = collect_config_ports(&cfg);
+    let filter = build_windivert_filter(&tcp_ports, &udp_ports);
+    let mut catcher = match WinDivertIntercepter::bind(&filter)
+    {
+        Ok(c) => c,
+        Err(err) =>
+        {
+            let _ = ctx.ready_tx.send(Err(format!("WinDivert bind failed: {err}")));
+            return;
+        }
+    };
+    let engine = match DesyncEngine::new(&cfg)
+    {
+        Ok(e) => e,
+        Err(err) =>
+        {
+            let _ = ctx.ready_tx.send(Err(format!("Lua engine init failed: {err}")));
+            return;
+        }
+    };
+    let _ = ctx.ready_tx.send(Ok(()));
+    let mut pass_seen = 0u64;
+    let _ = catcher.run_until(
+        &ctx.stop,
+        || Some(Duration::from_millis(50)),
+        |pkt| {
+            dispatch_live_worker_packet(
+                &engine,
+                &ctx.counters,
+                &mut pass_seen,
+                &ctx.capture_enabled,
+                &ctx.desync_tx,
+                &ctx.pkt_tx,
+                pkt,
+            )
+        },
+    );
+}
+
+/// Fallback worker stub on targets lacking a live kernel packet interception backend.
+#[cfg(not(any(target_os = "linux", windows)))]
+fn run_live_worker_loop(_cfg: AppConfig, ctx: LiveWorkerContext)
+{
+    let _ = ctx.ready_tx.send(Err("live packet interception is not yet implemented on this OS".to_owned()));
+}
+
 /// Starts the live in-process `nfqws2` NFQUEUE worker for Tab 2 using `state.config.active_toml`.
 pub(crate) fn start_live_daemon<F>(state: &mut AppState, install_fw: F) -> Result<ActiveDaemon, String>
 where
@@ -323,99 +431,19 @@ where
     let (pkt_tx, pkt_rx) = mpsc::sync_channel::<PacketRecord>(512);
     let (desync_tx, desync_rx) = mpsc::sync_channel::<PacketRecord>(256);
     let stop = Arc::new(AtomicBool::new(false));
-    let stop_bg = Arc::clone(&stop);
     let capture_enabled = Arc::new(AtomicBool::new(state.tab == ActiveTab::Run && !state.inspector.paused));
-    let capture_bg = Arc::clone(&capture_enabled);
-    let counters: Arc<PacketCounters> = Arc::clone(&state.run.counters);
+    let ctx = LiveWorkerContext {
+        stop: Arc::clone(&stop),
+        capture_enabled: Arc::clone(&capture_enabled),
+        counters: Arc::clone(&state.run.counters),
+        pkt_tx,
+        desync_tx,
+        ready_tx,
+    };
 
     let join = thread::Builder::new()
         .name("tui-nfqws2-live".to_owned())
-        .spawn(move || {
-            #[cfg(target_os = "linux")]
-            {
-                let mut catcher = match QueueCatcher::bind(QueueConfig::with_fwmark(cfg.qnum, cfg.fwmark))
-                {
-                    Ok(c) => c,
-                    Err(err) =>
-                    {
-                        let _ = ready_tx.send(Err(format!("NFQUEUE bind failed: {err}")));
-                        return;
-                    }
-                };
-                let engine = match DesyncEngine::new(&cfg)
-                {
-                    Ok(e) => e,
-                    Err(err) =>
-                    {
-                        let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}")));
-                        return;
-                    }
-                };
-                let _ = ready_tx.send(Ok(()));
-                let mut pass_seen = 0u64;
-                let _ = catcher.run_until(
-                    &stop_bg,
-                    || Some(Duration::from_millis(50)),
-                    |pkt| {
-                        dispatch_live_worker_packet(
-                            &engine,
-                            &counters,
-                            &mut pass_seen,
-                            &capture_bg,
-                            &desync_tx,
-                            &pkt_tx,
-                            pkt,
-                        )
-                    },
-                );
-            }
-            #[cfg(windows)]
-            {
-                let (tcp_ports, udp_ports) = collect_config_ports(&cfg);
-                let filter = build_windivert_filter(&tcp_ports, &udp_ports);
-                let mut catcher = match WinDivertIntercepter::bind(&filter)
-                {
-                    Ok(c) => c,
-                    Err(err) =>
-                    {
-                        let _ = ready_tx.send(Err(format!("WinDivert bind failed: {err}")));
-                        return;
-                    }
-                };
-                let engine = match DesyncEngine::new(&cfg)
-                {
-                    Ok(e) => e,
-                    Err(err) =>
-                    {
-                        let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}")));
-                        return;
-                    }
-                };
-                let _ = ready_tx.send(Ok(()));
-                let mut pass_seen = 0u64;
-                let _ = catcher.run_until(
-                    &stop_bg,
-                    || Some(Duration::from_millis(50)),
-                    |pkt| {
-                        dispatch_live_worker_packet(
-                            &engine,
-                            &counters,
-                            &mut pass_seen,
-                            &capture_bg,
-                            &desync_tx,
-                            &pkt_tx,
-                            pkt,
-                        )
-                    },
-                );
-            }
-            #[cfg(not(any(target_os = "linux", windows)))]
-            {
-                let _ = (&cfg, &stop_bg, &capture_bg, &counters, &pkt_tx, &desync_tx);
-                let _ = ready_tx
-                    .send(Err("live packet interception is not yet implemented on this OS".to_owned()));
-            }
-        })
+        .spawn(move || run_live_worker_loop(cfg, ctx))
         .map_err(|err| format!("failed to spawn live daemon thread: {err}"))?;
 
     match ready_rx.recv()

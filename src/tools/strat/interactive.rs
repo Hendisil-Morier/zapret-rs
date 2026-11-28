@@ -89,6 +89,7 @@ pub(crate) fn resolve_user_home() -> Option<PathBuf>
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or_else(|| unsafe { libc::geteuid() });
+        // SAFETY: `libc::passwd` is C plain-old-data zeroed cleanly before `getpwuid_r` writes into it.
         let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
         let mut buf = vec![0u8; 4096];
         let mut res: *mut libc::passwd = std::ptr::null_mut();
@@ -238,6 +239,35 @@ fn prompt_domains<R: BufRead, W: Write>(
     }
 }
 
+/// Repeatedly prompts until valid input or empty default is returned.
+fn prompt_until_valid<R: BufRead, W: Write, T, F>(
+    reader: &mut R,
+    writer: &mut W,
+    prompt: &str,
+    default: T,
+    mut parser: F,
+) -> Result<T, String>
+where
+    F: FnMut(&str) -> Result<T, String>,
+{
+    loop
+    {
+        let line = read_prompt_line(reader, writer, prompt)?;
+        if line.is_empty()
+        {
+            return Ok(default);
+        }
+        match parser(&line)
+        {
+            Ok(val) => return Ok(val),
+            Err(msg) =>
+            {
+                let _ = writeln!(writer, "  {msg}");
+            }
+        }
+    }
+}
+
 /// Runs the interactive configuration wizard over `reader` and `writer` using `defaults`.
 pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
     reader: &mut R,
@@ -250,65 +280,30 @@ pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
     let domains = prompt_domains(reader, writer, &defaults.domains)?;
 
     let proto_default: String = defaults.protos.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(",");
-    let protos = loop
-    {
-        let line = read_prompt_line(
-            reader,
-            writer,
-            &format!("Protocols (http,tls12,tls13,http3) [{proto_default}]: "),
-        )?;
-        if line.is_empty()
-        {
-            break defaults.protos.clone();
-        }
-        match parse_proto_list(&line)
-        {
-            Ok(list) => break list,
-            Err(msg) =>
-            {
-                let _ = writeln!(writer, "  {msg}");
-            }
-        }
-    };
+    let protos = prompt_until_valid(
+        reader,
+        writer,
+        &format!("Protocols (http,tls12,tls13,http3) [{proto_default}]: "),
+        defaults.protos.clone(),
+        parse_proto_list,
+    )?;
 
     let fam_default = format_families(&defaults.families);
-    let families = loop
-    {
-        let line = read_prompt_line(reader, writer, &format!("IP version (4, 6, or 46) [{fam_default}]: "))?;
-        if line.is_empty()
-        {
-            break defaults.families.clone();
-        }
-        match parse_ip_families(&line)
-        {
-            Ok(list) => break list,
-            Err(msg) =>
-            {
-                let _ = writeln!(writer, "  {msg}");
-            }
-        }
-    };
+    let families = prompt_until_valid(
+        reader,
+        writer,
+        &format!("IP version (4, 6, or 46) [{fam_default}]: "),
+        defaults.families.clone(),
+        parse_ip_families,
+    )?;
 
-    let level = loop
-    {
-        let line = read_prompt_line(
-            reader,
-            writer,
-            &format!("Scan level (quick, standard, force) [{}]: ", defaults.level),
-        )?;
-        if line.is_empty()
-        {
-            break defaults.level;
-        }
-        match line.parse::<ScanLevel>()
-        {
-            Ok(lvl) => break lvl,
-            Err(msg) =>
-            {
-                let _ = writeln!(writer, "  {msg}");
-            }
-        }
-    };
+    let level = prompt_until_valid(
+        reader,
+        writer,
+        &format!("Scan level (quick, standard, force) [{}]: ", defaults.level),
+        defaults.level,
+        |s| s.parse::<ScanLevel>(),
+    )?;
 
     let stop_hint = if defaults.stop_on_first { "Y/n" } else { "y/N" };
     let stop_on_first = loop

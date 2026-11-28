@@ -134,14 +134,10 @@ pub fn harden_lua(lua: &Lua) -> mlua::Result<()>
     Ok(())
 }
 
-/// Populates all numeric, string, and boolean global constants expected by `zapret-lib.lua` and user scripts.
-pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()>
+/// Registers core verdict, header length, TCP, IPv4, IPv6, and protocol number constants.
+fn register_verdict_and_ip_constants(globals: &mlua::Table, config: &LuaConfig) -> mlua::Result<()>
 {
-    let globals = lua.globals();
-
-    globals.set("NFQWS2_VER", config.verstr.as_str())?;
-
-    let uint_constants: &[(&str, i64)] = &[
+    let constants: &[(&str, i64)] = &[
         ("qnum", i64::from(config.qnum)),
         ("desync_fwmark", i64::from(config.desync_fwmark)),
         ("NFQWS2_COMPAT_VER", i64::from(LUA_COMPAT_VER)),
@@ -206,6 +202,18 @@ pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()>
         ("IPPROTO_HIP", i64::from(IPPROTO_HIP)),
         ("IPPROTO_SHIM6", i64::from(IPPROTO_SHIM6)),
         ("IPPROTO_NONE", i64::from(IPPROTO_NONE)),
+    ];
+    for &(name, value) in constants
+    {
+        globals.set(name, value)?;
+    }
+    Ok(())
+}
+
+/// Registers ICMPv4 and ICMPv6 type/code constants into Lua `_G`.
+fn register_icmp_constants(globals: &mlua::Table) -> mlua::Result<()>
+{
+    let icmp_constants: &[(&str, i64)] = &[
         ("ICMP_ECHOREPLY", i64::from(ICMP_ECHOREPLY)),
         ("ICMP_DEST_UNREACH", i64::from(ICMP_DEST_UNREACH)),
         ("ICMP_REDIRECT", i64::from(ICMP_REDIRECT)),
@@ -262,11 +270,21 @@ pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()>
         ("ICMP6_PARAMPROB_NEXTHEADER", i64::from(ICMP6_PARAMPROB_NEXTHEADER)),
         ("ICMP6_PARAMPROB_OPTION", i64::from(ICMP6_PARAMPROB_OPTION)),
     ];
-
-    for &(name, value) in uint_constants
+    for &(name, value) in icmp_constants
     {
         globals.set(name, value)?;
     }
+    Ok(())
+}
+
+/// Populates all numeric, string, and boolean global constants expected by `zapret-lib.lua` and user scripts.
+pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()>
+{
+    let globals = lua.globals();
+
+    globals.set("NFQWS2_VER", config.verstr.as_str())?;
+    register_verdict_and_ip_constants(&globals, config)?;
+    register_icmp_constants(&globals)?;
 
     let bool_constants: &[(&str, bool)] = &[
         ("b_debug", config.debug),

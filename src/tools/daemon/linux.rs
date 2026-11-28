@@ -223,6 +223,81 @@ fn start_control_session(
     Ok((Some(hub), Some(srv)))
 }
 
+/// Runs the Linux no-intercept event loop driving timers, signals, and control-socket commands.
+fn run_linux_no_intercept_loop(
+    engine: &RefCell<DesyncEngine>,
+    config: &AppConfig,
+    config_dir: Option<&Path>,
+    control_socket_path: Option<&Path>,
+    config_path: Option<&Path>,
+    pid_guard: &mut Option<PidFileGuard>,
+) -> Result<(), DaemonError>
+{
+    prepare_daemon_runtime(config, pid_guard)?;
+    let (hub, srv) = start_control_session(control_socket_path, config, &engine.borrow(), config_path)?;
+    run_no_intercept_callbacks(
+        quit_flag(),
+        || poll_signals_and_commands(engine, hub.as_deref(), config, config_dir, None),
+        || engine.borrow().runtime().timer_pool().borrow().is_empty(),
+        || engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms(),
+        || {
+            let eng = engine.borrow();
+            let now = boottime_ms();
+            eng.runtime().do_gc(now);
+            TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
+        },
+    );
+    if let Some(ctrl) = srv
+    {
+        ctrl.shutdown();
+    }
+    Ok(())
+}
+
+/// Binds the Netfilter queue catcher, installs optional auto-nftables rules, and runs the packet loop.
+fn run_linux_intercept_loop(
+    engine: &RefCell<DesyncEngine>,
+    config: &AppConfig,
+    config_dir: Option<&Path>,
+    control_socket_path: Option<&Path>,
+    config_path: Option<&Path>,
+    pid_guard: &mut Option<PidFileGuard>,
+) -> Result<(), DaemonError>
+{
+    let mut catcher = QueueCatcher::bind(QueueConfig::with_fwmark(config.qnum, config.fwmark))?;
+    prepare_daemon_runtime(config, pid_guard)?;
+    // Install nftables queue rules before opening control.sock so callers never race Packet Probes.
+    let mut fw_guard = maybe_install_auto_nft(config)?;
+    let (hub, srv) = start_control_session(control_socket_path, config, &engine.borrow(), config_path)?;
+    let loop_result = catcher.run_until(
+        quit_flag(),
+        || next_loop_timeout(engine, hub.as_deref(), config, config_dir, &mut fw_guard),
+        |pkt| {
+            if let Some(ref active_hub) = hub
+            {
+                let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
+                let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
+                if active_hub.should_publish(verdict)
+                {
+                    active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
+                }
+                decision
+            }
+            else
+            {
+                engine.borrow().process_packet(pkt)
+            }
+        },
+    );
+    drop(fw_guard);
+    if let Some(ctrl) = srv
+    {
+        ctrl.shutdown();
+    }
+    loop_result?;
+    Ok(())
+}
+
 /// Executes the `nfqws2` startup pipeline (`chdir`, identity, `preinit`, `droproot`, signals) and event loop.
 pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError>
 {
@@ -295,67 +370,22 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError>
 
     if !config.intercept
     {
-        prepare_daemon_runtime(&config, &mut pid_guard)?;
-        let (hub, srv) = start_control_session(
-            control_socket_path.as_deref(),
+        return run_linux_no_intercept_loop(
+            &engine,
             &config,
-            &engine.borrow(),
+            config_dir,
+            control_socket_path.as_deref(),
             cli.config.as_deref(),
-        )?;
-        run_no_intercept_callbacks(
-            quit_flag(),
-            || poll_signals_and_commands(&engine, hub.as_deref(), &config, config_dir, None),
-            || engine.borrow().runtime().timer_pool().borrow().is_empty(),
-            || engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms(),
-            || {
-                let eng = engine.borrow();
-                let now = boottime_ms();
-                eng.runtime().do_gc(now);
-                TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
-            },
+            &mut pid_guard,
         );
-        if let Some(ctrl) = srv
-        {
-            ctrl.shutdown();
-        }
-        return Ok(());
     }
 
-    let mut catcher = QueueCatcher::bind(QueueConfig::with_fwmark(config.qnum, config.fwmark))?;
-    prepare_daemon_runtime(&config, &mut pid_guard)?;
-    // Install nftables queue rules before opening control.sock so callers never race Packet Probes.
-    let mut fw_guard = maybe_install_auto_nft(&config)?;
-    let (hub, srv) = start_control_session(
-        control_socket_path.as_deref(),
+    run_linux_intercept_loop(
+        &engine,
         &config,
-        &engine.borrow(),
+        config_dir,
+        control_socket_path.as_deref(),
         cli.config.as_deref(),
-    )?;
-    let loop_result = catcher.run_until(
-        quit_flag(),
-        || next_loop_timeout(&engine, hub.as_deref(), &config, config_dir, &mut fw_guard),
-        |pkt| {
-            if let Some(ref active_hub) = hub
-            {
-                let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
-                let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
-                if active_hub.should_publish(verdict)
-                {
-                    active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
-                }
-                decision
-            }
-            else
-            {
-                engine.borrow().process_packet(pkt)
-            }
-        },
-    );
-    drop(fw_guard);
-    if let Some(ctrl) = srv
-    {
-        ctrl.shutdown();
-    }
-    loop_result?;
-    Ok(())
+        &mut pid_guard,
+    )
 }

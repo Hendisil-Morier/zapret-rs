@@ -42,44 +42,11 @@ fn push_help_section(
     lines.push(Line::default());
 }
 
-/// Renders a centered floating `?` keybindings popup showing only the active tab's bindings.
-///
-/// Global bindings (tab switching, theme, quit) are always shown at the top.
-/// The tab-specific section below is determined by `state.tab`, keeping the popup compact.
-pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
+/// Appends the Global keybinding rows to `lines`.
+fn push_global_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState)
 {
     let t = &state.theme;
-    let area = frame.area();
-    let w = 84u16.min(area.width.saturating_sub(4)).max(44.min(area.width));
-    let h = 14u16.min(area.height.saturating_sub(2)).max(8.min(area.height));
-    let popup = centered_rect(area, w, h);
-    frame.render_widget(Clear, popup);
-
-    let tab_label = state.tab.spec().full_title;
-    // `panel_block` takes `&'static str`; leak the formatted title for the lifetime of this frame.
-    let title = format!(" Keybindings \u{2014} {tab_label} [?] ");
-    let outer = panel_block(Box::leak(title.into_boxed_str()), t.accent_bright, t.warn_bright);
-    let inner = outer.inner(popup);
-    frame.render_widget(outer, popup);
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(inner);
-
-    let mut lines = Vec::new();
-
-    let k = &state.keybinds;
-    let g = &k.global;
-    let nav = &k.nav;
-    let v_nav = nav.up.combine_labels(&nav.down);
-    let page_nav = format!(
-        "{}/{}/{}/{}",
-        nav.up.primary_label(),
-        nav.down.primary_label(),
-        nav.page_up.primary_label(),
-        nav.page_down.primary_label()
-    );
+    let g = &state.keybinds.global;
     let tab_nav = format!(
         "{}..{}/{}/{}",
         g.tab_1.primary_label(),
@@ -117,14 +84,88 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
             g.copy_web_passcode.primary_label(),
             g.web_ui.primary_label(),
         );
-        push_help_section(&mut lines, "Global", false, &[global_row, extra], t);
+        push_help_section(lines, "Global", false, &[global_row, extra], t);
     }
     else
     {
-        push_help_section(&mut lines, "Global", false, &[global_row], t);
+        push_help_section(lines, "Global", false, &[global_row], t);
     }
+}
 
-    // Tab-specific section only.
+/// Appends the Tab 2 (Run daemon & Packet Inspector) keybinding rows to `lines`.
+fn push_run_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState, page_nav: &str)
+{
+    let t = &state.theme;
+    let r = &state.keybinds.run;
+    let insp = &state.keybinds.inspector;
+    let row1 = if state.run.status == RunStatus::Attached
+    {
+        format!(
+            "[{}] Detach  [{}] Stop Daemon  [{}] Restart  [{}] Reload Lists  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail",
+            r.stop_or_detach.primary_label(),
+            r.stop_attached.primary_label(),
+            r.restart.primary_label(),
+            r.reload.primary_label(),
+            insp.filter_cycle.primary_label(),
+            insp.filter_edit.primary_label(),
+            insp.pause.primary_label(),
+            insp.detail.primary_label(),
+        )
+    }
+    else if state.run.detected_socket.is_some() && state.run.status != RunStatus::Running
+    {
+        format!(
+            "[{}] Attach  [{}] Restart  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail  [{}] Clear  [{}] Reload",
+            r.start_stop.primary_label(),
+            r.restart.primary_label(),
+            insp.filter_cycle.primary_label(),
+            insp.filter_edit.primary_label(),
+            insp.pause.primary_label(),
+            insp.detail.primary_label(),
+            r.clear.primary_label(),
+            r.reload.primary_label(),
+        )
+    }
+    else
+    {
+        format!(
+            "[{}] Start/Stop  [{}] Restart  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail  [{}] Clear  [{}] Reload",
+            r.start_stop.primary_label(),
+            r.restart.primary_label(),
+            insp.filter_cycle.primary_label(),
+            insp.filter_edit.primary_label(),
+            insp.pause.primary_label(),
+            insp.detail.primary_label(),
+            r.clear.primary_label(),
+            r.reload.primary_label(),
+        )
+    };
+    let row2 = if state.run.status == RunStatus::Attached
+    {
+        format!(
+            "[{page_nav}] Select Packet / Scroll Log  [{}] Clear  [{}] Close Detail",
+            r.clear.primary_label(),
+            insp.close_detail.joined_label(),
+        )
+    }
+    else
+    {
+        format!(
+            "[{page_nav}] Select Packet / Scroll Daemon Log  [{}] Close Detail",
+            insp.close_detail.joined_label(),
+        )
+    };
+    let run_title = if cfg!(windows) { "Run WinDivert" } else { "Run nfqws2" };
+    push_help_section(lines, run_title, true, &[row1, row2], t);
+}
+
+/// Appends the active tab's keybinding rows for non-Run tabs to `lines`.
+fn push_other_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState, v_nav: &str, page_nav: &str)
+{
+    let t = &state.theme;
+    let k = &state.keybinds;
+    let g = &k.global;
+    let nav = &k.nav;
     match state.tab
     {
         ActiveTab::Finder =>
@@ -145,71 +186,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
                 f.save_toml.primary_label(),
                 f.open_run_tab.primary_label(),
             );
-            push_help_section(&mut lines, "Strategy Finder", true, &[row1, row2], t);
-        }
-        ActiveTab::Run =>
-        {
-            let r = &k.run;
-            let insp = &k.inspector;
-            let row1 = if state.run.status == RunStatus::Attached
-            {
-                format!(
-                    "[{}] Detach  [{}] Stop Daemon  [{}] Restart  [{}] Reload Lists  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail",
-                    r.stop_or_detach.primary_label(),
-                    r.stop_attached.primary_label(),
-                    r.restart.primary_label(),
-                    r.reload.primary_label(),
-                    insp.filter_cycle.primary_label(),
-                    insp.filter_edit.primary_label(),
-                    insp.pause.primary_label(),
-                    insp.detail.primary_label(),
-                )
-            }
-            else if state.run.detected_socket.is_some() && state.run.status != RunStatus::Running
-            {
-                format!(
-                    "[{}] Attach  [{}] Restart  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail  [{}] Clear  [{}] Reload",
-                    r.start_stop.primary_label(),
-                    r.restart.primary_label(),
-                    insp.filter_cycle.primary_label(),
-                    insp.filter_edit.primary_label(),
-                    insp.pause.primary_label(),
-                    insp.detail.primary_label(),
-                    r.clear.primary_label(),
-                    r.reload.primary_label(),
-                )
-            }
-            else
-            {
-                format!(
-                    "[{}] Start/Stop  [{}] Restart  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail  [{}] Clear  [{}] Reload",
-                    r.start_stop.primary_label(),
-                    r.restart.primary_label(),
-                    insp.filter_cycle.primary_label(),
-                    insp.filter_edit.primary_label(),
-                    insp.pause.primary_label(),
-                    insp.detail.primary_label(),
-                    r.clear.primary_label(),
-                    r.reload.primary_label(),
-                )
-            };
-            let row2 = if state.run.status == RunStatus::Attached
-            {
-                format!(
-                    "[{page_nav}] Select Packet / Scroll Log  [{}] Clear  [{}] Close Detail",
-                    r.clear.primary_label(),
-                    insp.close_detail.joined_label(),
-                )
-            }
-            else
-            {
-                format!(
-                    "[{page_nav}] Select Packet / Scroll Daemon Log  [{}] Close Detail",
-                    insp.close_detail.joined_label(),
-                )
-            };
-            let run_title = if cfg!(windows) { "Run WinDivert" } else { "Run nfqws2" };
-            push_help_section(&mut lines, run_title, true, &[row1, row2], t);
+            push_help_section(lines, "Strategy Finder", true, &[row1, row2], t);
         }
         ActiveTab::Config =>
         {
@@ -239,7 +216,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
                 nav.home.primary_label(),
                 g.next_panel.primary_label(),
             );
-            push_help_section(&mut lines, "Config & Diagnostics", true, &[row1, row2], t);
+            push_help_section(lines, "Config & Diagnostics", true, &[row1, row2], t);
         }
         ActiveTab::Speed =>
         {
@@ -250,7 +227,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
                 s.cancel.joined_label(),
                 s.clear.primary_label(),
             );
-            push_help_section(&mut lines, "Speed Test", true, &[row], t);
+            push_help_section(lines, "Speed Test", true, &[row], t);
         }
         ActiveTab::Status =>
         {
@@ -266,8 +243,21 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
                 nav.left.primary_label(),
                 nav.right.primary_label(),
             );
-            push_help_section(&mut lines, "Status", true, &[row], t);
+            push_help_section(lines, "Status", true, &[row], t);
         }
+        _ => push_management_tab_keybinds(lines, state, v_nav),
+    }
+}
+
+/// Appends keybinding help rows for Hostlist and Settings tabs to `lines`.
+fn push_management_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState, v_nav: &str)
+{
+    let t = &state.theme;
+    let k = &state.keybinds;
+    let g = &k.global;
+    let nav = &k.nav;
+    match state.tab
+    {
         ActiveTab::Hostlist =>
         {
             let hl = &k.hostlist;
@@ -288,7 +278,7 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
                 hl.filter.primary_label(),
                 hl.reload.primary_label(),
             );
-            push_help_section(&mut lines, "Auto Hostlist & Blacklist", true, &[row1, row2], t);
+            push_help_section(lines, "Auto Hostlist & Blacklist", true, &[row1, row2], t);
         }
         ActiveTab::Settings =>
         {
@@ -309,10 +299,59 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
                 st.reload.primary_label(),
                 st.edit.primary_label(),
             );
-            push_help_section(&mut lines, "Settings (config.toml)", true, &[row1, row2], t);
+            push_help_section(lines, "Settings (config.toml)", true, &[row1, row2], t);
         }
+        _ =>
+        {}
+    }
+}
+
+/// Renders the centered `[?]` keybindings reference modal over the active tab.
+///
+/// The tab-specific section below is determined by `state.tab`, keeping the popup compact.
+pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
+{
+    let t = &state.theme;
+    let area = frame.area();
+    let w = 84u16.min(area.width.saturating_sub(4)).max(44.min(area.width));
+    let h = 14u16.min(area.height.saturating_sub(2)).max(8.min(area.height));
+    let popup = centered_rect(area, w, h);
+    frame.render_widget(Clear, popup);
+
+    let tab_label = state.tab.spec().full_title;
+    // `panel_block` takes `&'static str`; leak the formatted title for the lifetime of this frame.
+    let title = format!(" Keybindings \u{2014} {tab_label} [?] ");
+    let outer = panel_block(Box::leak(title.into_boxed_str()), t.accent_bright, t.warn_bright);
+    let inner = outer.inner(popup);
+    frame.render_widget(outer, popup);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let mut lines = Vec::new();
+    push_global_keybinds(&mut lines, state);
+
+    let nav = &state.keybinds.nav;
+    let v_nav = nav.up.combine_labels(&nav.down);
+    let page_nav = format!(
+        "{}/{}/{}/{}",
+        nav.up.primary_label(),
+        nav.down.primary_label(),
+        nav.page_up.primary_label(),
+        nav.page_down.primary_label()
+    );
+    if state.tab == ActiveTab::Run
+    {
+        push_run_tab_keybinds(&mut lines, state, &page_nav);
+    }
+    else
+    {
+        push_other_tab_keybinds(&mut lines, state, &v_nav, &page_nav);
     }
 
+    let g = &state.keybinds.global;
     let close_hint = format!("[{}/Esc/Enter/{}] Close", g.help.primary_label(), g.quit.primary_label());
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
     frame.render_widget(Paragraph::new(Line::from(styled_key_hints_owned(&close_hint, t))), chunks[1]);

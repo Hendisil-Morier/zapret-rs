@@ -280,6 +280,73 @@ pub fn apply_prompt_offline(state: &mut AppState)
     submit_prompt_modal(state, &None, &mut no_web);
 }
 
+/// Appends a clean domain from `raw_input` to configured autohostlist files and reloads remote lists.
+fn submit_add_autohostlist(
+    state: &mut AppState,
+    tab2_session: &Option<Tab2Session>,
+    raw_input: &str,
+) -> Result<(), String>
+{
+    if state.config.autohostlist_paths.is_empty()
+    {
+        return Err("Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first)".to_owned());
+    }
+    for path in state.config.autohostlist_paths.clone()
+    {
+        mutate_hostlist_file(&path, raw_input, true)?;
+    }
+    state.refresh_autohostlist();
+    let clean = parse_clean_domain(raw_input).unwrap_or_else(|| raw_input.to_owned());
+    if let Some(Tab2Session::Remote(remote)) = tab2_session.as_ref()
+        && remote.send_command(&Request::ReloadLists).is_ok()
+    {
+        state.status_banner = format!("Added {clean} to Auto Hostlist & reloaded daemon");
+    }
+    else
+    {
+        state.status_banner = format!("Added {clean} to Auto Hostlist");
+    }
+    Ok(())
+}
+
+/// Parses bind address input, launches the embedded Web UI server, and updates status banners.
+fn submit_launch_web_ui(
+    state: &mut AppState,
+    web_ui: &mut Option<ActiveWebUi>,
+    raw_input: &str,
+) -> Result<(), String>
+{
+    let bind_str = resolve_web_bind(raw_input);
+    let addr: SocketAddr =
+        bind_str.parse().map_err(|err| format!("invalid bind address {bind_str}: {err}"))?;
+    let active = launch_web_ui(state, addr)?;
+    let g = &state.keybinds.global;
+    let open_lbl = g.open_web_ui.primary_label();
+    let copy_lbl = g.copy_web_passcode.primary_label();
+    let stop_lbl = g.web_ui.primary_label();
+    let clip_note = if !active.passcode.starts_with("none") && copy_to_clipboard(&active.passcode).is_ok()
+    {
+        "copied".to_owned()
+    }
+    else
+    {
+        format!("copy: {copy_lbl}")
+    };
+    state.status_banner = format!(
+        "Web UI: {} (passcode: {} [{}]) | [{open_lbl}] Open  [{copy_lbl}] Copy  [{stop_lbl}] Stop",
+        active.url, active.passcode, clip_note
+    );
+    state.push_run_log(format!(
+        "[web] listening at {} (pairing passcode active; press '{copy_lbl}' to copy)",
+        active.url
+    ));
+    if let Some(mut prev) = web_ui.replace(active)
+    {
+        prev.handle.shutdown();
+    }
+    Ok(())
+}
+
 /// Executes the confirmed Tab 3 domain list or Web UI modal action and closes on success.
 pub(crate) fn submit_prompt_modal(
     state: &mut AppState,
@@ -313,77 +380,8 @@ pub(crate) fn submit_prompt_modal(
                 },
             )
         }
-        PromptKind::AddAutoHostlist =>
-        {
-            if state.config.autohostlist_paths.is_empty()
-            {
-                Err("Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first)".to_owned())
-            }
-            else
-            {
-                let mut res = Ok(());
-                for path in state.config.autohostlist_paths.clone()
-                {
-                    if let Err(err) = mutate_hostlist_file(&path, &raw_input, true)
-                    {
-                        res = Err(err);
-                        break;
-                    }
-                }
-                res.map(|()| {
-                    state.refresh_autohostlist();
-                    let clean = parse_clean_domain(&raw_input).unwrap_or_else(|| raw_input.clone());
-                    if let Some(Tab2Session::Remote(remote)) = tab2_session.as_ref()
-                        && remote.send_command(&Request::ReloadLists).is_ok()
-                    {
-                        state.status_banner = format!("Added {clean} to Auto Hostlist & reloaded daemon");
-                    }
-                    else
-                    {
-                        state.status_banner = format!("Added {clean} to Auto Hostlist");
-                    }
-                })
-            }
-        }
-        PromptKind::LaunchWebUi =>
-        {
-            let bind_str = resolve_web_bind(&raw_input);
-            let parsed: Result<SocketAddr, String> =
-                bind_str.parse().map_err(|err| format!("invalid bind address {bind_str}: {err}"));
-            match parsed.and_then(|addr| launch_web_ui(state, addr))
-            {
-                Ok(active) =>
-                {
-                    let g = &state.keybinds.global;
-                    let open_lbl = g.open_web_ui.primary_label();
-                    let copy_lbl = g.copy_web_passcode.primary_label();
-                    let stop_lbl = g.web_ui.primary_label();
-                    let clip_note = if !active.passcode.starts_with("none")
-                        && copy_to_clipboard(&active.passcode).is_ok()
-                    {
-                        "copied".to_owned()
-                    }
-                    else
-                    {
-                        format!("copy: {copy_lbl}")
-                    };
-                    state.status_banner = format!(
-                        "Web UI: {} (passcode: {} [{}]) | [{open_lbl}] Open  [{copy_lbl}] Copy  [{stop_lbl}] Stop",
-                        active.url, active.passcode, clip_note
-                    );
-                    state.push_run_log(format!(
-                        "[web] listening at {} (pairing passcode active; press '{copy_lbl}' to copy)",
-                        active.url
-                    ));
-                    if let Some(mut prev) = web_ui.replace(active)
-                    {
-                        prev.handle.shutdown();
-                    }
-                    Ok(())
-                }
-                Err(err) => Err(err),
-            }
-        }
+        PromptKind::AddAutoHostlist => submit_add_autohostlist(state, tab2_session, &raw_input),
+        PromptKind::LaunchWebUi => submit_launch_web_ui(state, web_ui, &raw_input),
     };
 
     match outcome

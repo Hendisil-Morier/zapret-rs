@@ -11,7 +11,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
@@ -218,20 +218,11 @@ fn centered_rect(area: Rect, max_w: u16, max_h: u16) -> Rect
     Rect { x, y, width: w, height: h }
 }
 
-/// Renders `modal` as a centered floating overlay on top of the active TUI screen using `t`.
-pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
+/// Returns `(title, summary, border_color, action_hint)` for each auth/confirmation [`ModalPurpose`].
+fn auth_modal_metadata(purpose: ModalPurpose, t: &Theme)
+-> (&'static str, &'static str, Color, &'static str)
 {
-    let is_confirm = matches!(
-        modal.purpose,
-        ModalPurpose::ConfirmStopDaemon
-            | ModalPurpose::ConfirmSpeedTest
-            | ModalPurpose::ConfirmMergeConfig
-            | ModalPurpose::ConfirmApplyDns
-    );
-    let popup = centered_rect(frame.area(), 70, if is_confirm { 11 } else { 13 });
-    frame.render_widget(Clear, popup);
-
-    let (title, summary) = match modal.purpose
+    let (title, summary) = match purpose
     {
         ModalPurpose::GrantCaps if cfg!(windows) => (
             " Administrator Privileges Required ",
@@ -270,8 +261,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
             "Update system DNS servers (and DoH/DoT encryption where supported) on active network adapters?",
         ),
     };
-
-    let border_col = match modal.purpose
+    let border_col = match purpose
     {
         ModalPurpose::ConfirmStopDaemon => t.err,
         ModalPurpose::SudoForScan
@@ -281,6 +271,97 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
         | ModalPurpose::ConfirmApplyDns => t.warn,
         ModalPurpose::GrantCaps => t.accent_bright,
     };
+    let action_hint = match purpose
+    {
+        ModalPurpose::GrantCaps if cfg!(windows) => "[Enter/Esc] Dismiss",
+        ModalPurpose::GrantCaps => "[Enter] Grant & Restart   [Esc] Dismiss",
+        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon =>
+        {
+            "[Enter] Authenticate & Continue   [Esc] Cancel"
+        }
+        ModalPurpose::ConfirmStopDaemon => "[Enter] Stop Remote Daemon   [Esc] Cancel",
+        ModalPurpose::ConfirmSpeedTest => "[Enter] Run Speed Test   [Esc] Cancel",
+        ModalPurpose::ConfirmMergeConfig => "[Enter] Merge Profiles   [k] Keep Existing   [Esc] Replace Only",
+        ModalPurpose::ConfirmApplyDns => "[Enter] Apply DNS   [Esc] Cancel",
+    };
+    (title, summary, border_col, action_hint)
+}
+
+/// Renders the middle body (confirmation note, Windows admin banner, or password box) inside `rows[2]`.
+fn draw_auth_modal_middle(frame: &mut Frame, area: Rect, modal: &AuthModal, is_confirm: bool, t: &Theme)
+{
+    if is_confirm
+    {
+        let note = match modal.purpose
+        {
+            ModalPurpose::ConfirmMergeConfig =>
+            {
+                "Choose Merge to update matching slots, Keep Existing to leave disk untouched, or Replace Only to discard old profiles."
+            }
+            ModalPurpose::ConfirmSpeedTest =>
+            {
+                "Your unprotected baseline connection will be probed briefly before restarting the engine."
+            }
+            ModalPurpose::ConfirmApplyDns =>
+            {
+                "DNS changes affect active network interfaces immediately and can be reverted via the Automatic (DHCP) preset."
+            }
+            _ => "Packet interception will stop until the daemon is started again.",
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(note, Style::default().fg(t.muted))).wrap(Wrap { trim: true }),
+            area,
+        );
+    }
+    else if cfg!(windows) && modal.purpose == ModalPurpose::GrantCaps
+    {
+        let notice = Paragraph::new(Line::from(Span::styled(
+            " Right-click zapret-rs.exe and select \"Run as administrator\", then retry.",
+            Style::default().fg(t.warn_bright),
+        )))
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
+        frame.render_widget(notice, area);
+    }
+    else if modal.needs_password
+    {
+        let masked = "*".repeat(modal.password_len());
+        let input = Paragraph::new(Line::from(vec![
+            Span::styled(masked, Style::default().fg(t.text)),
+            Span::styled("_", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.warn))
+                .title(Span::styled(" sudo password ", Style::default().fg(t.warn_bright))),
+        );
+        frame.render_widget(input, area);
+    }
+    else
+    {
+        let cached = Paragraph::new(Line::from(Span::styled(
+            " sudo credentials cached — press Enter to run immediately",
+            Style::default().fg(t.ok_bright),
+        )))
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.ok)));
+        frame.render_widget(cached, area);
+    }
+}
+
+/// Renders `modal` as a centered floating overlay on top of the active TUI screen using `t`.
+pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
+{
+    let is_confirm = matches!(
+        modal.purpose,
+        ModalPurpose::ConfirmStopDaemon
+            | ModalPurpose::ConfirmSpeedTest
+            | ModalPurpose::ConfirmMergeConfig
+            | ModalPurpose::ConfirmApplyDns
+    );
+    let popup = centered_rect(frame.area(), 70, if is_confirm { 11 } else { 13 });
+    frame.render_widget(Clear, popup);
+
+    let (title, summary, border_col, action_hint) = auth_modal_metadata(modal.purpose, t);
     let outer = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_col).add_modifier(Modifier::BOLD))
@@ -314,62 +395,7 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
         rows[1],
     );
 
-    if is_confirm
-    {
-        let note = match modal.purpose
-        {
-            ModalPurpose::ConfirmMergeConfig =>
-            {
-                "Choose Merge to update matching slots, Keep Existing to leave disk untouched, or Replace Only to discard old profiles."
-            }
-            ModalPurpose::ConfirmSpeedTest =>
-            {
-                "Your unprotected baseline connection will be probed briefly before restarting the engine."
-            }
-            ModalPurpose::ConfirmApplyDns =>
-            {
-                "DNS changes affect active network interfaces immediately and can be reverted via the Automatic (DHCP) preset."
-            }
-            _ => "Packet interception will stop until the daemon is started again.",
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(note, Style::default().fg(t.muted))).wrap(Wrap { trim: true }),
-            rows[2],
-        );
-    }
-    else if cfg!(windows) && modal.purpose == ModalPurpose::GrantCaps
-    {
-        let notice = Paragraph::new(Line::from(Span::styled(
-            " Right-click zapret-rs.exe and select \"Run as administrator\", then retry.",
-            Style::default().fg(t.warn_bright),
-        )))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
-        frame.render_widget(notice, rows[2]);
-    }
-    else if modal.needs_password
-    {
-        let masked = "*".repeat(modal.password_len());
-        let input = Paragraph::new(Line::from(vec![
-            Span::styled(masked, Style::default().fg(t.text)),
-            Span::styled("_", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
-        ]))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(t.warn))
-                .title(Span::styled(" sudo password ", Style::default().fg(t.warn_bright))),
-        );
-        frame.render_widget(input, rows[2]);
-    }
-    else
-    {
-        let cached = Paragraph::new(Line::from(Span::styled(
-            " sudo credentials cached — press Enter to run immediately",
-            Style::default().fg(t.ok_bright),
-        )))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.ok)));
-        frame.render_widget(cached, rows[2]);
-    }
+    draw_auth_modal_middle(frame, rows[2], modal, is_confirm, t);
 
     if let Some(err) = &modal.error
     {
@@ -379,18 +405,5 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
         );
     }
 
-    let action_hint = match modal.purpose
-    {
-        ModalPurpose::GrantCaps if cfg!(windows) => "[Enter/Esc] Dismiss",
-        ModalPurpose::GrantCaps => "[Enter] Grant & Restart   [Esc] Dismiss",
-        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon =>
-        {
-            "[Enter] Authenticate & Continue   [Esc] Cancel"
-        }
-        ModalPurpose::ConfirmStopDaemon => "[Enter] Stop Remote Daemon   [Esc] Cancel",
-        ModalPurpose::ConfirmSpeedTest => "[Enter] Run Speed Test   [Esc] Cancel",
-        ModalPurpose::ConfirmMergeConfig => "[Enter] Merge Profiles   [k] Keep Existing   [Esc] Replace Only",
-        ModalPurpose::ConfirmApplyDns => "[Enter] Apply DNS   [Esc] Cancel",
-    };
     frame.render_widget(Paragraph::new(Line::from(styled_key_hints(action_hint, t))), rows[4]);
 }

@@ -95,6 +95,103 @@ fn try_tcp_tls_reassembly(
     Some(Decision::Drop)
 }
 
+/// Builds an [`AutohostFailTarget`] when `ps.profile_idx` is already bound for TCP failure tracking.
+fn tcp_fail_target<'a>(
+    svc: &'a crate::desync::play::EngineServices<'a>,
+    engine: &'a DesyncEngine,
+    ps: &'a PlayState,
+) -> Option<AutohostFailTarget<'a>>
+{
+    ps.profile_idx.map(|i| AutohostFailTarget {
+        profile_slot: i,
+        profile: svc.profiles[i].as_ref(),
+        runtime: &svc.profile_runtimes[i],
+        server: engine.server,
+        client_label: &ps.client_label,
+        debug_log: engine.hostlist_auto_debug.as_deref(),
+        target_endpoint: (ps.target_ip, ps.target_port),
+        auto_confirm: svc.auto_confirm,
+    })
+}
+
+/// Evaluates outgoing TCP reassembly, L7 probing, TLS/HTTP host extraction, and retrans triggers.
+fn process_tcp_outgoing_payload(
+    engine: &DesyncEngine,
+    svc: &crate::desync::play::EngineServices<'_>,
+    replay: &ReplayContext<'_>,
+    ps: &mut PlayState,
+    pkt: &QueuedPacket<'_>,
+    dis: &DissectedPacket,
+    raw_payload: &[u8],
+) -> Result<Option<Vec<u8>>, Decision>
+{
+    let rdata_buf = if replay.is_replay()
+    {
+        clone_reasm_bytes(ps.ctrack_replay.as_ref())
+    }
+    else if reasm_client_feed(
+        ps.ctrack.as_ref(),
+        IPPROTO_TCP,
+        raw_payload,
+        engine.desync_fwmark,
+        &engine.sender,
+    )
+    {
+        clone_reasm_bytes(ps.ctrack.as_ref())
+    }
+    else
+    {
+        None
+    };
+
+    let fail_tgt = tcp_fail_target(svc, engine, ps);
+    handle_tcp_retrans_fail(ps.ctrack.as_ref(), dis, fail_tgt.as_ref(), pkt.ifin, &engine.sender);
+
+    let rdata = rdata_buf.as_deref().unwrap_or(raw_payload);
+    if ps.ctrack_replay.as_ref().is_none_or(|rc| rc.borrow().reasm_client.is_empty())
+    {
+        let live_tpos = match (replay.tpos, &ps.ctrack_replay)
+        {
+            (Some(tp), _) => Some(*tp),
+            (None, Some(rc)) => Some(rc.borrow().pos),
+            (None, None) => None,
+        };
+        probe_tcp_outgoing(
+            rdata,
+            engine.payload_disable,
+            ps.ctrack_replay.as_ref(),
+            live_tpos.as_ref(),
+            &mut ps.l7proto,
+            &mut ps.l7payload,
+        );
+    }
+
+    let is_tls_reasm = ps.l7payload == L7Payload::TlsClientHello
+        || ps.ctrack_replay.as_ref().is_some_and(|rc| {
+            let e = rc.borrow();
+            e.reasm_client_payload == L7Payload::TlsClientHello && !e.reasm_client.is_empty()
+        });
+    if is_tls_reasm
+    {
+        ps.l7payload = L7Payload::TlsClientHello;
+        if let Some(early_drop) = try_tcp_tls_reassembly(engine, ps, pkt, raw_payload, rdata)
+        {
+            return Err(early_drop);
+        }
+        let effective = if ps.l7payload == L7Payload::TlsClientHello { rdata } else { raw_payload };
+        ps.host = tls_hello_extract_host(effective, true);
+    }
+    else
+    {
+        reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
+        if ps.l7payload == L7Payload::HttpReq
+        {
+            ps.host = http_extract_host(rdata);
+        }
+    }
+    Ok(rdata_buf)
+}
+
 /// Processes a single TCP segment (live or replayed) through L7 probes, reassembly, and actions.
 pub(crate) fn process_tcp_packet(
     engine: &DesyncEngine,
@@ -131,91 +228,16 @@ pub(crate) fn process_tcp_packet(
                 &mut ps.l7payload,
             );
         }
-        let fail_tgt = ps.profile_idx.map(|i| AutohostFailTarget {
-            profile_slot: i,
-            profile: svc.profiles[i].as_ref(),
-            runtime: &svc.profile_runtimes[i],
-            server: engine.server,
-            client_label: &ps.client_label,
-            debug_log: engine.hostlist_auto_debug.as_deref(),
-            target_endpoint: (ps.target_ip, ps.target_port),
-            auto_confirm: svc.auto_confirm,
-        });
+        let fail_tgt = tcp_fail_target(&svc, engine, &ps);
         handle_tcp_incoming_fail(ps.ctrack.as_ref(), dis, ps.l7payload, fail_tgt.as_ref());
     }
     else if !is_syn && !raw_payload.is_empty()
     {
-        if replay.is_replay()
+        rdata_buf = match process_tcp_outgoing_payload(engine, &svc, replay, &mut ps, pkt, dis, raw_payload)
         {
-            rdata_buf = clone_reasm_bytes(ps.ctrack_replay.as_ref());
-        }
-        else if reasm_client_feed(
-            ps.ctrack.as_ref(),
-            IPPROTO_TCP,
-            raw_payload,
-            engine.desync_fwmark,
-            &engine.sender,
-        )
-        {
-            rdata_buf = clone_reasm_bytes(ps.ctrack.as_ref());
-        }
-
-        let fail_tgt = ps.profile_idx.map(|i| AutohostFailTarget {
-            profile_slot: i,
-            profile: svc.profiles[i].as_ref(),
-            runtime: &svc.profile_runtimes[i],
-            server: engine.server,
-            client_label: &ps.client_label,
-            debug_log: engine.hostlist_auto_debug.as_deref(),
-            target_endpoint: (ps.target_ip, ps.target_port),
-            auto_confirm: svc.auto_confirm,
-        });
-        handle_tcp_retrans_fail(ps.ctrack.as_ref(), dis, fail_tgt.as_ref(), pkt.ifin, &engine.sender);
-
-        let rdata = rdata_buf.as_deref().unwrap_or(raw_payload);
-        let reasm_empty = ps.ctrack_replay.as_ref().is_none_or(|rc| rc.borrow().reasm_client.is_empty());
-        if reasm_empty
-        {
-            let live_tpos = match (replay.tpos, &ps.ctrack_replay)
-            {
-                (Some(tp), _) => Some(*tp),
-                (None, Some(rc)) => Some(rc.borrow().pos),
-                (None, None) => None,
-            };
-            probe_tcp_outgoing(
-                rdata,
-                engine.payload_disable,
-                ps.ctrack_replay.as_ref(),
-                live_tpos.as_ref(),
-                &mut ps.l7proto,
-                &mut ps.l7payload,
-            );
-        }
-
-        let is_tls_reasm = ps.l7payload == L7Payload::TlsClientHello
-            || ps.ctrack_replay.as_ref().is_some_and(|rc| {
-                let e = rc.borrow();
-                e.reasm_client_payload == L7Payload::TlsClientHello && !e.reasm_client.is_empty()
-            });
-
-        if is_tls_reasm
-        {
-            ps.l7payload = L7Payload::TlsClientHello;
-            if let Some(early_drop) = try_tcp_tls_reassembly(engine, &mut ps, pkt, raw_payload, rdata)
-            {
-                return early_drop;
-            }
-            let effective = if ps.l7payload == L7Payload::TlsClientHello { rdata } else { raw_payload };
-            ps.host = tls_hello_extract_host(effective, true);
-        }
-        else
-        {
-            reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
-            if ps.l7payload == L7Payload::HttpReq
-            {
-                ps.host = http_extract_host(rdata);
-            }
-        }
+            Ok(buf) => buf,
+            Err(early) => return early,
+        };
     }
 
     if !dp_rediscovery(&svc, &mut ps, dis, replay.tpos, now.sec)

@@ -66,11 +66,9 @@ where
     lua.globals().set(name, f)
 }
 
-/// Registers all packet dissect, reconstruct, checksum, and IP formatting globals into `lua`.
-pub fn register_packet_functions(lua: &Lua) -> mlua::Result<()>
+/// Registers packet and individual header dissection Lua globals (`dissect*`).
+fn register_dissect_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
 {
-    let globals = lua.globals();
-
     globals.set(
         "dissect",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -148,6 +146,12 @@ pub fn register_packet_functions(lua: &Lua) -> mlua::Result<()>
         })?,
     )?;
 
+    Ok(())
+}
+
+/// Registers packet and individual header reconstruction Lua globals (`reconstruct_*`).
+fn register_reconstruct_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
+{
     globals.set(
         "reconstruct_dissect",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -242,6 +246,12 @@ pub fn register_packet_functions(lua: &Lua) -> mlua::Result<()>
         })?,
     )?;
 
+    Ok(())
+}
+
+/// Registers checksum fixup (`csum_*`) and IP formatting/parsing (`ntop`, `pton`) Lua globals.
+fn register_checksum_and_ip_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
+{
     globals.set(
         "csum_ip4_fix",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -307,4 +317,13 @@ pub fn register_packet_functions(lua: &Lua) -> mlua::Result<()>
     )?;
 
     Ok(())
+}
+
+/// Registers all packet dissect, reconstruct, checksum, and IP formatting globals into `lua`.
+pub fn register_packet_functions(lua: &Lua) -> mlua::Result<()>
+{
+    let globals = lua.globals();
+    register_dissect_functions(lua, &globals)?;
+    register_reconstruct_functions(lua, &globals)?;
+    register_checksum_and_ip_functions(lua, &globals)
 }

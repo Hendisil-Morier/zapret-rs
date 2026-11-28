@@ -1,5 +1,22 @@
 //! `zapret-rs`: unified multicall binary wrapping TUI, `nfqws2` daemon, `strat_finder`, `ip2net`, and `mdig`.
 
+#![cfg_attr(
+    not(test),
+    warn(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::undocumented_unsafe_blocks,
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        clippy::manual_let_else,
+        clippy::cloned_instead_of_copied,
+        clippy::large_types_passed_by_value,
+    )
+)]
+
 /// Path options accepted on the CLI for pre-loading configs and Lua scripts.
 use std::path::PathBuf;
 /// Process exit status code returned on clean exit or terminal failure.

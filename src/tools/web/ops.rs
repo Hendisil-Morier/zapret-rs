@@ -307,6 +307,107 @@ fn run_speed_probe(payload: &SpeedRequestPayload) -> Vec<SpeedRow>
         .collect()
 }
 
+/// Handles `POST /api/config` JSON payload decoding, validation, persistence, and response writing.
+fn handle_post_config(
+    stream: &mut TcpStream,
+    req: &HttpRequest,
+    config_path: &std::path::Path,
+    cfg: &WebConfig,
+    ipc: &Arc<WebIpcBridge>,
+)
+{
+    let Ok(payload) = serde_json::from_slice::<SaveConfigPayload>(&req.body)
+    else
+    {
+        let _ = write_error(stream, 400, "Bad Request", "expected JSON object with toml");
+        return;
+    };
+    match save_config_toml(config_path, &payload.toml, payload.apply, ipc, cfg)
+    {
+        Ok(val) =>
+        {
+            let _ = write_json(stream, 200, "OK", &[], &val);
+        }
+        Err((code, msg)) =>
+        {
+            let reason = match code
+            {
+                400 => "Bad Request",
+                502 => "Bad Gateway",
+                _ => "Internal Server Error",
+            };
+            let _ = write_error(stream, code, reason, &msg);
+        }
+    }
+}
+
+/// Handles `POST /api/domains` JSON payload decoding and hostlist mutation.
+fn handle_post_domains(
+    stream: &mut TcpStream,
+    req: &HttpRequest,
+    config_path: &std::path::Path,
+    ipc: &Arc<WebIpcBridge>,
+)
+{
+    let Ok(payload) = serde_json::from_slice::<UpdateDomainPayload>(&req.body)
+    else
+    {
+        let _ = write_error(stream, 400, "Bad Request", "expected JSON object with domain and action");
+        return;
+    };
+    match mutate_domain_list(config_path, &payload, ipc)
+    {
+        Ok(val) =>
+        {
+            let _ = write_json(stream, 200, "OK", &[], &val);
+        }
+        Err((code, msg)) =>
+        {
+            let _ = write_error(
+                stream,
+                code,
+                if code == 400 { "Bad Request" } else { "Internal Server Error" },
+                &msg,
+            );
+        }
+    }
+}
+
+/// Handles `POST /api/scan/start` JSON payload decoding and background scan job launch.
+fn handle_post_scan_start(
+    stream: &mut TcpStream,
+    req: &HttpRequest,
+    cfg: &WebConfig,
+    ipc: &Arc<WebIpcBridge>,
+    scan_job: &WebScanJob,
+)
+{
+    let Ok(payload) = serde_json::from_slice::<ScanStartPayload>(&req.body)
+    else
+    {
+        let _ = write_error(stream, 400, "Bad Request", "expected JSON object with domains");
+        return;
+    };
+    match scan_job.start(payload, cfg, ipc)
+    {
+        Ok(snap) =>
+        {
+            let _ = write_json(stream, 200, "OK", &[], &snap);
+        }
+        Err((code, msg)) =>
+        {
+            let reason = match code
+            {
+                400 => "Bad Request",
+                403 => "Forbidden",
+                409 => "Conflict",
+                _ => "Internal Server Error",
+            };
+            let _ = write_error(stream, code, reason, &msg);
+        }
+    }
+}
+
 /// Dispatches `/api/config`, `/api/domains`, `/api/speed`, and `/api/scan/*`; returns `false` if unmatched.
 pub fn handle_ops_route(
     stream: &mut TcpStream,
@@ -326,35 +427,7 @@ pub fn handle_ops_route(
         }
         (HttpMethod::Post, "/api/config") =>
         {
-            let Ok(payload) = serde_json::from_slice::<SaveConfigPayload>(&req.body)
-            else
-            {
-                let _ = write_error(stream, 400, "Bad Request", "expected JSON object with toml");
-                return true;
-            };
-            match save_config_toml(&config_path, &payload.toml, payload.apply, ipc, cfg)
-            {
-                Ok(val) =>
-                {
-                    let _ = write_json(stream, 200, "OK", &[], &val);
-                }
-                Err((code, msg)) =>
-                {
-                    let reason = if code == 400
-                    {
-                        "Bad Request"
-                    }
-                    else if code == 502
-                    {
-                        "Bad Gateway"
-                    }
-                    else
-                    {
-                        "Internal Server Error"
-                    };
-                    let _ = write_error(stream, code, reason, &msg);
-                }
-            }
+            handle_post_config(stream, req, &config_path, cfg, ipc);
             true
         }
         (HttpMethod::Get, "/api/domains") =>
@@ -364,29 +437,7 @@ pub fn handle_ops_route(
         }
         (HttpMethod::Post, "/api/domains") =>
         {
-            let Ok(payload) = serde_json::from_slice::<UpdateDomainPayload>(&req.body)
-            else
-            {
-                let _ =
-                    write_error(stream, 400, "Bad Request", "expected JSON object with domain and action");
-                return true;
-            };
-            match mutate_domain_list(&config_path, &payload, ipc)
-            {
-                Ok(val) =>
-                {
-                    let _ = write_json(stream, 200, "OK", &[], &val);
-                }
-                Err((code, msg)) =>
-                {
-                    let _ = write_error(
-                        stream,
-                        code,
-                        if code == 400 { "Bad Request" } else { "Internal Server Error" },
-                        &msg,
-                    );
-                }
-            }
+            handle_post_domains(stream, req, &config_path, ipc);
             true
         }
         (HttpMethod::Post, "/api/speed") =>
@@ -404,30 +455,7 @@ pub fn handle_ops_route(
         }
         (HttpMethod::Post, "/api/scan/start") =>
         {
-            let Ok(payload) = serde_json::from_slice::<ScanStartPayload>(&req.body)
-            else
-            {
-                let _ = write_error(stream, 400, "Bad Request", "expected JSON object with domains");
-                return true;
-            };
-            match scan_job.start(payload, cfg, ipc)
-            {
-                Ok(snap) =>
-                {
-                    let _ = write_json(stream, 200, "OK", &[], &snap);
-                }
-                Err((code, msg)) =>
-                {
-                    let reason = match code
-                    {
-                        400 => "Bad Request",
-                        403 => "Forbidden",
-                        409 => "Conflict",
-                        _ => "Internal Server Error",
-                    };
-                    let _ = write_error(stream, code, reason, &msg);
-                }
-            }
+            handle_post_scan_start(stream, req, cfg, ipc, scan_job);
             true
         }
         (HttpMethod::Post, "/api/scan/stop") =>

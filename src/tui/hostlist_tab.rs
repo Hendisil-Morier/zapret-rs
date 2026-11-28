@@ -143,67 +143,38 @@ fn filter_domain_slice<'a>(entries: &'a [String], query: &str) -> Vec<&'a str>
 
 impl AppState
 {
-    /// Handles `/` search input, cursor navigation, add prompts, direct delete, and exclude transfers on Tab 6.
-    pub(crate) fn handle_hostlist_key(&mut self, key: KeyEvent) -> AppAction
+    /// Applies key presses while the incremental `/` search input is focused on Tab 6.
+    fn handle_hostlist_filter_key(&mut self, key: KeyEvent)
     {
-        if self.hostlist.filter_editing
+        match key.code
         {
-            match key.code
+            KeyCode::Esc =>
             {
-                KeyCode::Esc =>
-                {
-                    self.hostlist.filter_editing = false;
-                    self.hostlist.filter.clear();
-                    self.hostlist.clamp_selection(&self.config);
-                }
-                KeyCode::Enter => self.hostlist.filter_editing = false,
-                KeyCode::Backspace =>
-                {
-                    self.hostlist.filter.pop();
-                    self.hostlist.clamp_selection(&self.config);
-                }
-                KeyCode::Char(c) if !c.is_control() =>
-                {
-                    self.hostlist.filter.push(c);
-                    self.hostlist.clamp_selection(&self.config);
-                }
-                _ =>
-                {}
+                self.hostlist.filter_editing = false;
+                self.hostlist.filter.clear();
+                self.hostlist.clamp_selection(&self.config);
             }
-            return AppAction::None;
+            KeyCode::Enter => self.hostlist.filter_editing = false,
+            KeyCode::Backspace =>
+            {
+                self.hostlist.filter.pop();
+                self.hostlist.clamp_selection(&self.config);
+            }
+            KeyCode::Char(c) if !c.is_control() =>
+            {
+                self.hostlist.filter.push(c);
+                self.hostlist.clamp_selection(&self.config);
+            }
+            _ =>
+            {}
         }
+    }
 
-        let nav = &self.keybinds.nav;
+    /// Dispatches domain addition, removal, move, and reload shortcuts on Tab 6.
+    fn handle_hostlist_action_key(&mut self, key: KeyEvent) -> AppAction
+    {
         let hl = &self.keybinds.hostlist;
-        if nav.left.contains(key) || nav.right.contains(key)
-        {
-            self.hostlist.toggle_focus();
-        }
-        else if nav.up.contains(key)
-        {
-            self.hostlist.move_selection(&self.config, -1);
-        }
-        else if nav.down.contains(key)
-        {
-            self.hostlist.move_selection(&self.config, 1);
-        }
-        else if nav.page_up.contains(key)
-        {
-            self.hostlist.move_selection(&self.config, -10);
-        }
-        else if nav.page_down.contains(key)
-        {
-            self.hostlist.move_selection(&self.config, 10);
-        }
-        else if nav.home.contains(key)
-        {
-            self.hostlist.move_selection(&self.config, isize::MIN / 2);
-        }
-        else if nav.end.contains(key)
-        {
-            self.hostlist.move_selection(&self.config, isize::MAX / 2);
-        }
-        else if hl.filter.contains(key)
+        if hl.filter.contains(key)
         {
             self.hostlist.filter_editing = true;
         }
@@ -263,6 +234,51 @@ impl AppState
         else if hl.reload.contains(key)
         {
             return AppAction::ReloadLists;
+        }
+        AppAction::None
+    }
+
+    /// Handles `/` search input, cursor navigation, add prompts, direct delete, and exclude transfers on Tab 6.
+    pub(crate) fn handle_hostlist_key(&mut self, key: KeyEvent) -> AppAction
+    {
+        if self.hostlist.filter_editing
+        {
+            self.handle_hostlist_filter_key(key);
+            return AppAction::None;
+        }
+
+        let nav = &self.keybinds.nav;
+        if nav.left.contains(key) || nav.right.contains(key)
+        {
+            self.hostlist.toggle_focus();
+        }
+        else if nav.up.contains(key)
+        {
+            self.hostlist.move_selection(&self.config, -1);
+        }
+        else if nav.down.contains(key)
+        {
+            self.hostlist.move_selection(&self.config, 1);
+        }
+        else if nav.page_up.contains(key)
+        {
+            self.hostlist.move_selection(&self.config, -10);
+        }
+        else if nav.page_down.contains(key)
+        {
+            self.hostlist.move_selection(&self.config, 10);
+        }
+        else if nav.home.contains(key)
+        {
+            self.hostlist.move_selection(&self.config, isize::MIN / 2);
+        }
+        else if nav.end.contains(key)
+        {
+            self.hostlist.move_selection(&self.config, isize::MAX / 2);
+        }
+        else
+        {
+            return self.handle_hostlist_action_key(key);
         }
         AppAction::None
     }

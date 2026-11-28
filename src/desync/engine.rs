@@ -381,53 +381,50 @@ impl DesyncEngine
     {
         let lua = self.runtime.lua();
         let ctx_state = self.runtime.desync_ctx_state();
-        let mut active_ctrack = ps.ctrack_replay.clone();
-        let mut active_incoming = ps.incoming;
-        let mut active_b_reverse = ps.b_reverse;
-
-        {
-            let mut state = ctx_state.borrow_mut();
-            state.profile = Some(Rc::clone(profile));
-            state.profile_n = profile.index;
-            state.incoming = active_incoming;
-            state.ctrack = active_ctrack.clone();
-            state.cancel = false;
-            state.valid = false;
-            state.raw_packet.clear();
-            state.raw_packet.extend_from_slice(pkt.payload);
-        }
+        let mut state = ctx_state.borrow_mut();
+        state.profile = Some(Rc::clone(profile));
+        state.profile_n = profile.index;
+        state.incoming = ps.incoming;
+        state.ctrack = ps.ctrack_replay.clone();
+        state.cancel = false;
+        state.valid = false;
+        state.raw_packet.clear();
+        state.raw_packet.extend_from_slice(pkt.payload);
+        drop(state);
         let _session_guard = SessionCtxGuard(ctx_state);
 
-        let desync_tbl = {
-            let track_ref = active_ctrack.as_ref().map(|rc| rc.borrow());
-            let table_input = DesyncTableInput {
-                dis,
-                profile,
-                incoming: active_incoming,
-                ifin: pkt.ifin,
-                ifout: pkt.ifout,
-                fwmark: pkt.mark,
-                target_ip4: ps.target_ip4,
-                target_ip6: ps.target_ip6,
-                target_port: ps.target_port,
-                l7payload: ps.l7payload,
-                l7proto: ps.l7proto,
-                track: track_ref.as_deref(),
-                tpos: replay.tpos,
-                b_reverse: active_b_reverse,
-                replay_piece: replay.replay_piece,
-                replay_piece_count: replay.replay_piece_count,
-                reasm_offset: replay.reasm_offset,
-                reasm_data,
-                decrypt_data,
-            };
-            build_desync_table(lua, &table_input).map_err(|e| format!("failed to build desync table: {e}"))?
+        let track_ref = ps.ctrack_replay.as_ref().map(|rc| rc.borrow());
+        let table_input = DesyncTableInput {
+            dis,
+            profile,
+            incoming: ps.incoming,
+            ifin: pkt.ifin,
+            ifout: pkt.ifout,
+            fwmark: pkt.mark,
+            target_ip4: ps.target_ip4,
+            target_ip6: ps.target_ip6,
+            target_port: ps.target_port,
+            l7payload: ps.l7payload,
+            l7proto: ps.l7proto,
+            track: track_ref.as_deref(),
+            tpos: replay.tpos,
+            b_reverse: ps.b_reverse,
+            replay_piece: replay.replay_piece,
+            replay_piece_count: replay.replay_piece_count,
+            reasm_offset: replay.reasm_offset,
+            reasm_data,
+            decrypt_data,
         };
+        let desync_tbl = build_desync_table(lua, &table_input)
+            .map_err(|e| format!("failed to build desync table: {e}"))?;
+        drop(track_ref);
         let ctx_ud = self
             .runtime
             .desync_ctx_userdata()
             .map_err(|e| format!("failed to fetch desync ctx userdata: {e}"))?;
 
+        let mut active_ctrack = ps.ctrack_replay.clone();
+        let mut active_incoming = ps.incoming;
         let mut verdict = VERDICT_PASS;
         for (idx, action) in profile.actions.iter().enumerate()
         {
@@ -447,14 +444,12 @@ impl DesyncEngine
             }
 
             let func = self.runtime.resolve_cached_action(profile_slot, idx, &action.func)?;
-
             let Some(arg_tbl) = build_action_args_table(lua, &action.args, Some(&desync_tbl), true)
                 .map_err(|e| format!("failed to build args for '{}': {e}", action.func))?
             else
             {
                 return Err(format!("missing blob referenced by '{}'", action.func));
             };
-
             desync_tbl
                 .raw_set("arg", arg_tbl)
                 .and_then(|()| desync_tbl.raw_set("func", action.func.as_str()))
@@ -476,7 +471,6 @@ impl DesyncEngine
             {
                 break;
             }
-
             if active_ctrack.is_none()
                 && let Some((rc, ctx_inc)) = {
                     let s = ctx_state.borrow();
@@ -485,8 +479,7 @@ impl DesyncEngine
             {
                 active_ctrack = Some(rc);
                 active_incoming = ctx_inc;
-                active_b_reverse = active_incoming ^ self.server;
-                pos_opt = extract_pos_for_side(active_ctrack.as_ref(), active_b_reverse);
+                pos_opt = extract_pos_for_side(active_ctrack.as_ref(), active_incoming ^ self.server);
             }
         }
 

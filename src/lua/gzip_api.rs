@@ -96,11 +96,9 @@ fn clamp_capacity_hint(lua: &Lua, args: &Variadic<Value>, idx: usize, default: u
     Ok(default.min(MAX_CAPACITY_HINT))
 }
 
-/// Registers `gunzip_init`, `gunzip_end`, `gunzip_inflate`, `gzip_init`, `gzip_end`, and `gzip_deflate`.
-pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()>
+/// Registers `gunzip_init`, `gunzip_end`, and `gunzip_inflate` in Lua `_G`.
+fn register_gunzip_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
 {
-    let globals = lua.globals();
-
     globals.set(
         "gunzip_init",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -150,6 +148,12 @@ pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()>
         })?,
     )?;
 
+    Ok(())
+}
+
+/// Registers `gzip_init`, `gzip_end`, and `gzip_deflate` in Lua `_G`.
+fn register_gzip_deflate_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
+{
     globals.set(
         "gzip_init",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -211,4 +215,12 @@ pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()>
     )?;
 
     Ok(())
+}
+
+/// Registers `gunzip_init`, `gunzip_end`, `gunzip_inflate`, `gzip_init`, `gzip_end`, and `gzip_deflate`.
+pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()>
+{
+    let globals = lua.globals();
+    register_gunzip_functions(lua, &globals)?;
+    register_gzip_deflate_functions(lua, &globals)
 }

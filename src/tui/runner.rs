@@ -94,8 +94,33 @@ pub struct TuiOptions
     pub theme: Option<String>,
 }
 
-/// Executes the interactive `ratatui` TUI event loop until the user quits cleanly.
-pub fn run_tui(opts: TuiOptions) -> Result<(), String>
+/// Mutable session handles owned by the live TUI event loop across background jobs and modals.
+struct TuiSessionHandles
+{
+    /// Terminal alternate-screen and raw-mode RAII guard.
+    session: TerminalSession,
+    /// Running Strategy Finder worker handle, if a scan is active.
+    active_scan: Option<ActiveScan>,
+    /// Deferred scan request waiting for an existing local daemon to exit.
+    pending_scan: Option<PendingScanStart>,
+    /// Attached local or remote `nfqws2` daemon session on Tab 2.
+    tab2_session: Option<Tab2Session>,
+    /// In-flight stop/restart daemon cycle state machine.
+    cycle: Option<DaemonCycle>,
+    /// Background baseline speed check worker handle.
+    speed_job: Option<SpeedJob>,
+    /// Running embedded web control panel server handle.
+    web_ui: Option<ActiveWebUi>,
+    /// Frame divider controlling periodic daemon control-socket probes.
+    probe_tick: u8,
+    /// Frame divider controlling periodic autohostlist refreshes.
+    autolist_tick: u8,
+    /// Whether exiting the loop should `exec` cleanly after `setcap` succeeded.
+    reexec_after_exit: bool,
+}
+
+/// Resolves startup configuration, re-exec snapshot state, and initial capability modals.
+fn initialize_tui_state(opts: TuiOptions) -> (AppState, bool, Option<PostCapsAction>)
 {
     let _ = drop_elevated_root_if_needed();
     let (resolved, warn) = resolve_startup_app_config(StartupConfigRequest {
@@ -122,241 +147,203 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String>
     {
         state.open_caps_modal();
     }
+    (state, from_reexec, pending_action)
+}
 
-    let mut session = TerminalSession::enter()?;
-    let mut active_scan: Option<ActiveScan> = None;
-    let mut pending_scan: Option<PendingScanStart> = None;
-    let mut tab2_session: Option<Tab2Session> = None;
-    if let Some(sock) = state.run.detected_socket.clone()
-        && attach_to_socket(&mut state, &mut tab2_session, sock)
-        && !from_reexec
+/// Polls active background workers and periodic tab refreshes once per UI tick.
+fn tick_tui_workers(state: &mut AppState, rt: &mut TuiSessionHandles)
+{
+    poll_active_scan(state, &mut rt.active_scan, &mut rt.session);
+    poll_tab2_session(state, &mut rt.tab2_session, &mut rt.probe_tick, rt.active_scan.is_some());
+    poll_pending_scan(&mut rt.pending_scan, state, &mut rt.active_scan, &rt.tab2_session);
+    if state.tab == crate::tui::ActiveTab::Hostlist
     {
-        state.tab = ActiveTab::Run;
-    }
-    if state.status.has_net_caps
-    {
-        match pending_action
+        rt.autolist_tick = rt.autolist_tick.wrapping_add(1);
+        if rt.autolist_tick.is_multiple_of(16)
         {
-            Some(PostCapsAction::StartScan) =>
-            {
-                pending_scan =
-                    begin_scan_stopping_daemon(&mut state, &mut active_scan, &mut tab2_session, &mut session);
-            }
-            Some(PostCapsAction::StartDaemon) if tab2_session.is_none() =>
-            {
-                try_start_or_attach(&mut state, &mut tab2_session);
-            }
-            _ =>
-            {}
+            state.refresh_autohostlist();
         }
     }
-    let mut cycle: Option<DaemonCycle> = None;
-    let mut speed_job: Option<SpeedJob> = None;
-    let mut web_ui: Option<ActiveWebUi> = None;
-    let mut probe_tick = 0u8;
-    let mut autolist_tick = 0u8;
-    let mut reexec_after_exit = false;
+    poll_daemon_cycle(&mut rt.cycle, state, &mut rt.tab2_session);
+    poll_speed_test(&mut rt.speed_job, state, &mut rt.tab2_session);
+    state.poll_finder_hover(Instant::now());
+}
 
-    loop
+/// Dispatches Tab 2 daemon lifecycle and Tab 4 speed-check [`AppAction`] commands.
+fn handle_daemon_or_speed_action(action: AppAction, state: &mut AppState, rt: &mut TuiSessionHandles)
+{
+    match action
     {
-        poll_active_scan(&mut state, &mut active_scan, &mut session);
-        poll_tab2_session(&mut state, &mut tab2_session, &mut probe_tick, active_scan.is_some());
-        poll_pending_scan(&mut pending_scan, &mut state, &mut active_scan, &tab2_session);
-        if state.tab == crate::tui::ActiveTab::Hostlist
+        AppAction::StartDaemon =>
         {
-            autolist_tick = autolist_tick.wrapping_add(1);
-            if autolist_tick.is_multiple_of(16)
+            if rt.active_scan.is_some() || rt.pending_scan.is_some()
             {
-                state.refresh_autohostlist();
+                state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
+            }
+            else if rt.tab2_session.is_none()
+            {
+                try_start_or_attach(state, &mut rt.tab2_session);
             }
         }
-        poll_daemon_cycle(&mut cycle, &mut state, &mut tab2_session);
-        poll_speed_test(&mut speed_job, &mut state, &mut tab2_session);
-        state.poll_finder_hover(Instant::now());
-
-        session
-            .terminal
-            .draw(|f| draw_app(f, &state))
-            .map_err(|err| format!("terminal draw failed: {err}"))?;
-
-        if event::poll(UI_TICK).map_err(|err| format!("event poll failed: {err}"))?
+        AppAction::StopDaemon => stop_local_daemon(state, &mut rt.tab2_session, &mut rt.session),
+        AppAction::DetachDaemon =>
         {
-            match event::read().map_err(|err| format!("event read failed: {err}"))?
+            if let Some(Tab2Session::Remote(mut remote)) = rt.tab2_session.take()
             {
-                Event::Mouse(mouse) =>
-                {
-                    if let Ok(sz) = session.terminal.size()
-                    {
-                        match handle_mouse_event(&mut state, mouse, Rect::new(0, 0, sz.width, sz.height))
-                        {
-                            AppAction::OpenWebUi => open_web_ui(&mut state),
-                            AppAction::CopyWebPasscode => copy_web_passcode(&mut state),
-                            AppAction::StopWebUi => stop_web_ui(&mut state, &mut web_ui),
-                            _ =>
-                            {}
-                        }
-                    }
-                }
-                Event::Key(key) if key.kind == KeyEventKind::Press => match state.handle_key(key)
-                {
-                    AppAction::None =>
-                    {}
-                    AppAction::Quit => break,
-                    AppAction::StartScan =>
-                    {
-                        if cycle.is_some() || speed_job.is_some()
-                        {
-                            state.status_banner =
-                                "Wait for the active daemon cycle or speed test to finish.".to_owned();
-                        }
-                        else if active_scan.is_none() && pending_scan.is_none()
-                        {
-                            pending_scan = begin_scan_stopping_daemon(
-                                &mut state,
-                                &mut active_scan,
-                                &mut tab2_session,
-                                &mut session,
-                            );
-                        }
-                    }
-                    AppAction::StopScan =>
-                    {
-                        if pending_scan.take().is_some()
-                        {
-                            state.finder.status = crate::tui::FinderStatus::Done;
-                            state.status_banner = "Cancelled strategy scan while stopping nfqws2.".to_owned();
-                        }
-                        else
-                        {
-                            cancel_active_scan(&mut state, &mut active_scan, &mut session);
-                        }
-                    }
-                    AppAction::SaveConfig => save_toml_to_disk(&mut state),
-                    AppAction::ReloadConfig => reload_toml_from_disk(&mut state),
-                    AppAction::EditConfig => edit_config_in_editor(&mut state, &mut session),
-                    AppAction::PushConfigToDaemon => push_config_to_daemon(&mut state, &tab2_session),
-                    AppAction::StartDaemon =>
-                    {
-                        if active_scan.is_some() || pending_scan.is_some()
-                        {
-                            state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
-                        }
-                        else if tab2_session.is_none()
-                        {
-                            try_start_or_attach(&mut state, &mut tab2_session);
-                        }
-                    }
-                    AppAction::StopDaemon => stop_local_daemon(&mut state, &mut tab2_session, &mut session),
-                    AppAction::DetachDaemon =>
-                    {
-                        if let Some(Tab2Session::Remote(mut remote)) = tab2_session.take()
-                        {
-                            remote.detach();
-                            state.run.auto_reattach = false;
-                            state.set_detached(
-                                "[detach] detached from remote nfqws2 (daemon still running).".to_owned(),
-                                "Detached from remote daemon.".to_owned(),
-                            );
-                        }
-                    }
-                    AppAction::ReloadRemoteLists =>
-                    {
-                        if let Some(Tab2Session::Remote(remote)) = tab2_session.as_ref()
-                            && let Err(err) = remote.send_command(&Request::ReloadLists)
-                        {
-                            state.push_run_log(format!("[error] {err}"));
-                            state.status_banner = err;
-                        }
-                    }
-                    AppAction::StopRemoteDaemon => execute_remote_stop(&mut state, &mut tab2_session),
-                    AppAction::RestartDaemon =>
-                    {
-                        if active_scan.is_some() || pending_scan.is_some()
-                        {
-                            state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
-                        }
-                        else if cycle.is_some() || speed_job.is_some()
-                        {
-                            state.status_banner = "A daemon cycle is already in progress.".to_owned();
-                        }
-                        else
-                        {
-                            cycle = begin_restart(&mut state, &mut tab2_session, &mut session);
-                        }
-                    }
-                    AppAction::RunSpeedTest =>
-                    {
-                        if active_scan.is_some() || pending_scan.is_some()
-                        {
-                            state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
-                        }
-                        else if cycle.is_some() || speed_job.is_some()
-                        {
-                            state.status_banner = "A speed check or restart is already running.".to_owned();
-                        }
-                        else
-                        {
-                            speed_job = begin_speed_test(&mut state, &mut tab2_session, &mut session);
-                        }
-                    }
-                    AppAction::CancelSpeedTest => cancel_speed_test(&mut speed_job, &mut state),
-                    AppAction::DeleteSelectedDomain =>
-                    {
-                        delete_selected_hostlist_domain(&mut state, &tab2_session)
-                    }
-                    AppAction::MoveHostlistEntry => move_selected_hostlist_entry(&mut state, &tab2_session),
-                    AppAction::ReloadLists => reload_hostlist_entries(&mut state, &tab2_session),
-                    AppAction::SaveAppConfig => save_app_config_from_settings(&mut state),
-                    AppAction::ReloadAppConfig => reload_app_config_from_disk(&mut state),
-                    AppAction::EditAppConfig => edit_app_config_in_editor(&mut state, &mut session),
-                    AppAction::SubmitModal =>
-                    {
-                        if submit_auth_modal(&mut state, &mut active_scan, &mut tab2_session)
-                        {
-                            reexec_after_exit = true;
-                            break;
-                        }
-                    }
-                    AppAction::SubmitPrompt => submit_prompt_modal(&mut state, &tab2_session, &mut web_ui),
-                    AppAction::StopWebUi => stop_web_ui(&mut state, &mut web_ui),
-                    AppAction::CopyWebPasscode => copy_web_passcode(&mut state),
-                    AppAction::OpenWebUi => open_web_ui(&mut state),
-                },
-                Event::Key(_)
-                | Event::Resize(_, _)
-                | Event::FocusGained
-                | Event::FocusLost
-                | Event::Paste(_) =>
-                {}
+                remote.detach();
+                state.run.auto_reattach = false;
+                state.set_detached(
+                    "[detach] detached from remote nfqws2 (daemon still running).".to_owned(),
+                    "Detached from remote daemon.".to_owned(),
+                );
             }
         }
+        AppAction::ReloadRemoteLists =>
+        {
+            if let Some(Tab2Session::Remote(remote)) = rt.tab2_session.as_ref()
+                && let Err(err) = remote.send_command(&Request::ReloadLists)
+            {
+                state.push_run_log(format!("[error] {err}"));
+                state.status_banner = err;
+            }
+        }
+        AppAction::StopRemoteDaemon => execute_remote_stop(state, &mut rt.tab2_session),
+        AppAction::RestartDaemon =>
+        {
+            if rt.active_scan.is_some() || rt.pending_scan.is_some()
+            {
+                state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
+            }
+            else if rt.cycle.is_some() || rt.speed_job.is_some()
+            {
+                state.status_banner = "A daemon cycle is already in progress.".to_owned();
+            }
+            else
+            {
+                rt.cycle = begin_restart(state, &mut rt.tab2_session, &mut rt.session);
+            }
+        }
+        AppAction::RunSpeedTest =>
+        {
+            if rt.active_scan.is_some() || rt.pending_scan.is_some()
+            {
+                state.status_banner = "Stop the active scan on Tab 1 first.".to_owned();
+            }
+            else if rt.cycle.is_some() || rt.speed_job.is_some()
+            {
+                state.status_banner = "A speed check or restart is already running.".to_owned();
+            }
+            else
+            {
+                rt.speed_job = begin_speed_test(state, &mut rt.tab2_session, &mut rt.session);
+            }
+        }
+        AppAction::CancelSpeedTest => cancel_speed_test(&mut rt.speed_job, state),
+        _ =>
+        {}
     }
+}
 
-    if let Some(mut scan) = active_scan.take()
+/// Dispatches one keyboard [`AppAction`] against background workers and daemon controls.
+///
+/// Returns `true` when the main TUI event loop should exit.
+fn handle_tui_key_action(action: AppAction, state: &mut AppState, rt: &mut TuiSessionHandles) -> bool
+{
+    match action
     {
-        scan.shutdown(|g| drop_fw_tui(&mut session, g));
+        AppAction::None =>
+        {}
+        AppAction::Quit => return true,
+        AppAction::StartScan =>
+        {
+            if rt.cycle.is_some() || rt.speed_job.is_some()
+            {
+                state.status_banner = "Wait for the active daemon cycle or speed test to finish.".to_owned();
+            }
+            else if rt.active_scan.is_none() && rt.pending_scan.is_none()
+            {
+                rt.pending_scan = begin_scan_stopping_daemon(
+                    state,
+                    &mut rt.active_scan,
+                    &mut rt.tab2_session,
+                    &mut rt.session,
+                );
+            }
+        }
+        AppAction::StopScan =>
+        {
+            if rt.pending_scan.take().is_some()
+            {
+                state.finder.status = crate::tui::FinderStatus::Done;
+                state.status_banner = "Cancelled strategy scan while stopping nfqws2.".to_owned();
+            }
+            else
+            {
+                cancel_active_scan(state, &mut rt.active_scan, &mut rt.session);
+            }
+        }
+        AppAction::SaveConfig => save_toml_to_disk(state),
+        AppAction::ReloadConfig => reload_toml_from_disk(state),
+        AppAction::EditConfig => edit_config_in_editor(state, &mut rt.session),
+        AppAction::PushConfigToDaemon => push_config_to_daemon(state, &rt.tab2_session),
+        AppAction::StartDaemon
+        | AppAction::StopDaemon
+        | AppAction::DetachDaemon
+        | AppAction::ReloadRemoteLists
+        | AppAction::StopRemoteDaemon
+        | AppAction::RestartDaemon
+        | AppAction::RunSpeedTest
+        | AppAction::CancelSpeedTest => handle_daemon_or_speed_action(action, state, rt),
+        AppAction::DeleteSelectedDomain => delete_selected_hostlist_domain(state, &rt.tab2_session),
+        AppAction::MoveHostlistEntry => move_selected_hostlist_entry(state, &rt.tab2_session),
+        AppAction::ReloadLists => reload_hostlist_entries(state, &rt.tab2_session),
+        AppAction::SaveAppConfig => save_app_config_from_settings(state),
+        AppAction::ReloadAppConfig => reload_app_config_from_disk(state),
+        AppAction::EditAppConfig => edit_app_config_in_editor(state, &mut rt.session),
+        AppAction::SubmitModal =>
+        {
+            if submit_auth_modal(state, &mut rt.active_scan, &mut rt.tab2_session)
+            {
+                rt.reexec_after_exit = true;
+                return true;
+            }
+        }
+        AppAction::SubmitPrompt => submit_prompt_modal(state, &rt.tab2_session, &mut rt.web_ui),
+        AppAction::StopWebUi => stop_web_ui(state, &mut rt.web_ui),
+        AppAction::CopyWebPasscode => copy_web_passcode(state),
+        AppAction::OpenWebUi => open_web_ui(state),
     }
-    stop_web_ui(&mut state, &mut web_ui);
-    if let Some(sess) = tab2_session.take()
+    false
+}
+
+/// Tears down active scans, embedded web UI, and daemon sessions, then optionally re-execs `zapret-rs`.
+fn teardown_tui_session(state: &mut AppState, mut rt: TuiSessionHandles) -> Result<(), String>
+{
+    if let Some(mut scan) = rt.active_scan.take()
+    {
+        scan.shutdown(|g| drop_fw_tui(&mut rt.session, g));
+    }
+    stop_web_ui(state, &mut rt.web_ui);
+    if let Some(sess) = rt.tab2_session.take()
     {
         match sess
         {
-            Tab2Session::Local(mut daemon) => daemon.shutdown(|g| drop_fw_tui(&mut session, g)),
+            Tab2Session::Local(mut daemon) => daemon.shutdown(|g| drop_fw_tui(&mut rt.session, g)),
             Tab2Session::Remote(mut remote) => remote.detach(),
         }
     }
-    if reexec_after_exit
+    if rt.reexec_after_exit
     {
-        let _ = session.terminal.draw(|f| draw_app(f, &state));
-        session.restore_on_drop = false;
-        drop(session);
+        let _ = rt.session.terminal.draw(|f| draw_app(f, state));
+        rt.session.restore_on_drop = false;
+        drop(rt.session);
 
         let exe = std::env::current_exe()
             .map_err(|err| format!("failed to resolve current executable for restart: {err}"))?;
         let args: Vec<_> = std::env::args_os().skip(1).collect();
         let mut cmd = Command::new(&exe);
         cmd.args(args).env(SEAMLESS_REEXEC_ENV, "1");
-        if let Some(encoded) = ReexecSnapshot::capture(&state).encode()
+        if let Some(encoded) = ReexecSnapshot::capture(state).encode()
         {
             cmd.env(REEXEC_STATE_ENV, encoded);
         }
@@ -372,6 +359,99 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String>
         let _ = execute!(io::stdout(), LeaveAlternateScreen);
         return Err(format!("failed to restart {}: {err}", exe.display()));
     }
-    drop(session);
+    drop(rt.session);
     Ok(())
+}
+
+/// Executes the interactive `ratatui` TUI event loop until the user quits cleanly.
+pub fn run_tui(opts: TuiOptions) -> Result<(), String>
+{
+    let (mut state, from_reexec, pending_action) = initialize_tui_state(opts);
+    let mut rt = TuiSessionHandles {
+        session: TerminalSession::enter()?,
+        active_scan: None,
+        pending_scan: None,
+        tab2_session: None,
+        cycle: None,
+        speed_job: None,
+        web_ui: None,
+        probe_tick: 0,
+        autolist_tick: 0,
+        reexec_after_exit: false,
+    };
+
+    if let Some(sock) = state.run.detected_socket.clone()
+        && attach_to_socket(&mut state, &mut rt.tab2_session, sock)
+        && !from_reexec
+    {
+        state.tab = ActiveTab::Run;
+    }
+    if state.status.has_net_caps
+    {
+        match pending_action
+        {
+            Some(PostCapsAction::StartScan) =>
+            {
+                rt.pending_scan = begin_scan_stopping_daemon(
+                    &mut state,
+                    &mut rt.active_scan,
+                    &mut rt.tab2_session,
+                    &mut rt.session,
+                );
+            }
+            Some(PostCapsAction::StartDaemon) if rt.tab2_session.is_none() =>
+            {
+                try_start_or_attach(&mut state, &mut rt.tab2_session);
+            }
+            _ =>
+            {}
+        }
+    }
+
+    loop
+    {
+        tick_tui_workers(&mut state, &mut rt);
+
+        rt.session
+            .terminal
+            .draw(|f| draw_app(f, &state))
+            .map_err(|err| format!("terminal draw failed: {err}"))?;
+
+        if event::poll(UI_TICK).map_err(|err| format!("event poll failed: {err}"))?
+        {
+            match event::read().map_err(|err| format!("event read failed: {err}"))?
+            {
+                Event::Mouse(mouse) =>
+                {
+                    if let Ok(sz) = rt.session.terminal.size()
+                    {
+                        match handle_mouse_event(&mut state, mouse, Rect::new(0, 0, sz.width, sz.height))
+                        {
+                            AppAction::OpenWebUi => open_web_ui(&mut state),
+                            AppAction::CopyWebPasscode => copy_web_passcode(&mut state),
+                            AppAction::StopWebUi => stop_web_ui(&mut state, &mut rt.web_ui),
+                            _ =>
+                            {}
+                        }
+                    }
+                }
+                Event::Key(key) if key.kind == KeyEventKind::Press =>
+                {
+                    let action = state.handle_key(key);
+                    if handle_tui_key_action(action, &mut state, &mut rt)
+                    {
+                        break;
+                    }
+                }
+                Event::Key(_)
+                | Event::Resize(_, _)
+                | Event::FocusGained
+                | Event::FocusLost
+                | Event::Paste(_) =>
+                {}
+            }
+        }
+    }
+
+    teardown_tui_session(&mut state, rt)
 }

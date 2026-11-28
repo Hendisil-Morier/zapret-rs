@@ -166,6 +166,87 @@ pub fn prioritize_sticky(catalog: Vec<StrategySpec>, sticky: &[(IpFamily, String
     same_family
 }
 
+/// Builds baseline probe requests and collects initial reachability statuses per `(domain, ipv, proto)`.
+fn collect_baseline_targets<P, A, F>(
+    cfg: &ScanConfig,
+    probe: &P,
+    applier: &mut A,
+    http3_ok: bool,
+    on_event: &mut F,
+) -> Result<(Vec<ProbeRequest>, Vec<TargetScanResult>), String>
+where
+    P: ProbeBackend,
+    A: StrategyApplier,
+    F: FnMut(ProgressEvent<'_>),
+{
+    let mut target_reqs = Vec::new();
+    for domain in &cfg.domains
+    {
+        for &ipv in &cfg.families
+        {
+            for &proto in &cfg.protos
+            {
+                if proto != ProbeProtocol::Http3 || http3_ok
+                {
+                    target_reqs.push(ProbeRequest {
+                        domain: domain.clone(),
+                        proto,
+                        ipv,
+                        timeout: cfg.timeout,
+                    });
+                }
+            }
+        }
+    }
+
+    applier.clear()?;
+    let baselines = if target_reqs.is_empty() { Vec::new() } else { probe.probe_batch(&target_reqs) };
+    let targets = target_reqs
+        .iter()
+        .zip(baselines)
+        .map(|(req, baseline)| {
+            on_event(ProgressEvent::Baseline {
+                domain: &req.domain,
+                proto: req.proto,
+                ipv: req.ipv,
+                outcome: &baseline,
+            });
+            let skipped_unblocked = baseline.is_success() && !cfg.force_blocked;
+            TargetScanResult {
+                domain: req.domain.clone(),
+                proto: req.proto,
+                ipv: req.ipv,
+                baseline,
+                skipped_unblocked,
+                tested_count: 0,
+                matches: Vec::new(),
+            }
+        })
+        .collect();
+    Ok((target_reqs, targets))
+}
+
+/// Ranks per-target strategy matches and selects the minimal cross-domain covering set.
+fn finalize_scan_report(mut targets: Vec<TargetScanResult>, interrupted: bool) -> ScanReport
+{
+    let mut domain_strategies = Vec::new();
+    for t in &mut targets
+    {
+        rank_matches(&mut t.matches);
+        if !t.matches.is_empty()
+        {
+            domain_strategies.push(DomainStrategies {
+                domain: t.domain.clone(),
+                proto: t.proto,
+                ipv: t.ipv,
+                matches: t.matches.clone(),
+            });
+        }
+    }
+    let cover = select_minimal_cover(&domain_strategies);
+    ScanReport { targets, cover, interrupted }
+}
+
 /// Executes parallel baseline checks, sticky strategy sweeps, ranking, and minimal cross-domain cover.
 pub fn run_scan<P, A, F>(
     cfg: &ScanConfig,
@@ -199,51 +280,7 @@ where
         return Ok(ScanReport { targets: Vec::new(), cover: Vec::new(), interrupted: true });
     }
 
-    let mut target_reqs = Vec::new();
-    for domain in &cfg.domains
-    {
-        for &ipv in &cfg.families
-        {
-            for &proto in &cfg.protos
-            {
-                if proto != ProbeProtocol::Http3 || http3_ok
-                {
-                    target_reqs.push(ProbeRequest {
-                        domain: domain.clone(),
-                        proto,
-                        ipv,
-                        timeout: cfg.timeout,
-                    });
-                }
-            }
-        }
-    }
-
-    applier.clear()?;
-    let baselines = if target_reqs.is_empty() { Vec::new() } else { probe.probe_batch(&target_reqs) };
-
-    let mut targets: Vec<TargetScanResult> = target_reqs
-        .iter()
-        .zip(baselines)
-        .map(|(req, baseline)| {
-            on_event(ProgressEvent::Baseline {
-                domain: &req.domain,
-                proto: req.proto,
-                ipv: req.ipv,
-                outcome: &baseline,
-            });
-            let skipped_unblocked = baseline.is_success() && !cfg.force_blocked;
-            TargetScanResult {
-                domain: req.domain.clone(),
-                proto: req.proto,
-                ipv: req.ipv,
-                baseline,
-                skipped_unblocked,
-                tested_count: 0,
-                matches: Vec::new(),
-            }
-        })
-        .collect();
+    let (target_reqs, mut targets) = collect_baseline_targets(cfg, probe, applier, http3_ok, &mut on_event)?;
 
     let mut sticky: Vec<(IpFamily, String)> = Vec::new();
     let mut interrupted = false;
@@ -318,20 +355,5 @@ where
     }
 
     let _ = applier.clear();
-    let mut domain_strategies = Vec::new();
-    for t in &mut targets
-    {
-        rank_matches(&mut t.matches);
-        if !t.matches.is_empty()
-        {
-            domain_strategies.push(DomainStrategies {
-                domain: t.domain.clone(),
-                proto: t.proto,
-                ipv: t.ipv,
-                matches: t.matches.clone(),
-            });
-        }
-    }
-    let cover = select_minimal_cover(&domain_strategies);
-    Ok(ScanReport { targets, cover, interrupted })
+    Ok(finalize_scan_report(targets, interrupted))
 }

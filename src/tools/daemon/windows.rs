@@ -138,74 +138,51 @@ fn start_windows_control_server(
     Ok((Some(hub), Some(srv)))
 }
 
-/// Executes the Windows WinDivert daemon startup pipeline and packet event loop.
-pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError>
+/// Runs the Windows no-intercept timer and control-hub command loop.
+fn run_windows_no_intercept_loop(
+    engine: &RefCell<DesyncEngine>,
+    hub: Option<&TelemetryHub>,
+    config: &AppConfig,
+    config_dir: Option<&Path>,
+)
 {
-    let config = resolve_config(cli)?;
-    if let Some(dir) = &config.chdir
-    {
-        std::env::set_current_dir(dir)?;
-    }
-    if config.writable.is_some()
-    {
-        let _ = prepare_writable_dir(
-            config.writable.as_ref().unwrap_or(&crate::config::WritableDirConfig::Default),
-            None,
-        )?;
-    }
-    if cli.dry_run
-    {
-        let _ = DesyncEngine::new(&config)?;
-        return Ok(());
-    }
+    run_no_intercept_callbacks(
+        quit_flag(),
+        || {
+            if let Some(active_hub) = hub
+            {
+                let mut eng = engine.borrow_mut();
+                drain_hub_commands(
+                    &mut eng,
+                    active_hub,
+                    config.qnum,
+                    config.fwmark,
+                    config_dir,
+                    quit_flag(),
+                    config.debug,
+                );
+            }
+        },
+        || engine.borrow().runtime().timer_pool().borrow().is_empty(),
+        || engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms(),
+        || {
+            let eng = engine.borrow();
+            let now = boottime_ms();
+            eng.runtime().do_gc(now);
+            TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
+        },
+    );
+}
 
-    install_signal_handlers()?;
-    let config_dir = cli.config.as_deref().and_then(Path::parent);
-    let socket_path = resolve_control_socket_path(&config.control_socket, config.intercept);
-    let engine = RefCell::new(DesyncEngine::new(&config)?);
-    let (hub, control_server) = start_windows_control_server(
-        socket_path.as_deref(),
-        &config,
-        &engine.borrow(),
-        cli.config.as_deref(),
-    )?;
-
-    if !config.intercept
-    {
-        run_no_intercept_callbacks(
-            quit_flag(),
-            || {
-                if let Some(active_hub) = hub.as_deref()
-                {
-                    let mut eng = engine.borrow_mut();
-                    drain_hub_commands(
-                        &mut eng,
-                        active_hub,
-                        config.qnum,
-                        config.fwmark,
-                        config_dir,
-                        quit_flag(),
-                        config.debug,
-                    );
-                }
-            },
-            || engine.borrow().runtime().timer_pool().borrow().is_empty(),
-            || engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms(),
-            || {
-                let eng = engine.borrow();
-                let now = boottime_ms();
-                eng.runtime().do_gc(now);
-                TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
-            },
-        );
-        if let Some(srv) = control_server
-        {
-            srv.shutdown();
-        }
-        return Ok(());
-    }
-
-    let mut active_ports = collect_config_port_ranges(&config);
+/// Runs the WinDivert packet interception loop, rebinding cleanly when runtime port filters change.
+fn run_windows_intercept_loop(
+    engine: &RefCell<DesyncEngine>,
+    hub: Option<&TelemetryHub>,
+    config: &AppConfig,
+    config_dir: Option<&Path>,
+) -> Result<(), DaemonError>
+{
+    let mut active_ports = collect_config_port_ranges(config);
     let mut loop_result = Ok(());
     while !quit_flag().load(Ordering::Acquire)
     {
@@ -215,19 +192,9 @@ pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError>
         let pending_ports = RefCell::new(None);
         loop_result = catcher.run_until(
             &round_stop,
-            || {
-                poll_windows_loop(
-                    &engine,
-                    hub.as_deref(),
-                    &config,
-                    config_dir,
-                    &active_ports,
-                    &pending_ports,
-                    &round_stop,
-                )
-            },
+            || poll_windows_loop(engine, hub, config, config_dir, &active_ports, &pending_ports, &round_stop),
             |pkt| {
-                if let Some(ref active_hub) = hub
+                if let Some(active_hub) = hub
                 {
                     let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
                     let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
@@ -256,10 +223,51 @@ pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError>
             break;
         }
     }
+    loop_result?;
+    Ok(())
+}
+
+/// Executes the Windows WinDivert daemon startup pipeline and packet event loop.
+pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError>
+{
+    let config = resolve_config(cli)?;
+    if let Some(dir) = &config.chdir
+    {
+        std::env::set_current_dir(dir)?;
+    }
+    if let Some(writable_cfg) = &config.writable
+    {
+        let _ = prepare_writable_dir(writable_cfg, None)?;
+    }
+    if cli.dry_run
+    {
+        let _ = DesyncEngine::new(&config)?;
+        return Ok(());
+    }
+
+    install_signal_handlers()?;
+    let config_dir = cli.config.as_deref().and_then(Path::parent);
+    let socket_path = resolve_control_socket_path(&config.control_socket, config.intercept);
+    let engine = RefCell::new(DesyncEngine::new(&config)?);
+    let (hub, control_server) = start_windows_control_server(
+        socket_path.as_deref(),
+        &config,
+        &engine.borrow(),
+        cli.config.as_deref(),
+    )?;
+
+    let res = if !config.intercept
+    {
+        run_windows_no_intercept_loop(&engine, hub.as_deref(), &config, config_dir);
+        Ok(())
+    }
+    else
+    {
+        run_windows_intercept_loop(&engine, hub.as_deref(), &config, config_dir)
+    };
     if let Some(srv) = control_server
     {
         srv.shutdown();
     }
-    loop_result?;
-    Ok(())
+    res
 }

@@ -26,55 +26,9 @@ fn to_lua_pos(pos: usize, zero_based: bool) -> mlua::Result<i64>
     i64::try_from(adjusted).map_err(|_| mlua::Error::external("position overflow"))
 }
 
-/// Registers `resolve_pos`, `resolve_multi_pos`, `resolve_range`, and `tls_mod` into Lua `_G`.
-pub fn register_protocol_functions(lua: &Lua) -> mlua::Result<()>
+/// Registers `resolve_range` and `tls_mod` in Lua `_G`.
+fn register_resolve_range_and_tls(lua: &Lua, globals: &mlua::Table) -> mlua::Result<()>
 {
-    let globals = lua.globals();
-
-    globals.set(
-        "resolve_pos",
-        lua.create_function(|_, args: Variadic<Value>| {
-            check_argc_range("resolve_pos", &args, 3, 4)?;
-            let data = require_strict_bytes(&args[0])?;
-            let sl7payload = require_strict_str(&args[1])?;
-            let smarker = require_strict_str(&args[2])?;
-            let zero_based = args.get(3).is_some_and(is_truthy);
-
-            let l7payload = parse_payload_type(&sl7payload)?;
-            let marker = posmarker_parse(&smarker)
-                .ok_or_else(|| mlua::Error::external(format!("bad marker : '{smarker}'")))?;
-
-            match resolve_pos(&data.as_bytes(), l7payload, marker)
-            {
-                Some(pos) => Ok(Value::Integer(to_lua_pos(pos, zero_based)?)),
-                None => Ok(Value::Nil),
-            }
-        })?,
-    )?;
-
-    globals.set(
-        "resolve_multi_pos",
-        lua.create_function(|lua, args: Variadic<Value>| {
-            check_argc_range("resolve_multi_pos", &args, 3, 4)?;
-            let data = require_strict_bytes(&args[0])?;
-            let sl7payload = require_strict_str(&args[1])?;
-            let smarkers = require_strict_str(&args[2])?;
-            let zero_based = args.get(3).is_some_and(is_truthy);
-
-            let l7payload = parse_payload_type(&sl7payload)?;
-            let markers = posmarker_list_parse(&smarkers, MAX_MULTI_POS_MARKERS)
-                .ok_or_else(|| mlua::Error::external("bad marker list"))?;
-
-            let positions = resolve_multi_pos(&data.as_bytes(), l7payload, &markers);
-            let tbl = lua.create_table_with_capacity(positions.len(), 0)?;
-            for (idx, pos) in positions.into_iter().enumerate()
-            {
-                tbl.raw_set(idx + 1, to_lua_pos(pos, zero_based)?)?;
-            }
-            Ok(Value::Table(tbl))
-        })?,
-    )?;
-
     globals.set(
         "resolve_range",
         lua.create_function(|lua, args: Variadic<Value>| {
@@ -146,4 +100,56 @@ pub fn register_protocol_functions(lua: &Lua) -> mlua::Result<()>
     )?;
 
     Ok(())
+}
+
+/// Registers `resolve_pos`, `resolve_multi_pos`, `resolve_range`, and `tls_mod` into Lua `_G`.
+pub fn register_protocol_functions(lua: &Lua) -> mlua::Result<()>
+{
+    let globals = lua.globals();
+
+    globals.set(
+        "resolve_pos",
+        lua.create_function(|_, args: Variadic<Value>| {
+            check_argc_range("resolve_pos", &args, 3, 4)?;
+            let data = require_strict_bytes(&args[0])?;
+            let sl7payload = require_strict_str(&args[1])?;
+            let smarker = require_strict_str(&args[2])?;
+            let zero_based = args.get(3).is_some_and(is_truthy);
+
+            let l7payload = parse_payload_type(&sl7payload)?;
+            let marker = posmarker_parse(&smarker)
+                .ok_or_else(|| mlua::Error::external(format!("bad marker : '{smarker}'")))?;
+
+            match resolve_pos(&data.as_bytes(), l7payload, marker)
+            {
+                Some(pos) => Ok(Value::Integer(to_lua_pos(pos, zero_based)?)),
+                None => Ok(Value::Nil),
+            }
+        })?,
+    )?;
+
+    globals.set(
+        "resolve_multi_pos",
+        lua.create_function(|lua, args: Variadic<Value>| {
+            check_argc_range("resolve_multi_pos", &args, 3, 4)?;
+            let data = require_strict_bytes(&args[0])?;
+            let sl7payload = require_strict_str(&args[1])?;
+            let smarkers = require_strict_str(&args[2])?;
+            let zero_based = args.get(3).is_some_and(is_truthy);
+
+            let l7payload = parse_payload_type(&sl7payload)?;
+            let markers = posmarker_list_parse(&smarkers, MAX_MULTI_POS_MARKERS)
+                .ok_or_else(|| mlua::Error::external("bad marker list"))?;
+
+            let positions = resolve_multi_pos(&data.as_bytes(), l7payload, &markers);
+            let tbl = lua.create_table_with_capacity(positions.len(), 0)?;
+            for (idx, pos) in positions.into_iter().enumerate()
+            {
+                tbl.raw_set(idx + 1, to_lua_pos(pos, zero_based)?)?;
+            }
+            Ok(Value::Table(tbl))
+        })?,
+    )?;
+
+    register_resolve_range_and_tls(lua, &globals)
 }

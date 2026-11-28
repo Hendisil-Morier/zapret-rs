@@ -183,6 +183,165 @@ fn start_via_systemd(state: &mut AppState, session_tab2: &mut Option<Tab2Session
     }
 }
 
+/// Spawns the standalone Windows daemon child process and waits for control IPC readiness.
+#[cfg(windows)]
+fn start_standalone_daemon_windows(
+    bin: &Path,
+    subcmd: Option<&str>,
+    cfg_path: &Path,
+    sock_path: &Path,
+    state: &mut AppState,
+    session_tab2: &mut Option<Tab2Session>,
+) -> DaemonLaunchOutcome
+{
+    if !state.status.has_net_caps
+    {
+        return DaemonLaunchOutcome::Unavailable;
+    }
+    let mut cmd = Command::new(bin);
+    if let Some(sub) = subcmd
+    {
+        cmd.arg(sub);
+    }
+    cmd.args(["--config"])
+        .arg(cfg_path)
+        .arg("--control-socket")
+        .arg(sock_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = match cmd.spawn()
+    {
+        Ok(c) => c,
+        Err(err) =>
+        {
+            return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display()));
+        }
+    };
+    let deadline = Instant::now() + DAEMON_START_TIMEOUT;
+    while Instant::now() < deadline
+    {
+        if let Some(sock) = detect_control_socket(Some(sock_path))
+        {
+            return if attach_to_socket(state, session_tab2, sock)
+            {
+                DaemonLaunchOutcome::Attached
+            }
+            else
+            {
+                DaemonLaunchOutcome::Failed(state.status_banner.clone())
+            };
+        }
+        if let Ok(Some(status)) = child.try_wait()
+        {
+            let mut err_buf = String::new();
+            if let Some(mut pipe) = child.stderr.take()
+            {
+                use std::io::Read as _;
+                let _ = pipe.read_to_string(&mut err_buf);
+            }
+            let msg = err_buf.trim();
+            return DaemonLaunchOutcome::Failed(
+                if msg.is_empty() { format!("Windows daemon exited with {status}") } else { msg.to_owned() },
+            );
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    DaemonLaunchOutcome::Failed(format!(
+        "WinDivert daemon started, but control IPC at {} did not appear",
+        sock_path.display()
+    ))
+}
+
+/// Spawns the standalone Unix `nfqws2 --daemon` (directly or via passwordless `sudo`) and attaches.
+#[cfg(not(windows))]
+fn start_standalone_daemon_unix(
+    bin: &Path,
+    subcmd: Option<&str>,
+    cfg_path: &Path,
+    sock_path: &Path,
+    state: &mut AppState,
+    session_tab2: &mut Option<Tab2Session>,
+) -> DaemonLaunchOutcome
+{
+    let uid_arg = format!("{}:{}", state.status.uid, resolve_daemon_gid(state.status.uid));
+    let nft_flag = if state.finder.no_nft { "--nft=false" } else { "--nft" };
+    let sub_prefix = subcmd.map_or_else(String::new, |s| format!("{s} "));
+    if state.status.uid != 0 && sudo_needs_password()
+    {
+        return DaemonLaunchOutcome::NeedSudo(format!(
+            "sudo {} {sub_prefix}--daemon --config {} {nft_flag}",
+            bin.display(),
+            cfg_path.display()
+        ));
+    }
+    let mut cmd = if state.status.uid == 0
+    {
+        let mut direct = Command::new(bin);
+        if let Some(sub) = subcmd
+        {
+            direct.arg(sub);
+        }
+        direct
+    }
+    else
+    {
+        let sudo_bin = match resolve_trusted_system_bin("sudo")
+        {
+            Ok(p) => p,
+            Err(err) =>
+            {
+                return DaemonLaunchOutcome::Failed(format!("cannot locate trusted sudo: {err}"));
+            }
+        };
+        let mut s = Command::new(sudo_bin);
+        s.args(["-n", "--"]).arg(bin);
+        if let Some(sub) = subcmd
+        {
+            s.arg(sub);
+        }
+        s.args(["--uid", &uid_arg]);
+        s
+    };
+    cmd.args(build_daemon_common_args(cfg_path, sock_path, state.finder.no_nft)).stdin(Stdio::null());
+
+    match cmd.output()
+    {
+        Ok(out) if out.status.success() =>
+        {}
+        Ok(out) =>
+        {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+            return DaemonLaunchOutcome::Failed(
+                if err.is_empty() { "nfqws2 --daemon failed to start".to_owned() } else { err },
+            );
+        }
+        Err(err) =>
+        {
+            return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display()));
+        }
+    }
+
+    match wait_for_control_socket(Some(sock_path), DAEMON_START_TIMEOUT)
+    {
+        Some(sock) =>
+        {
+            if attach_to_socket(state, session_tab2, sock)
+            {
+                DaemonLaunchOutcome::Attached
+            }
+            else
+            {
+                DaemonLaunchOutcome::Failed(state.status_banner.clone())
+            }
+        }
+        None => DaemonLaunchOutcome::Failed(format!(
+            "nfqws2 started, but control socket {} did not appear",
+            sock_path.display()
+        )),
+    }
+}
+
 /// Spawns standalone `nfqws2 --daemon` (or `zapret-rs daemon --daemon`) detached and attaches over IPC.
 fn start_standalone_daemon(
     bin: &Path,
@@ -209,153 +368,13 @@ fn start_standalone_daemon(
     }
 
     let sock_path = state.run.control_socket_override.clone().unwrap_or_else(default_control_socket_path);
-    let nft_flag = if state.finder.no_nft { "--nft=false" } else { "--nft" };
-    let sub_prefix = subcmd.map_or_else(String::new, |s| format!("{s} "));
-
     #[cfg(windows)]
     {
-        if !state.status.has_net_caps
-        {
-            return DaemonLaunchOutcome::Unavailable;
-        }
-        let _ = (sub_prefix, nft_flag);
-        let mut cmd = Command::new(bin);
-        if let Some(sub) = subcmd
-        {
-            cmd.arg(sub);
-        }
-        cmd.args(["--config"])
-            .arg(&cfg_path)
-            .arg("--control-socket")
-            .arg(&sock_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        let mut child = match cmd.spawn()
-        {
-            Ok(c) => c,
-            Err(err) =>
-            {
-                return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display()));
-            }
-        };
-        let deadline = Instant::now() + DAEMON_START_TIMEOUT;
-        while Instant::now() < deadline
-        {
-            if let Some(sock) = detect_control_socket(Some(&sock_path))
-            {
-                return if attach_to_socket(state, session_tab2, sock)
-                {
-                    DaemonLaunchOutcome::Attached
-                }
-                else
-                {
-                    DaemonLaunchOutcome::Failed(state.status_banner.clone())
-                };
-            }
-            if let Ok(Some(status)) = child.try_wait()
-            {
-                let mut err_buf = String::new();
-                if let Some(mut pipe) = child.stderr.take()
-                {
-                    use std::io::Read as _;
-                    let _ = pipe.read_to_string(&mut err_buf);
-                }
-                let msg = err_buf.trim();
-                return DaemonLaunchOutcome::Failed(
-                    if msg.is_empty()
-                    {
-                        format!("Windows daemon exited with {status}")
-                    }
-                    else
-                    {
-                        msg.to_owned()
-                    },
-                );
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        DaemonLaunchOutcome::Failed(format!(
-            "WinDivert daemon started, but control IPC at {} did not appear",
-            sock_path.display()
-        ))
+        start_standalone_daemon_windows(bin, subcmd, &cfg_path, &sock_path, state, session_tab2)
     }
     #[cfg(not(windows))]
     {
-        let uid_arg = format!("{}:{}", state.status.uid, resolve_daemon_gid(state.status.uid));
-        if state.status.uid != 0 && sudo_needs_password()
-        {
-            return DaemonLaunchOutcome::NeedSudo(format!(
-                "sudo {} {sub_prefix}--daemon --config {} {nft_flag}",
-                bin.display(),
-                cfg_path.display()
-            ));
-        }
-        let mut cmd = if state.status.uid == 0
-        {
-            let mut direct = Command::new(bin);
-            if let Some(sub) = subcmd
-            {
-                direct.arg(sub);
-            }
-            direct
-        }
-        else
-        {
-            let sudo_bin = match resolve_trusted_system_bin("sudo")
-            {
-                Ok(p) => p,
-                Err(err) =>
-                {
-                    return DaemonLaunchOutcome::Failed(format!("cannot locate trusted sudo: {err}"));
-                }
-            };
-            let mut s = Command::new(sudo_bin);
-            s.args(["-n", "--"]).arg(bin);
-            if let Some(sub) = subcmd
-            {
-                s.arg(sub);
-            }
-            s.args(["--uid", &uid_arg]);
-            s
-        };
-        cmd.args(build_daemon_common_args(&cfg_path, &sock_path, state.finder.no_nft)).stdin(Stdio::null());
-
-        match cmd.output()
-        {
-            Ok(out) if out.status.success() =>
-            {}
-            Ok(out) =>
-            {
-                let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
-                return DaemonLaunchOutcome::Failed(
-                    if err.is_empty() { "nfqws2 --daemon failed to start".to_owned() } else { err },
-                );
-            }
-            Err(err) =>
-            {
-                return DaemonLaunchOutcome::Failed(format!("failed to run {}: {err}", bin.display()));
-            }
-        }
-
-        match wait_for_control_socket(Some(&sock_path), DAEMON_START_TIMEOUT)
-        {
-            Some(sock) =>
-            {
-                if attach_to_socket(state, session_tab2, sock)
-                {
-                    DaemonLaunchOutcome::Attached
-                }
-                else
-                {
-                    DaemonLaunchOutcome::Failed(state.status_banner.clone())
-                }
-            }
-            None => DaemonLaunchOutcome::Failed(format!(
-                "nfqws2 started, but control socket {} did not appear",
-                sock_path.display()
-            )),
-        }
+        start_standalone_daemon_unix(bin, subcmd, &cfg_path, &sock_path, state, session_tab2)
     }
 }
 

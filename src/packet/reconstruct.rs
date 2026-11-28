@@ -108,6 +108,86 @@ fn append_checked_payload(buf: &mut Vec<u8>, payload: &[u8]) -> PEResult<()>
     Ok(())
 }
 
+/// Appends the L4 header matching `dis` (`TCP`, `UDP`, or `ICMP`), returning the protocol tag.
+fn append_l4_header(dis: &DissectedPacket, buf: &mut Vec<u8>) -> PEResult<u8>
+{
+    if let Some(tcp) = &dis.tcp
+    {
+        let tcp_bytes = reconstruct_tcp_header(tcp)?;
+        if buf.len() + tcp_bytes.len() > RECONSTRUCT_MAX_SIZE
+        {
+            return Err(PacketError::PayloadTooLarge(buf.len() + tcp_bytes.len()));
+        }
+        buf.extend_from_slice(&tcp_bytes);
+        return Ok(IPPROTO_TCP);
+    }
+    if let Some(udp) = &dis.udp
+    {
+        if buf.len() + UDP_BASE_LEN > RECONSTRUCT_MAX_SIZE
+        {
+            return Err(PacketError::PayloadTooLarge(buf.len() + UDP_BASE_LEN));
+        }
+        buf.extend_from_slice(&reconstruct_udp_header(udp));
+        return Ok(IPPROTO_UDP);
+    }
+    if let Some(icmp) = &dis.icmp
+    {
+        if buf.len() + ICMP_BASE_LEN > RECONSTRUCT_MAX_SIZE
+        {
+            return Err(PacketError::PayloadTooLarge(buf.len() + ICMP_BASE_LEN));
+        }
+        buf.extend_from_slice(&reconstruct_icmp_header(icmp));
+        return Ok(IPPROTO_ICMP);
+    }
+    Ok(0)
+}
+
+/// Computes L4 checksums and optional bad-checksum sabotage across the serialized packet buffer.
+fn apply_l4_checksums(
+    l4_kind: u8,
+    buf: &mut [u8],
+    l3_len: usize,
+    l4_end: usize,
+    opts: &ReconstructOptions,
+) -> PEResult<()>
+{
+    let (ip_hdr, rest) = buf.split_at_mut(l3_len);
+    let (l4_hdr, pl) = rest.split_at_mut(l4_end - l3_len);
+    match l4_kind
+    {
+        IPPROTO_TCP =>
+        {
+            fix_tcp_checksum(ip_hdr, l4_hdr, pl)?;
+            if opts.badsum
+            {
+                apply_badsum(l4_hdr, 16, false);
+            }
+        }
+        IPPROTO_UDP =>
+        {
+            let udp_len = u16::try_from(pl.len() + UDP_BASE_LEN)
+                .map_err(|_| PacketError::PayloadTooLarge(pl.len() + UDP_BASE_LEN))?;
+            l4_hdr[4..6].copy_from_slice(&udp_len.to_be_bytes());
+            fix_udp_checksum(ip_hdr, l4_hdr, pl)?;
+            if opts.badsum
+            {
+                apply_badsum(l4_hdr, 6, true);
+            }
+        }
+        IPPROTO_ICMP =>
+        {
+            fix_icmp_checksum(ip_hdr, l4_hdr, pl)?;
+            if opts.badsum
+            {
+                apply_badsum(l4_hdr, 2, false);
+            }
+        }
+        _ =>
+        {}
+    }
+    Ok(())
+}
+
 /// Reconstructs a full wire-format L3/L4 packet from a [`DissectedPacket`] and [`ReconstructOptions`],
 /// matching `zapret2`'s `lua_reconstruct_dissect`.
 pub fn reconstruct_packet(dis: &DissectedPacket, opts: &ReconstructOptions) -> PEResult<Vec<u8>>
@@ -115,10 +195,8 @@ pub fn reconstruct_packet(dis: &DissectedPacket, opts: &ReconstructOptions) -> P
     let is_frag_dissect = dis.frag_off.is_some();
     let has_l4 = dis.tcp.is_some() || dis.udp.is_some() || dis.icmp.is_some();
     let last_proto_opt = opts.ip6_last_proto.unwrap_or(IPPROTO_NONE);
-
     let effective_preserve_next =
         opts.ip6_preserve_next || is_frag_dissect || (last_proto_opt == IPPROTO_NONE && !has_l4);
-
     let effective_last_proto =
         if last_proto_opt == IPPROTO_NONE { auto_ipv6_last_proto(dis) } else { last_proto_opt };
 
@@ -157,75 +235,13 @@ pub fn reconstruct_packet(dis: &DissectedPacket, opts: &ReconstructOptions) -> P
         return Ok(buf);
     }
 
-    let mut l4_kind = 0u8;
-    if let Some(tcp) = &dis.tcp
-    {
-        let tcp_bytes = reconstruct_tcp_header(tcp)?;
-        if buf.len() + tcp_bytes.len() > RECONSTRUCT_MAX_SIZE
-        {
-            return Err(PacketError::PayloadTooLarge(buf.len() + tcp_bytes.len()));
-        }
-        buf.extend_from_slice(&tcp_bytes);
-        l4_kind = IPPROTO_TCP;
-    }
-    else if let Some(udp) = &dis.udp
-    {
-        if buf.len() + UDP_BASE_LEN > RECONSTRUCT_MAX_SIZE
-        {
-            return Err(PacketError::PayloadTooLarge(buf.len() + UDP_BASE_LEN));
-        }
-        buf.extend_from_slice(&reconstruct_udp_header(udp));
-        l4_kind = IPPROTO_UDP;
-    }
-    else if let Some(icmp) = &dis.icmp
-    {
-        if buf.len() + ICMP_BASE_LEN > RECONSTRUCT_MAX_SIZE
-        {
-            return Err(PacketError::PayloadTooLarge(buf.len() + ICMP_BASE_LEN));
-        }
-        buf.extend_from_slice(&reconstruct_icmp_header(icmp));
-        l4_kind = IPPROTO_ICMP;
-    }
-
+    let l4_kind = append_l4_header(dis, &mut buf)?;
     let l4_end = buf.len();
     append_checked_payload(&mut buf, payload)?;
 
     if !opts.keepsum && l4_kind != 0
     {
-        let (ip_hdr, rest) = buf.split_at_mut(l3_len);
-        let (l4_hdr, pl) = rest.split_at_mut(l4_end - l3_len);
-        match l4_kind
-        {
-            IPPROTO_TCP =>
-            {
-                fix_tcp_checksum(ip_hdr, l4_hdr, pl)?;
-                if opts.badsum
-                {
-                    apply_badsum(l4_hdr, 16, false);
-                }
-            }
-            IPPROTO_UDP =>
-            {
-                let udp_len = u16::try_from(pl.len() + UDP_BASE_LEN)
-                    .map_err(|_| PacketError::PayloadTooLarge(pl.len() + UDP_BASE_LEN))?;
-                l4_hdr[4..6].copy_from_slice(&udp_len.to_be_bytes());
-                fix_udp_checksum(ip_hdr, l4_hdr, pl)?;
-                if opts.badsum
-                {
-                    apply_badsum(l4_hdr, 6, true);
-                }
-            }
-            IPPROTO_ICMP =>
-            {
-                fix_icmp_checksum(ip_hdr, l4_hdr, pl)?;
-                if opts.badsum
-                {
-                    apply_badsum(l4_hdr, 2, false);
-                }
-            }
-            _ =>
-            {}
-        }
+        apply_l4_checksums(l4_kind, &mut buf, l3_len, l4_end, opts)?;
     }
 
     if is_v4

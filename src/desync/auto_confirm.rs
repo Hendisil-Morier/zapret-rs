@@ -89,7 +89,7 @@ fn apply_probe_fwmark(stream: &TcpStream, fwmark: u32)
     }
     let mark = fwmark as libc::c_int;
     let fd = stream.as_raw_fd();
-    // Safe FFI: `fd` stays open for the lifetime of `stream` and `mark` points to valid stack storage.
+    // SAFETY: `fd` stays open for the lifetime of `stream` and `mark` points to valid stack storage.
     let _ = unsafe {
         libc::setsockopt(
             fd,

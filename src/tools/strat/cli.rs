@@ -233,69 +233,68 @@ fn ensure_least_privilege_net_caps() -> Result<(), String>
     Ok(())
 }
 
-/// Executes a parsed [`StratFinderCli`] session, launching the interactive wizard when appropriate.
-pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
+/// Resolved domain, protocol, family, level, and output options ready for a scan run.
+struct ResolvedScanInputs
 {
-    let mut level: ScanLevel = cli.level.parse()?;
-    let mut protos = Vec::new();
-    for raw in &cli.protos
-    {
-        let p: ProbeProtocol = raw.parse()?;
-        if !protos.contains(&p)
-        {
-            protos.push(p);
-        }
-    }
-    if protos.is_empty()
-    {
-        return Err("at least one protocol must be specified via --proto".to_owned());
-    }
-    let mut families = match (cli.ipv4, cli.ipv6)
-    {
-        (false, true) => vec![IpFamily::V6],
-        (true, true) => vec![IpFamily::V4, IpFamily::V6],
-        _ => vec![IpFamily::V4],
+    /// Target domain list to test.
+    domains: Vec<String>,
+    /// Protocols included in the sweep.
+    protos: Vec<ProbeProtocol>,
+    /// IP address families included in the sweep.
+    families: Vec<IpFamily>,
+    /// Search depth level.
+    level: ScanLevel,
+    /// Whether to stop probing a target once one working strategy succeeds.
+    stop_on_first: bool,
+    /// Optional explicit directory containing Lua init scripts.
+    lua_dir: Option<std::path::PathBuf>,
+    /// Optional output TOML path for the covering config.
+    write_config: Option<std::path::PathBuf>,
+}
+
+/// Prints the preview firewall rules for `--print-nft` and exits.
+fn print_nft_preview(
+    cli: &StratFinderCli,
+    protos: Vec<ProbeProtocol>,
+    families: Vec<IpFamily>,
+    level: ScanLevel,
+    fwmark: u32,
+)
+{
+    let dummy = ScanConfig {
+        domains: Vec::new(),
+        protos,
+        families,
+        level,
+        timeout: Duration::from_secs(1),
+        stop_on_first: false,
+        force_blocked: false,
     };
-    let fwmark = parse_u32_radix(&cli.fwmark).ok_or_else(|| {
-        format!("invalid --fwmark '{}' (expected hex like 0x40000000 or decimal)", cli.fwmark)
-    })?;
-    let fwmark = if fwmark == 0 { DEFAULT_DESYNC_FWMARK } else { fwmark };
-
-    if cli.print_nft
+    let (tcp, udp) = dummy.required_ports();
+    #[cfg(target_os = "linux")]
     {
-        let dummy = ScanConfig {
-            domains: Vec::new(),
-            protos,
-            families,
-            level,
-            timeout: Duration::from_secs(1),
-            stop_on_first: false,
-            force_blocked: false,
-        };
-        let (tcp, udp) = dummy.required_ports();
-        #[cfg(target_os = "linux")]
-        {
-            print!("{}", NftFirewallBackend::build_nft_script(cli.qnum, fwmark, &tcp, &udp));
-            println!("# Cleanup: sudo {}", build_nft_cleanup_cmd());
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let backend = active_firewall_backend();
-            println!("{}", backend.preview_filter(cli.qnum, fwmark, &tcp, &udp));
-        }
-        return Ok(());
+        print!("{}", NftFirewallBackend::build_nft_script(cli.qnum, fwmark, &tcp, &udp));
+        println!("# Cleanup: sudo {}", build_nft_cleanup_cmd());
     }
-    if cli.list_strategies
+    #[cfg(not(target_os = "linux"))]
     {
-        return run_list_mode(&cli, &protos, &families, level, fwmark);
+        let backend = active_firewall_backend();
+        println!("{}", backend.preview_filter(cli.qnum, fwmark, &tcp, &udp));
     }
+}
 
-    ensure_least_privilege_net_caps()?;
-
+/// Gathers domains and scan preferences from CLI arguments, interactive prompts, or piped stdin.
+fn resolve_scan_inputs(
+    cli: &StratFinderCli,
+    protos: Vec<ProbeProtocol>,
+    families: Vec<IpFamily>,
+    level: ScanLevel,
+) -> Result<ResolvedScanInputs, String>
+{
     let mut domains: Vec<String> = cli.domains.iter().filter_map(|d| normalize_domain(d)).collect();
-    let mut stop_on_first = cli.stop_on_first;
-    let mut lua_dir = cli.lua_dir.clone().map(|p| expand_tilde(&p.to_string_lossy()));
-    let mut write_config = cli.write_config.clone().map(|p| expand_tilde(&p.to_string_lossy()));
+    let stop_on_first = cli.stop_on_first;
+    let lua_dir = cli.lua_dir.clone().map(|p| expand_tilde(&p.to_string_lossy()));
+    let write_config = cli.write_config.clone().map(|p| expand_tilde(&p.to_string_lossy()));
 
     let interactive = cli.interactive || (domains.is_empty() && io::stdin().is_terminal());
     if interactive
@@ -311,17 +310,18 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
         };
         let stdin = io::stdin();
         let sel = prompt_interactive_wizard(&mut stdin.lock(), &mut io::stderr(), &defaults)?;
-        (domains, protos, families, level, stop_on_first, lua_dir, write_config) = (
-            sel.domains,
-            sel.protos,
-            sel.families,
-            sel.level,
-            sel.stop_on_first,
-            sel.lua_dir,
-            sel.write_config,
-        );
+        return Ok(ResolvedScanInputs {
+            domains: sel.domains,
+            protos: sel.protos,
+            families: sel.families,
+            level: sel.level,
+            stop_on_first: sel.stop_on_first,
+            lua_dir: sel.lua_dir,
+            write_config: sel.write_config,
+        });
     }
-    else if domains.is_empty()
+
+    if domains.is_empty()
     {
         let mut buf = String::new();
         let _ = io::Read::read_to_string(&mut io::stdin(), &mut buf);
@@ -332,7 +332,17 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
         }
     }
 
-    let lua_scripts = resolve_lua_scripts(lua_dir.as_deref())?;
+    Ok(ResolvedScanInputs { domains, protos, families, level, stop_on_first, lua_dir, write_config })
+}
+
+/// Installs the live firewall hook, executes the strategy scan, and outputs the final report.
+fn execute_and_report_scan(
+    cli: &StratFinderCli,
+    inputs: ResolvedScanInputs,
+    fwmark: u32,
+) -> Result<(), String>
+{
+    let lua_scripts = resolve_lua_scripts(inputs.lua_dir.as_deref())?;
     install_signal_handlers().map_err(|err| format!("failed to install signal handlers: {err}"))?;
 
     let mut base_cfg = AppConfig { qnum: cli.qnum, fwmark, ..AppConfig::default() };
@@ -344,11 +354,11 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
         return Err(format!("invalid --timeout '{}' (expected positive seconds, e.g. 2.0)", cli.timeout));
     }
     let scan_cfg = ScanConfig {
-        domains,
-        protos,
-        families,
-        level,
-        stop_on_first,
+        domains: inputs.domains,
+        protos: inputs.protos,
+        families: inputs.families,
+        level: inputs.level,
+        stop_on_first: inputs.stop_on_first,
         timeout: Duration::from_secs_f64(cli.timeout.clamp(0.2, 60.0)),
         force_blocked: cli.force_blocked,
     };
@@ -365,7 +375,7 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
         #[cfg(target_os = "linux")]
         {
             Some(
-                NftFirewallBackend::new(cli.nft_bin)
+                NftFirewallBackend::new(cli.nft_bin.clone())
                     .install(cli.qnum, fwmark, &tcp_ports, &udp_ports)
                     .map_err(|err| format!("{err}"))?,
             )
@@ -380,7 +390,7 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
         }
     };
 
-    let probe = CurlProbeBackend::new(cli.curl_bin);
+    let probe = CurlProbeBackend::new(cli.curl_bin.clone());
     let report = run_scan(&scan_cfg, &probe, &mut worker, quit_flag(), |ev| match ev
     {
         ProgressEvent::Http3Unavailable => eprintln!("[warn] curl lacks HTTP3 support; skipping http3"),
@@ -405,7 +415,7 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
         print_report_summary(&report);
     }
 
-    if let Some(out_path) = write_config
+    if let Some(out_path) = inputs.write_config
     {
         if report.cover.is_empty()
         {
@@ -427,6 +437,49 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
         }
     }
     Ok(())
+}
+
+/// Executes a parsed [`StratFinderCli`] session, launching the interactive wizard when appropriate.
+pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
+{
+    let level: ScanLevel = cli.level.parse()?;
+    let mut protos = Vec::new();
+    for raw in &cli.protos
+    {
+        let p: ProbeProtocol = raw.parse()?;
+        if !protos.contains(&p)
+        {
+            protos.push(p);
+        }
+    }
+    if protos.is_empty()
+    {
+        return Err("at least one protocol must be specified via --proto".to_owned());
+    }
+    let families = match (cli.ipv4, cli.ipv6)
+    {
+        (false, true) => vec![IpFamily::V6],
+        (true, true) => vec![IpFamily::V4, IpFamily::V6],
+        _ => vec![IpFamily::V4],
+    };
+    let fwmark = parse_u32_radix(&cli.fwmark).ok_or_else(|| {
+        format!("invalid --fwmark '{}' (expected hex like 0x40000000 or decimal)", cli.fwmark)
+    })?;
+    let fwmark = if fwmark == 0 { DEFAULT_DESYNC_FWMARK } else { fwmark };
+
+    if cli.print_nft
+    {
+        print_nft_preview(&cli, protos, families, level, fwmark);
+        return Ok(());
+    }
+    if cli.list_strategies
+    {
+        return run_list_mode(&cli, &protos, &families, level, fwmark);
+    }
+
+    ensure_least_privilege_net_caps()?;
+    let inputs = resolve_scan_inputs(&cli, protos, families, level)?;
+    execute_and_report_scan(&cli, inputs, fwmark)
 }
 
 /// Parses `args` with `clap`, runs [`run_strat_finder`], and maps results to process [`ExitCode`].

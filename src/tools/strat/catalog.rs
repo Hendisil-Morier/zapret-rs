@@ -388,10 +388,10 @@ fn add_http_basic(b: &mut CatalogBuilder)
     b.add("basic", 12, "http_unixeol", vec![make_action("http_unixeol", p, &[])]);
 }
 
-/// Appends TCP split, disorder, seqovl, OOB, syndata, fake, faked, hostfake, and combo strategies.
-fn add_tcp_strategies(b: &mut CatalogBuilder, level: ScanLevel)
+/// Appends TCP split, disorder, seqovl, OOB, and syndata strategies.
+fn add_tcp_split_strategies(b: &mut CatalogBuilder, level: ScanLevel)
 {
-    let (proto, ipv, payload, blob) = (b.proto, b.ipv, b.proto.l7_payload(), b.proto.default_fake_blob());
+    let (proto, payload, blob) = (b.proto, b.proto.l7_payload(), b.proto.default_fake_blob());
     let split_positions: &[&str] = match (proto, level)
     {
         (ProbeProtocol::Http, ScanLevel::Quick) => &["method+2", "midsld"],
@@ -476,6 +476,12 @@ fn add_tcp_strategies(b: &mut CatalogBuilder, level: ScanLevel)
             b.add("syndata", 65, "syndata", vec![syn]);
         }
     }
+}
+
+/// Appends TTL, auto-TTL, fooled fake, and TLS-modified fake TCP strategies.
+fn add_tcp_fake_strategies(b: &mut CatalogBuilder, level: ScanLevel)
+{
+    let (proto, ipv, payload, blob) = (b.proto, b.ipv, b.proto.l7_payload(), b.proto.default_fake_blob());
     let ttls: &[u8] = match level
     {
         ScanLevel::Quick => &[3, 5, 7],
@@ -531,6 +537,12 @@ fn add_tcp_strategies(b: &mut CatalogBuilder, level: ScanLevel)
             );
         }
     }
+}
+
+/// Appends fakedsplit, fakeddisorder, hostfakesplit, tcpseg, and combined fake+split TCP strategies.
+fn add_tcp_combo_strategies(b: &mut CatalogBuilder, level: ScanLevel)
+{
+    let (proto, ipv, payload, blob) = (b.proto, b.ipv, b.proto.l7_payload(), b.proto.default_fake_blob());
     if level != ScanLevel::Quick
     {
         let combo_foolings =
@@ -586,6 +598,14 @@ fn add_tcp_strategies(b: &mut CatalogBuilder, level: ScanLevel)
             );
         }
     }
+}
+
+/// Appends TCP split, disorder, seqovl, OOB, syndata, fake, faked, hostfake, and combo strategies.
+fn add_tcp_strategies(b: &mut CatalogBuilder, level: ScanLevel)
+{
+    add_tcp_split_strategies(b, level);
+    add_tcp_fake_strategies(b, level);
+    add_tcp_combo_strategies(b, level);
 }
 
 /// Appends QUIC/HTTP3 UDP fake, IPv6 extension header, and IP fragmentation strategies (`90-quic.sh`).

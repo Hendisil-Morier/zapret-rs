@@ -35,6 +35,109 @@ use crate::protocol::{
 /// Monotonic boottime timestamp forwarded from the outer packet dispatch loop.
 use crate::timer::MonotonicTime;
 
+/// Starts or feeds an incomplete QUIC Initial fragment into `ctrack_rc` and queues `pkt`.
+fn queue_quic_fragment(
+    engine: &DesyncEngine,
+    ctrack_rc: &std::rc::Rc<std::cell::RefCell<crate::conntrack::CtrackEntry>>,
+    pkt: &QueuedPacket<'_>,
+    clean: &[u8],
+) -> bool
+{
+    let queued = {
+        let mut entry = ctrack_rc.borrow_mut();
+        let started = !entry.reasm_client.is_empty()
+            || reasm_client_start(
+                &mut entry,
+                IPPROTO_UDP,
+                L7Payload::QuicInitial,
+                UDP_MAX_REASM,
+                UDP_MAX_REASM,
+                clean,
+            );
+        started && queue_delayed_packet(&mut entry, pkt.payload, pkt.mark, pkt.ifin, pkt.ifout)
+    };
+    if queued
+    {
+        engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
+    }
+    queued
+}
+
+/// Handles a defragmented QUIC CRYPTO span (`full_frag == true`), triggering delayed replay when full.
+fn handle_full_quic_crypto(
+    engine: &DesyncEngine,
+    ps: &mut PlayState,
+    pkt: &QueuedPacket<'_>,
+    defrag: &[u8],
+    clean: &[u8],
+    reasm_disable: bool,
+) -> Result<Option<Vec<u8>>, Decision>
+{
+    let hello_span = is_quic_crypto_hello(defrag);
+    let req_full = hello_span.is_some_and(|(off, len)| is_tls_handshake_full(&defrag[off..off + len]));
+
+    if let Some(ctrack_rc) = &ps.ctrack
+        && !reasm_disable
+    {
+        let Some(_) = hello_span
+        else
+        {
+            return Ok(None);
+        };
+        let mut delayed_ready = None;
+        let mut started_ok = true;
+        {
+            let mut entry = ctrack_rc.borrow_mut();
+            if !req_full && entry.reasm_client.is_empty()
+            {
+                started_ok = reasm_client_start(
+                    &mut entry,
+                    IPPROTO_UDP,
+                    L7Payload::QuicInitial,
+                    UDP_MAX_REASM,
+                    UDP_MAX_REASM,
+                    clean,
+                );
+            }
+            if started_ok && !entry.reasm_client.is_empty()
+            {
+                if !queue_delayed_packet(&mut entry, pkt.payload, pkt.mark, pkt.ifin, pkt.ifout)
+                {
+                    started_ok = false;
+                }
+                else if req_full
+                {
+                    delayed_ready = Some(entry.take_delayed());
+                }
+                else
+                {
+                    engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
+                    return Err(Decision::Drop);
+                }
+            }
+        }
+        if !started_ok
+        {
+            reasm_client_stop(Some(ctrack_rc), engine.desync_fwmark, &engine.sender);
+            return Ok(None);
+        }
+        if let Some(delayed) = delayed_ready
+        {
+            replay_and_finish(engine, pkt.packet_id, Some(ctrack_rc), delayed);
+            engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
+            return Err(Decision::Drop);
+        }
+    }
+
+    if let Some((off, len)) = hello_span
+    {
+        let handshake = defrag[off..off + len].to_vec();
+        ps.host = tls_hello_extract_host_from_handshake(&handshake, true);
+        return Ok(Some(handshake));
+    }
+    Ok(None)
+}
+
 /// Handles outgoing QUIC Initial decryption, client reassembly/replay, and handshake host extraction.
 fn process_quic_initial_flow(
     engine: &DesyncEngine,
@@ -62,11 +165,11 @@ fn process_quic_initial_flow(
     if let Some(ctrack_rc) = &ps.ctrack
         && !reasm_disable
     {
-        let active_overflow = {
+        let overflow = {
             let entry = ctrack_rc.borrow();
             !entry.reasm_client.is_empty() && !entry.reasm_client.has_space(clean.len())
         };
-        if active_overflow
+        if overflow
         {
             return Ok(None);
         }
@@ -83,94 +186,15 @@ fn process_quic_initial_flow(
         reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
         return Ok(None);
     };
-
     if full_frag
     {
-        let hello_span = is_quic_crypto_hello(&defrag);
-        let req_full = hello_span.is_some_and(|(off, len)| is_tls_handshake_full(&defrag[off..off + len]));
-
-        if let Some(ctrack_rc) = &ps.ctrack
-            && !reasm_disable
-        {
-            if hello_span.is_none()
-            {
-                return Ok(None);
-            }
-            let mut delayed_ready = None;
-            let mut started_ok = true;
-            {
-                let mut entry = ctrack_rc.borrow_mut();
-                if !req_full && entry.reasm_client.is_empty()
-                {
-                    started_ok = reasm_client_start(
-                        &mut entry,
-                        IPPROTO_UDP,
-                        L7Payload::QuicInitial,
-                        UDP_MAX_REASM,
-                        UDP_MAX_REASM,
-                        &clean,
-                    );
-                }
-                if started_ok && !entry.reasm_client.is_empty()
-                {
-                    if !queue_delayed_packet(&mut entry, pkt.payload, pkt.mark, pkt.ifin, pkt.ifout)
-                    {
-                        started_ok = false;
-                    }
-                    else if req_full
-                    {
-                        delayed_ready = Some(entry.take_delayed());
-                    }
-                    else
-                    {
-                        engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
-                        return Err(Decision::Drop);
-                    }
-                }
-            }
-            if !started_ok
-            {
-                reasm_client_stop(Some(ctrack_rc), engine.desync_fwmark, &engine.sender);
-                return Ok(None);
-            }
-            if let Some(delayed) = delayed_ready
-            {
-                replay_and_finish(engine, pkt.packet_id, Some(ctrack_rc), delayed);
-                engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
-                return Err(Decision::Drop);
-            }
-        }
-
-        if let Some((off, len)) = hello_span
-        {
-            let handshake = defrag[off..off + len].to_vec();
-            ps.host = tls_hello_extract_host_from_handshake(&handshake, true);
-            return Ok(Some(handshake));
-        }
-        return Ok(None);
+        return handle_full_quic_crypto(engine, ps, pkt, &defrag, &clean, reasm_disable);
     }
-
     if let Some(ctrack_rc) = &ps.ctrack
         && !reasm_disable
+        && queue_quic_fragment(engine, ctrack_rc, pkt, &clean)
     {
-        let queued = {
-            let mut entry = ctrack_rc.borrow_mut();
-            let started = !entry.reasm_client.is_empty()
-                || reasm_client_start(
-                    &mut entry,
-                    IPPROTO_UDP,
-                    L7Payload::QuicInitial,
-                    UDP_MAX_REASM,
-                    UDP_MAX_REASM,
-                    &clean,
-                );
-            started && queue_delayed_packet(&mut entry, pkt.payload, pkt.mark, pkt.ifin, pkt.ifout)
-        };
-        if queued
-        {
-            engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
-            return Err(Decision::Drop);
-        }
+        return Err(Decision::Drop);
     }
     Ok(None)
 }

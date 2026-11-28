@@ -1,7 +1,14 @@
 //! ICMP error relation tracking and raw non-TCP/UDP/ICMP packet desync processors.
 
+/// Shared interior-mutable reference wrappers for inherited conntrack entries.
+use std::cell::RefCell;
+/// Reference-counted ownership handle matching conntrack table entry storage.
+use std::rc::Rc;
+
 /// Protocol and payload tags passed to profile matchers and `DesyncTableInput`.
 use crate::config::{L7Payload, L7Proto, ProfileMatchInput};
+/// Connection tracking entry carried over onto ICMP error flows.
+use crate::conntrack::CtrackEntry;
 /// Core desync engine dispatching profile actions on ICMP and raw IP packets.
 use crate::desync::engine::DesyncEngine;
 /// Play-state holder initialized from inherited flow or stateless packet endpoints.
@@ -58,6 +65,68 @@ fn autohostlist_allows(
     engine.profile_runtimes[profile_idx].hostlists.check(host, hostname_is_ip, false).matched
 }
 
+/// Inherited parent-flow metadata recovered from an attached ICMP error payload.
+struct InheritedIcmpFlow
+{
+    /// Matched L7 payload tag (`Ipv4`/`Ipv6` when attached inner IP parsed cleanly, else `Icmp`).
+    l7payload: L7Payload,
+    /// Shared parent conntrack entry, if present.
+    ctrack: Option<Rc<RefCell<CtrackEntry>>>,
+    /// Logical flow reverse direction relative to the tracked flow.
+    b_reverse: bool,
+    /// Inherited profile ID from the parent flow.
+    prof_id: Option<u32>,
+    /// Inherited L7 protocol from the parent flow.
+    l7proto: L7Proto,
+    /// Inherited hostname and IP literal marker.
+    host: Option<String>,
+    host_is_ip: bool,
+    /// Cached autohostlist lookup result `(done, matched)`.
+    ctrack_check: Option<(bool, bool)>,
+}
+
+/// Resolves parent-flow metadata for an ICMP error message, falling back to interface direction.
+fn resolve_icmp_flow(
+    engine: &DesyncEngine,
+    pkt: &QueuedPacket<'_>,
+    dis: &DissectedPacket,
+    icmp_type: u8,
+) -> InheritedIcmpFlow
+{
+    let mut out = InheritedIcmpFlow {
+        l7payload: L7Payload::Icmp,
+        ctrack: None,
+        b_reverse: pkt.ifin.is_some_and(|s| !s.is_empty()) && !pkt.ifout.is_some_and(|s| !s.is_empty()),
+        prof_id: None,
+        l7proto: L7Proto::Unknown,
+        host: None,
+        host_is_ip: false,
+        ctrack_check: None,
+    };
+    if is_icmp_error_with_attached_ip(dis, icmp_type)
+        && let Some(attached) = dis.payload.as_deref()
+    {
+        let inner = dissect_packet(attached, true);
+        if inner.ip.is_some() || inner.ip6.is_some()
+        {
+            out.l7payload = if inner.ip.is_some() { L7Payload::Ipv4 } else { L7Payload::Ipv6 };
+            if let Some((entry_rc, rev)) = engine.runtime().conntrack().borrow().double_search(&inner)
+            {
+                out.b_reverse = !rev;
+                let entry = entry_rc.borrow();
+                out.prof_id = entry.profile_index;
+                out.l7proto = entry.l7proto;
+                out.host = entry.hostname.clone();
+                out.host_is_ip = entry.hostname_is_ip;
+                out.ctrack_check = Some((entry.check_done, entry.check_result));
+                drop(entry);
+                out.ctrack = Some(entry_rc);
+            }
+        }
+    }
+    out
+}
+
 /// Processes an ICMPv4 or ICMPv6 packet, inheriting parent flow state on RELATED error messages.
 pub(crate) fn process_icmp_packet(
     engine: &DesyncEngine,
@@ -75,52 +144,13 @@ pub(crate) fn process_icmp_packet(
         return Decision::Pass;
     };
 
-    let mut l7payload = L7Payload::Icmp;
-    let mut ctrack = None;
-    let mut b_reverse = false;
-    let mut inherited_prof_id = None;
-    let mut inherited_l7proto = L7Proto::Unknown;
-    let mut host = None;
-    let mut host_is_ip = false;
-    let mut ctrack_check = None;
-
-    if is_icmp_error_with_attached_ip(dis, icmp.icmp_type)
-        && let Some(attached) = dis.payload.as_deref()
-    {
-        let inner = dissect_packet(attached, true);
-        if inner.ip.is_some() || inner.ip6.is_some()
-        {
-            l7payload = if inner.ip.is_some() { L7Payload::Ipv4 } else { L7Payload::Ipv6 };
-            if let Some((entry_rc, rev)) = engine.runtime().conntrack().borrow().double_search(&inner)
-            {
-                b_reverse = !rev;
-                let entry = entry_rc.borrow();
-                inherited_prof_id = entry.profile_index;
-                inherited_l7proto = entry.l7proto;
-                host = entry.hostname.clone();
-                host_is_ip = entry.hostname_is_ip;
-                ctrack_check = Some((entry.check_done, entry.check_result));
-                drop(entry);
-                ctrack = Some(entry_rc);
-            }
-        }
-    }
-
-    let incoming = if ctrack.is_some()
-    {
-        b_reverse ^ engine.server
-    }
-    else
-    {
-        b_reverse = pkt.ifin.is_some_and(|s| !s.is_empty()) && !pkt.ifout.is_some_and(|s| !s.is_empty());
-        b_reverse
-    };
-
-    if host.is_none()
+    let mut flow = resolve_icmp_flow(engine, pkt, dis, icmp.icmp_type);
+    let incoming = if flow.ctrack.is_some() { flow.b_reverse ^ engine.server } else { flow.b_reverse };
+    if flow.host.is_none()
         && let Some((cached, is_ip)) = lookup_dual_ipcache_host(engine, dis)
     {
-        host = Some(cached);
-        host_is_ip = is_ip;
+        flow.host = Some(cached);
+        flow.host_is_ip = is_ip;
     }
 
     let Some(dst_ip) = extract_endpoint_ip(dis, false)
@@ -130,7 +160,7 @@ pub(crate) fn process_icmp_packet(
     };
     let src_ip = extract_endpoint_ip(dis, true);
 
-    let profile_idx = match inherited_prof_id.and_then(|id| profile_slot_by_id(&engine.profiles, id))
+    let profile_idx = match flow.prof_id.and_then(|id| profile_slot_by_id(&engine.profiles, id))
     {
         Some(idx) => Some(idx),
         None =>
@@ -147,11 +177,11 @@ pub(crate) fn process_icmp_packet(
                 },
                 primary_ip: dst_ip,
                 reverse_ip: src_ip,
-                hostname: host.as_deref(),
-                hostname_is_ip: host_is_ip,
+                hostname: flow.host.as_deref(),
+                hostname_is_ip: flow.host_is_ip,
             };
             let found = find_matching_profile(&engine.profiles, &engine.profile_runtimes, &match_input);
-            if let (Some(idx), Some(rc)) = (found, &ctrack)
+            if let (Some(idx), Some(rc)) = (found, &flow.ctrack)
             {
                 let mut e = rc.borrow_mut();
                 e.profile_searched = true;
@@ -166,7 +196,7 @@ pub(crate) fn process_icmp_packet(
     {
         return Decision::Pass;
     };
-    if !autohostlist_allows(engine, idx, host.as_deref(), host_is_ip, ctrack_check)
+    if !autohostlist_allows(engine, idx, flow.host.as_deref(), flow.host_is_ip, flow.ctrack_check)
     {
         return Decision::Pass;
     }
@@ -175,17 +205,17 @@ pub(crate) fn process_icmp_packet(
     let target_ip6 = dis.ip6.as_ref().map(|ip6| if incoming { ip6.src } else { ip6.dst });
     let ps = PlayState {
         profile_idx: Some(idx),
-        ctrack: ctrack.clone(),
-        ctrack_replay: ctrack,
-        b_reverse,
+        ctrack: flow.ctrack.clone(),
+        ctrack_replay: flow.ctrack,
+        b_reverse: flow.b_reverse,
         incoming,
         target_ip: if incoming { src_ip.unwrap_or(dst_ip) } else { dst_ip },
         target_ip4,
         target_ip6,
         target_port: 0,
         client_label: String::new(),
-        l7proto: inherited_l7proto,
-        l7payload,
+        l7proto: flow.l7proto,
+        l7payload: flow.l7payload,
         host: None,
         fwmark: pkt.mark,
     };

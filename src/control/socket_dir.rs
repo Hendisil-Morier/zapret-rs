@@ -78,6 +78,7 @@ pub fn prepare_control_socket_dir(
     }
     // SAFETY: `raw_fd` is a valid directory FD exclusively owned here.
     let dir_fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+    // SAFETY: `libc::stat` is plain-old-data C struct zeroed cleanly before `fstat`.
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
     // SAFETY: `dir_fd` is valid and `st` points to writable stack storage.
     if unsafe { libc::fstat(dir_fd.as_raw_fd(), &raw mut st) } != 0
