@@ -19,39 +19,39 @@ use crate::config::{AppConfig, LuaInitEntry};
 /// Core stateful DPI desync engine and packet loop bound by Tab 2.
 #[cfg(any(target_os = "linux", windows))]
 use crate::desync::DesyncEngine;
-/// Packet decision and borrowed queued metadata passed to worker telemetry dispatch.
-#[cfg(any(target_os = "linux", windows))]
-use crate::intercepter::{Decision, QueuedPacket};
 /// OS-agnostic packet interception loop trait.
 #[cfg(windows)]
 use crate::intercepter::PacketIntercepter;
-/// NFQUEUE catcher and configuration bound by the live Tab 2 daemon thread on Linux.
-#[cfg(target_os = "linux")]
-use crate::intercepter::{QueueCatcher, QueueConfig};
 /// WinDivert intercepter bound by the live Tab 2 daemon thread on Windows.
 #[cfg(windows)]
 use crate::intercepter::WinDivertIntercepter;
-/// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
-use crate::tools::{
-    CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, ScanConfig,
-    TomlRenderOptions, collect_config_ports, render_nfqws2_toml_scoped, resolve_lua_scripts,
-    run_scan,
-};
-/// WinDivert filter-expression builder used by the live Tab 2 daemon thread on Windows.
-#[cfg(windows)]
-use crate::tools::build_windivert_filter;
+/// Packet decision and borrowed queued metadata passed to worker telemetry dispatch.
+#[cfg(any(target_os = "linux", windows))]
+use crate::intercepter::{Decision, QueuedPacket};
+/// NFQUEUE catcher and configuration bound by the live Tab 2 daemon thread on Linux.
+#[cfg(target_os = "linux")]
+use crate::intercepter::{QueueCatcher, QueueConfig};
 /// Shared telemetry counters and serializable packet record.
 use crate::telemetry::{PacketCounters, PacketRecord};
 /// Verdict tag and packet record builder used by the live capture loop.
 #[cfg(any(target_os = "linux", windows))]
 use crate::telemetry::{PacketVerdict, build_packet_record};
+/// WinDivert filter-expression builder used by the live Tab 2 daemon thread on Windows.
+#[cfg(windows)]
+use crate::tools::build_windivert_filter;
+/// Strategy finder backends, worker handle, orchestrator, and TOML renderer.
+use crate::tools::{
+    CurlProbeBackend, FirewallHandle, InProcessWorkerHandle, ProgressEvent, ScanConfig, TomlRenderOptions,
+    collect_config_ports, render_nfqws2_toml_scoped, resolve_lua_scripts, run_scan,
+};
 /// Application state read/updated when spawning workers.
 use crate::tui::state::AppState;
 /// Status, active tab, and scan event types.
 use crate::tui::types::{ActiveTab, FinderStatus, RunStatus, ScanUiEvent};
 
 /// Active background strategy finder scan owned by the TUI event loop.
-pub(crate) struct ActiveScan {
+pub(crate) struct ActiveScan
+{
     /// Cancellation flag shared with [`run_scan`].
     pub(crate) stop: Arc<AtomicBool>,
     /// Event stream consumed by the TUI loop.
@@ -62,21 +62,26 @@ pub(crate) struct ActiveScan {
     pub(crate) fw_guard: Option<Box<dyn FirewallHandle>>,
 }
 
-impl ActiveScan {
+impl ActiveScan
+{
     /// Signals cancellation, joins the scan thread, and tears down temporary `nftables` rules.
-    pub(crate) fn shutdown<F: FnOnce(Box<dyn FirewallHandle>)>(&mut self, drop_fw: F) {
+    pub(crate) fn shutdown<F: FnOnce(Box<dyn FirewallHandle>)>(&mut self, drop_fw: F)
+    {
         self.stop.store(true, Ordering::Release);
-        if let Some(handle) = self.join.take() {
+        if let Some(handle) = self.join.take()
+        {
             let _ = handle.join();
         }
-        if let Some(guard) = self.fw_guard.take() {
+        if let Some(guard) = self.fw_guard.take()
+        {
             drop_fw(guard);
         }
     }
 }
 
 /// Active live `nfqws2` NFQUEUE + LuaJIT desync engine running on Tab 2.
-pub(crate) struct ActiveDaemon {
+pub(crate) struct ActiveDaemon
+{
     /// Stop flag observed by `QueueCatcher::run_until`.
     pub(crate) stop: Arc<AtomicBool>,
     /// Gates `Pass` packet dissection/capture to avoid formatting records while Tab 2 is unviewed or paused.
@@ -91,21 +96,26 @@ pub(crate) struct ActiveDaemon {
     pub(crate) fw_guard: Option<Box<dyn FirewallHandle>>,
 }
 
-impl ActiveDaemon {
+impl ActiveDaemon
+{
     /// Signals stop, joins the NFQUEUE thread, and removes temporary `nftables` rules.
-    pub(crate) fn shutdown<F: FnOnce(Box<dyn FirewallHandle>)>(&mut self, drop_fw: F) {
+    pub(crate) fn shutdown<F: FnOnce(Box<dyn FirewallHandle>)>(&mut self, drop_fw: F)
+    {
         self.stop.store(true, Ordering::Release);
-        if let Some(handle) = self.join.take() {
+        if let Some(handle) = self.join.take()
+        {
             let _ = handle.join();
         }
-        if let Some(guard) = self.fw_guard.take() {
+        if let Some(guard) = self.fw_guard.take()
+        {
             drop_fw(guard);
         }
     }
 }
 
 /// Formats a platform-appropriate missing-privilege error message for Tab 1/Tab 2 workers.
-fn missing_privs_error(exe_path: &str) -> String {
+fn missing_privs_error(exe_path: &str) -> String
+{
     #[cfg(windows)]
     {
         let _ = exe_path;
@@ -113,19 +123,26 @@ fn missing_privs_error(exe_path: &str) -> String {
     }
     #[cfg(not(windows))]
     {
-        format!("missing CAP_NET_ADMIN/CAP_NET_RAW (run: sudo setcap cap_net_admin,cap_net_raw+ep {exe_path})")
+        format!(
+            "missing CAP_NET_ADMIN/CAP_NET_RAW (run: sudo setcap cap_net_admin,cap_net_raw+ep {exe_path})"
+        )
     }
 }
 
 /// Validates network capabilities, scan domains/options, and Lua script discovery before launching a scan.
-pub(crate) fn validate_scan_prereqs(state: &AppState) -> Result<(ScanConfig, Vec<PathBuf>), String> {
-    if !state.status.has_net_caps {
+pub(crate) fn validate_scan_prereqs(state: &AppState) -> Result<(ScanConfig, Vec<PathBuf>), String>
+{
+    if !state.status.has_net_caps
+    {
         return Err(missing_privs_error(&state.status.exe_path));
     }
     let scan_cfg = state.build_scan_config()?;
-    let lua_opt = if state.finder.lua_dir_input.trim().is_empty() {
+    let lua_opt = if state.finder.lua_dir_input.trim().is_empty()
+    {
         None
-    } else {
+    }
+    else
+    {
         Some(PathBuf::from(state.finder.lua_dir_input.trim()))
     };
     let lua_scripts = resolve_lua_scripts(lua_opt.as_deref())?;
@@ -140,9 +157,12 @@ where
     let (scan_cfg, lua_scripts) = validate_scan_prereqs(state)?;
 
     let (tcp_ports, udp_ports) = scan_cfg.required_ports();
-    let fw_guard = if state.finder.no_nft {
+    let fw_guard = if state.finder.no_nft
+    {
         None
-    } else {
+    }
+    else
+    {
         Some(
             install_fw(state.finder.qnum, state.finder.fwmark, &tcp_ports, &udp_ports)
                 .map_err(|err| format!("{err}"))?,
@@ -163,35 +183,58 @@ where
             let mut base_cfg = AppConfig { qnum, fwmark, ..AppConfig::default() };
             base_cfg.ipcache.hostname = true;
             base_cfg.lua_init = lua_scripts.iter().cloned().map(LuaInitEntry::File).collect();
-            let mut worker = match InProcessWorkerHandle::spawn(base_cfg, &NEVER_STOP) {
+            let mut worker = match InProcessWorkerHandle::spawn(base_cfg, &NEVER_STOP)
+            {
                 Ok(w) => w,
-                Err(err) => { let _ = tx.send(ScanUiEvent::Failed(err)); return; }
+                Err(err) =>
+                {
+                    let _ = tx.send(ScanUiEvent::Failed(err));
+                    return;
+                }
             };
             let _ = tx.send(ScanUiEvent::Notice(format!("[worker] {}", worker.capture_spec())));
             let probe = CurlProbeBackend::default();
-            let scan_res = run_scan(&scan_cfg, &probe, &mut worker, &stop_bg, |ev| match ev {
-                ProgressEvent::Http3Unavailable => {
-                    let _ = tx.send(ScanUiEvent::Notice("[warn] curl lacks HTTP3 support; skipping http3".to_owned()));
+            let scan_res = run_scan(&scan_cfg, &probe, &mut worker, &stop_bg, |ev| match ev
+            {
+                ProgressEvent::Http3Unavailable =>
+                {
+                    let _ = tx.send(ScanUiEvent::Notice(
+                        "[warn] curl lacks HTTP3 support; skipping http3".to_owned(),
+                    ));
                 }
-                ProgressEvent::Baseline { domain, proto, ipv, outcome } => {
+                ProgressEvent::Baseline { domain, proto, ipv, outcome } =>
+                {
                     let _ = tx.send(ScanUiEvent::Baseline {
-                        domain: domain.to_owned(), proto, ipv,
-                        summary: outcome.summary(), skipped: outcome.is_success(),
+                        domain: domain.to_owned(),
+                        proto,
+                        ipv,
+                        summary: outcome.summary(),
+                        skipped: outcome.is_success(),
                     });
                 }
-                ProgressEvent::Candidate { domain, index, total, strategy, outcome } => {
+                ProgressEvent::Candidate { domain, index, total, strategy, outcome } =>
+                {
                     let _ = tx.send(ScanUiEvent::Candidate {
-                        domain: domain.to_owned(), index, total,
-                        strategy_id: strategy.id.clone(), passed: outcome.is_success(), summary: outcome.summary(),
+                        domain: domain.to_owned(),
+                        index,
+                        total,
+                        strategy_id: strategy.id.clone(),
+                        passed: outcome.is_success(),
+                        summary: outcome.summary(),
                     });
                 }
             });
             let _ = tx.send(ScanUiEvent::Notice(format!("[worker] {}", worker.stats_summary())));
-            match scan_res {
-                Ok(report) => {
-                    let rendered_toml = if report.cover.is_empty() {
+            match scan_res
+            {
+                Ok(report) =>
+                {
+                    let rendered_toml = if report.cover.is_empty()
+                    {
                         String::new()
-                    } else {
+                    }
+                    else
+                    {
                         render_nfqws2_toml_scoped(
                             &report.cover,
                             &TomlRenderOptions { qnum: 200, fwmark, lua_init: lua_scripts },
@@ -200,7 +243,10 @@ where
                     };
                     let _ = tx.send(ScanUiEvent::Completed { report, rendered_toml });
                 }
-                Err(err) => { let _ = tx.send(ScanUiEvent::Failed(err)); }
+                Err(err) =>
+                {
+                    let _ = tx.send(ScanUiEvent::Failed(err));
+                }
             }
         })
         .map_err(|err| format!("failed to spawn scan thread: {err}"))?;
@@ -225,21 +271,27 @@ fn dispatch_live_worker_packet(
     desync_tx: &mpsc::SyncSender<PacketRecord>,
     pkt_tx: &mpsc::SyncSender<PacketRecord>,
     pkt: &QueuedPacket<'_>,
-) -> Decision {
+) -> Decision
+{
     let (decision, outcome) = engine.process_packet_traced(pkt);
     let (seq, verdict) = counters.record_outcome(&outcome);
     let inspecting = capture_enabled.load(Ordering::Relaxed);
-    if !inspecting {
+    if !inspecting
+    {
         return decision;
     }
-    if verdict == PacketVerdict::Pass {
+    if verdict == PacketVerdict::Pass
+    {
         let idx = *pass_seen;
         *pass_seen = idx.wrapping_add(1);
-        if !idx.is_multiple_of(10) {
+        if !idx.is_multiple_of(10)
+        {
             return decision;
         }
         let _ = pkt_tx.try_send(build_packet_record(seq, pkt, &outcome));
-    } else {
+    }
+    else
+    {
         // Route `REASM`/`MODIFY`/`DESYNC` to a dedicated channel so `PASS` bursts never drop them.
         let _ = desync_tx.try_send(build_packet_record(seq, pkt, &outcome));
     }
@@ -251,11 +303,15 @@ pub(crate) fn start_live_daemon<F>(state: &mut AppState, install_fw: F) -> Resul
 where
     F: FnOnce(u16, u32, &[u16], &[u16]) -> std::io::Result<Box<dyn FirewallHandle>>,
 {
-    if !state.status.has_net_caps {
+    if !state.status.has_net_caps
+    {
         return Err(missing_privs_error(&state.status.exe_path));
     }
-    if state.config.active_toml.trim().is_empty() {
-        return Err("no active nfqws2.toml loaded (run Strategy Finder or press 'l' to load a file)".to_owned());
+    if state.config.active_toml.trim().is_empty()
+    {
+        return Err(
+            "no active nfqws2.toml loaded (run Strategy Finder or press 'l' to load a file)".to_owned()
+        );
     }
     let base_dir = Path::new(&state.finder.output_path).parent();
     let cfg = AppConfig::from_toml_str(&state.config.active_toml, base_dir)
@@ -268,9 +324,7 @@ where
     let (desync_tx, desync_rx) = mpsc::sync_channel::<PacketRecord>(256);
     let stop = Arc::new(AtomicBool::new(false));
     let stop_bg = Arc::clone(&stop);
-    let capture_enabled = Arc::new(AtomicBool::new(
-        state.tab == ActiveTab::Run && !state.inspector.paused,
-    ));
+    let capture_enabled = Arc::new(AtomicBool::new(state.tab == ActiveTab::Run && !state.inspector.paused));
     let capture_bg = Arc::clone(&capture_enabled);
     let counters: Arc<PacketCounters> = Arc::clone(&state.run.counters);
 
@@ -279,13 +333,23 @@ where
         .spawn(move || {
             #[cfg(target_os = "linux")]
             {
-                let mut catcher = match QueueCatcher::bind(QueueConfig::with_fwmark(cfg.qnum, cfg.fwmark)) {
+                let mut catcher = match QueueCatcher::bind(QueueConfig::with_fwmark(cfg.qnum, cfg.fwmark))
+                {
                     Ok(c) => c,
-                    Err(err) => { let _ = ready_tx.send(Err(format!("NFQUEUE bind failed: {err}"))); return; }
+                    Err(err) =>
+                    {
+                        let _ = ready_tx.send(Err(format!("NFQUEUE bind failed: {err}")));
+                        return;
+                    }
                 };
-                let engine = match DesyncEngine::new(&cfg) {
+                let engine = match DesyncEngine::new(&cfg)
+                {
                     Ok(e) => e,
-                    Err(err) => { let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}"))); return; }
+                    Err(err) =>
+                    {
+                        let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}")));
+                        return;
+                    }
                 };
                 let _ = ready_tx.send(Ok(()));
                 let mut pass_seen = 0u64;
@@ -309,13 +373,23 @@ where
             {
                 let (tcp_ports, udp_ports) = collect_config_ports(&cfg);
                 let filter = build_windivert_filter(&tcp_ports, &udp_ports);
-                let mut catcher = match WinDivertIntercepter::bind(&filter) {
+                let mut catcher = match WinDivertIntercepter::bind(&filter)
+                {
                     Ok(c) => c,
-                    Err(err) => { let _ = ready_tx.send(Err(format!("WinDivert bind failed: {err}"))); return; }
+                    Err(err) =>
+                    {
+                        let _ = ready_tx.send(Err(format!("WinDivert bind failed: {err}")));
+                        return;
+                    }
                 };
-                let engine = match DesyncEngine::new(&cfg) {
+                let engine = match DesyncEngine::new(&cfg)
+                {
                     Ok(e) => e,
-                    Err(err) => { let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}"))); return; }
+                    Err(err) =>
+                    {
+                        let _ = ready_tx.send(Err(format!("Lua engine init failed: {err}")));
+                        return;
+                    }
                 };
                 let _ = ready_tx.send(Ok(()));
                 let mut pass_seen = 0u64;
@@ -338,25 +412,39 @@ where
             #[cfg(not(any(target_os = "linux", windows)))]
             {
                 let _ = (&cfg, &stop_bg, &capture_bg, &counters, &pkt_tx, &desync_tx);
-                let _ = ready_tx.send(Err(
-                    "live packet interception is not yet implemented on this OS".to_owned(),
-                ));
+                let _ = ready_tx
+                    .send(Err("live packet interception is not yet implemented on this OS".to_owned()));
             }
         })
         .map_err(|err| format!("failed to spawn live daemon thread: {err}"))?;
 
-    match ready_rx.recv() {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => { let _ = join.join(); return Err(err); }
-        Err(_) => { let _ = join.join(); return Err("live daemon thread exited during startup".to_owned()); }
+    match ready_rx.recv()
+    {
+        Ok(Ok(())) =>
+        {}
+        Ok(Err(err)) =>
+        {
+            let _ = join.join();
+            return Err(err);
+        }
+        Err(_) =>
+        {
+            let _ = join.join();
+            return Err("live daemon thread exited during startup".to_owned());
+        }
     }
 
-    let fw_guard = if state.finder.no_nft {
+    let fw_guard = if state.finder.no_nft
+    {
         None
-    } else {
-        match install_fw(qnum, fwmark, &tcp_ports, &udp_ports) {
+    }
+    else
+    {
+        match install_fw(qnum, fwmark, &tcp_ports, &udp_ports)
+        {
             Ok(g) => Some(g),
-            Err(err) => {
+            Err(err) =>
+            {
                 stop.store(true, Ordering::Release);
                 let _ = join.join();
                 return Err(format!("{err}"));
@@ -370,7 +458,6 @@ where
         "[start] {engine} active (queue {qnum}, fwmark 0x{fwmark:08x}, {} profiles)",
         state.config.parsed_profiles.len()
     ));
-    state.status_banner =
-        format!("{engine} is running. Press 'f' to filter, 'd' for detail, 'x' to stop.");
+    state.status_banner = format!("{engine} is running. Press 'f' to filter, 'd' for detail, 'x' to stop.");
     Ok(ActiveDaemon { stop, capture_enabled, pkt_rx, desync_rx, join: Some(join), fw_guard })
 }

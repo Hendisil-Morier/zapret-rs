@@ -12,7 +12,8 @@ use std::path::PathBuf;
 use zapret_rs::tools::{BUNDLED_LUA_SCRIPTS, extract_bundled_lua, resolve_lua_scripts};
 
 /// Creates a unique temporary directory removed cleanly by the test.
-fn temp_dir(tag: &str) -> PathBuf {
+fn temp_dir(tag: &str) -> PathBuf
+{
     let dir = std::env::temp_dir().join(format!("zapret-rs-lua-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp dir");
@@ -20,7 +21,8 @@ fn temp_dir(tag: &str) -> PathBuf {
 }
 
 #[test]
-fn extract_bundled_lua_writes_all_scripts_and_is_idempotent() {
+fn extract_bundled_lua_writes_all_scripts_and_is_idempotent()
+{
     let dir = temp_dir("extract");
     let written = extract_bundled_lua(&dir).expect("extract bundled lua scripts");
     assert_eq!(written.len(), BUNDLED_LUA_SCRIPTS.len());
@@ -40,7 +42,8 @@ fn extract_bundled_lua_writes_all_scripts_and_is_idempotent() {
 }
 
 #[test]
-fn resolve_lua_scripts_keeps_missing_explicit_dir_strict() {
+fn resolve_lua_scripts_keeps_missing_explicit_dir_strict()
+{
     let missing = std::env::temp_dir().join("zapret-rs-definitely-missing-lua-dir");
     let _ = fs::remove_dir_all(&missing);
     let err = resolve_lua_scripts(Some(&missing)).expect_err("explicit missing dir must fail");
@@ -49,7 +52,8 @@ fn resolve_lua_scripts_keeps_missing_explicit_dir_strict() {
 
 #[cfg(unix)]
 #[test]
-fn extract_bundled_lua_refuses_symlinks_with_nofollow() {
+fn extract_bundled_lua_refuses_symlinks_with_nofollow()
+{
     let dir = temp_dir("symlink");
     let target = dir.join("decoy.txt");
     fs::write(&target, "keep").expect("write decoy target");

@@ -14,7 +14,8 @@ use crate::tools::strat::interactive::normalize_domain;
 use crate::tools::strat::toml::write_config_nofollow;
 
 /// Normalizes `raw` and rejects malformed labels, IPs, localhost/local targets, glob chars, or `@`.
-pub fn parse_clean_domain(raw: &str) -> Option<String> {
+pub fn parse_clean_domain(raw: &str) -> Option<String>
+{
     if raw.contains('@')
         || raw.contains('{')
         || raw.contains('}')
@@ -33,53 +34,65 @@ pub fn parse_clean_domain(raw: &str) -> Option<String> {
     {
         return None;
     }
-    let valid_chars = domain
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
-    let valid_labels = domain.split('.').all(|lbl| {
-        !lbl.is_empty()
-            && lbl.len() <= 63
-            && !lbl.starts_with('-')
-            && !lbl.ends_with('-')
-    });
-    if !valid_chars || !valid_labels || !domain.contains('.') || domain.contains("..") {
+    let valid_chars = domain.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
+    let valid_labels = domain
+        .split('.')
+        .all(|lbl| !lbl.is_empty() && lbl.len() <= 63 && !lbl.starts_with('-') && !lbl.ends_with('-'));
+    if !valid_chars || !valid_labels || !domain.contains('.') || domain.contains("..")
+    {
         return None;
     }
     Some(domain)
 }
 
 /// Reads non-empty, non-comment domain entries from a hostlist file.
-pub fn read_hostlist_lines(path: &Path) -> Vec<String> {
-    let Ok(raw) = fs::read_to_string(path) else {
+pub fn read_hostlist_lines(path: &Path) -> Vec<String>
+{
+    let Ok(raw) = fs::read_to_string(path)
+    else
+    {
         return Vec::new();
     };
     raw.lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                None
-            } else {
-                Some(trimmed.to_owned())
-            }
+            if trimmed.is_empty() || trimmed.starts_with('#') { None } else { Some(trimmed.to_owned()) }
         })
         .collect()
 }
 
+/// Normalizes a hostlist entry (`parse_clean_domain` hostnames/URLs plus bare IPv4/IPv6 literals).
+fn parse_hostlist_entry(raw: &str) -> Option<String>
+{
+    parse_clean_domain(raw).or_else(|| {
+        let trimmed = raw.trim();
+        trimmed.parse::<std::net::IpAddr>().ok().map(|ip| ip.to_string())
+    })
+}
+
 /// Appends or removes `raw_domain` in `path`, preserving existing entries and returning the updated list.
-pub fn mutate_hostlist_file(path: &Path, raw_domain: &str, add: bool) -> Result<Vec<String>, String> {
-    let Some(domain) = parse_clean_domain(raw_domain) else {
-        return Err("invalid domain name (expected hostname like example.com)".to_owned());
+pub fn mutate_hostlist_file(path: &Path, raw_domain: &str, add: bool) -> Result<Vec<String>, String>
+{
+    let Some(domain) = parse_hostlist_entry(raw_domain)
+    else
+    {
+        return Err("invalid hostlist entry (expected hostname or IP address)".to_owned());
     };
     let mut domains = read_hostlist_lines(path);
-    if add {
-        if !domains.iter().any(|d| d.eq_ignore_ascii_case(&domain)) {
+    if add
+    {
+        if !domains.iter().any(|d| d.eq_ignore_ascii_case(&domain))
+        {
             domains.push(domain);
         }
-    } else {
+    }
+    else
+    {
         domains.retain(|d| !d.eq_ignore_ascii_case(&domain));
     }
     let mut rendered = domains.join("\n");
-    if !rendered.is_empty() {
+    if !rendered.is_empty()
+    {
         rendered.push('\n');
     }
     write_config_nofollow(path, &rendered)
@@ -88,9 +101,11 @@ pub fn mutate_hostlist_file(path: &Path, raw_domain: &str, add: bool) -> Result<
 }
 
 /// Returns all unique configured `hostlist_auto` file paths referenced by `cfg`.
-pub fn configured_autohostlist_paths(cfg: &AppConfig) -> Vec<PathBuf> {
+pub fn configured_autohostlist_paths(cfg: &AppConfig) -> Vec<PathBuf>
+{
     let mut paths = Vec::new();
-    for prof in &cfg.profiles {
+    for prof in &cfg.profiles
+    {
         if let Some(path) = &prof.lists.hostlist_auto
             && !paths.contains(path)
         {
@@ -101,17 +116,23 @@ pub fn configured_autohostlist_paths(cfg: &AppConfig) -> Vec<PathBuf> {
 }
 
 /// Extracts unique excluded (blacklisted) domains across `hostlist_exclude_domains` and `hostlist_exclude` files.
-pub fn extract_exclude_domains(cfg: &AppConfig) -> Vec<String> {
+pub fn extract_exclude_domains(cfg: &AppConfig) -> Vec<String>
+{
     let mut domains = BTreeSet::new();
-    for prof in &cfg.profiles {
-        for raw in &prof.lists.hostlist_exclude_domains {
+    for prof in &cfg.profiles
+    {
+        for raw in &prof.lists.hostlist_exclude_domains
+        {
             let trimmed = raw.trim();
-            if !trimmed.is_empty() {
+            if !trimmed.is_empty()
+            {
                 domains.insert(trimmed.to_ascii_lowercase());
             }
         }
-        for path in &prof.lists.hostlist_exclude {
-            for line in read_hostlist_lines(path) {
+        for path in &prof.lists.hostlist_exclude
+        {
+            for line in read_hostlist_lines(path)
+            {
                 domains.insert(line.to_ascii_lowercase());
             }
         }
@@ -128,30 +149,43 @@ pub fn mutate_exclude_domains_toml(
     raw_domain: &str,
     add: bool,
     base_dir: Option<&Path>,
-) -> Result<String, String> {
-    let Some(domain) = parse_clean_domain(raw_domain) else {
-        return Err("invalid domain name (expected hostname like bank.com)".to_owned());
+) -> Result<String, String>
+{
+    let Some(domain) = parse_hostlist_entry(raw_domain)
+    else
+    {
+        return Err("invalid hostlist entry (expected hostname or IP address)".to_owned());
     };
     let mut root: toml::Table =
         toml::from_str(toml_text).map_err(|err| format!("invalid config TOML: {err}"))?;
-    let Some(toml::Value::Array(profiles)) = root.get_mut("profiles") else {
+    let Some(toml::Value::Array(profiles)) = root.get_mut("profiles")
+    else
+    {
         return Err("no [[profiles]] configured in nfqws2.toml yet".to_owned());
     };
-    if profiles.is_empty() {
+    if profiles.is_empty()
+    {
         return Err("no [[profiles]] configured in nfqws2.toml yet".to_owned());
     }
 
-    for item in profiles.iter_mut() {
-        let Some(prof) = item.as_table_mut() else {
+    for item in profiles.iter_mut()
+    {
+        let Some(prof) = item.as_table_mut()
+        else
+        {
             continue;
         };
-        if add {
-            let arr = match prof.entry("hostlist_exclude_domains") {
-                toml::map::Entry::Occupied(e) => match e.into_mut() {
+        if add
+        {
+            let arr = match prof.entry("hostlist_exclude_domains")
+            {
+                toml::map::Entry::Occupied(e) => match e.into_mut()
+                {
                     toml::Value::Array(a) => Some(a),
                     _ => None,
                 },
-                toml::map::Entry::Vacant(v) => match v.insert(toml::Value::Array(Vec::new())) {
+                toml::map::Entry::Vacant(v) => match v.insert(toml::Value::Array(Vec::new()))
+                {
                     toml::Value::Array(a) => Some(a),
                     _ => None,
                 },
@@ -161,16 +195,18 @@ pub fn mutate_exclude_domains_toml(
             {
                 arr.push(toml::Value::String(domain.clone()));
             }
-        } else if let Some(toml::Value::Array(arr)) = prof.get_mut("hostlist_exclude_domains") {
+        }
+        else if let Some(toml::Value::Array(arr)) = prof.get_mut("hostlist_exclude_domains")
+        {
             arr.retain(|v| v.as_str().is_none_or(|s| !s.eq_ignore_ascii_case(&domain)));
-            if arr.is_empty() {
+            if arr.is_empty()
+            {
                 prof.remove("hostlist_exclude_domains");
             }
         }
     }
 
-    let rendered =
-        toml::to_string_pretty(&root).map_err(|err| format!("failed to serialize TOML: {err}"))?;
+    let rendered = toml::to_string_pretty(&root).map_err(|err| format!("failed to serialize TOML: {err}"))?;
     AppConfig::from_toml_str(&rendered, base_dir)
         .map_err(|err| format!("updated config failed validation: {err}"))?;
     Ok(rendered)

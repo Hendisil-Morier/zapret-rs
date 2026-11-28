@@ -1,0 +1,5 @@
+edition = "2024"
+max_width = 110
+use_small_heuristics = "Max"
+brace_style = "AlwaysNextLine"
+control_brace_style = "AlwaysNextLine"

@@ -25,8 +25,8 @@ pub use auth::{SESSION_COOKIE_NAME, WebAuth, unix_now_secs};
 pub use cli::{DEFAULT_WEB_BIND, WebCli, WebConfig, run_web_cli};
 /// Public API re-exports for HTTP request/response types and bounded reader errors.
 pub use http::{
-    HttpMethod, HttpReadError, HttpRequest, MAX_BODY_BYTES, MAX_HEADER_BYTES, read_http_request,
-    write_error, write_json, write_response,
+    HttpMethod, HttpReadError, HttpRequest, MAX_BODY_BYTES, MAX_HEADER_BYTES, read_http_request, write_error,
+    write_json, write_response,
 };
 /// Public API re-exports for daemon IPC bridge state and status DTOs.
 pub use ipc_bridge::{MAX_SSE_CLIENTS, WebIpcBridge, WebStatusSnapshot};

@@ -10,22 +10,18 @@ use std::sync::atomic::AtomicBool;
 /// Core `mlua` types for table manipulation, functions, and variadic arguments.
 use mlua::{Function, Lua, Value, Variadic};
 
-/// Argument validation and value extraction helpers.
-use crate::lua::helpers::{
-    check_argc, check_argc_range, coerce_i64, is_truthy, require_strict_str,
-};
 /// Typed error wrapper for Lua engine operations.
 use crate::lua::error::LuaEngineError;
+/// Argument validation and value extraction helpers.
+use crate::lua::helpers::{check_argc, check_argc_range, coerce_i64, is_truthy, require_strict_str};
 /// Top-level LuaJIT runtime orchestrator managing periodic GC and `mlua::Lua` state.
 use crate::lua::runtime::LuaRuntime;
 /// Monotonic boottime clock reader, callback loop runner, and scheduled timer pool.
 use crate::timer::{TimerPool, boottime_ms, run_no_intercept_callbacks};
 
 /// Registers `timer_set`, `timer_del`, `timer_info`, and `timer_enum` into Lua `_G`.
-pub fn register_timer_functions(
-    lua: &Lua,
-    pool: Rc<RefCell<TimerPool>>,
-) -> Result<(), LuaEngineError> {
+pub fn register_timer_functions(lua: &Lua, pool: Rc<RefCell<TimerPool>>) -> Result<(), LuaEngineError>
+{
     let globals = lua.globals();
 
     // timer_set(name, func, period, [oneshot], [data])
@@ -34,15 +30,18 @@ pub fn register_timer_functions(
         check_argc_range("timer_set", &args, 3, 5)?;
         let name = require_strict_str(&args[0])?;
 
-        let func_key = match &args[1] {
-            Value::String(s) => {
-                let func_name = s
-                    .to_str()
-                    .map_err(|_| mlua::Error::external("invalid UTF-8 function name"))?;
+        let func_key = match &args[1]
+        {
+            Value::String(s) =>
+            {
+                let func_name =
+                    s.to_str().map_err(|_| mlua::Error::external("invalid UTF-8 function name"))?;
                 let global_val = lua.globals().get::<Value>(&*func_name)?;
-                match global_val {
+                match global_val
+                {
                     Value::Function(f) => lua.create_registry_value(f)?,
-                    _ => {
+                    _ =>
+                    {
                         return Err(mlua::Error::external(format!(
                             "timer function '{func_name}' does not exist"
                         )));
@@ -54,14 +53,16 @@ pub fn register_timer_functions(
         };
 
         let period = coerce_i64(lua, &args[2])?;
-        if period < 10 {
+        if period < 10
+        {
             return Err(mlua::Error::external("invalid timer period. must be >=10 ms"));
         }
         let period_ms = period as u64;
 
         let oneshot = args.get(3).is_some_and(is_truthy);
 
-        let data_key = match args.get(4) {
+        let data_key = match args.get(4)
+        {
             Some(val) if !val.is_nil() => Some(lua.create_registry_value(val.clone())?),
             _ => None,
         };
@@ -83,7 +84,8 @@ pub fn register_timer_functions(
         check_argc("timer_del", &args, 1)?;
         let name = require_strict_str(&args[0])?;
         let deleted = pool_del.borrow_mut().del(&name);
-        if deleted {
+        if deleted
+        {
             lua.expire_registry_values();
         }
         Ok(deleted)
@@ -97,8 +99,10 @@ pub fn register_timer_functions(
         let name = require_strict_str(&args[0])?;
         let info_opt = pool_info.borrow().info(&name);
 
-        match info_opt {
-            Some(info) => {
+        match info_opt
+        {
+            Some(info) =>
+            {
                 let tbl = lua.create_table()?;
                 tbl.set("name", info.name.as_str())?;
                 if let Some(func) = pool_info
@@ -124,7 +128,8 @@ pub fn register_timer_functions(
         check_argc("timer_enum", &args, 0)?;
         let names = pool_enum.borrow().enum_names();
         let tbl = lua.create_table()?;
-        for (idx, name) in names.into_iter().enumerate() {
+        for (idx, name) in names.into_iter().enumerate()
+        {
             tbl.set(idx + 1, name)?;
         }
         Ok(tbl)
@@ -138,11 +143,8 @@ pub fn register_timer_functions(
 ///
 /// Provides parity with `zapret2`'s `NoInterceptLoop(void)` in `nfqws.c`. When
 /// `stop` becomes `true` or the timer pool becomes empty, the loop exits gracefully.
-pub fn run_no_intercept(
-    pool_rc: &Rc<RefCell<TimerPool>>,
-    runtime: &LuaRuntime,
-    stop: &AtomicBool,
-) {
+pub fn run_no_intercept(pool_rc: &Rc<RefCell<TimerPool>>, runtime: &LuaRuntime, stop: &AtomicBool)
+{
     run_no_intercept_with_tick(pool_rc, runtime, stop, || {});
 }
 
@@ -152,7 +154,8 @@ pub fn run_no_intercept_with_tick(
     runtime: &LuaRuntime,
     stop: &AtomicBool,
     on_tick: impl FnMut(),
-) {
+)
+{
     run_no_intercept_callbacks(
         stop,
         on_tick,

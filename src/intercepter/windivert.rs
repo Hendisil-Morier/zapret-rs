@@ -38,22 +38,22 @@ unsafe extern "system" {
 /// RAII wrapper around a manual-reset Win32 event handle.
 struct Win32Event(isize);
 
-impl Win32Event {
+impl Win32Event
+{
     /// Creates an unnamed manual-reset Win32 event handle.
-    fn new() -> std::io::Result<Self> {
+    fn new() -> std::io::Result<Self>
+    {
         // SAFETY: Creating an unnamed manual-reset event requires no external pointers.
         let handle = unsafe { CreateEventW(core::ptr::null(), 1, 0, core::ptr::null()) };
-        if handle == 0 {
-            Err(std::io::Error::last_os_error())
-        } else {
-            Ok(Self(handle))
-        }
+        if handle == 0 { Err(std::io::Error::last_os_error()) } else { Ok(Self(handle)) }
     }
 }
 
-impl Drop for Win32Event {
+impl Drop for Win32Event
+{
     /// Closes the underlying Win32 event handle.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         // SAFETY: `self.0` was created by `CreateEventW`.
         unsafe {
             let _ = CloseHandle(self.0);
@@ -62,21 +62,25 @@ impl Drop for Win32Event {
 }
 
 /// Windows WinDivert packet intercepter implementing [`PacketIntercepter`].
-pub struct WinDivertIntercepter {
+pub struct WinDivertIntercepter
+{
     /// Open WinDivert network-layer handle capturing matching packets.
     handle: WinDivertHandle,
 }
 
-impl WinDivertIntercepter {
+impl WinDivertIntercepter
+{
     /// Loads `WinDivert.dll` and opens a `NETWORK`-layer capture handle for `filter`.
-    pub fn bind(filter: &str) -> Result<Self, IntercepterError> {
+    pub fn bind(filter: &str) -> Result<Self, IntercepterError>
+    {
         let api = WinDivertApi::load()?;
         let handle = api.open(filter, WINDIVERT_LAYER_NETWORK, 0, 0)?;
         Ok(Self { handle })
     }
 
     /// Signals the underlying WinDivert handle to shut down so a blocked capture loop exits.
-    pub fn shutdown(&self) {
+    pub fn shutdown(&self)
+    {
         self.handle.shutdown();
     }
 
@@ -86,23 +90,29 @@ impl WinDivertIntercepter {
         decision: Decision,
         raw_packet: &[u8],
         addr: &mut WinDivertAddress,
-    ) -> Result<(), IntercepterError> {
-        match decision {
-            Decision::Pass => {
+    ) -> Result<(), IntercepterError>
+    {
+        match decision
+        {
+            Decision::Pass =>
+            {
                 self.handle.send(raw_packet, addr)?;
             }
-            Decision::Replace(mut modified) => {
+            Decision::Replace(mut modified) =>
+            {
                 self.handle.calc_checksums(&mut modified, addr);
                 self.handle.send(&modified, addr)?;
             }
-            Decision::Drop => {}
+            Decision::Drop =>
+            {}
         }
         Ok(())
     }
 }
 
 /// Outcome of one overlapped WinDivert receive step.
-enum RecvStep {
+enum RecvStep
+{
     /// Packet arrived (`len` bytes available in heap buffer).
     Ready(usize),
     /// Timed out waiting on `h_event`; caller should run `next_timeout()` and wait again.
@@ -112,7 +122,8 @@ enum RecvStep {
 }
 
 /// Heap-pinned I/O state accessed only through raw pointers while overlapped I/O is pending.
-struct PinnedRecvIo {
+struct PinnedRecvIo
+{
     /// Win32 `OVERLAPPED` structure owned exclusively until completion or `CancelIoEx`.
     overlapped: UnsafeCell<Overlapped>,
     /// Captured WinDivert address metadata written asynchronously by the driver.
@@ -124,7 +135,8 @@ struct PinnedRecvIo {
 }
 
 /// Drop-safe overlapped receive state machine guaranteeing `CancelIoEx` before freeing heap I/O buffers.
-struct OverlappedRecvGuard<'a> {
+struct OverlappedRecvGuard<'a>
+{
     /// Open WinDivert handle issuing overlapped receives.
     handle: &'a WinDivertHandle,
     /// Manual-reset Win32 event referenced by `io.overlapped.h_event`.
@@ -135,67 +147,57 @@ struct OverlappedRecvGuard<'a> {
     pending: bool,
 }
 
-impl<'a> OverlappedRecvGuard<'a> {
+impl<'a> OverlappedRecvGuard<'a>
+{
     /// Allocates heap-pinned overlapped capture buffers bound to `handle`.
-    fn new(handle: &'a WinDivertHandle) -> std::io::Result<Self> {
+    fn new(handle: &'a WinDivertHandle) -> std::io::Result<Self>
+    {
         let event = Win32Event::new()?;
         let io = Box::new(PinnedRecvIo {
-            overlapped: UnsafeCell::new(Overlapped {
-                h_event: event.0,
-                ..Overlapped::default()
-            }),
+            overlapped: UnsafeCell::new(Overlapped { h_event: event.0, ..Overlapped::default() }),
             addr: UnsafeCell::new(WinDivertAddress::default()),
             addr_len: UnsafeCell::new(0),
             buf: UnsafeCell::new(vec![0u8; CAPTURE_BUF_LEN].into_boxed_slice()),
         });
-        Ok(Self {
-            handle,
-            event,
-            io,
-            pending: false,
-        })
+        Ok(Self { handle, event, io, pending: false })
     }
 
     /// Completes a signaled/finished overlapped receive and returns its transferred byte count.
-    fn finish_overlapped(&self, stop: &AtomicBool) -> Result<RecvStep, IntercepterError> {
+    fn finish_overlapped(&self, stop: &AtomicBool) -> Result<RecvStep, IntercepterError>
+    {
         let mut xfer = 0u32;
         // SAFETY: `io.overlapped` stays pinned until `GetOverlappedResult` completes synchronously.
         let ok = unsafe {
-            GetOverlappedResult(
-                self.handle.raw_handle(),
-                self.io.overlapped.get(),
-                &raw mut xfer,
-                1,
-            )
+            GetOverlappedResult(self.handle.raw_handle(), self.io.overlapped.get(), &raw mut xfer, 1)
         };
-        if ok != 0 {
+        if ok != 0
+        {
             return Ok(RecvStep::Ready(xfer as usize));
         }
-        if stop.load(Ordering::Acquire) {
+        if stop.load(Ordering::Acquire)
+        {
             Ok(RecvStep::Stopped)
-        } else {
+        }
+        else
+        {
             Err(IntercepterError::Io(std::io::Error::last_os_error()))
         }
     }
 
     /// Polls or initiates an overlapped `WinDivertRecvEx` wait bounded by `wait_ms`.
-    fn poll_step(&mut self, wait_ms: u32, stop: &AtomicBool) -> Result<RecvStep, IntercepterError> {
-        if !self.pending {
+    fn poll_step(&mut self, wait_ms: u32, stop: &AtomicBool) -> Result<RecvStep, IntercepterError>
+    {
+        if !self.pending
+        {
             // SAFETY: No kernel I/O is pending (`!self.pending`), so resetting `overlapped` is exclusive.
             unsafe {
                 let _ = ResetEvent(self.event.0);
-                self.io.overlapped.get().write(Overlapped {
-                    h_event: self.event.0,
-                    ..Overlapped::default()
-                });
+                self.io.overlapped.get().write(Overlapped { h_event: self.event.0, ..Overlapped::default() });
             }
             // SAFETY: `buf` is heap-allocated and no `&mut` references exist while `pending` can become `true`.
             let (buf_ptr, buf_cap) = unsafe {
                 let slice = &mut *self.io.buf.get();
-                (
-                    slice.as_mut_ptr(),
-                    u32::try_from(slice.len()).unwrap_or(u32::MAX),
-                )
+                (slice.as_mut_ptr(), u32::try_from(slice.len()).unwrap_or(u32::MAX))
             };
             // SAFETY: `Drop` guarantees `CancelIoEx` + `GetOverlappedResult` wait before `self.io` frees.
             match unsafe {
@@ -206,13 +208,16 @@ impl<'a> OverlappedRecvGuard<'a> {
                     self.io.addr_len.get(),
                     self.io.overlapped.get(),
                 )
-            } {
+            }
+            {
                 Ok(true) => return self.finish_overlapped(stop),
-                Ok(false) => {
+                Ok(false) =>
+                {
                     self.pending = true;
                     return Ok(RecvStep::TimedOut);
                 }
-                Err(err) if stop.load(Ordering::Acquire) => {
+                Err(err) if stop.load(Ordering::Acquire) =>
+                {
                     let _ = err;
                     return Ok(RecvStep::Stopped);
                 }
@@ -222,10 +227,12 @@ impl<'a> OverlappedRecvGuard<'a> {
 
         // SAFETY: `self.event.0` stays valid until after `Drop` drains pending I/O.
         let wait_rc = unsafe { WaitForSingleObject(self.event.0, wait_ms) };
-        if wait_rc == WAIT_TIMEOUT {
+        if wait_rc == WAIT_TIMEOUT
+        {
             return Ok(RecvStep::TimedOut);
         }
-        if wait_rc != WAIT_OBJECT_0 {
+        if wait_rc != WAIT_OBJECT_0
+        {
             return Err(IntercepterError::Io(std::io::Error::last_os_error()));
         }
         self.pending = false;
@@ -234,7 +241,8 @@ impl<'a> OverlappedRecvGuard<'a> {
 
     /// Returns an immutable view of the completed packet payload and a copy of `WinDivertAddress`.
     /// Call only immediately after `poll_step` returns `RecvStep::Ready(len)`.
-    fn completed_packet(&self, len: usize) -> (&[u8], WinDivertAddress) {
+    fn completed_packet(&self, len: usize) -> (&[u8], WinDivertAddress)
+    {
         debug_assert!(!self.pending);
         // SAFETY: `pending` is `false`, so no kernel writes are in flight against `io`.
         unsafe {
@@ -245,27 +253,27 @@ impl<'a> OverlappedRecvGuard<'a> {
     }
 }
 
-impl Drop for OverlappedRecvGuard<'_> {
+impl Drop for OverlappedRecvGuard<'_>
+{
     /// Cancels and synchronously drains any in-flight kernel IRP before `io` and `event` drop.
-    fn drop(&mut self) {
-        if self.pending {
+    fn drop(&mut self)
+    {
+        if self.pending
+        {
             let mut xfer = 0u32;
             // SAFETY: `self.io` and `self.event` stay live until `GetOverlappedResult(..., TRUE)` finishes.
             unsafe {
                 let _ = CancelIoEx(self.handle.raw_handle(), self.io.overlapped.get());
-                let _ = GetOverlappedResult(
-                    self.handle.raw_handle(),
-                    self.io.overlapped.get(),
-                    &raw mut xfer,
-                    1,
-                );
+                let _ =
+                    GetOverlappedResult(self.handle.raw_handle(), self.io.overlapped.get(), &raw mut xfer, 1);
             }
             self.pending = false;
         }
     }
 }
 
-impl PacketIntercepter for WinDivertIntercepter {
+impl PacketIntercepter for WinDivertIntercepter
+{
     /// Captures and dispatches packets through `on_packet` until `stop` becomes `true`.
     fn run_until<F, T>(
         &mut self,
@@ -280,15 +288,17 @@ impl PacketIntercepter for WinDivertIntercepter {
         let mut guard = OverlappedRecvGuard::new(&self.handle)?;
         let mut seq = 0u32;
 
-        while !stop.load(Ordering::Acquire) {
+        while !stop.load(Ordering::Acquire)
+        {
             let timeout = next_timeout();
-            if stop.load(Ordering::Acquire) {
+            if stop.load(Ordering::Acquire)
+            {
                 break;
             }
-            let wait_ms = timeout.map_or(DEFAULT_WAIT_MS, |d| {
-                u32::try_from(d.as_millis()).unwrap_or(u32::MAX).max(1)
-            });
-            let read_len = match guard.poll_step(wait_ms, stop)? {
+            let wait_ms =
+                timeout.map_or(DEFAULT_WAIT_MS, |d| u32::try_from(d.as_millis()).unwrap_or(u32::MAX).max(1));
+            let read_len = match guard.poll_step(wait_ms, stop)?
+            {
                 RecvStep::Ready(n) => n,
                 RecvStep::TimedOut => continue,
                 RecvStep::Stopped => break,

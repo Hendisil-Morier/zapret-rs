@@ -8,9 +8,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 /// Persistent list-file append, timestamped debug log, and mtime signature refresh helpers.
-use crate::lists::file_loader::{
-    FileModSig, append_timestamped_debug_log, append_to_list_file,
-};
+use crate::lists::file_loader::{FileModSig, append_timestamped_debug_log, append_to_list_file};
 /// Bounded per-profile failure counter pool (`HostFailPool`).
 use crate::lists::hostfail::HostFailPool;
 /// Hostlist collections and underlying file-backed hostname pools.
@@ -32,7 +30,8 @@ pub const MAX_AUTOHOSTLIST_RETRANS_THRESHOLD: u8 = 10;
 
 /// Per-profile autohostlist thresholds and heuristic parameters matching `zapret2/nfq2/desync.h`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AutoHostlistSettings {
+pub struct AutoHostlistSettings
+{
     /// Number of failures within `fail_time_sec` required before appending a host (`3`).
     pub fail_threshold: u32,
     /// Non-refreshed sliding expiration window in seconds from the first failure (`60`).
@@ -57,8 +56,10 @@ pub struct AutoHostlistSettings {
     pub confirm_block: bool,
 }
 
-impl Default for AutoHostlistSettings {
-    fn default() -> Self {
+impl Default for AutoHostlistSettings
+{
+    fn default() -> Self
+    {
         Self {
             fail_threshold: 3,
             fail_time_sec: 60,
@@ -75,24 +76,31 @@ impl Default for AutoHostlistSettings {
     }
 }
 
-impl AutoHostlistSettings {
+impl AutoHostlistSettings
+{
     /// Validates CLI/TOML threshold bounds matching `nfqws.c`.
-    pub fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self) -> Result<(), &'static str>
+    {
         let valid_fail = MIN_AUTOHOSTLIST_FAIL_THRESHOLD..=MAX_AUTOHOSTLIST_FAIL_THRESHOLD;
         let valid_retrans = MIN_AUTOHOSTLIST_RETRANS_THRESHOLD..=MAX_AUTOHOSTLIST_RETRANS_THRESHOLD;
-        if !valid_fail.contains(&self.fail_threshold) {
+        if !valid_fail.contains(&self.fail_threshold)
+        {
             return Err("auto hostlist fail threshold must be in 1..=20");
         }
-        if self.fail_time_sec < 1 {
+        if self.fail_time_sec < 1
+        {
             return Err("auto hostlist fail time must be >= 1");
         }
-        if !valid_retrans.contains(&self.retrans_threshold) {
+        if !valid_retrans.contains(&self.retrans_threshold)
+        {
             return Err("auto hostlist retrans threshold must be in 2..=10");
         }
-        if self.fail_cooldown_sec < 0 {
+        if self.fail_cooldown_sec < 0
+        {
             return Err("auto hostlist fail cooldown must be >= 0");
         }
-        if self.sibling_threshold == 1 {
+        if self.sibling_threshold == 1
+        {
             return Err("auto hostlist sibling threshold must be 0 or >= 2");
         }
         Ok(())
@@ -101,7 +109,8 @@ impl AutoHostlistSettings {
 
 /// High-level action taken by [`record_autohost_failure`] or [`reset_autohost_failure`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AutoHostlistAction {
+pub enum AutoHostlistAction
+{
     /// No tracking or state transition applied (invalid host, cap reached, or burst-coalesced).
     Ignored,
     /// Failure incremented to `count` below `fail_threshold`.
@@ -115,7 +124,8 @@ pub enum AutoHostlistAction {
 }
 
 /// Borrowed profile context passed when recording or promoting autohostlist failures.
-pub struct AutoHostlistRecordCtx<'a> {
+pub struct AutoHostlistRecordCtx<'a>
+{
     /// Active autohostlist thresholds for the profile.
     pub settings: &'a AutoHostlistSettings,
     /// Profile-local failure counter map.
@@ -138,9 +148,11 @@ pub struct AutoHostlistRecordCtx<'a> {
     pub now_sec: i64,
 }
 
-impl AutoHostlistRecordCtx<'_> {
+impl AutoHostlistRecordCtx<'_>
+{
     /// Logs a profile-scoped event line if `self.debug_log` is configured.
-    fn log(&self, hostname: &str, detail: &str) {
+    fn log(&self, hostname: &str, detail: &str)
+    {
         log_autohost_detail(
             self.debug_log,
             hostname,
@@ -156,8 +168,11 @@ fn log_autohost_detail(
     hostname: &str,
     meta: (u32, &str, &str, L7Proto),
     detail: &str,
-) {
-    let Some(path) = debug_log else {
+)
+{
+    let Some(path) = debug_log
+    else
+    {
         return;
     };
     let (profile_n, profile_name, client_label, l7proto) = meta;
@@ -177,12 +192,16 @@ pub fn reset_autohost_failure(
     profile_name: &str,
     client_label: &str,
     l7proto: L7Proto,
-) -> AutoHostlistAction {
-    if fail_pool.reset(hostname) {
+) -> AutoHostlistAction
+{
+    if fail_pool.reset(hostname)
+    {
         let detail = "fail counter reset. website is working.";
         log_autohost_detail(debug_log, hostname, (profile_n, profile_name, client_label, l7proto), detail);
         AutoHostlistAction::ResetOnSuccess
-    } else {
+    }
+    else
+    {
         AutoHostlistAction::Ignored
     }
 }
@@ -192,33 +211,38 @@ pub fn promote_autohost(
     ctx: &AutoHostlistRecordCtx<'_>,
     clean_host: &str,
     no_subdomains: bool,
-) -> AutoHostlistAction {
+) -> AutoHostlistAction
+{
     let outcome = ctx.hostlists.check(clean_host, no_subdomains, false);
-    if outcome.matched || outcome.excluded {
+    if outcome.matched || outcome.excluded
+    {
         ctx.log(clean_host, "NOT adding, duplicate detected");
         return AutoHostlistAction::SkippedDuplicateOrExempt;
     }
 
     let (at_cap, auto_path) = {
         let auto = ctx.autolist_file.borrow();
-        (
-            auto.pool.len() >= DEFAULT_MAX_AUTOHOSTLIST_ENTRIES,
-            auto.path.clone(),
-        )
+        (auto.pool.len() >= DEFAULT_MAX_AUTOHOSTLIST_ENTRIES, auto.path.clone())
     };
-    if at_cap {
+    if at_cap
+    {
         ctx.log(clean_host, "NOT adding, autohostlist entry limit reached");
         return AutoHostlistAction::Ignored;
     }
-    if let Some(path) = auto_path.as_ref() {
+    if let Some(path) = auto_path.as_ref()
+    {
         ctx.log(clean_host, &format!("adding to {}", path.display()));
     }
     let mut auto = ctx.autolist_file.borrow_mut();
     auto.pool.add_host(clean_host, 0);
-    if let Some(path) = auto_path {
-        if let Err(err) = append_to_list_file(&path, clean_host) {
+    if let Some(path) = auto_path
+    {
+        if let Err(err) = append_to_list_file(&path, clean_host)
+        {
             eprintln!("write to auto hostlist '{}': {err}", path.display());
-        } else if let Ok(sig) = FileModSig::read(&path) {
+        }
+        else if let Ok(sig) = FileModSig::read(&path)
+        {
             auto.mod_sig = sig;
         }
     }
@@ -233,8 +257,11 @@ pub fn record_autohost_failure(
     ctx: &mut AutoHostlistRecordCtx<'_>,
     hostname: &str,
     no_subdomains: bool,
-) -> AutoHostlistAction {
-    let Some(clean_host) = sanitize_wire_hostname(hostname) else {
+) -> AutoHostlistAction
+{
+    let Some(clean_host) = sanitize_wire_hostname(hostname)
+    else
+    {
         return AutoHostlistAction::Ignored;
     };
     let count = ctx.fail_pool.record_failure_with_cooldown(
@@ -243,7 +270,8 @@ pub fn record_autohost_failure(
         ctx.settings.fail_cooldown_sec,
         ctx.now_sec,
     );
-    if count == 0 {
+    if count == 0
+    {
         return AutoHostlistAction::Ignored;
     }
     ctx.log(&clean_host, &format!("fail counter {count}/{}", ctx.settings.fail_threshold));
@@ -262,7 +290,8 @@ pub fn record_autohost_failure(
         return AutoHostlistAction::AddedToList;
     }
 
-    if count < ctx.settings.fail_threshold {
+    if count < ctx.settings.fail_threshold
+    {
         return AutoHostlistAction::FailCounted(count);
     }
 

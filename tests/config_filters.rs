@@ -7,21 +7,23 @@ use std::path::PathBuf;
 
 /// Filter primitives, L7 classification masks, timeout parsers, and default/custom blob helpers.
 use zapret_rs::config::{
-    ConfigError, FAKE_QUIC_DEFAULT_LEN, FilterMode, IcmpFilter, IppFilter, L7_PAYLOAD_NONE_MASK,
-    L7Payload, L7Proto, MarkFilter, PacketPos, PacketPosMode, PacketRange, PortFilter,
-    default_blobs, icmp_filters_match, ipp_filters_match, l7_payload_matches, l7_proto_matches,
-    load_file_blob, parse_hex_blob, parse_l7_disable_mask, parse_l7_payload_mask,
-    parse_l7_proto_mask, parse_timeouts, port_filters_match,
+    ConfigError, FAKE_QUIC_DEFAULT_LEN, FilterMode, IcmpFilter, IppFilter, L7_PAYLOAD_NONE_MASK, L7Payload,
+    L7Proto, MarkFilter, PacketPos, PacketPosMode, PacketRange, PortFilter, default_blobs,
+    icmp_filters_match, ipp_filters_match, l7_payload_matches, l7_proto_matches, load_file_blob,
+    parse_hex_blob, parse_l7_disable_mask, parse_l7_payload_mask, parse_l7_proto_mask, parse_timeouts,
+    port_filters_match,
 };
 
 /// Returns a per-process unique temporary path under `std::env::temp_dir()`.
-fn unique_temp_path(suffix: &str) -> PathBuf {
+fn unique_temp_path(suffix: &str) -> PathBuf
+{
     std::env::temp_dir().join(format!("zapret-rs-{}-{suffix}", std::process::id()))
 }
 
 /// Verifies `PortFilter` single ports, ranges, negation, wildcard, and deny-all (`0`) semantics.
 #[test]
-fn port_filter_parses_ranges_negations_and_rejects_invalid() {
+fn port_filter_parses_ranges_negations_and_rejects_invalid()
+{
     let star = PortFilter::parse("*").expect("* should parse");
     assert!(star.matches(1));
     assert!(star.matches(65535));
@@ -63,7 +65,8 @@ fn port_filter_parses_ranges_negations_and_rejects_invalid() {
 
 /// Verifies `IcmpFilter` and `IppFilter` parsing and matching.
 #[test]
-fn icmp_and_ipp_filters_match_and_reject_invalid() {
+fn icmp_and_ipp_filters_match_and_reject_invalid()
+{
     let any = IcmpFilter::parse("*").expect("*");
     let skip = IcmpFilter::parse("-").expect("-");
     let echo = IcmpFilter::parse("8").expect("8");
@@ -99,7 +102,8 @@ fn icmp_and_ipp_filters_match_and_reject_invalid() {
 
 /// Verifies `MarkFilter` exact and masked fwmark matching.
 #[test]
-fn mark_filter_handles_hex_decimal_and_masks() {
+fn mark_filter_handles_hex_decimal_and_masks()
+{
     let default = MarkFilter::default();
     assert!(default.matches(0));
     assert!(default.matches(u32::MAX));
@@ -120,7 +124,8 @@ fn mark_filter_handles_hex_decimal_and_masks() {
 
 /// Verifies `PacketRange` syntax variants match `zapret2/nfq2/filter.c`.
 #[test]
-fn packet_range_parses_endpoints_and_rejects_malformed() {
+fn packet_range_parses_endpoints_and_rejects_malformed()
+{
     assert_eq!(PacketRange::parse("x").expect("x"), PacketRange::NEVER);
     assert_eq!(PacketRange::parse("a").expect("a"), PacketRange::ALWAYS);
 
@@ -156,7 +161,8 @@ fn packet_range_parses_endpoints_and_rejects_malformed() {
 
 /// Verifies L7 protocol and payload bitmask parsing and `known`/`all` matching rules.
 #[test]
-fn l7_masks_handle_known_all_and_invalid_names() {
+fn l7_masks_handle_known_all_and_invalid_names()
+{
     let tls_http = parse_l7_proto_mask(&["http,tls".to_owned()]).expect("http,tls");
     assert!(l7_proto_matches(L7Proto::Http, tls_http));
     assert!(l7_proto_matches(L7Proto::Tls, tls_http));
@@ -175,10 +181,7 @@ fn l7_masks_handle_known_all_and_invalid_names() {
     assert!(!l7_payload_matches(L7Payload::Empty, payload_known));
     assert!(!l7_payload_matches(L7Payload::Unknown, payload_known));
 
-    assert!(matches!(
-        parse_l7_proto_mask(&["nope".to_owned()]),
-        Err(ConfigError::InvalidL7Proto(_))
-    ));
+    assert!(matches!(parse_l7_proto_mask(&["nope".to_owned()]), Err(ConfigError::InvalidL7Proto(_))));
     assert!(matches!(
         parse_l7_payload_mask(&["bad_payload".to_owned()]),
         Err(ConfigError::InvalidL7Payload(_))
@@ -187,7 +190,8 @@ fn l7_masks_handle_known_all_and_invalid_names() {
 
 /// Verifies built-in default blobs, inline hex decoding, and offset-based file loading.
 #[test]
-fn default_hex_and_file_blobs_load_accurately() {
+fn default_hex_and_file_blobs_load_accurately()
+{
     let defaults = default_blobs();
     assert_eq!(defaults["fake_default_tls"].len(), 680);
     assert!(defaults["fake_default_http"].starts_with(b"GET / HTTP/1.1\r\n"));
@@ -198,14 +202,8 @@ fn default_hex_and_file_blobs_load_accurately() {
 
     let parsed = parse_hex_blob("custom", "0xdeAdBeEf").expect("valid hex blob");
     assert_eq!(parsed, vec![0xDE, 0xAD, 0xBE, 0xEF]);
-    assert!(matches!(
-        parse_hex_blob("odd", "0x123"),
-        Err(ConfigError::InvalidBlob { .. })
-    ));
-    assert!(matches!(
-        parse_hex_blob("bad", "zzzz"),
-        Err(ConfigError::InvalidBlob { .. })
-    ));
+    assert!(matches!(parse_hex_blob("odd", "0x123"), Err(ConfigError::InvalidBlob { .. })));
+    assert!(matches!(parse_hex_blob("bad", "zzzz"), Err(ConfigError::InvalidBlob { .. })));
 
     let path = unique_temp_path("blob.bin");
     fs::write(&path, b"header-abcdef").expect("write temp blob");
@@ -216,7 +214,8 @@ fn default_hex_and_file_blobs_load_accurately() {
 
 /// Verifies M3 `parse_l7_disable_mask` and `parse_timeouts` helpers match `zapret2` defaults.
 #[test]
-fn l7_disable_mask_and_ctrack_timeouts_parse_and_validate() {
+fn l7_disable_mask_and_ctrack_timeouts_parse_and_validate()
+{
     let none = parse_l7_disable_mask(&[]).expect("empty means none disabled");
     assert_eq!(none, L7_PAYLOAD_NONE_MASK);
     assert!(!l7_payload_matches(L7Payload::HttpReq, none));

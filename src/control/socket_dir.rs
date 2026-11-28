@@ -37,28 +37,28 @@ pub fn prepare_control_socket_dir(
     socket_path: &Path,
     target_uid: Option<u32>,
     target_gid: Option<u32>,
-) -> Result<(), ControlServerError> {
-    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
+) -> Result<(), ControlServerError>
+{
+    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty())
+    else
+    {
         return Ok(());
     };
-    if let Some(grandparent) = parent.parent().filter(|p| !p.as_os_str().is_empty()) {
+    if let Some(grandparent) = parent.parent().filter(|p| !p.as_os_str().is_empty())
+    {
         DirBuilder::new()
             .recursive(true)
             .mode(0o755)
             .create(grandparent)
-            .map_err(|source| ControlServerError::Io {
-                path: grandparent.to_path_buf(),
-                source,
-            })?;
+            .map_err(|source| ControlServerError::Io { path: grandparent.to_path_buf(), source })?;
     }
-    let created_fresh = match DirBuilder::new().mode(0o700).create(parent) {
+    let created_fresh = match DirBuilder::new().mode(0o700).create(parent)
+    {
         Ok(()) => true,
         Err(err) if err.kind() == ErrorKind::AlreadyExists => false,
-        Err(source) => {
-            return Err(ControlServerError::Io {
-                path: parent.to_path_buf(),
-                source,
-            });
+        Err(source) =>
+        {
+            return Err(ControlServerError::Io { path: parent.to_path_buf(), source });
         }
     };
 
@@ -69,7 +69,8 @@ pub fn prepare_control_socket_dir(
     let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     // SAFETY: `c_dir` is a NUL-terminated path opened with `O_DIRECTORY | O_NOFOLLOW`.
     let raw_fd = unsafe { libc::open(c_dir.as_ptr(), flags) };
-    if raw_fd < 0 {
+    if raw_fd < 0
+    {
         return Err(ControlServerError::Io {
             path: parent.to_path_buf(),
             source: std::io::Error::last_os_error(),
@@ -79,25 +80,31 @@ pub fn prepare_control_socket_dir(
     let dir_fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
     // SAFETY: `dir_fd` is valid and `st` points to writable stack storage.
-    if unsafe { libc::fstat(dir_fd.as_raw_fd(), &raw mut st) } != 0 {
+    if unsafe { libc::fstat(dir_fd.as_raw_fd(), &raw mut st) } != 0
+    {
         return Err(ControlServerError::Io {
             path: parent.to_path_buf(),
             source: std::io::Error::last_os_error(),
         });
     }
 
-    if created_fresh {
-        if let Some(uid) = target_uid {
+    if created_fresh
+    {
+        if let Some(uid) = target_uid
+        {
             let gid = target_gid.unwrap_or(libc::gid_t::MAX);
             // SAFETY: `dir_fd` is a newly created non-symlink leaf directory; safe to transfer ownership.
-            if unsafe { libc::fchown(dir_fd.as_raw_fd(), uid, gid) } != 0 {
+            if unsafe { libc::fchown(dir_fd.as_raw_fd(), uid, gid) } != 0
+            {
                 return Err(ControlServerError::Io {
                     path: parent.to_path_buf(),
                     source: std::io::Error::last_os_error(),
                 });
             }
         }
-    } else {
+    }
+    else
+    {
         // SAFETY: `geteuid` takes no arguments and cannot fail.
         let euid = unsafe { libc::geteuid() };
         let expected_uid = target_uid.unwrap_or(euid);
@@ -120,18 +127,19 @@ pub fn prepare_control_socket_dir(
     socket_path: &Path,
     _target_uid: Option<u32>,
     _target_gid: Option<u32>,
-) -> Result<(), ControlServerError> {
-    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
+) -> Result<(), ControlServerError>
+{
+    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty())
+    else
+    {
         return Ok(());
     };
-    if !parent.exists() {
+    if !parent.exists()
+    {
         DirBuilder::new()
             .recursive(true)
             .create(parent)
-            .map_err(|source| ControlServerError::Io {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+            .map_err(|source| ControlServerError::Io { path: parent.to_path_buf(), source })?;
     }
     Ok(())
 }

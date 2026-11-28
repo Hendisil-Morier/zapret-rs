@@ -21,8 +21,8 @@ use crate::desync::profile_state::ProfileRuntime;
 use crate::desync::verdict::extract_endpoint_ip;
 /// Autohostlist failure counters, trigger predicates, and self-append helpers.
 use crate::lists::{
-    AutoHostlistAction, AutoHostlistRecordCtx, check_tcp_incoming_trigger,
-    check_tcp_retrans_trigger, check_udp_trigger, record_autohost_failure, reset_autohost_failure,
+    AutoHostlistAction, AutoHostlistRecordCtx, check_tcp_incoming_trigger, check_tcp_retrans_trigger,
+    check_udp_trigger, record_autohost_failure, reset_autohost_failure,
 };
 /// TCP protocol number, header base size, and `TH_RST` control flag constant.
 use crate::packet::constants::{IPPROTO_TCP, TCP_BASE_LEN, TH_RST};
@@ -40,7 +40,8 @@ pub(crate) fn build_retrans_rst_packet(
     dis: &DissectedPacket,
     server_winsize: u16,
     server_ip6flow: u32,
-) -> Option<Vec<u8>> {
+) -> Option<Vec<u8>>
+{
     let tcp = dis.tcp.as_ref()?;
     let rst_tcp = TcpHeader {
         s_port: tcp.d_port,
@@ -56,7 +57,8 @@ pub(crate) fn build_retrans_rst_packet(
         options: Vec::new(),
     };
 
-    let rst_dis = if let Some(ip) = &dis.ip {
+    let rst_dis = if let Some(ip) = &dis.ip
+    {
         DissectedPacket {
             ip: Some(Ipv4Header {
                 version: ip.version,
@@ -75,14 +77,12 @@ pub(crate) fn build_retrans_rst_packet(
             tcp: Some(rst_tcp),
             ..DissectedPacket::default()
         }
-    } else if let Some(ip6) = &dis.ip6 {
+    }
+    else if let Some(ip6) = &dis.ip6
+    {
         DissectedPacket {
             ip6: Some(Ipv6Header {
-                flow: if server_ip6flow != 0 {
-                    server_ip6flow
-                } else {
-                    0x6000_0000
-                },
+                flow: if server_ip6flow != 0 { server_ip6flow } else { 0x6000_0000 },
                 payload_len: Some(TCP_BASE_LEN as u16),
                 next_header: IPPROTO_TCP,
                 hop_limit: ip6.hop_limit,
@@ -93,7 +93,9 @@ pub(crate) fn build_retrans_rst_packet(
             tcp: Some(rst_tcp),
             ..DissectedPacket::default()
         }
-    } else {
+    }
+    else
+    {
         return None;
     };
 
@@ -101,7 +103,8 @@ pub(crate) fn build_retrans_rst_packet(
 }
 
 /// Shared profile target and diagnostic metadata passed into autohostlist failure handlers.
-pub(crate) struct AutohostFailTarget<'a> {
+pub(crate) struct AutohostFailTarget<'a>
+{
     /// Zero-based index into engine `profiles`/`profile_runtimes`.
     pub(crate) profile_slot: usize,
     /// Active desync profile owning the autohostlist thresholds and name.
@@ -127,13 +130,19 @@ fn apply_autohost_outcome(
     host_is_ip: bool,
     l7proto: L7Proto,
     trigger: Option<bool>,
-) {
-    let (Some(host), Some(is_fail)) = (hostname, trigger) else {
+)
+{
+    let (Some(host), Some(is_fail)) = (hostname, trigger)
+    else
+    {
         return;
     };
-    if is_fail {
+    if is_fail
+    {
         record_profile_failure(target, host, host_is_ip, l7proto);
-    } else {
+    }
+    else
+    {
         reset_profile_failure(target, host, l7proto);
     }
 }
@@ -145,18 +154,21 @@ pub(crate) fn handle_tcp_retrans_fail(
     target: Option<&AutohostFailTarget<'_>>,
     ifin: Option<&str>,
     sender: &Rc<RefCell<dyn PacketSender>>,
-) {
-    let (Some(entry_rc), Some(tgt)) = (ctrack, target) else {
+)
+{
+    let (Some(entry_rc), Some(tgt)) = (ctrack, target)
+    else
+    {
         return;
     };
-    if tgt.server || tgt.runtime.autolist.is_none() {
+    if tgt.server || tgt.runtime.autolist.is_none()
+    {
         return;
     }
 
     let (trigger, hostname, host_is_ip, l7proto, winsize, ip6flow, client_ip) = {
         let mut entry = entry_rc.borrow_mut();
-        let trigger =
-            check_tcp_retrans_trigger(&mut entry, &tgt.profile.lists.hostlist_auto_settings);
+        let trigger = check_tcp_retrans_trigger(&mut entry, &tgt.profile.lists.hostlist_auto_settings);
         let client_ip = extract_endpoint_ip(dis, true);
         (
             trigger,
@@ -171,8 +183,7 @@ pub(crate) fn handle_tcp_retrans_fail(
 
     if trigger == Some(true)
         && tgt.profile.lists.hostlist_auto_settings.retrans_reset
-        && let (Some(dst_ip), Some(rst_pkt)) =
-            (client_ip, build_retrans_rst_packet(dis, winsize, ip6flow))
+        && let (Some(dst_ip), Some(rst_pkt)) = (client_ip, build_retrans_rst_packet(dis, winsize, ip6flow))
     {
         let _ = sender.borrow_mut().send(dst_ip, 0, ifin, &rst_pkt);
     }
@@ -186,14 +197,20 @@ pub(crate) fn handle_tcp_incoming_fail(
     dis: &DissectedPacket,
     l7payload: L7Payload,
     target: Option<&AutohostFailTarget<'_>>,
-) {
-    let (Some(entry_rc), Some(tgt)) = (ctrack, target) else {
+)
+{
+    let (Some(entry_rc), Some(tgt)) = (ctrack, target)
+    else
+    {
         return;
     };
-    if tgt.server || tgt.runtime.autolist.is_none() {
+    if tgt.server || tgt.runtime.autolist.is_none()
+    {
         return;
     }
-    let Some(tcp) = &dis.tcp else {
+    let Some(tcp) = &dis.tcp
+    else
+    {
         return;
     };
 
@@ -222,22 +239,22 @@ pub(crate) fn handle_udp_fail(
     ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
     tpos_override: Option<&CtrackPositions>,
     target: Option<&AutohostFailTarget<'_>>,
-) {
-    let (Some(entry_rc), Some(tgt)) = (ctrack, target) else {
+)
+{
+    let (Some(entry_rc), Some(tgt)) = (ctrack, target)
+    else
+    {
         return;
     };
-    if tgt.server || tgt.runtime.autolist.is_none() {
+    if tgt.server || tgt.runtime.autolist.is_none()
+    {
         return;
     }
 
     let (trigger, hostname, host_is_ip, l7proto) = {
         let mut entry = entry_rc.borrow_mut();
         let snapshot = tpos_override.copied().unwrap_or(entry.pos);
-        let trigger = check_udp_trigger(
-            &mut entry,
-            &snapshot,
-            &tgt.profile.lists.hostlist_auto_settings,
-        );
+        let trigger = check_udp_trigger(&mut entry, &snapshot, &tgt.profile.lists.hostlist_auto_settings);
         (
             trigger,
             trigger.is_some().then(|| entry.hostname.clone()).flatten(),
@@ -250,13 +267,11 @@ pub(crate) fn handle_udp_fail(
 }
 
 /// Records an autohostlist failure against `target` and promotes `host` when threshold is reached.
-fn record_profile_failure(
-    target: &AutohostFailTarget<'_>,
-    host: &str,
-    host_is_ip: bool,
-    l7proto: L7Proto,
-) {
-    let Some(autolist_file) = &target.runtime.autolist else {
+fn record_profile_failure(target: &AutohostFailTarget<'_>, host: &str, host_is_ip: bool, l7proto: L7Proto)
+{
+    let Some(autolist_file) = &target.runtime.autolist
+    else
+    {
         return;
     };
     let mut pool = target.runtime.fail_pool.borrow_mut();
@@ -290,7 +305,8 @@ fn record_profile_failure(
 }
 
 /// Clears any active autohostlist fail counter for `host` after healthy response traffic.
-fn reset_profile_failure(target: &AutohostFailTarget<'_>, host: &str, l7proto: L7Proto) {
+fn reset_profile_failure(target: &AutohostFailTarget<'_>, host: &str, l7proto: L7Proto)
+{
     let mut pool = target.runtime.fail_pool.borrow_mut();
     let _ = reset_autohost_failure(
         &mut pool,

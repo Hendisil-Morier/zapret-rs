@@ -7,7 +7,8 @@ use std::net::IpAddr;
 use crate::rawsend::error::RawSendError;
 
 /// Trait abstracting raw L3 packet injection so Lua bindings and desync logic can be tested without `CAP_NET_RAW`.
-pub trait PacketSender {
+pub trait PacketSender
+{
     /// Sends a single raw IPv4 or IPv6 packet toward `dst` with firewall mark `fwmark` and optional `ifout`.
     fn send(
         &mut self,
@@ -25,8 +26,10 @@ pub trait PacketSender {
         fwmark: u32,
         ifout: Option<&str>,
         packet: &[u8],
-    ) -> Result<(), RawSendError> {
-        for _ in 0..repeats {
+    ) -> Result<(), RawSendError>
+    {
+        for _ in 0..repeats
+        {
             self.send(dst, fwmark, ifout, packet)?;
         }
         Ok(())

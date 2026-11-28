@@ -20,13 +20,16 @@ use crate::config::runtime_cfg::parse_timeouts;
 use crate::config::schema::parse_control_socket_str;
 
 /// Parses `--fwmark` from decimal or `0x` hex notation for `clap`.
-fn parse_fwmark_arg(raw: &str) -> Result<u32, String> {
+fn parse_fwmark_arg(raw: &str) -> Result<u32, String>
+{
     parse_u32_radix(raw).ok_or_else(|| format!("invalid fwmark '{raw}' (expected u32 or 0xHEX)"))
 }
 
 /// Parses boolean flags supporting both `true`/`false` and `zapret2`-compatible `1`/`0` syntax.
-fn parse_bool_arg(raw: &str) -> Result<bool, String> {
-    match raw.trim().to_ascii_lowercase().as_str() {
+fn parse_bool_arg(raw: &str) -> Result<bool, String>
+{
+    match raw.trim().to_ascii_lowercase().as_str()
+    {
         "1" | "true" | "yes" | "on" => Ok(true),
         "0" | "false" | "no" | "off" => Ok(false),
         _ => Err(format!("invalid boolean '{raw}' (expected 0/1 or true/false)")),
@@ -35,12 +38,9 @@ fn parse_bool_arg(raw: &str) -> Result<bool, String> {
 
 /// Top-level command-line flags accepted by `nfqws2`.
 #[derive(Debug, Clone, Parser)]
-#[command(
-    name = "nfqws2",
-    version,
-    about = "Rust port of zapret2 NFQUEUE DPI desync daemon"
-)]
-pub struct CliArgs {
+#[command(name = "nfqws2", version, about = "Rust port of zapret2 NFQUEUE DPI desync daemon")]
+pub struct CliArgs
+{
     /// Path to TOML configuration file.
     #[arg(short = 'c', long = "config")]
     pub config: Option<PathBuf>,
@@ -128,97 +128,131 @@ pub struct CliArgs {
 }
 
 /// Loads TOML config (when specified) and merges any explicit CLI overrides.
-pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError> {
-    let mut cfg = match &cli.config {
+pub fn resolve_config(cli: &CliArgs) -> Result<AppConfig, ConfigError>
+{
+    let mut cfg = match &cli.config
+    {
         Some(path) => AppConfig::from_toml_file(path)?,
         None => AppConfig::default(),
     };
-    if let Some(qnum) = cli.qnum {
+    if let Some(qnum) = cli.qnum
+    {
         cfg.qnum = qnum;
     }
-    if let Some(fwmark) = cli.fwmark {
+    if let Some(fwmark) = cli.fwmark
+    {
         cfg.fwmark = fwmark;
     }
-    if let Some(bind_fix4) = cli.bind_fix4 {
+    if let Some(bind_fix4) = cli.bind_fix4
+    {
         cfg.bind_fix4 = bind_fix4;
     }
-    if let Some(bind_fix6) = cli.bind_fix6 {
+    if let Some(bind_fix6) = cli.bind_fix6
+    {
         cfg.bind_fix6 = bind_fix6;
     }
-    if let Some(server) = cli.server {
+    if let Some(server) = cli.server
+    {
         cfg.server = server;
     }
-    if let Some(debug) = cli.debug {
+    if let Some(debug) = cli.debug
+    {
         cfg.debug = debug;
     }
-    if let Some(intercept) = cli.intercept {
+    if let Some(intercept) = cli.intercept
+    {
         cfg.intercept = intercept;
     }
-    if let Some(daemon) = cli.daemon {
+    if let Some(daemon) = cli.daemon
+    {
         cfg.daemon = daemon;
     }
-    if let Some(pidfile) = &cli.pidfile {
+    if let Some(pidfile) = &cli.pidfile
+    {
         cfg.pidfile = Some(pidfile.clone());
     }
-    if let Some(chdir) = &cli.chdir {
+    if let Some(chdir) = &cli.chdir
+    {
         cfg.chdir = Some(chdir.clone());
     }
-    if let Some(user) = &cli.user {
+    if let Some(user) = &cli.user
+    {
         cfg.user = Some(user.clone());
     }
-    if let Some(uid) = &cli.uid {
+    if let Some(uid) = &cli.uid
+    {
         cfg.uid = Some(uid.clone());
     }
-    if let Some(lua_gc) = cli.lua_gc {
+    if let Some(lua_gc) = cli.lua_gc
+    {
         cfg.lua_gc = lua_gc;
     }
-    if let Some(raw_timeouts) = cli.ctrack_timeouts.as_deref() {
+    if let Some(raw_timeouts) = cli.ctrack_timeouts.as_deref()
+    {
         cfg.conntrack.timeouts = parse_timeouts(raw_timeouts)?;
     }
-    if let Some(ctrack_disable) = cli.ctrack_disable {
+    if let Some(ctrack_disable) = cli.ctrack_disable
+    {
         cfg.conntrack.disable = ctrack_disable;
     }
-    if let Some(lifetime) = cli.ipcache_lifetime {
+    if let Some(lifetime) = cli.ipcache_lifetime
+    {
         cfg.ipcache.lifetime_sec = lifetime;
     }
-    if let Some(hostname) = cli.ipcache_hostname {
+    if let Some(hostname) = cli.ipcache_hostname
+    {
         cfg.ipcache.hostname = hostname;
     }
-    if let Some(payload_disable) = &cli.payload_disable {
+    if let Some(payload_disable) = &cli.payload_disable
+    {
         cfg.payload_disable = parse_l7_disable_mask(std::slice::from_ref(payload_disable))?;
     }
-    if let Some(reasm_disable) = &cli.reasm_disable {
+    if let Some(reasm_disable) = &cli.reasm_disable
+    {
         cfg.reasm_disable = parse_l7_disable_mask(std::slice::from_ref(reasm_disable))?;
     }
-    if let Some(debug_log) = &cli.hostlist_auto_debug {
+    if let Some(debug_log) = &cli.hostlist_auto_debug
+    {
         cfg.hostlist_auto_debug = Some(debug_log.clone());
     }
-    if let Some(raw_writable) = &cli.writable {
+    if let Some(raw_writable) = &cli.writable
+    {
         let trimmed = raw_writable.trim();
-        cfg.writable = Some(if trimmed.is_empty() {
-            WritableDirConfig::Default
-        } else {
-            WritableDirConfig::Custom(PathBuf::from(trimmed))
-        });
+        cfg.writable = Some(
+            if trimmed.is_empty()
+            {
+                WritableDirConfig::Default
+            }
+            else
+            {
+                WritableDirConfig::Custom(PathBuf::from(trimmed))
+            },
+        );
     }
-    if let Some(raw_ctrl) = &cli.control_socket {
+    if let Some(raw_ctrl) = &cli.control_socket
+    {
         cfg.control_socket = parse_control_socket_str(raw_ctrl, None)?;
     }
-    if let Some(sample) = cli.control_pass_sample {
+    if let Some(sample) = cli.control_pass_sample
+    {
         cfg.control_pass_sample = sample;
     }
-    if let Some(nft) = cli.nft {
+    if let Some(nft) = cli.nft
+    {
         cfg.auto_nft = nft;
     }
-    for entry in &cli.lua_init {
-        if let Some(path) = entry.strip_prefix('@') {
-            if path.trim().is_empty() {
-                return Err(ConfigError::Validation(
-                    "empty --lua-init @path".to_owned(),
-                ));
+    for entry in &cli.lua_init
+    {
+        if let Some(path) = entry.strip_prefix('@')
+        {
+            if path.trim().is_empty()
+            {
+                return Err(ConfigError::Validation("empty --lua-init @path".to_owned()));
             }
             cfg.lua_init.push(LuaInitEntry::File(PathBuf::from(path)));
-        } else {
+        }
+        else
+        {
             cfg.lua_init.push(LuaInitEntry::Inline(entry.clone()));
         }
     }

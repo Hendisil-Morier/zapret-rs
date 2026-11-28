@@ -29,7 +29,8 @@ use common::{build_ipv4_tcp, build_ipv4_udp, build_ipv6_tcp};
 
 /// Verifies profile matching, first-match precedence, and `dispatch_packet` fwmark suppression.
 #[test]
-fn profile_matching_first_match_and_fwmark_loop_guard() {
+fn profile_matching_first_match_and_fwmark_loop_guard()
+{
     let toml = r#"
         fwmark = 0x40000000
         lua_init = [
@@ -67,32 +68,17 @@ fn profile_matching_first_match_and_fwmark_loop_guard() {
 
     // 1) TCP 443 matches profile 1 first and returns Drop (not fallback).
     let raw_443 = build_ipv4_tcp(51000, 443, b"hello");
-    let pkt_443 = QueuedPacket {
-        packet_id: 1,
-        mark: 0,
-        ifin: None,
-        ifout: Some("eth0"),
-        payload: &raw_443,
-    };
+    let pkt_443 = QueuedPacket { packet_id: 1, mark: 0, ifin: None, ifout: Some("eth0"), payload: &raw_443 };
     assert_eq!(engine.process_packet(&pkt_443), Decision::Drop);
 
     // 2) Packet carrying `desync_fwmark` is bypassed by `dispatch_packet` before reaching engine.
-    let pkt_marked = QueuedPacket {
-        mark: 0x4000_0001,
-        ..pkt_443.clone()
-    };
+    let pkt_marked = QueuedPacket { mark: 0x4000_0001, ..pkt_443.clone() };
     let decision = dispatch_packet(&pkt_marked, cfg.fwmark, &mut |p| engine.process_packet(p));
     assert_eq!(decision, Decision::Pass);
 
     // 3) UDP 53 matches profile 2 (not fallback), returns Pass, sets `_G.udp_hit`, never touches fallback.
     let raw_53 = build_ipv4_udp(40000, 53, b"\x12\x34dns");
-    let pkt_53 = QueuedPacket {
-        packet_id: 2,
-        mark: 0,
-        ifin: None,
-        ifout: Some("eth0"),
-        payload: &raw_53,
-    };
+    let pkt_53 = QueuedPacket { packet_id: 2, mark: 0, ifin: None, ifout: Some("eth0"), payload: &raw_53 };
     assert_eq!(engine.process_packet(&pkt_53), Decision::Pass);
     engine
         .runtime()
@@ -107,7 +93,8 @@ fn profile_matching_first_match_and_fwmark_loop_guard() {
 
 /// Verifies `desync` fields, `%`/`#` blob substitution, `\%` escapes, and verdict aggregation precedence.
 #[test]
-fn desync_table_fields_blob_substitution_and_verdict_precedence() {
+fn desync_table_fields_blob_substitution_and_verdict_precedence()
+{
     let toml = r##"
         lua_init = [
             { inline = """
@@ -161,46 +148,26 @@ fn desync_table_fields_blob_substitution_and_verdict_precedence() {
     "##;
     let cfg = AppConfig::from_toml_str(toml, None).expect("valid TOML config");
     let engine = DesyncEngine::new(&cfg).expect("engine should initialize");
-    assert_eq!(
-        engine.runtime().config().qnum,
-        u32::from(cfg.qnum),
-        "runtime mirrors queue number"
-    );
+    assert_eq!(engine.runtime().config().qnum, u32::from(cfg.qnum), "runtime mirrors queue number");
     assert_eq!(DEFAULT_MSS, 1220);
 
     let raw = build_ipv4_tcp(44444, 443, b"client_hello_bytes");
-    let pkt = QueuedPacket {
-        packet_id: 10,
-        mark: 0x1234,
-        ifin: None,
-        ifout: Some("eth1"),
-        payload: &raw,
-    };
+    let pkt = QueuedPacket { packet_id: 10, mark: 0x1234, ifin: None, ifout: Some("eth1"), payload: &raw };
 
     // MODIFY + PASS => Replace with ttl=9.
-    let Decision::Replace(modified) = engine.process_packet(&pkt) else {
+    let Decision::Replace(modified) = engine.process_packet(&pkt)
+    else
+    {
         panic!("expected Decision::Replace from MODIFY + PASS");
     };
     let dis = dissect_packet(&modified, false);
     assert_eq!(dis.ip.as_ref().expect("ip").ttl, 9);
 
     // Pure `aggregate_verdict` truth table checks including VERDICT_PRESERVE_NEXT.
-    assert_eq!(
-        aggregate_verdict(VERDICT_PASS, VERDICT_MODIFY),
-        VERDICT_MODIFY
-    );
-    assert_eq!(
-        aggregate_verdict(VERDICT_MODIFY, VERDICT_PASS),
-        VERDICT_MODIFY
-    );
-    assert_eq!(
-        aggregate_verdict(VERDICT_MODIFY, VERDICT_DROP),
-        VERDICT_DROP
-    );
-    assert_eq!(
-        aggregate_verdict(VERDICT_DROP, VERDICT_MODIFY),
-        VERDICT_DROP
-    );
+    assert_eq!(aggregate_verdict(VERDICT_PASS, VERDICT_MODIFY), VERDICT_MODIFY);
+    assert_eq!(aggregate_verdict(VERDICT_MODIFY, VERDICT_PASS), VERDICT_MODIFY);
+    assert_eq!(aggregate_verdict(VERDICT_MODIFY, VERDICT_DROP), VERDICT_DROP);
+    assert_eq!(aggregate_verdict(VERDICT_DROP, VERDICT_MODIFY), VERDICT_DROP);
     assert_eq!(
         aggregate_verdict(VERDICT_PASS, VERDICT_MODIFY | VERDICT_PRESERVE_NEXT),
         VERDICT_MODIFY | VERDICT_PRESERVE_NEXT
@@ -213,7 +180,8 @@ fn desync_table_fields_blob_substitution_and_verdict_precedence() {
 
 /// Verifies `VERDICT_MODIFY` updates wire checksums and `VERDICT_PRESERVE_NEXT` preserves IPv6 `next` fields.
 #[test]
-fn verdict_modify_reconstructs_checksums_and_preserves_ipv6_next() {
+fn verdict_modify_reconstructs_checksums_and_preserves_ipv6_next()
+{
     let toml = r#"
         lua_init = [
             { inline = """
@@ -247,14 +215,10 @@ fn verdict_modify_reconstructs_checksums_and_preserves_ipv6_next() {
 
     // 1) IPv4 VERDICT_MODIFY updates fields and computes valid RFC checksums.
     let raw_v4 = build_ipv4_tcp(55000, 80, b"GET / HTTP/1.1\r\n\r\n");
-    let pkt_v4 = QueuedPacket {
-        packet_id: 20,
-        mark: 0,
-        ifin: None,
-        ifout: Some("eth0"),
-        payload: &raw_v4,
-    };
-    let Decision::Replace(mod_v4) = engine.process_packet(&pkt_v4) else {
+    let pkt_v4 = QueuedPacket { packet_id: 20, mark: 0, ifin: None, ifout: Some("eth0"), payload: &raw_v4 };
+    let Decision::Replace(mod_v4) = engine.process_packet(&pkt_v4)
+    else
+    {
         panic!("expected Decision::Replace for IPv4 tamper");
     };
     let dis_v4 = dissect_packet(&mod_v4, false);
@@ -274,21 +238,14 @@ fn verdict_modify_reconstructs_checksums_and_preserves_ipv6_next() {
         &mod_v4[dis_v4.l3_len..dis_v4.l3_len + dis_v4.l4_len],
         &mod_v4[dis_v4.l3_len + dis_v4.l4_len..],
     );
-    assert_eq!(
-        tcp.checksum, expected_tcp_sum,
-        "reconstructed TCP checksum must match RFC 793 computation"
-    );
+    assert_eq!(tcp.checksum, expected_tcp_sum, "reconstructed TCP checksum must match RFC 793 computation");
 
     // 2) IPv6 VERDICT_MODIFY | VERDICT_PRESERVE_NEXT keeps custom exthdr[1].next = 253 at wire byte 40.
     let raw_v6 = build_ipv6_tcp(55001, 80, b"GET / HTTP/1.1\r\n\r\n");
-    let pkt_v6 = QueuedPacket {
-        packet_id: 21,
-        mark: 0,
-        ifin: None,
-        ifout: Some("eth0"),
-        payload: &raw_v6,
-    };
-    let Decision::Replace(mod_v6) = engine.process_packet(&pkt_v6) else {
+    let pkt_v6 = QueuedPacket { packet_id: 21, mark: 0, ifin: None, ifout: Some("eth0"), payload: &raw_v6 };
+    let Decision::Replace(mod_v6) = engine.process_packet(&pkt_v6)
+    else
+    {
         panic!("expected Decision::Replace for IPv6 preserve");
     };
     assert_eq!(
@@ -299,7 +256,8 @@ fn verdict_modify_reconstructs_checksums_and_preserves_ipv6_next() {
 
 /// Verifies `classify_baseline_payload` across TCP, UDP, ICMP, attached-IP ICMP, and raw IP packets.
 #[test]
-fn classify_baseline_payload_covers_all_milestone2_tags() {
+fn classify_baseline_payload_covers_all_milestone2_tags()
+{
     let tcp_empty = dissect_packet(&build_ipv4_tcp(1234, 80, b""), false);
     assert_eq!(classify_baseline_payload(&tcp_empty), L7Payload::Empty);
 
@@ -326,22 +284,14 @@ fn classify_baseline_payload_covers_all_milestone2_tags() {
                 dst: [10, 0, 0, 2],
                 options: Vec::new(),
             }),
-            icmp: Some(IcmpHeader {
-                icmp_type: ICMP_ECHO,
-                icmp_code: 0,
-                checksum: 0,
-                data: 0x0001_0001,
-            }),
+            icmp: Some(IcmpHeader { icmp_type: ICMP_ECHO, icmp_code: 0, checksum: 0, data: 0x0001_0001 }),
             payload: Some(b"ping".to_vec()),
             ..DissectedPacket::default()
         },
         &ReconstructOptions::default(),
     )
     .expect("ICMP echo must reconstruct");
-    assert_eq!(
-        classify_baseline_payload(&dissect_packet(&icmp_echo, false)),
-        L7Payload::Icmp
-    );
+    assert_eq!(classify_baseline_payload(&dissect_packet(&icmp_echo, false)), L7Payload::Icmp);
 
     // ICMPv4 Dest Unreachable with attached IPv4 packet -> Ipv4.
     let inner_v4 = build_ipv4_tcp(3333, 443, b"inner");
@@ -361,22 +311,14 @@ fn classify_baseline_payload_covers_all_milestone2_tags() {
                 dst: [10, 0, 0, 1],
                 options: Vec::new(),
             }),
-            icmp: Some(IcmpHeader {
-                icmp_type: ICMP_DEST_UNREACH,
-                icmp_code: 3,
-                checksum: 0,
-                data: 0,
-            }),
+            icmp: Some(IcmpHeader { icmp_type: ICMP_DEST_UNREACH, icmp_code: 3, checksum: 0, data: 0 }),
             payload: Some(inner_v4),
             ..DissectedPacket::default()
         },
         &ReconstructOptions::default(),
     )
     .expect("ICMP unreach must reconstruct");
-    assert_eq!(
-        classify_baseline_payload(&dissect_packet(&icmp_unreach, false)),
-        L7Payload::Ipv4
-    );
+    assert_eq!(classify_baseline_payload(&dissect_packet(&icmp_unreach, false)), L7Payload::Ipv4);
 
     // ICMPv6 Packet Too Big with attached IPv6 packet -> Ipv6.
     let inner_v6 = build_ipv6_tcp(4444, 443, b"inner6");
@@ -391,22 +333,14 @@ fn classify_baseline_payload_covers_all_milestone2_tags() {
                 dst: [0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
                 exthdr: Vec::new(),
             }),
-            icmp: Some(IcmpHeader {
-                icmp_type: ICMP6_PACKET_TOO_BIG,
-                icmp_code: 0,
-                checksum: 0,
-                data: 1280,
-            }),
+            icmp: Some(IcmpHeader { icmp_type: ICMP6_PACKET_TOO_BIG, icmp_code: 0, checksum: 0, data: 1280 }),
             payload: Some(inner_v6),
             ..DissectedPacket::default()
         },
         &ReconstructOptions::default(),
     )
     .expect("ICMPv6 PTB must reconstruct");
-    assert_eq!(
-        classify_baseline_payload(&dissect_packet(&icmp6_ptb, false)),
-        L7Payload::Ipv6
-    );
+    assert_eq!(classify_baseline_payload(&dissect_packet(&icmp6_ptb, false)), L7Payload::Ipv6);
 
     // Non-TCP/UDP/ICMP raw IP protocol (ESP = 50) -> Unknown.
     let raw_esp = reconstruct_packet(
@@ -431,8 +365,5 @@ fn classify_baseline_payload_covers_all_milestone2_tags() {
         &ReconstructOptions::default(),
     )
     .expect("ESP packet must reconstruct");
-    assert_eq!(
-        classify_baseline_payload(&dissect_packet(&raw_esp, false)),
-        L7Payload::Unknown
-    );
+    assert_eq!(classify_baseline_payload(&dissect_packet(&raw_esp, false)), L7Payload::Unknown);
 }

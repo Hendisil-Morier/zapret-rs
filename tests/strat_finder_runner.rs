@@ -24,15 +24,16 @@ use std::time::Duration;
 use zapret_rs::config::{AppConfig, DesyncProfile};
 /// Probe, firewall, runner, interactive wizard, and catalog symbols under test.
 use zapret_rs::tools::{
-    CurlProbeBackend, InteractiveDefaults, IpFamily, NftFirewallBackend, ProbeBackend,
-    ProbeOutcome, ProbeProtocol, ProbeRequest, ProgressEvent, STRAT_FINDER_NFT_TABLE, ScanConfig,
-    ScanLevel, StrategyApplier, classify_curl_output, extract_strat_finder_args,
-    is_spoof_redirect, prompt_interactive_wizard, run_scan,
+    CurlProbeBackend, InteractiveDefaults, IpFamily, NftFirewallBackend, ProbeBackend, ProbeOutcome,
+    ProbeProtocol, ProbeRequest, ProgressEvent, STRAT_FINDER_NFT_TABLE, ScanConfig, ScanLevel,
+    StrategyApplier, classify_curl_output, extract_strat_finder_args, is_spoof_redirect,
+    prompt_interactive_wizard, run_scan,
 };
 
 /// Shared mock state tracking the currently active strategy ID and scripted responses.
 #[derive(Default)]
-struct MockNetState {
+struct MockNetState
+{
     /// Active strategy ID installed by the mock applier (`None` = baseline pass-through).
     active_strategy: Option<String>,
     /// Scripted `(domain, Option<strategy_id>) -> ProbeOutcome` table.
@@ -48,9 +49,11 @@ struct MockNetState {
 /// Mock [`StrategyApplier`] recording active profile names without touching NFQUEUE.
 struct MockApplier(Rc<RefCell<MockNetState>>);
 
-impl StrategyApplier for MockApplier {
+impl StrategyApplier for MockApplier
+{
     /// Updates `active_strategy` to the first profile's name (or `None` when cleared).
-    fn apply_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), String> {
+    fn apply_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), String>
+    {
         let mut st = self.0.borrow_mut();
         st.swap_count += 1;
         st.active_strategy = profiles.first().and_then(|p| p.name.clone());
@@ -61,16 +64,20 @@ impl StrategyApplier for MockApplier {
 /// Mock [`ProbeBackend`] returning scripted outcomes based on the currently active strategy.
 struct MockProbe(Rc<RefCell<MockNetState>>);
 
-impl ProbeBackend for MockProbe {
+impl ProbeBackend for MockProbe
+{
     /// Returns scripted HTTP/3 capability.
-    fn supports_http3(&self) -> bool {
+    fn supports_http3(&self) -> bool
+    {
         self.0.borrow().http3_supported
     }
 
     /// Looks up `(req.domain, active_strategy)` in scripted outcomes.
-    fn probe(&self, req: &ProbeRequest) -> ProbeOutcome {
+    fn probe(&self, req: &ProbeRequest) -> ProbeOutcome
+    {
         let st = self.0.borrow();
-        if let Some(out) = st.outcomes.get(&(req.domain.clone(), st.active_strategy.clone())) {
+        if let Some(out) = st.outcomes.get(&(req.domain.clone(), st.active_strategy.clone()))
+        {
             return out.clone();
         }
         st.default_outcome.clone().unwrap_or(ProbeOutcome::Timeout)
@@ -79,7 +86,8 @@ impl ProbeBackend for MockProbe {
 
 /// Verifies `classify_curl_output`, `is_spoof_redirect`, and `CurlProbeBackend::build_args`.
 #[test]
-fn curl_output_classifier_and_spoof_redirect_detection() {
+fn curl_output_classifier_and_spoof_redirect_detection()
+{
     // Legitimate same-domain and subdomain redirects are NOT spoofed.
     assert!(!is_spoof_redirect("example.com", "https://www.example.com/home"));
     assert!(!is_spoof_redirect("www.example.com", "https://example.com/"));
@@ -94,11 +102,9 @@ fn curl_output_classifier_and_spoof_redirect_detection() {
     let leg_redir = classify_curl_output("example.com", 0, "301\nhttps://www.example.com/\n0.045\n", "", 999);
     assert_eq!(leg_redir, ProbeOutcome::Available { http_code: 301, latency_ms: 45 });
 
-    let spoof = classify_curl_output("blocked.org", 0, "302\nhttp://isp-block.example/denied\n0.012\n", "", 999);
-    assert_eq!(
-        spoof,
-        ProbeOutcome::SpoofRedirect { location: "http://isp-block.example/denied".to_owned() }
-    );
+    let spoof =
+        classify_curl_output("blocked.org", 0, "302\nhttp://isp-block.example/denied\n0.012\n", "", 999);
+    assert_eq!(spoof, ProbeOutcome::SpoofRedirect { location: "http://isp-block.example/denied".to_owned() });
 
     assert_eq!(classify_curl_output("blocked.org", 28, "", "timed out", 3000), ProbeOutcome::Timeout);
     assert_eq!(
@@ -126,7 +132,8 @@ fn curl_output_classifier_and_spoof_redirect_detection() {
 /// and installs an `output`, `forward`, and `input` chain so forwarded traffic (e.g. Tailscale exit
 /// node clients) is intercepted alongside locally-originated packets.
 #[test]
-fn nft_script_renders_multiline_bypass_queue_and_fwmark_guard() {
+fn nft_script_renders_multiline_bypass_queue_and_fwmark_guard()
+{
     let script = NftFirewallBackend::build_nft_script(210, 0x4000_0000, &[80, 443], &[443]);
     assert!(script.contains(&format!("table inet {STRAT_FINDER_NFT_TABLE} {{")));
     assert!(script.contains("  chain output {"));
@@ -150,7 +157,8 @@ fn nft_script_renders_multiline_bypass_queue_and_fwmark_guard() {
 /// Verifies baseline skipping for unblocked sites, spoof-redirect rejection during sweeps,
 /// latency/weight ranking, and multi-domain minimal set cover.
 #[test]
-fn scan_orchestrator_skips_unblocked_rejects_spoofs_and_computes_cover() {
+fn scan_orchestrator_skips_unblocked_rejects_spoofs_and_computes_cover()
+{
     let state = Rc::new(RefCell::new(MockNetState::default()));
     {
         let mut st = state.borrow_mut();
@@ -220,7 +228,8 @@ fn scan_orchestrator_skips_unblocked_rejects_spoofs_and_computes_cover() {
 
 /// Verifies `--stop-on-first`, HTTP/3 unavailability skipping, and graceful `stop` interruption.
 #[test]
-fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt() {
+fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt()
+{
     let state = Rc::new(RefCell::new(MockNetState::default()));
     {
         let mut st = state.borrow_mut();
@@ -252,7 +261,8 @@ fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt() {
     let mut saw_h3_skip = false;
 
     let report = run_scan(&cfg, &probe, &mut applier, &stop, |ev| {
-        if matches!(ev, ProgressEvent::Http3Unavailable) {
+        if matches!(ev, ProgressEvent::Http3Unavailable)
+        {
             saw_h3_skip = true;
         }
     })
@@ -274,7 +284,8 @@ fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt() {
 /// Verifies the compiled `strat_finder` CLI handles `--version`, `--help`, invalid flags,
 /// and `--list-strategies --write-config` without requiring root privileges.
 #[test]
-fn strat_finder_cli_version_help_invalid_and_list_write_config() {
+fn strat_finder_cli_version_help_invalid_and_list_write_config()
+{
     let bin = env!("CARGO_BIN_EXE_zapret-rs");
 
     let ver = Command::new(bin).args(["scan", "--version"]).output().expect("run --version");
@@ -297,10 +308,7 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config() {
     let bad_err = String::from_utf8_lossy(&bad.stderr);
     assert!(bad_err.contains("invalid scan level"));
 
-    let tmp_path = std::env::temp_dir().join(format!(
-        "strat_finder_cli_test_{}.toml",
-        std::process::id()
-    ));
+    let tmp_path = std::env::temp_dir().join(format!("strat_finder_cli_test_{}.toml", std::process::id()));
     let _ = fs::remove_file(&tmp_path);
 
     let list = Command::new(bin)
@@ -318,11 +326,7 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config() {
         .arg(&tmp_path)
         .output()
         .expect("run --list-strategies");
-    assert!(
-        list.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&list.stderr)
-    );
+    assert!(list.status.success(), "stderr: {}", String::from_utf8_lossy(&list.stderr));
     let list_out = String::from_utf8_lossy(&list.stdout);
     assert!(list_out.contains("# http/ipv4 (quick):"));
     assert!(list_out.contains("# tls13/ipv4 (quick):"));
@@ -336,14 +340,14 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config() {
 /// Verifies `nfqws2 --strat-finder` dispatches into the built-in strategy finder and
 /// `prompt_interactive_wizard` handles custom answers, re-prompts on typos, and skipping output.
 #[test]
-fn nfqws2_strat_finder_flag_and_interactive_wizard() {
+fn nfqws2_strat_finder_flag_and_interactive_wizard()
+{
     // Argument extraction preserves flags and ignores `--strat-finder` after `--`.
     assert!(extract_strat_finder_args(["nfqws2", "--dry-run"]).is_none());
     assert!(extract_strat_finder_args(["nfqws2", "--", "--strat-finder"]).is_none());
-    let extracted = extract_strat_finder_args([
-        "nfqws2", "--strat-finder", "--level", "quick", "--stop-on-first",
-    ])
-    .expect("flag should be detected");
+    let extracted =
+        extract_strat_finder_args(["nfqws2", "--strat-finder", "--level", "quick", "--stop-on-first"])
+            .expect("flag should be detected");
     assert_eq!(extracted[0], "nfqws2 --strat-finder");
     assert_eq!(extracted[1], "--level");
 
@@ -377,7 +381,8 @@ fn nfqws2_strat_finder_flag_and_interactive_wizard() {
         lua_dir: Some(PathBuf::from("../zapret2/lua")),
         write_config: None,
     };
-    let scripted = "\nhttps://a.example/path, b.example\ntls13,http3\n46\nbogus\nquick\ny\n/opt/lua\n/tmp/out.toml\n";
+    let scripted =
+        "\nhttps://a.example/path, b.example\ntls13,http3\n46\nbogus\nquick\ny\n/opt/lua\n/tmp/out.toml\n";
     let mut reader = Cursor::new(scripted.as_bytes());
     let mut prompt_out = Vec::new();
     let sel = prompt_interactive_wizard(&mut reader, &mut prompt_out, &defaults)

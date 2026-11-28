@@ -16,7 +16,8 @@ use zapret_rs::tools::NftFirewallBackend;
 
 /// Creates an isolated scratch directory under `std::env::temp_dir()`.
 #[cfg(unix)]
-fn make_temp_dir(tag: &str) -> PathBuf {
+fn make_temp_dir(tag: &str) -> PathBuf
+{
     let dir = std::env::temp_dir().join(format!("zapret-audit-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp test directory");
@@ -26,7 +27,8 @@ fn make_temp_dir(tag: &str) -> PathBuf {
 /// Verifies trusted binary resolution rejects relative/traversal names and never resolves into `/tmp`.
 #[cfg(unix)]
 #[test]
-fn trusted_bin_rejects_traversal_relative_and_user_owned_binaries() {
+fn trusted_bin_rejects_traversal_relative_and_user_owned_binaries()
+{
     use zapret_rs::runtime::{resolve_trusted_system_bin, validate_trusted_bin_path};
 
     assert!(resolve_trusted_system_bin("").is_err());
@@ -41,7 +43,8 @@ fn trusted_bin_rejects_traversal_relative_and_user_owned_binaries() {
     assert!(validate_trusted_bin_path(Path::new("./nft")).is_err());
     assert!(validate_trusted_bin_path(&fake_bin).is_err());
 
-    if let Ok(sh_path) = resolve_trusted_system_bin("sh") {
+    if let Ok(sh_path) = resolve_trusted_system_bin("sh")
+    {
         assert!(!sh_path.starts_with(&dir), "trusted sh must not resolve inside temp dir");
         assert!(sh_path.is_absolute());
     }
@@ -53,7 +56,8 @@ fn trusted_bin_rejects_traversal_relative_and_user_owned_binaries() {
 /// without ever spawning them.
 #[cfg(unix)]
 #[test]
-fn nft_backend_refuses_untrusted_explicit_nft_bin_without_executing() {
+fn nft_backend_refuses_untrusted_explicit_nft_bin_without_executing()
+{
     let dir = make_temp_dir("nft-decoy");
     let marker = dir.join("pwned");
     let decoy = dir.join("nft");
@@ -75,7 +79,8 @@ fn nft_backend_refuses_untrusted_explicit_nft_bin_without_executing() {
 /// reject world-writable non-sticky directories, and refuse taking ownership of pre-existing shared dirs.
 #[cfg(unix)]
 #[test]
-fn socket_and_writable_dir_preserve_existing_ownership_and_reject_unsafe_modes() {
+fn socket_and_writable_dir_preserve_existing_ownership_and_reject_unsafe_modes()
+{
     use std::os::unix::fs::symlink;
     use zapret_rs::config::WritableDirConfig;
     use zapret_rs::control::prepare_control_socket_dir;
@@ -97,12 +102,15 @@ fn socket_and_writable_dir_preserve_existing_ownership_and_reject_unsafe_modes()
     // Pre-existing directory owned by current user cannot be hijacked to a foreign UID.
     let existing = dir.join("existing");
     fs::create_dir(&existing).expect("create existing");
-    let foreign_id = IdentitySpec {
-        uid: u32::MAX - 2,
-        gids: vec![u32::MAX - 2],
-        user: None,
-    };
-    assert!(prepare_control_socket_dir(&existing.join("control.sock"), Some(foreign_id.uid), Some(foreign_id.gids[0])).is_err());
+    let foreign_id = IdentitySpec { uid: u32::MAX - 2, gids: vec![u32::MAX - 2], user: None };
+    assert!(
+        prepare_control_socket_dir(
+            &existing.join("control.sock"),
+            Some(foreign_id.uid),
+            Some(foreign_id.gids[0])
+        )
+        .is_err()
+    );
     assert!(ensure_writable_dir(&WritableDirConfig::Custom(existing), Some(&foreign_id)).is_err());
 
     let _ = fs::remove_dir_all(&dir);
@@ -112,16 +120,13 @@ fn socket_and_writable_dir_preserve_existing_ownership_and_reject_unsafe_modes()
 /// instead of the nonexistent `--no-nft` option.
 #[cfg(not(windows))]
 #[test]
-fn tui_daemon_launch_uses_valid_nft_false_flag() {
+fn tui_daemon_launch_uses_valid_nft_false_flag()
+{
     use clap::Parser as _;
     use zapret_rs::config::CliArgs;
     use zapret_rs::tui::daemon_launch::build_daemon_common_args;
 
-    let args = build_daemon_common_args(
-        Path::new("/tmp/nfqws2.toml"),
-        Path::new("/tmp/control.sock"),
-        true,
-    );
+    let args = build_daemon_common_args(Path::new("/tmp/nfqws2.toml"), Path::new("/tmp/control.sock"), true);
     let mut full = vec![std::ffi::OsString::from("nfqws2"), "--intercept=0".into()];
     full.extend(args.iter().cloned());
     let parsed = CliArgs::try_parse_from(&full).expect("daemon common args with --nft=false must parse");
@@ -131,7 +136,8 @@ fn tui_daemon_launch_uses_valid_nft_false_flag() {
 /// Verifies `detect_lua_dir(None)` ignores an untrusted `./lua` directory in CWD.
 #[cfg(unix)]
 #[test]
-fn lua_discovery_ignores_cwd_dot_lua_directory() {
+fn lua_discovery_ignores_cwd_dot_lua_directory()
+{
     use zapret_rs::tools::detect_lua_dir;
 
     let dir = make_temp_dir("cwd-lua");
@@ -145,7 +151,8 @@ fn lua_discovery_ignores_cwd_dot_lua_directory() {
     let detected = detect_lua_dir(None);
     let _ = std::env::set_current_dir(orig);
 
-    if let Some(found) = detected {
+    if let Some(found) = detected
+    {
         assert_ne!(
             fs::canonicalize(&found).ok(),
             fs::canonicalize(&cwd_lua).ok(),
@@ -159,11 +166,10 @@ fn lua_discovery_ignores_cwd_dot_lua_directory() {
 /// Verifies `collect_config_port_ranges`, `collect_config_ports`, and `build_nft_script_ranges`
 /// preserve non-singleton port intervals such as `50000-50099` and `8080-8082`.
 #[test]
-fn collect_config_port_ranges_preserves_port_intervals_and_renders_nft() {
+fn collect_config_port_ranges_preserves_port_intervals_and_renders_nft()
+{
     use zapret_rs::config::AppConfig;
-    use zapret_rs::tools::{
-        NftFirewallBackend, collect_config_port_ranges, collect_config_ports,
-    };
+    use zapret_rs::tools::{NftFirewallBackend, collect_config_port_ranges, collect_config_ports};
 
     let toml = r#"
 [[profiles]]
@@ -191,21 +197,27 @@ func = "fake"
 
 /// Verifies `LineReader` preserves leading frame bytes when a read times out mid-line.
 #[test]
-fn control_line_reader_preserves_partial_frame_across_timed_out_poll() {
+fn control_line_reader_preserves_partial_frame_across_timed_out_poll()
+{
     use std::collections::VecDeque;
     use std::io::{self, BufReader, Read};
     use zapret_rs::control::{CodecError, LineReader, Request, encode_line};
 
     struct StagedStream(VecDeque<io::Result<Vec<u8>>>);
-    impl Read for StagedStream {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            match self.0.pop_front() {
+    impl Read for StagedStream
+    {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>
+        {
+            match self.0.pop_front()
+            {
                 None => Ok(0),
                 Some(Err(err)) => Err(err),
-                Some(Ok(chunk)) => {
+                Some(Ok(chunk)) =>
+                {
                     let n = chunk.len().min(buf.len());
                     buf[..n].copy_from_slice(&chunk[..n]);
-                    if n < chunk.len() {
+                    if n < chunk.len()
+                    {
                         self.0.push_front(Ok(chunk[n..].to_vec()));
                     }
                     Ok(n)
@@ -223,8 +235,10 @@ fn control_line_reader_preserves_partial_frame_across_timed_out_poll() {
     ]));
     let mut reader = LineReader::new(BufReader::new(stream));
 
-    match reader.read_message::<Request>() {
-        Err(CodecError::Io(e)) if e.kind() == io::ErrorKind::TimedOut => {}
+    match reader.read_message::<Request>()
+    {
+        Err(CodecError::Io(e)) if e.kind() == io::ErrorKind::TimedOut =>
+        {}
         other => panic!("expected first poll TimedOut, got {other:?}"),
     }
     let decoded = reader
@@ -237,7 +251,8 @@ fn control_line_reader_preserves_partial_frame_across_timed_out_poll() {
 /// Verifies `CurlProbeBackend` passes `--globoff` and `parse_clean_domain` rejects
 /// SSRF/globbing domain inputs (`127.0.0.1`, `localhost`, `@`, `{}`/`[]`).
 #[test]
-fn probe_uses_globoff_and_domain_parser_rejects_ssrf_and_globs() {
+fn probe_uses_globoff_and_domain_parser_rejects_ssrf_and_globs()
+{
     use std::time::Duration;
     use zapret_rs::tools::{CurlProbeBackend, IpFamily, ProbeProtocol, ProbeRequest, parse_clean_domain};
 
@@ -263,7 +278,8 @@ fn probe_uses_globoff_and_domain_parser_rejects_ssrf_and_globs() {
 
 /// Verifies `WebIpcBridge::shutdown` succeeds cleanly even while held behind shared `Arc` clones.
 #[test]
-fn web_ipc_bridge_shutdown_works_through_shared_arc() {
+fn web_ipc_bridge_shutdown_works_through_shared_arc()
+{
     use std::sync::Arc;
     use zapret_rs::tools::WebIpcBridge;
 
@@ -276,7 +292,8 @@ fn web_ipc_bridge_shutdown_works_through_shared_arc() {
 }
 
 /// Constructs a complete TLS `ClientHello` record of exact byte `len` (>= 11) with optional SID byte.
-fn make_minimal_client_hello(len: usize, sid_len: u8) -> Vec<u8> {
+fn make_minimal_client_hello(len: usize, sid_len: u8) -> Vec<u8>
+{
     let mut rec = vec![0u8; len];
     let rec_payload = (len - 5) as u16;
     let hs_payload = (len - 9) as u32;
@@ -288,7 +305,8 @@ fn make_minimal_client_hello(len: usize, sid_len: u8) -> Vec<u8> {
     rec[6..9].copy_from_slice(&hs_payload.to_be_bytes()[1..]);
     rec[9] = 0x03;
     rec[10] = 0x03;
-    if len >= 44 {
+    if len >= 44
+    {
         rec[43] = sid_len;
     }
     rec
@@ -296,11 +314,13 @@ fn make_minimal_client_hello(len: usize, sid_len: u8) -> Vec<u8> {
 
 /// Verifies `tls_mod` rejects short 11..=43-byte and truncated-SID `ClientHello`s without panicking.
 #[test]
-fn tls_mod_rejects_short_and_truncated_sid_client_hello_without_panic() {
+fn tls_mod_rejects_short_and_truncated_sid_client_hello_without_panic()
+{
     use zapret_rs::protocol::{FakeTlsMod, tls_mod};
 
     let spec = FakeTlsMod::parse_list("rnd").expect("rnd mod spec should parse");
-    for len in [11usize, 20, 43] {
+    for len in [11usize, 20, 43]
+    {
         let ch = make_minimal_client_hello(len, 0);
         assert!(tls_mod(&spec, None, &ch).is_none(), "len={len} must return None");
     }

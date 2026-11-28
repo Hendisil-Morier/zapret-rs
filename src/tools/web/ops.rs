@@ -33,7 +33,8 @@ use crate::tools::web::scan_job::{ScanStartPayload, WebScanJob};
 
 /// Payload accepted by `POST /api/config`.
 #[derive(serde::Deserialize)]
-struct SaveConfigPayload {
+struct SaveConfigPayload
+{
     /// Complete `nfqws2.toml` content submitted from the editor.
     toml: String,
     /// When `true` and a daemon is attached, also sends `Request::ReloadConfig`.
@@ -43,7 +44,8 @@ struct SaveConfigPayload {
 
 /// Payload accepted by `POST /api/domains`.
 #[derive(serde::Deserialize)]
-struct UpdateDomainPayload {
+struct UpdateDomainPayload
+{
     /// Domain name to add or remove.
     domain: String,
     /// `"add"` or `"remove"`.
@@ -55,7 +57,8 @@ struct UpdateDomainPayload {
 
 /// Payload accepted by `POST /api/speed`.
 #[derive(serde::Deserialize)]
-struct SpeedRequestPayload {
+struct SpeedRequestPayload
+{
     /// Target domain list tested alongside optional Cloudflare 25 MB control check.
     #[serde(default)]
     domains: Vec<String>,
@@ -64,13 +67,15 @@ struct SpeedRequestPayload {
     include_control: bool,
 }
 
-const fn default_true() -> bool {
+const fn default_true() -> bool
+{
     true
 }
 
 /// Serialized row returned for each measured speed target.
 #[derive(serde::Serialize)]
-struct SpeedRow {
+struct SpeedRow
+{
     label: String,
     ok: bool,
     summary: String,
@@ -80,25 +85,32 @@ struct SpeedRow {
 }
 
 /// Resolves the managed `nfqws2.toml` path from CLI flags or platform defaults.
-pub fn resolve_managed_config_path(cfg: &WebConfig) -> PathBuf {
+pub fn resolve_managed_config_path(cfg: &WebConfig) -> PathBuf
+{
     cfg.config.clone().unwrap_or_else(default_output_config_path)
 }
 
 /// Resolves the sibling `autohostlist.txt` path alongside `config_path`.
-pub fn resolve_autohostlist_path(config_path: &Path) -> PathBuf {
+pub fn resolve_autohostlist_path(config_path: &Path) -> PathBuf
+{
     config_path
         .parent()
         .map_or_else(|| PathBuf::from(DEFAULT_AUTOHOSTLIST_FILE), |p| p.join(DEFAULT_AUTOHOSTLIST_FILE))
 }
 
 /// Reads and validates the active `nfqws2.toml` file for `GET /api/config`.
-fn read_config_json(path: &Path) -> serde_json::Value {
+fn read_config_json(path: &Path) -> serde_json::Value
+{
     let exists = path.is_file();
     let toml = std::fs::read_to_string(path).unwrap_or_default();
-    let (valid, error, profiles) = if toml.trim().is_empty() {
+    let (valid, error, profiles) = if toml.trim().is_empty()
+    {
         (true, None, 0)
-    } else {
-        match AppConfig::from_toml_str(&toml, path.parent()) {
+    }
+    else
+    {
+        match AppConfig::from_toml_str(&toml, path.parent())
+        {
             Ok(parsed) => (true, None, parsed.profiles.len()),
             Err(err) => (false, Some(err.to_string()), 0),
         }
@@ -114,16 +126,14 @@ fn read_config_json(path: &Path) -> serde_json::Value {
 }
 
 /// Maps a HTTP 400 validation failure with optional label prefix cleanly into Web API tuple format.
-fn bad_request(label: &str, err: impl std::fmt::Display) -> (u16, String) {
-    if label.is_empty() {
-        (400, err.to_string())
-    } else {
-        (400, format!("{label}: {err}"))
-    }
+fn bad_request(label: &str, err: impl std::fmt::Display) -> (u16, String)
+{
+    if label.is_empty() { (400, err.to_string()) } else { (400, format!("{label}: {err}")) }
 }
 
 /// Maps a HTTP 500 persistence failure cleanly into Web API tuple format.
-fn write_failed(path: &Path, err: impl std::fmt::Display) -> (u16, String) {
+fn write_failed(path: &Path, err: impl std::fmt::Display) -> (u16, String)
+{
     (500, format!("failed to write {}: {err}", path.display()))
 }
 
@@ -134,23 +144,25 @@ fn save_config_toml(
     apply: bool,
     ipc: &WebIpcBridge,
     cfg: &WebConfig,
-) -> Result<serde_json::Value, (u16, String)> {
-    let config_dir = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
+) -> Result<serde_json::Value, (u16, String)>
+{
+    let config_dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     validate_web_toml_paths(toml_text, config_dir, cfg.lua_dir.as_deref())
         .map_err(|err| bad_request("", err))?;
     let parsed = AppConfig::from_toml_str(toml_text, Some(config_dir))
         .map_err(|err| bad_request("invalid config TOML", err))?;
     write_config_nofollow(path, toml_text).map_err(|err| write_failed(path, err))?;
 
-    let applied = if apply {
-        match ipc.send_command(&Request::ReloadConfig { toml: toml_text.to_owned() }) {
+    let applied = if apply
+    {
+        match ipc.send_command(&Request::ReloadConfig { toml: toml_text.to_owned() })
+        {
             Ok(msg) => Some(msg.unwrap_or_else(|| format!("applied {} profile(s)", parsed.profiles.len()))),
             Err(err) => return Err((502, format!("saved to disk, but live reload failed: {err}"))),
         }
-    } else {
+    }
+    else
+    {
         None
     };
 
@@ -163,11 +175,10 @@ fn save_config_toml(
 }
 
 /// Reads and filters autohostlist paths strictly confined to `config_path`'s parent directory.
-fn confined_autohostlist_paths(cfg: &AppConfig, config_path: &Path) -> Vec<PathBuf> {
-    let config_dir = config_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
+fn confined_autohostlist_paths(cfg: &AppConfig, config_path: &Path) -> Vec<PathBuf>
+{
+    let config_dir =
+        config_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     configured_autohostlist_paths(cfg)
         .into_iter()
         .filter(|p| is_confined_to_config_dir(p, config_dir))
@@ -175,20 +186,23 @@ fn confined_autohostlist_paths(cfg: &AppConfig, config_path: &Path) -> Vec<PathB
 }
 
 /// Returns blacklist (`hostlist_exclude`), profile `hostlist_domains`, and conditional `autohostlist.txt` entries.
-fn read_domains_json(config_path: &Path) -> serde_json::Value {
+fn read_domains_json(config_path: &Path) -> serde_json::Value
+{
     let toml = std::fs::read_to_string(config_path).unwrap_or_default();
     let parsed = AppConfig::from_toml_str(&toml, config_path.parent()).ok();
     let exclude_domains = parsed.as_ref().map_or_else(Vec::new, extract_exclude_domains);
     let hostlist_domains = parsed.as_ref().map_or_else(Vec::new, extract_hostlist_domains);
-    let auto_paths = parsed
-        .as_ref()
-        .map_or_else(Vec::new, |c| confined_autohostlist_paths(c, config_path));
+    let auto_paths = parsed.as_ref().map_or_else(Vec::new, |c| confined_autohostlist_paths(c, config_path));
     let autohostlist_enabled = !auto_paths.is_empty();
-    let autohostlist_path = auto_paths.first().cloned().unwrap_or_else(|| resolve_autohostlist_path(config_path));
+    let autohostlist_path =
+        auto_paths.first().cloned().unwrap_or_else(|| resolve_autohostlist_path(config_path));
     let mut autohostlist_domains = Vec::new();
-    for p in &auto_paths {
-        for line in read_hostlist_lines(p) {
-            if !autohostlist_domains.iter().any(|d: &String| d.eq_ignore_ascii_case(&line)) {
+    for p in &auto_paths
+    {
+        for line in read_hostlist_lines(p)
+        {
+            if !autohostlist_domains.iter().any(|d: &String| d.eq_ignore_ascii_case(&line))
+            {
                 autohostlist_domains.push(line);
             }
         }
@@ -207,25 +221,31 @@ fn mutate_domain_list(
     config_path: &Path,
     payload: &UpdateDomainPayload,
     ipc: &WebIpcBridge,
-) -> Result<serde_json::Value, (u16, String)> {
-    let add = match payload.action.as_str() {
+) -> Result<serde_json::Value, (u16, String)>
+{
+    let add = match payload.action.as_str()
+    {
         "add" => true,
         "remove" => false,
         other => return Err((400, format!("unsupported domain action '{other}'"))),
     };
     let target_list = payload.list.as_deref().unwrap_or("exclude");
-    match target_list {
-        "exclude" => {
+    match target_list
+    {
+        "exclude" =>
+        {
             let current = std::fs::read_to_string(config_path)
                 .map_err(|err| bad_request(&format!("missing {}", config_path.display()), err))?;
             let updated = mutate_exclude_domains_toml(&current, &payload.domain, add, config_path.parent())
                 .map_err(|err| bad_request("", err))?;
-            write_config_nofollow(config_path, &updated)
-                .map_err(|err| write_failed(config_path, err))?;
+            write_config_nofollow(config_path, &updated).map_err(|err| write_failed(config_path, err))?;
             let reloaded = ipc.send_command(&Request::ReloadConfig { toml: updated }).is_ok();
-            let domains = AppConfig::from_toml_str(&std::fs::read_to_string(config_path).unwrap_or_default(), config_path.parent())
-                .ok()
-                .map_or_else(Vec::new, |cfg| extract_exclude_domains(&cfg));
+            let domains = AppConfig::from_toml_str(
+                &std::fs::read_to_string(config_path).unwrap_or_default(),
+                config_path.parent(),
+            )
+            .ok()
+            .map_or_else(Vec::new, |cfg| extract_exclude_domains(&cfg));
             Ok(serde_json::json!({
                 "ok": true,
                 "list": "exclude",
@@ -233,12 +253,15 @@ fn mutate_domain_list(
                 "reloaded": reloaded,
             }))
         }
-        "auto" => {
+        "auto" =>
+        {
             let current = std::fs::read_to_string(config_path).unwrap_or_default();
             let parsed = AppConfig::from_toml_str(&current, config_path.parent())
                 .map_err(|err| bad_request("invalid config", err))?;
             let auto_paths = confined_autohostlist_paths(&parsed, config_path);
-            let Some(auto_path) = auto_paths.first() else {
+            let Some(auto_path) = auto_paths.first()
+            else
+            {
                 return Err((
                     400,
                     "Auto Hostlist is disabled; set Domain Scope to Auto Hostlist first".to_owned(),
@@ -259,15 +282,13 @@ fn mutate_domain_list(
 }
 
 /// Measures throughput and handshake timing across requested domains + optional control target.
-fn run_speed_probe(payload: &SpeedRequestPayload) -> Vec<SpeedRow> {
+fn run_speed_probe(payload: &SpeedRequestPayload) -> Vec<SpeedRow>
+{
     let backend = CurlProbeBackend::default();
-    let mut targets: Vec<_> = payload
-        .domains
-        .iter()
-        .filter_map(|d| parse_clean_domain(d))
-        .map(|d| domain_target(&d))
-        .collect();
-    if payload.include_control {
+    let mut targets: Vec<_> =
+        payload.domains.iter().filter_map(|d| parse_clean_domain(d)).map(|d| domain_target(&d)).collect();
+    if payload.include_control
+    {
         targets.push(control_target());
     }
     targets
@@ -293,72 +314,124 @@ pub fn handle_ops_route(
     cfg: &WebConfig,
     ipc: &Arc<WebIpcBridge>,
     scan_job: &WebScanJob,
-) -> bool {
+) -> bool
+{
     let config_path = resolve_managed_config_path(cfg);
-    match (&req.method, req.path.as_str()) {
-        (HttpMethod::Get, "/api/config") => {
+    match (&req.method, req.path.as_str())
+    {
+        (HttpMethod::Get, "/api/config") =>
+        {
             let _ = write_json(stream, 200, "OK", &[], &read_config_json(&config_path));
             true
         }
-        (HttpMethod::Post, "/api/config") => {
-            let Ok(payload) = serde_json::from_slice::<SaveConfigPayload>(&req.body) else {
+        (HttpMethod::Post, "/api/config") =>
+        {
+            let Ok(payload) = serde_json::from_slice::<SaveConfigPayload>(&req.body)
+            else
+            {
                 let _ = write_error(stream, 400, "Bad Request", "expected JSON object with toml");
                 return true;
             };
-            match save_config_toml(&config_path, &payload.toml, payload.apply, ipc, cfg) {
-                Ok(val) => { let _ = write_json(stream, 200, "OK", &[], &val); }
-                Err((code, msg)) => {
-                    let reason = if code == 400 { "Bad Request" } else if code == 502 { "Bad Gateway" } else { "Internal Server Error" };
+            match save_config_toml(&config_path, &payload.toml, payload.apply, ipc, cfg)
+            {
+                Ok(val) =>
+                {
+                    let _ = write_json(stream, 200, "OK", &[], &val);
+                }
+                Err((code, msg)) =>
+                {
+                    let reason = if code == 400
+                    {
+                        "Bad Request"
+                    }
+                    else if code == 502
+                    {
+                        "Bad Gateway"
+                    }
+                    else
+                    {
+                        "Internal Server Error"
+                    };
                     let _ = write_error(stream, code, reason, &msg);
                 }
             }
             true
         }
-        (HttpMethod::Get, "/api/domains") => {
+        (HttpMethod::Get, "/api/domains") =>
+        {
             let _ = write_json(stream, 200, "OK", &[], &read_domains_json(&config_path));
             true
         }
-        (HttpMethod::Post, "/api/domains") => {
-            let Ok(payload) = serde_json::from_slice::<UpdateDomainPayload>(&req.body) else {
-                let _ = write_error(stream, 400, "Bad Request", "expected JSON object with domain and action");
+        (HttpMethod::Post, "/api/domains") =>
+        {
+            let Ok(payload) = serde_json::from_slice::<UpdateDomainPayload>(&req.body)
+            else
+            {
+                let _ =
+                    write_error(stream, 400, "Bad Request", "expected JSON object with domain and action");
                 return true;
             };
-            match mutate_domain_list(&config_path, &payload, ipc) {
-                Ok(val) => { let _ = write_json(stream, 200, "OK", &[], &val); }
-                Err((code, msg)) => {
-                    let _ = write_error(stream, code, if code == 400 { "Bad Request" } else { "Internal Server Error" }, &msg);
+            match mutate_domain_list(&config_path, &payload, ipc)
+            {
+                Ok(val) =>
+                {
+                    let _ = write_json(stream, 200, "OK", &[], &val);
+                }
+                Err((code, msg)) =>
+                {
+                    let _ = write_error(
+                        stream,
+                        code,
+                        if code == 400 { "Bad Request" } else { "Internal Server Error" },
+                        &msg,
+                    );
                 }
             }
             true
         }
-        (HttpMethod::Post, "/api/speed") => {
-            let payload: SpeedRequestPayload = serde_json::from_slice(&req.body).unwrap_or(SpeedRequestPayload {
-                domains: Vec::new(),
-                include_control: true,
-            });
+        (HttpMethod::Post, "/api/speed") =>
+        {
+            let payload: SpeedRequestPayload = serde_json::from_slice(&req.body)
+                .unwrap_or(SpeedRequestPayload { domains: Vec::new(), include_control: true });
             let rows = run_speed_probe(&payload);
             let _ = write_json(stream, 200, "OK", &[], &serde_json::json!({ "rows": rows }));
             true
         }
-        (HttpMethod::Get, "/api/scan") => {
+        (HttpMethod::Get, "/api/scan") =>
+        {
             let _ = write_json(stream, 200, "OK", &[], &scan_job.snapshot());
             true
         }
-        (HttpMethod::Post, "/api/scan/start") => {
-            let Ok(payload) = serde_json::from_slice::<ScanStartPayload>(&req.body) else {
+        (HttpMethod::Post, "/api/scan/start") =>
+        {
+            let Ok(payload) = serde_json::from_slice::<ScanStartPayload>(&req.body)
+            else
+            {
                 let _ = write_error(stream, 400, "Bad Request", "expected JSON object with domains");
                 return true;
             };
-            match scan_job.start(payload, cfg, ipc) {
-                Ok(snap) => { let _ = write_json(stream, 200, "OK", &[], &snap); }
-                Err((code, msg)) => {
-                    let reason = match code { 400 => "Bad Request", 403 => "Forbidden", 409 => "Conflict", _ => "Internal Server Error" };
+            match scan_job.start(payload, cfg, ipc)
+            {
+                Ok(snap) =>
+                {
+                    let _ = write_json(stream, 200, "OK", &[], &snap);
+                }
+                Err((code, msg)) =>
+                {
+                    let reason = match code
+                    {
+                        400 => "Bad Request",
+                        403 => "Forbidden",
+                        409 => "Conflict",
+                        _ => "Internal Server Error",
+                    };
                     let _ = write_error(stream, code, reason, &msg);
                 }
             }
             true
         }
-        (HttpMethod::Post, "/api/scan/stop") => {
+        (HttpMethod::Post, "/api/scan/stop") =>
+        {
             let stopped = scan_job.stop();
             let _ = write_json(stream, 200, "OK", &[], &serde_json::json!({ "stopped": stopped }));
             true

@@ -22,7 +22,8 @@ use crate::tools::strat::worker::StrategyApplier;
 
 /// Configuration controlling a multi-domain strategy discovery run.
 #[derive(Debug, Clone)]
-pub struct ScanConfig {
+pub struct ScanConfig
+{
     /// Target hostnames to test (e.g., `["youtube.com", "discord.com"]`).
     pub domains: Vec<String>,
     /// Application protocols to sweep for each domain.
@@ -39,15 +40,21 @@ pub struct ScanConfig {
     pub force_blocked: bool,
 }
 
-impl ScanConfig {
+impl ScanConfig
+{
     /// Returns deduplicated TCP and UDP ports required for temporary `nftables` queue rules.
-    pub fn required_ports(&self) -> (Vec<u16>, Vec<u16>) {
+    pub fn required_ports(&self) -> (Vec<u16>, Vec<u16>)
+    {
         let mut tcp = BTreeSet::new();
         let mut udp = BTreeSet::new();
-        for &proto in &self.protos {
-            if proto.is_udp() {
+        for &proto in &self.protos
+        {
+            if proto.is_udp()
+            {
                 udp.insert(proto.default_port());
-            } else {
+            }
+            else
+            {
                 tcp.insert(proto.default_port());
             }
         }
@@ -57,7 +64,8 @@ impl ScanConfig {
 
 /// Scan results recorded for one `(domain, proto, ipv)` target.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TargetScanResult {
+pub struct TargetScanResult
+{
     /// Target domain name.
     pub domain: String,
     /// Target protocol.
@@ -76,7 +84,8 @@ pub struct TargetScanResult {
 
 /// Complete report returned by [`run_scan`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScanReport {
+pub struct ScanReport
+{
     /// Per-target scan outcomes in execution order.
     pub targets: Vec<TargetScanResult>,
     /// Minimal cross-domain profile cover computed over all targets with passing strategies.
@@ -87,11 +96,13 @@ pub struct ScanReport {
 
 /// Progress notifications emitted during [`run_scan`] for terminal or structured logging.
 #[derive(Debug, Clone)]
-pub enum ProgressEvent<'a> {
+pub enum ProgressEvent<'a>
+{
     /// HTTP/3 probing was requested but skipped because the backend lacks HTTP/3 support.
     Http3Unavailable,
     /// Direct baseline probe completed for one target.
-    Baseline {
+    Baseline
+    {
         /// Target domain name.
         domain: &'a str,
         /// Target protocol.
@@ -102,7 +113,8 @@ pub enum ProgressEvent<'a> {
         outcome: &'a ProbeOutcome,
     },
     /// One strategy candidate was probed for the current target.
-    Candidate {
+    Candidate
+    {
         /// Target domain name.
         domain: &'a str,
         /// 1-based candidate index within the current target's catalog.
@@ -117,7 +129,8 @@ pub enum ProgressEvent<'a> {
 }
 
 /// Extracts the strategy suffix after `<proto>:<ipv>:` (e.g. `"tls13:ipv4:multisplit:1"` -> `"multisplit:1"`).
-fn strategy_suffix(id: &str) -> &str {
+fn strategy_suffix(id: &str) -> &str
+{
     id.split_once(':').and_then(|(_, rest)| rest.split_once(':')).map_or(id, |(_, suffix)| suffix)
 }
 
@@ -125,18 +138,26 @@ fn strategy_suffix(id: &str) -> &str {
 ///
 /// Exact `(ipv, suffix)` matches come first, followed by cross-family `suffix` matches, while
 /// preserving relative catalog order within each tier so final weight/latency ranking is unaffected.
-pub fn prioritize_sticky(catalog: Vec<StrategySpec>, sticky: &[(IpFamily, String)]) -> Vec<StrategySpec> {
-    if sticky.is_empty() {
+pub fn prioritize_sticky(catalog: Vec<StrategySpec>, sticky: &[(IpFamily, String)]) -> Vec<StrategySpec>
+{
+    if sticky.is_empty()
+    {
         return catalog;
     }
     let (mut same_family, mut cross_family, mut rest) = (Vec::new(), Vec::new(), Vec::new());
-    for spec in catalog {
+    for spec in catalog
+    {
         let suffix = strategy_suffix(&spec.id);
-        if sticky.iter().any(|(ipv, s)| *ipv == spec.ipv && s == suffix) {
+        if sticky.iter().any(|(ipv, s)| *ipv == spec.ipv && s == suffix)
+        {
             same_family.push(spec);
-        } else if sticky.iter().any(|(_, s)| s == suffix) {
+        }
+        else if sticky.iter().any(|(_, s)| s == suffix)
+        {
             cross_family.push(spec);
-        } else {
+        }
+        else
+        {
             rest.push(spec);
         }
     }
@@ -158,27 +179,41 @@ where
     A: StrategyApplier,
     F: FnMut(ProgressEvent<'_>),
 {
-    let http3_ok = if cfg.protos.contains(&ProbeProtocol::Http3) {
+    let http3_ok = if cfg.protos.contains(&ProbeProtocol::Http3)
+    {
         let supported = probe.supports_http3();
-        if !supported {
+        if !supported
+        {
             on_event(ProgressEvent::Http3Unavailable);
         }
         supported
-    } else {
+    }
+    else
+    {
         false
     };
 
-    if stop.load(Ordering::Acquire) {
+    if stop.load(Ordering::Acquire)
+    {
         let _ = applier.clear();
         return Ok(ScanReport { targets: Vec::new(), cover: Vec::new(), interrupted: true });
     }
 
     let mut target_reqs = Vec::new();
-    for domain in &cfg.domains {
-        for &ipv in &cfg.families {
-            for &proto in &cfg.protos {
-                if proto != ProbeProtocol::Http3 || http3_ok {
-                    target_reqs.push(ProbeRequest { domain: domain.clone(), proto, ipv, timeout: cfg.timeout });
+    for domain in &cfg.domains
+    {
+        for &ipv in &cfg.families
+        {
+            for &proto in &cfg.protos
+            {
+                if proto != ProbeProtocol::Http3 || http3_ok
+                {
+                    target_reqs.push(ProbeRequest {
+                        domain: domain.clone(),
+                        proto,
+                        ipv,
+                        timeout: cfg.timeout,
+                    });
                 }
             }
         }
@@ -191,11 +226,21 @@ where
         .iter()
         .zip(baselines)
         .map(|(req, baseline)| {
-            on_event(ProgressEvent::Baseline { domain: &req.domain, proto: req.proto, ipv: req.ipv, outcome: &baseline });
+            on_event(ProgressEvent::Baseline {
+                domain: &req.domain,
+                proto: req.proto,
+                ipv: req.ipv,
+                outcome: &baseline,
+            });
             let skipped_unblocked = baseline.is_success() && !cfg.force_blocked;
             TargetScanResult {
-                domain: req.domain.clone(), proto: req.proto, ipv: req.ipv, baseline,
-                skipped_unblocked, tested_count: 0, matches: Vec::new(),
+                domain: req.domain.clone(),
+                proto: req.proto,
+                ipv: req.ipv,
+                baseline,
+                skipped_unblocked,
+                tested_count: 0,
+                matches: Vec::new(),
             }
         })
         .collect();
@@ -203,26 +248,35 @@ where
     let mut sticky: Vec<(IpFamily, String)> = Vec::new();
     let mut interrupted = false;
 
-    'groups: for &ipv in &cfg.families {
-        for &proto in &cfg.protos {
-            if proto == ProbeProtocol::Http3 && !http3_ok {
+    'groups: for &ipv in &cfg.families
+    {
+        for &proto in &cfg.protos
+        {
+            if proto == ProbeProtocol::Http3 && !http3_ok
+            {
                 continue;
             }
             let mut active: Vec<usize> = (0..targets.len())
-                .filter(|&i| !targets[i].skipped_unblocked && targets[i].ipv == ipv && targets[i].proto == proto)
+                .filter(|&i| {
+                    !targets[i].skipped_unblocked && targets[i].ipv == ipv && targets[i].proto == proto
+                })
                 .collect();
-            if active.is_empty() {
+            if active.is_empty()
+            {
                 continue;
             }
 
             let catalog = prioritize_sticky(build_catalog(proto, cfg.level, ipv), &sticky);
             let total = catalog.len();
 
-            for (idx, spec) in catalog.iter().enumerate() {
-                if active.is_empty() {
+            for (idx, spec) in catalog.iter().enumerate()
+            {
+                if active.is_empty()
+                {
                     break;
                 }
-                if stop.load(Ordering::Acquire) {
+                if stop.load(Ordering::Acquire)
+                {
                     interrupted = true;
                     break 'groups;
                 }
@@ -232,19 +286,27 @@ where
                 let outcomes = probe.probe_batch(&batch_reqs);
                 let mut next_active = Vec::with_capacity(active.len());
 
-                for (slot_idx, outcome) in active.into_iter().zip(outcomes) {
+                for (slot_idx, outcome) in active.into_iter().zip(outcomes)
+                {
                     let t = &mut targets[slot_idx];
                     t.tested_count += 1;
                     on_event(ProgressEvent::Candidate {
-                        domain: &t.domain, index: idx + 1, total, strategy: spec, outcome: &outcome,
+                        domain: &t.domain,
+                        index: idx + 1,
+                        total,
+                        strategy: spec,
+                        outcome: &outcome,
                     });
-                    if let Some(latency_ms) = outcome.latency_ms() {
+                    if let Some(latency_ms) = outcome.latency_ms()
+                    {
                         let entry = (spec.ipv, strategy_suffix(&spec.id).to_owned());
-                        if !sticky.contains(&entry) {
+                        if !sticky.contains(&entry)
+                        {
                             sticky.push(entry);
                         }
                         t.matches.push(StrategyMatch { strategy: spec.clone(), latency_ms });
-                        if cfg.stop_on_first {
+                        if cfg.stop_on_first
+                        {
                             continue;
                         }
                     }
@@ -257,11 +319,16 @@ where
 
     let _ = applier.clear();
     let mut domain_strategies = Vec::new();
-    for t in &mut targets {
+    for t in &mut targets
+    {
         rank_matches(&mut t.matches);
-        if !t.matches.is_empty() {
+        if !t.matches.is_empty()
+        {
             domain_strategies.push(DomainStrategies {
-                domain: t.domain.clone(), proto: t.proto, ipv: t.ipv, matches: t.matches.clone(),
+                domain: t.domain.clone(),
+                proto: t.proto,
+                ipv: t.ipv,
+                matches: t.matches.clone(),
             });
         }
     }

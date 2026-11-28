@@ -25,7 +25,8 @@ use crate::intercepter::types::{Decision, PacketIntercepter, QueueConfig, Queued
 pub const MAX_NFQUEUE_BATCH_PACKETS: usize = 64;
 
 /// Attempts to grow the netlink socket `SO_RCVBUF` size, ignoring kernel clamping limits.
-fn set_socket_rcvbuf(fd: RawFd, rcvbuf_bytes: usize) {
+fn set_socket_rcvbuf(fd: RawFd, rcvbuf_bytes: usize)
+{
     let val = rcvbuf_bytes.min(libc::c_int::MAX as usize) as libc::c_int;
     // SAFETY: `val` is a valid stack `c_int` matching `size_of::<c_int>()`.
     let _ = unsafe {
@@ -40,8 +41,10 @@ fn set_socket_rcvbuf(fd: RawFd, rcvbuf_bytes: usize) {
 }
 
 /// Converts an optional wait duration into a `libc::poll` timeout in milliseconds (`-1` for infinite wait).
-pub fn poll_timeout_ms(timeout: Option<Duration>) -> libc::c_int {
-    match timeout {
+pub fn poll_timeout_ms(timeout: Option<Duration>) -> libc::c_int
+{
+    match timeout
+    {
         None => -1,
         Some(dur) => libc::c_int::try_from(dur.as_millis()).unwrap_or(libc::c_int::MAX),
     }
@@ -52,18 +55,22 @@ pub fn dispatch_packet<F>(pkt: &QueuedPacket<'_>, desync_fwmark: u32, on_packet:
 where
     F: FnMut(&QueuedPacket<'_>) -> Decision,
 {
-    if desync_fwmark != 0 && (pkt.mark & desync_fwmark) != 0 {
+    if desync_fwmark != 0 && (pkt.mark & desync_fwmark) != 0
+    {
         return Decision::Pass;
     }
     on_packet(pkt)
 }
 
 /// Applies `decision` to an intercepted `nfq::Message` prior to submitting the verdict.
-pub fn apply_decision(msg: &mut Message, decision: Decision) {
-    match decision {
+pub fn apply_decision(msg: &mut Message, decision: Decision)
+{
+    match decision
+    {
         Decision::Pass => msg.set_verdict(Verdict::Accept),
         Decision::Drop => msg.set_verdict(Verdict::Drop),
-        Decision::Replace(new_bytes) => {
+        Decision::Replace(new_bytes) =>
+        {
             msg.set_payload(new_bytes);
             msg.set_verdict(Verdict::Accept);
         }
@@ -71,7 +78,8 @@ pub fn apply_decision(msg: &mut Message, decision: Decision) {
 }
 
 /// Tuned Linux NFQUEUE listener that resolves interfaces and dispatches packets until stopped.
-pub struct QueueCatcher {
+pub struct QueueCatcher
+{
     /// Bound `nfq::Queue` netlink handle configured in non-blocking mode.
     queue: Queue,
     /// Snapshot of queue configuration applied at bind time.
@@ -91,10 +99,14 @@ pub fn drain_batch_with<E, R>(
 where
     R: FnMut() -> Result<(), E>,
 {
-    for _ in 0..max_batch {
-        match step() {
-            Ok(()) => {
-                if stop.load(Ordering::Relaxed) {
+    for _ in 0..max_batch
+    {
+        match step()
+        {
+            Ok(()) =>
+            {
+                if stop.load(Ordering::Relaxed)
+                {
                     return Ok(true);
                 }
             }
@@ -106,29 +118,29 @@ where
     Ok(false)
 }
 
-impl QueueCatcher {
+impl QueueCatcher
+{
     /// Opens, binds, and configures an NFQUEUE handle matching `config`.
-    pub fn bind(config: QueueConfig) -> Result<Self, IntercepterError> {
+    pub fn bind(config: QueueConfig) -> Result<Self, IntercepterError>
+    {
         let ifnames = IfNameResolver::new()?;
         let mut queue = Queue::open()?;
         queue.bind(config.queue_num)?;
         queue.set_queue_max_len(config.queue_num, config.queue_maxlen)?;
-        if config.fail_open {
+        if config.fail_open
+        {
             // Best-effort: `NFQA_CFG_F_FAIL_OPEN` is unsupported on Linux < 3.6.
             let _ = queue.set_fail_open(config.queue_num, true);
         }
         set_socket_rcvbuf(queue.as_raw_fd(), config.rcvbuf_bytes);
         queue.set_nonblocking(true);
 
-        Ok(Self {
-            queue,
-            config,
-            ifnames,
-        })
+        Ok(Self { queue, config, ifnames })
     }
 
     /// Returns the configuration active on this bound queue catcher.
-    pub fn config(&self) -> QueueConfig {
+    pub fn config(&self) -> QueueConfig
+    {
         self.config
     }
 
@@ -143,37 +155,41 @@ impl QueueCatcher {
         F: FnMut(&QueuedPacket<'_>) -> Decision,
         T: FnMut() -> Option<Duration>,
     {
-        while !stop.load(Ordering::Relaxed) {
+        while !stop.load(Ordering::Relaxed)
+        {
             let timeout_ms = poll_timeout_ms(next_timeout());
-            if stop.load(Ordering::Relaxed) {
+            if stop.load(Ordering::Relaxed)
+            {
                 break;
             }
 
-            let mut pfd = libc::pollfd {
-                fd: self.queue.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            };
+            let mut pfd = libc::pollfd { fd: self.queue.as_raw_fd(), events: libc::POLLIN, revents: 0 };
             // SAFETY: `pfd` points to one initialized stack `libc::pollfd` entry for the duration of `poll`.
             let rc = unsafe { libc::poll(&raw mut pfd, 1, timeout_ms) };
-            if rc < 0 {
+            if rc < 0
+            {
                 let err = std::io::Error::last_os_error();
-                if err.kind() == ErrorKind::Interrupted {
+                if err.kind() == ErrorKind::Interrupted
+                {
                     continue;
                 }
                 return Err(err.into());
             }
-            if rc == 0 {
+            if rc == 0
+            {
                 continue;
             }
 
-            if (pfd.revents & libc::POLLIN) != 0 {
-                if self.drain_ready_messages(stop, &mut on_packet)? {
+            if (pfd.revents & libc::POLLIN) != 0
+            {
+                if self.drain_ready_messages(stop, &mut on_packet)?
+                {
                     return Ok(());
                 }
                 continue;
             }
-            if (pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)) != 0 {
+            if (pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)) != 0
+            {
                 return Err(IntercepterError::PollError(pfd.revents));
             }
         }
@@ -196,12 +212,14 @@ impl QueueCatcher {
             MAX_NFQUEUE_BATCH_PACKETS,
             stop,
             |err| matches!(err, IntercepterError::Io(io_err) if io_err.kind() == ErrorKind::WouldBlock),
-            |err| matches!(
-                err,
-                IntercepterError::Io(io_err)
-                    if io_err.kind() == ErrorKind::Interrupted
-                        || io_err.raw_os_error() == Some(libc::ENOBUFS)
-            ),
+            |err| {
+                matches!(
+                    err,
+                    IntercepterError::Io(io_err)
+                        if io_err.kind() == ErrorKind::Interrupted
+                            || io_err.raw_os_error() == Some(libc::ENOBUFS)
+                )
+            },
             || {
                 let msg = queue.recv().map_err(IntercepterError::from)?;
                 handle_queue_message(queue, ifnames, desync_fwmark, msg, on_packet)
@@ -222,7 +240,8 @@ where
     F: FnMut(&QueuedPacket<'_>) -> Decision,
 {
     let mark = msg.get_nfmark();
-    if desync_fwmark != 0 && (mark & desync_fwmark) != 0 {
+    if desync_fwmark != 0 && (mark & desync_fwmark) != 0
+    {
         apply_decision(&mut msg, Decision::Pass);
         queue.verdict(msg)?;
         return Ok(());
@@ -233,13 +252,7 @@ where
     let outdev = msg.get_outdev();
     let payload = msg.get_payload();
     let decision = ifnames.resolve_pair(indev, outdev, |ifin, ifout| {
-        let pkt = QueuedPacket {
-            packet_id,
-            mark,
-            ifin,
-            ifout,
-            payload,
-        };
+        let pkt = QueuedPacket { packet_id, mark, ifin, ifout, payload };
         dispatch_packet(&pkt, desync_fwmark, on_packet)
     });
     apply_decision(&mut msg, decision);
@@ -247,7 +260,8 @@ where
     Ok(())
 }
 
-impl PacketIntercepter for QueueCatcher {
+impl PacketIntercepter for QueueCatcher
+{
     /// Runs the non-blocking `poll()` and verdict loop until `stop` becomes `true`.
     fn run_until<F, T>(
         &mut self,
@@ -263,9 +277,11 @@ impl PacketIntercepter for QueueCatcher {
     }
 }
 
-impl Drop for QueueCatcher {
+impl Drop for QueueCatcher
+{
     /// Best-effort unbind of the netfilter queue when `QueueCatcher` exits scope.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         let _ = self.queue.unbind(self.config.queue_num);
     }
 }

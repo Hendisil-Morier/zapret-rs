@@ -5,24 +5,24 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// Protocol constants used to construct and assert dissected packets.
 use zapret_rs::packet::constants::{
-    IP_DF, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_ICMP,
-    IPPROTO_ICMPV6, IPPROTO_NONE, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP, IPV6_DEFAULT_FLOW,
-    TCP_KIND_NOOP, TCP_KIND_TS, TH_ACK, TH_PUSH,
+    IP_DF, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6,
+    IPPROTO_NONE, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP, IPV6_DEFAULT_FLOW, TCP_KIND_NOOP, TCP_KIND_TS,
+    TH_ACK, TH_PUSH,
 };
-/// Packet dissection, destination extraction, and header inspection functions.
-use zapret_rs::packet::{dissect_packet, extract_dst, find_ipv6_exthdr};
 /// Packet error variants for negative reconstruction and destination checks.
 use zapret_rs::packet::error::PacketError;
 /// Packet reconstruction options and packet/header constructors.
 use zapret_rs::packet::reconstruct::{ReconstructOptions, reconstruct_packet};
 /// Parsed L3/L4 packet and header types.
 use zapret_rs::packet::types::{
-    DissectedPacket, IcmpHeader, Ipv4Header, Ipv6ExtHeader, Ipv6Header, TcpHeader, TcpOption,
-    UdpHeader,
+    DissectedPacket, IcmpHeader, Ipv4Header, Ipv6ExtHeader, Ipv6Header, TcpHeader, TcpOption, UdpHeader,
 };
+/// Packet dissection, destination extraction, and header inspection functions.
+use zapret_rs::packet::{dissect_packet, extract_dst, find_ipv6_exthdr};
 
 /// Builds a baseline IPv4 header suitable for full packet round-trip tests.
-fn sample_ipv4(protocol: u8, options: Vec<u8>) -> Ipv4Header {
+fn sample_ipv4(protocol: u8, options: Vec<u8>) -> Ipv4Header
+{
     Ipv4Header {
         version: 4,
         header_len: 5,
@@ -40,7 +40,8 @@ fn sample_ipv4(protocol: u8, options: Vec<u8>) -> Ipv4Header {
 }
 
 /// Builds a baseline IPv6 header with optional extension headers.
-fn sample_ipv6(exthdr: Vec<Ipv6ExtHeader>) -> Ipv6Header {
+fn sample_ipv6(exthdr: Vec<Ipv6ExtHeader>) -> Ipv6Header
+{
     Ipv6Header {
         flow: IPV6_DEFAULT_FLOW | 0x12345,
         payload_len: None,
@@ -54,7 +55,8 @@ fn sample_ipv6(exthdr: Vec<Ipv6ExtHeader>) -> Ipv6Header {
 
 /// Verifies IPv4 + TCP roundtrip including non-4-byte-aligned IPv4 options zero-padding and TCP options.
 #[test]
-fn ipv4_tcp_with_unaligned_ip_options_roundtrips_cleanly() {
+fn ipv4_tcp_with_unaligned_ip_options_roundtrips_cleanly()
+{
     let mut dis = DissectedPacket {
         ip: Some(sample_ipv4(IPPROTO_TCP, vec![1, 2, 3, 4, 5])), // padded to 8 bytes
         tcp: Some(TcpHeader {
@@ -69,14 +71,8 @@ fn ipv4_tcp_with_unaligned_ip_options_roundtrips_cleanly() {
             checksum: 0,
             urgent_ptr: 0,
             options: vec![
-                TcpOption {
-                    kind: TCP_KIND_NOOP,
-                    data: None,
-                },
-                TcpOption {
-                    kind: TCP_KIND_TS,
-                    data: Some(vec![0, 0, 0, 10, 0, 0, 0, 20]),
-                },
+                TcpOption { kind: TCP_KIND_NOOP, data: None },
+                TcpOption { kind: TCP_KIND_TS, data: Some(vec![0, 0, 0, 10, 0, 0, 0, 20]) },
             ],
         }),
         payload: Some(b"GET / HTTP/1.1\r\n\r\n".to_vec()),
@@ -101,7 +97,8 @@ fn ipv4_tcp_with_unaligned_ip_options_roundtrips_cleanly() {
 
 /// Verifies IPv6 + HOPOPTS/ROUTING/DSTOPTS/AH + UDP roundtrip and extension-header offset lookup.
 #[test]
-fn ipv6_extension_headers_and_udp_roundtrip() {
+fn ipv6_extension_headers_and_udp_roundtrip()
+{
     let dis = DissectedPacket {
         ip6: Some(sample_ipv6(vec![
             Ipv6ExtHeader {
@@ -109,28 +106,15 @@ fn ipv6_extension_headers_and_udp_roundtrip() {
                 next_header: IPPROTO_NONE,
                 data: vec![1, 2, 3, 4, 5, 6],
             },
-            Ipv6ExtHeader {
-                header_type: IPPROTO_ROUTING,
-                next_header: IPPROTO_NONE,
-                data: vec![0; 14],
-            },
-            Ipv6ExtHeader {
-                header_type: IPPROTO_DSTOPTS,
-                next_header: IPPROTO_NONE,
-                data: vec![7; 6],
-            },
+            Ipv6ExtHeader { header_type: IPPROTO_ROUTING, next_header: IPPROTO_NONE, data: vec![0; 14] },
+            Ipv6ExtHeader { header_type: IPPROTO_DSTOPTS, next_header: IPPROTO_NONE, data: vec![7; 6] },
             Ipv6ExtHeader {
                 header_type: IPPROTO_AH,
                 next_header: IPPROTO_NONE,
                 data: vec![9; 10], // 2 + 10 = 12 bytes (multiple of 4)
             },
         ])),
-        udp: Some(UdpHeader {
-            s_port: 50000,
-            d_port: 443,
-            len: 0,
-            checksum: 0,
-        }),
+        udp: Some(UdpHeader { s_port: 50000, d_port: 443, len: 0, checksum: 0 }),
         payload: Some(b"quic-initial".to_vec()),
         ..DissectedPacket::default()
     };
@@ -157,19 +141,15 @@ fn ipv6_extension_headers_and_udp_roundtrip() {
 
 /// Verifies `no_payload_check = false` rejects truncated IPv6 packets while `true` still parses L3.
 #[test]
-fn dissect_packet_respects_no_payload_check_on_truncated_ipv6() {
+fn dissect_packet_respects_no_payload_check_on_truncated_ipv6()
+{
     let dis = DissectedPacket {
         ip6: Some(sample_ipv6(vec![Ipv6ExtHeader {
             header_type: IPPROTO_HOPOPTS,
             next_header: IPPROTO_NONE,
             data: vec![0; 6],
         }])),
-        udp: Some(UdpHeader {
-            s_port: 1234,
-            d_port: 5678,
-            len: 0,
-            checksum: 0,
-        }),
+        udp: Some(UdpHeader { s_port: 1234, d_port: 5678, len: 0, checksum: 0 }),
         payload: Some(b"payload-bytes".to_vec()),
         ..DissectedPacket::default()
     };
@@ -190,15 +170,11 @@ fn dissect_packet_respects_no_payload_check_on_truncated_ipv6() {
 
 /// Verifies ICMPv4 and ICMPv6 packets reconstruct and dissect accurately with valid checksums.
 #[test]
-fn icmp_v4_and_v6_roundtrip() {
+fn icmp_v4_and_v6_roundtrip()
+{
     let v4 = DissectedPacket {
         ip: Some(sample_ipv4(IPPROTO_ICMP, Vec::new())),
-        icmp: Some(IcmpHeader {
-            icmp_type: 8,
-            icmp_code: 0,
-            checksum: 0,
-            data: 0x0001_0002,
-        }),
+        icmp: Some(IcmpHeader { icmp_type: 8, icmp_code: 0, checksum: 0, data: 0x0001_0002 }),
         payload: Some(b"echo4".to_vec()),
         ..DissectedPacket::default()
     };
@@ -209,12 +185,7 @@ fn icmp_v4_and_v6_roundtrip() {
 
     let v6 = DissectedPacket {
         ip6: Some(sample_ipv6(Vec::new())),
-        icmp: Some(IcmpHeader {
-            icmp_type: 128,
-            icmp_code: 0,
-            checksum: 0,
-            data: 0x0003_0004,
-        }),
+        icmp: Some(IcmpHeader { icmp_type: 128, icmp_code: 0, checksum: 0, data: 0x0003_0004 }),
         payload: Some(b"echo6".to_vec()),
         ..DissectedPacket::default()
     };
@@ -226,15 +197,11 @@ fn icmp_v4_and_v6_roundtrip() {
 
 /// Verifies `extract_dst` across IPv4, IPv6, truncated buffers, and unsupported versions.
 #[test]
-fn extract_dst_handles_valid_and_invalid_packets() {
+fn extract_dst_handles_valid_and_invalid_packets()
+{
     let v4 = DissectedPacket {
         ip: Some(sample_ipv4(IPPROTO_UDP, Vec::new())),
-        udp: Some(UdpHeader {
-            s_port: 1,
-            d_port: 2,
-            len: 0,
-            checksum: 0,
-        }),
+        udp: Some(UdpHeader { s_port: 1, d_port: 2, len: 0, checksum: 0 }),
         payload: Some(Vec::new()),
         ..DissectedPacket::default()
     };
@@ -243,21 +210,14 @@ fn extract_dst_handles_valid_and_invalid_packets() {
 
     let v6 = DissectedPacket {
         ip6: Some(sample_ipv6(Vec::new())),
-        udp: Some(UdpHeader {
-            s_port: 1,
-            d_port: 2,
-            len: 0,
-            checksum: 0,
-        }),
+        udp: Some(UdpHeader { s_port: 1, d_port: 2, len: 0, checksum: 0 }),
         payload: Some(Vec::new()),
         ..DissectedPacket::default()
     };
     let w6 = reconstruct_packet(&v6, &ReconstructOptions::default()).expect("v6");
     assert_eq!(
         extract_dst(&w6),
-        Ok(IpAddr::V6(Ipv6Addr::from([
-            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2
-        ])))
+        Ok(IpAddr::V6(Ipv6Addr::from([0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2])))
     );
 
     assert_eq!(extract_dst(&[]), Err(PacketError::Truncated));

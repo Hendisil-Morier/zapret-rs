@@ -5,7 +5,8 @@ use thiserror::Error;
 
 /// Typed errors returned by pure-Rust SHA-2, HKDF, AES, and AES-GCM operations.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum CryptoError {
+pub enum CryptoError
+{
     /// Requested hash algorithm name is not supported (`"sha224"` or `"sha256"` only).
     #[error("unsupported hash type {0}")]
     UnsupportedHash(String),

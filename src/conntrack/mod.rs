@@ -17,9 +17,8 @@ pub use pool::ConntrackPool;
 pub use reasm::{DEFAULT_GLOBAL_REASM_BUDGET_BYTES, GlobalBufferBudget, StreamReassembler};
 /// Re-exported conntrack constants, keys, position structs, and timeout defaults.
 pub use types::{
-    ConnKey, ConnState, ConntrackTimeouts, CtrackPosition, CtrackPositions,
-    DEFAULT_CTRACK_MAX_ENTRIES, DEFAULT_CTRACK_PURGE_INTERVAL, DEFAULT_CTRACK_TIMEOUT_EST,
-    DEFAULT_CTRACK_TIMEOUT_FIN, DEFAULT_CTRACK_TIMEOUT_SYN, DEFAULT_CTRACK_TIMEOUT_UDP,
-    DelayedPacket, RAW_PACKET_QUEUE_DELAYED_MAX, RETRANS_COUNTER_STOP, TCP_MAX_REASM,
-    UDP_MAX_REASM,
+    ConnKey, ConnState, ConntrackTimeouts, CtrackPosition, CtrackPositions, DEFAULT_CTRACK_MAX_ENTRIES,
+    DEFAULT_CTRACK_PURGE_INTERVAL, DEFAULT_CTRACK_TIMEOUT_EST, DEFAULT_CTRACK_TIMEOUT_FIN,
+    DEFAULT_CTRACK_TIMEOUT_SYN, DEFAULT_CTRACK_TIMEOUT_UDP, DelayedPacket, RAW_PACKET_QUEUE_DELAYED_MAX,
+    RETRANS_COUNTER_STOP, TCP_MAX_REASM, UDP_MAX_REASM,
 };

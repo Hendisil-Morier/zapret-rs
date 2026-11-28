@@ -18,8 +18,7 @@ use zapret_rs::intercepter::{Decision, QueuedPacket};
 use zapret_rs::packet::constants::{IPPROTO_TCP, TCP_KIND_MSS, TH_ACK, TH_PUSH, TH_SYN};
 /// Wire packet types and reconstructor for building valid synthetic IPv4 TCP packets.
 use zapret_rs::packet::{
-    DissectedPacket, Ipv4Header, ReconstructOptions, TcpHeader, TcpOption, dissect_packet,
-    reconstruct_packet,
+    DissectedPacket, Ipv4Header, ReconstructOptions, TcpHeader, TcpOption, dissect_packet, reconstruct_packet,
 };
 /// Raw packet sender trait object coerced from [`common::CapturingSender`].
 use zapret_rs::rawsend::PacketSender;
@@ -38,10 +37,14 @@ fn build_tcp4_pkt(
     options: Vec<TcpOption>,
     payload: &[u8],
     ttl: u8,
-) -> Vec<u8> {
-    let (src, dst, s_port, d_port) = if from_server {
+) -> Vec<u8>
+{
+    let (src, dst, s_port, d_port) = if from_server
+    {
         ([93, 184, 216, 34], [10, 0, 0, 2], 443, 41000)
-    } else {
+    }
+    else
+    {
         ([10, 0, 0, 2], [93, 184, 216, 34], 41000, 443)
     };
     let dis = DissectedPacket {
@@ -79,14 +82,18 @@ fn build_tcp4_pkt(
 }
 
 /// Extension helper rewriting TCP destination port `443` to `80` with fixed checksums for test readability.
-trait PortRewrite {
+trait PortRewrite
+{
     fn replace_port_443_to_80(self) -> Vec<u8>;
 }
 
-impl PortRewrite for Vec<u8> {
-    fn replace_port_443_to_80(self) -> Vec<u8> {
+impl PortRewrite for Vec<u8>
+{
+    fn replace_port_443_to_80(self) -> Vec<u8>
+    {
         let mut dis = dissect_packet(&self, false);
-        if let Some(tcp) = dis.tcp.as_mut() {
+        if let Some(tcp) = dis.tcp.as_mut()
+        {
             tcp.d_port = 80;
         }
         reconstruct_packet(&dis, &ReconstructOptions::default()).expect("rewrite port 80")
@@ -95,7 +102,8 @@ impl PortRewrite for Vec<u8> {
 
 /// Verifies `desync.track` fields (`incoming_ttl`, aliasing, `lua_state`, `tcp_mss`), ranges, and cutoffs.
 #[test]
-fn desync_engine_exposes_track_lua_state_ranges_and_cutoffs() {
+fn desync_engine_exposes_track_lua_state_ranges_and_cutoffs()
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let toml = r#"
         lua_init = [
@@ -176,8 +184,10 @@ fn desync_engine_exposes_track_lua_state_ranges_and_cutoffs() {
     let d3 = build_tcp4_pkt(false, 1017, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload3", 64);
     let d4 = build_tcp4_pkt(false, 1025, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload4", 64);
 
-    let out_pkt = |id, raw| QueuedPacket { packet_id: id, mark: 0, ifin: None, ifout: Some("eth0"), payload: raw };
-    let in_pkt = |id, raw| QueuedPacket { packet_id: id, mark: 0, ifin: Some("eth0"), ifout: None, payload: raw };
+    let out_pkt =
+        |id, raw| QueuedPacket { packet_id: id, mark: 0, ifin: None, ifout: Some("eth0"), payload: raw };
+    let in_pkt =
+        |id, raw| QueuedPacket { packet_id: id, mark: 0, ifin: Some("eth0"), ifout: None, payload: raw };
 
     assert_eq!(engine.process_packet(&out_pkt(1, &syn)), Decision::Pass);
     assert_eq!(engine.process_packet(&in_pkt(2, &synack)), Decision::Pass);
@@ -186,11 +196,16 @@ fn desync_engine_exposes_track_lua_state_ranges_and_cutoffs() {
     assert_eq!(engine.process_packet(&out_pkt(5, &d3)), Decision::Drop);
     assert_eq!(engine.process_packet(&out_pkt(6, &d4)), Decision::Pass); // stopped by lua_out_cutoff
 
-    engine.runtime().exec_str(r#"
+    engine
+        .runtime()
+        .exec_str(
+            r#"
         assert(_G.act1_calls == 1, "instance_cutoff should stop d2")
         assert(_G.act2_calls == 1, "lua_cutoff should run once on d3 and stop d4")
         assert(#_G.seen_vals == 1 and _G.seen_vals[1] == 1)
-    "#).expect("cutoff assertions pass");
+    "#,
+        )
+        .expect("cutoff assertions pass");
 
     // Verify auto-cutoff latch on port 80 when n3 passes out_range="n1-n2".
     let syn80 = build_tcp4_pkt(false, 500, 0, TH_SYN, 4096, vec![], &[], 64).replace_port_443_to_80();
@@ -199,13 +214,19 @@ fn desync_engine_exposes_track_lua_state_ranges_and_cutoffs() {
     let _ = engine.process_packet(&out_pkt(10, &syn80));
     let _ = engine.process_packet(&out_pkt(11, &ack80));
     let _ = engine.process_packet(&out_pkt(12, &ack80_3));
-    let (e80, _) = engine.runtime().conntrack().borrow().double_search(&dissect_packet(&syn80, false)).expect("80 tracked");
+    let (e80, _) = engine
+        .runtime()
+        .conntrack()
+        .borrow()
+        .double_search(&dissect_packet(&syn80, false))
+        .expect("80 tracked");
     assert!(e80.borrow().lua_out_cutoff);
 }
 
 /// Verifies `conntrack_feed` creates tracked state from Lua dissect/raw packets and propagates `ctx.ctrack`.
 #[test]
-fn lua_conntrack_feed_creates_and_propagates_ctrack_mid_profile() {
+fn lua_conntrack_feed_creates_and_propagates_ctrack_mid_profile()
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let toml = r#"
         lua_init = [
@@ -259,10 +280,18 @@ fn lua_conntrack_feed_creates_and_propagates_ctrack_mid_profile() {
     engine.runtime().exec_str("assert(_G.step1 == 1 and _G.step2 == 1)").expect("mid-profile propagation");
 
     // Raw-string conntrack_feed and invalid type error handling.
-    engine.runtime().set_blob("raw_syn", &build_tcp4_pkt(false, 123, 0, TH_SYN, 4096, vec![], &[], 64)).unwrap();
-    engine.runtime().exec_str(r#"
+    engine
+        .runtime()
+        .set_blob("raw_syn", &build_tcp4_pkt(false, 123, 0, TH_SYN, 4096, vec![], &[], 64))
+        .unwrap();
+    engine
+        .runtime()
+        .exec_str(
+            r#"
         local t, out = conntrack_feed(raw_syn)
         assert(t ~= nil and out == true and t.pos.client.tcp.seq0 == 123)
-    "#).expect("raw string conntrack_feed succeeds");
+    "#,
+        )
+        .expect("raw string conntrack_feed succeeds");
     assert!(engine.runtime().exec_str("conntrack_feed(42)").is_err());
 }

@@ -12,7 +12,8 @@ use crate::lua::helpers::{
 const MASK_48: i64 = 0xFFFF_FFFF_FFFF;
 
 /// Registers a unary `bitnot*` Lua function bound to a fixed bitmask width `max`.
-fn register_bitnot(lua: &Lua, name: &'static str, max: i64) -> mlua::Result<()> {
+fn register_bitnot(lua: &Lua, name: &'static str, max: i64) -> mlua::Result<()>
+{
     let f = lua.create_function(move |lua, args: Variadic<Value>| {
         check_argc(name, &args, 1)?;
         let v = require_i64_in_range(lua, &args[0], max)?;
@@ -22,25 +23,20 @@ fn register_bitnot(lua: &Lua, name: &'static str, max: i64) -> mlua::Result<()> 
 }
 
 /// Registers an N-byte big-endian unsigned read helper (`u8`, `u16`, `u24`, `u32`, `u48`).
-fn register_unpack_uint(lua: &Lua, name: &'static str, width: usize) -> mlua::Result<()> {
+fn register_unpack_uint(lua: &Lua, name: &'static str, width: usize) -> mlua::Result<()>
+{
     let f = lua.create_function(move |lua, args: Variadic<Value>| {
         check_argc_range(name, &args, 1, 2)?;
         let bytes = require_strict_bytes(&args[0])?.as_bytes();
-        let offset = if args.len() >= 2 && !args[1].is_nil() {
-            coerce_i64(lua, &args[1])? - 1
-        } else {
-            0
-        };
-        if offset < 0
-            || (offset as usize)
-                .checked_add(width)
-                .is_none_or(|end| end > bytes.len())
+        let offset = if args.len() >= 2 && !args[1].is_nil() { coerce_i64(lua, &args[1])? - 1 } else { 0 };
+        if offset < 0 || (offset as usize).checked_add(width).is_none_or(|end| end > bytes.len())
         {
             return Err(mlua::Error::external("out of range"));
         }
         let start = offset as usize;
         let mut acc = 0u64;
-        for &b in &bytes[start..start + width] {
+        for &b in &bytes[start..start + width]
+        {
             acc = (acc << 8) | u64::from(b);
         }
         Ok(acc as i64)
@@ -49,11 +45,13 @@ fn register_unpack_uint(lua: &Lua, name: &'static str, width: usize) -> mlua::Re
 }
 
 /// Registers a wrapping unsigned addition helper (`u8add`..`u48add`) supporting 1..=100 signed args.
-fn register_uxadd(lua: &Lua, name: &'static str, max: i64) -> mlua::Result<()> {
+fn register_uxadd(lua: &Lua, name: &'static str, max: i64) -> mlua::Result<()>
+{
     let f = lua.create_function(move |lua, args: Variadic<Value>| {
         check_argc_range(name, &args, 1, 100)?;
         let mut sum = 0u64;
-        for arg in args.iter() {
+        for arg in args.iter()
+        {
             let v = require_i64_in_range(lua, arg, max)?;
             sum = sum.wrapping_add(v as u64);
         }
@@ -63,12 +61,8 @@ fn register_uxadd(lua: &Lua, name: &'static str, max: i64) -> mlua::Result<()> {
 }
 
 /// Registers a big-endian byte-string packer (`bu8`..`bu48`).
-fn register_pack_uint(
-    lua: &Lua,
-    name: &'static str,
-    width: usize,
-    max: i64,
-) -> mlua::Result<()> {
+fn register_pack_uint(lua: &Lua, name: &'static str, width: usize, max: i64) -> mlua::Result<()>
+{
     let f = lua.create_function(move |lua, args: Variadic<Value>| {
         check_argc(name, &args, 1)?;
         let v = require_i64_in_range(lua, &args[0], max)?;
@@ -79,7 +73,8 @@ fn register_pack_uint(
 }
 
 /// Registers all 48-bit bitwise, integer unpack/pack, byte-swap, and `divint` Lua globals.
-pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
+pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()>
+{
     let globals = lua.globals();
 
     globals.set(
@@ -88,15 +83,12 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
             check_argc("bitlshift", &args, 2)?;
             let v = require_i64_in_range(lua, &args[0], MASK_48)?;
             let shift = coerce_i64(lua, &args[1])?;
-            if !(0..=48).contains(&shift) {
+            if !(0..=48).contains(&shift)
+            {
                 return Err(mlua::Error::external("out of range"));
             }
             let u = (v as u64) & (MASK_48 as u64);
-            let shifted = if shift == 48 {
-                0
-            } else {
-                (u << (shift as u32)) & (MASK_48 as u64)
-            };
+            let shifted = if shift == 48 { 0 } else { (u << (shift as u32)) & (MASK_48 as u64) };
             Ok(shifted as i64)
         })?,
     )?;
@@ -107,15 +99,12 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
             check_argc("bitrshift", &args, 2)?;
             let v = require_i64_in_range(lua, &args[0], MASK_48)?;
             let shift = coerce_i64(lua, &args[1])?;
-            if !(0..=48).contains(&shift) {
+            if !(0..=48).contains(&shift)
+            {
                 return Err(mlua::Error::external("out of range"));
             }
             let u = (v as u64) & (MASK_48 as u64);
-            let shifted = if shift == 48 {
-                0
-            } else {
-                u >> (shift as u32)
-            };
+            let shifted = if shift == 48 { 0 } else { u >> (shift as u32) };
             Ok(shifted as i64)
         })?,
     )?;
@@ -125,7 +114,8 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc_range("bitand", &args, 2, 100)?;
             let mut sum = MASK_48 as u64;
-            for arg in args.iter() {
+            for arg in args.iter()
+            {
                 let v = require_i64_in_range(lua, arg, MASK_48)?;
                 sum &= v as u64;
             }
@@ -138,7 +128,8 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc_range("bitor", &args, 1, 100)?;
             let mut sum = 0u64;
-            for arg in args.iter() {
+            for arg in args.iter()
+            {
                 let v = require_i64_in_range(lua, arg, MASK_48)?;
                 sum |= (v as u64) & (MASK_48 as u64);
             }
@@ -151,7 +142,8 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc_range("bitxor", &args, 1, 100)?;
             let mut sum = 0u64;
-            for arg in args.iter() {
+            for arg in args.iter()
+            {
                 let v = require_i64_in_range(lua, arg, MASK_48)?;
                 sum ^= (v as u64) & (MASK_48 as u64);
             }
@@ -166,7 +158,8 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
             let what = require_i64_in_range(lua, &args[0], MASK_48)? as u64;
             let from = coerce_i64(lua, &args[1])?;
             let to = coerce_i64(lua, &args[2])?;
-            if from < 0 || to < 0 || from > to || from > 47 || to > 47 {
+            if from < 0 || to < 0 || from > to || from > 47 || to > 47
+            {
                 return Err(mlua::Error::external("bit range invalid"));
             }
             let width = (to - from + 1) as u32;
@@ -183,7 +176,8 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
             let from = coerce_i64(lua, &args[1])?;
             let to = coerce_i64(lua, &args[2])?;
             let set = require_i64_in_range(lua, &args[3], MASK_48)? as u64;
-            if from < 0 || to < 0 || from > to || from > 47 || to > 47 {
+            if from < 0 || to < 0 || from > to || from > 47 || to > 47
+            {
                 return Err(mlua::Error::external("bit range invalid"));
             }
             let width = (to - from + 1) as u32;
@@ -259,11 +253,7 @@ pub fn register_bitwise_functions(lua: &Lua) -> mlua::Result<()> {
             check_argc("divint", &args, 2)?;
             let v1 = coerce_i64(lua, &args[0])?;
             let v2 = coerce_i64(lua, &args[1])?;
-            if v2 == 0 {
-                Ok(Value::Nil)
-            } else {
-                Ok(Value::Integer(v1.wrapping_div(v2)))
-            }
+            if v2 == 0 { Ok(Value::Nil) } else { Ok(Value::Integer(v1.wrapping_div(v2))) }
         })?,
     )?;
 

@@ -23,13 +23,13 @@ use zapret_rs::desync::DesyncEngine;
 use zapret_rs::intercepter::{Decision, QueuedPacket};
 /// Protocol numbers, ICMP error codes, and TCP header flags used to build synthetic traffic.
 use zapret_rs::packet::constants::{
-    ICMP_DEST_UNREACH, ICMP_UNREACH_PORT, IPPROTO_ICMP, IPPROTO_TCP, IPPROTO_UDP, TH_ACK, TH_PUSH,
-    TH_RST, TH_SYN,
+    ICMP_DEST_UNREACH, ICMP_UNREACH_PORT, IPPROTO_ICMP, IPPROTO_TCP, IPPROTO_UDP, TH_ACK, TH_PUSH, TH_RST,
+    TH_SYN,
 };
 /// Packet structures, dissector, and checksum-computing wire reconstructor.
 use zapret_rs::packet::{
-    DissectedPacket, IcmpHeader, Ipv4Header, ReconstructOptions, TcpHeader, UdpHeader,
-    dissect_packet, reconstruct_packet,
+    DissectedPacket, IcmpHeader, Ipv4Header, ReconstructOptions, TcpHeader, UdpHeader, dissect_packet,
+    reconstruct_packet,
 };
 /// Abstract packet transmitter coerced from [`CapturingSender`].
 use zapret_rs::rawsend::PacketSender;
@@ -38,13 +38,15 @@ use zapret_rs::rawsend::PacketSender;
 use common::{CapturingSender, build_ipv4_tcp, build_ipv4_udp};
 
 /// Reads a binary fixture file from `tests/fixtures/fake/`.
-fn fake_fixture(name: &str) -> Vec<u8> {
+fn fake_fixture(name: &str) -> Vec<u8>
+{
     let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake")).join(name);
     fs::read(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
 }
 
 /// Returns a clean temporary directory under `std::env::temp_dir()`.
-fn clean_temp_dir(label: &str) -> PathBuf {
+fn clean_temp_dir(label: &str) -> PathBuf
+{
     let dir = std::env::temp_dir().join(format!("zapret-rs-m3-{}-{label}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp test dir");
@@ -52,23 +54,51 @@ fn clean_temp_dir(label: &str) -> PathBuf {
 }
 
 /// Constructs a base IPv4 header with `ttl = 64` for test packet assembly.
-fn ipv4_base(src: [u8; 4], dst: [u8; 4], protocol: u8) -> Ipv4Header {
+fn ipv4_base(src: [u8; 4], dst: [u8; 4], protocol: u8) -> Ipv4Header
+{
     Ipv4Header {
-        version: 4, header_len: 5, tos: 0, total_len: 0, id: 0x1001, frag_off: 0,
-        ttl: 64, protocol, checksum: 0, src, dst, options: Vec::new(),
+        version: 4,
+        header_len: 5,
+        tos: 0,
+        total_len: 0,
+        id: 0x1001,
+        frag_off: 0,
+        ttl: 64,
+        protocol,
+        checksum: 0,
+        src,
+        dst,
+        options: Vec::new(),
     }
 }
 
 /// Constructs an IPv4/TCP segment with explicit sequence, acknowledgment, flags, and payload.
 #[allow(clippy::too_many_arguments)]
 fn build_tcp4(
-    src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, seq: u32, ack: u32, flags: u8, payload: &[u8],
-) -> Vec<u8> {
+    src: [u8; 4],
+    dst: [u8; 4],
+    sport: u16,
+    dport: u16,
+    seq: u32,
+    ack: u32,
+    flags: u8,
+    payload: &[u8],
+) -> Vec<u8>
+{
     let dis = DissectedPacket {
         ip: Some(ipv4_base(src, dst, IPPROTO_TCP)),
         tcp: Some(TcpHeader {
-            s_port: sport, d_port: dport, seq, ack, reserved: 0, data_offset: 5,
-            flags, window: 65535, checksum: 0, urgent_ptr: 0, options: Vec::new(),
+            s_port: sport,
+            d_port: dport,
+            seq,
+            ack,
+            reserved: 0,
+            data_offset: 5,
+            flags,
+            window: 65535,
+            checksum: 0,
+            urgent_ptr: 0,
+            options: Vec::new(),
         }),
         payload: (!payload.is_empty()).then(|| payload.to_vec()),
         ..DissectedPacket::default()
@@ -77,7 +107,8 @@ fn build_tcp4(
 }
 
 /// Constructs an IPv4/UDP datagram with explicit source/destination endpoints.
-fn build_udp4(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, payload: &[u8]) -> Vec<u8> {
+fn build_udp4(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, payload: &[u8]) -> Vec<u8>
+{
     let dis = DissectedPacket {
         ip: Some(ipv4_base(src, dst, IPPROTO_UDP)),
         udp: Some(UdpHeader { s_port: sport, d_port: dport, len: 0, checksum: 0 }),
@@ -88,24 +119,20 @@ fn build_udp4(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, payload: &[u8]
 }
 
 /// Builds an outgoing `QueuedPacket` on `eth0`.
-const fn out_pkt(id: u32, payload: &[u8]) -> QueuedPacket<'_> {
+const fn out_pkt(id: u32, payload: &[u8]) -> QueuedPacket<'_>
+{
     QueuedPacket { packet_id: id, mark: 0, ifin: None, ifout: Some("eth0"), payload }
 }
 
 /// Builds an incoming `QueuedPacket` on `eth0`.
-const fn in_pkt(id: u32, payload: &[u8]) -> QueuedPacket<'_> {
+const fn in_pkt(id: u32, payload: &[u8]) -> QueuedPacket<'_>
+{
     QueuedPacket { packet_id: id, mark: 0, ifin: Some("eth0"), ifout: None, payload }
 }
 
 /// Completes a tracked 2-way SYN / SYN+ACK exchange starting at `(seq=1000, server_seq=2000)`.
-fn send_handshake(
-    engine: &DesyncEngine,
-    c: [u8; 4],
-    s: [u8; 4],
-    cp: u16,
-    sp: u16,
-    base_id: u32,
-) {
+fn send_handshake(engine: &DesyncEngine, c: [u8; 4], s: [u8; 4], cp: u16, sp: u16, base_id: u32)
+{
     let syn = build_tcp4(c, s, cp, sp, 1000, 0, TH_SYN, &[]);
     let synack = build_tcp4(s, c, sp, cp, 2000, 1001, TH_SYN | TH_ACK, &[]);
     assert_eq!(engine.process_packet(&out_pkt(base_id, &syn)), Decision::Pass);
@@ -114,7 +141,8 @@ fn send_handshake(
 
 /// Verifies 2-segment TCP TLS ClientHello reassembly, SNI hostlist matching, and ordered replay.
 #[test]
-fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni() {
+fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni()
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let toml = r#"
         lua_init = [{ inline = """
@@ -152,16 +180,7 @@ fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni() {
     send_handshake(&engine, c, s, 42000, 443, 1);
 
     let seg1 = build_tcp4(c, s, 42000, 443, 1001, 2001, TH_ACK | TH_PUSH, &ch[..split]);
-    let seg2 = build_tcp4(
-        c,
-        s,
-        42000,
-        443,
-        1001 + split as u32,
-        2001,
-        TH_ACK | TH_PUSH,
-        &ch[split..],
-    );
+    let seg2 = build_tcp4(c, s, 42000, 443, 1001 + split as u32, 2001, TH_ACK | TH_PUSH, &ch[split..]);
 
     assert_eq!(
         engine.process_packet_traced(&out_pkt(3, &seg1)),
@@ -171,10 +190,7 @@ fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni() {
 
     assert_eq!(
         engine.process_packet_traced(&out_pkt(4, &seg2)),
-        (
-            Decision::Drop,
-            zapret_rs::desync::PacketOutcome::Modify(Some("profile #1".to_owned()))
-        )
+        (Decision::Drop, zapret_rs::desync::PacketOutcome::Modify(Some("profile #1".to_owned())))
     );
     {
         let captured = &sender.borrow().packets;
@@ -198,12 +214,7 @@ fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni() {
         (Decision::Drop, zapret_rs::desync::PacketOutcome::Reasm)
     );
 
-    engine
-        .runtime()
-        .lua()
-        .globals()
-        .set("expected_len", ch.len())
-        .expect("set expected_len");
+    engine.runtime().lua().globals().set("expected_len", ch.len()).expect("set expected_len");
     engine
         .runtime()
         .exec_str(
@@ -222,7 +233,8 @@ fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni() {
 
 /// Verifies QUIC Initial decryption, SNI hostlist match, `decrypt_data`, and `ct_new_postnat_fix`.
 #[test]
-fn quic_initial_decrypt_hostlist_match_and_postnat_fix_drop() {
+fn quic_initial_decrypt_hostlist_match_and_postnat_fix_drop()
+{
     let toml = r#"
         lua_init = [{ inline = """
             function check_quic(ctx, desync)
@@ -246,7 +258,9 @@ fn quic_initial_decrypt_hostlist_match_and_postnat_fix_drop() {
 
     let quic_raw = fake_fixture("quic_initial_www_google_com.bin");
     let udp = build_ipv4_udp(51000, 443, &quic_raw);
-    let Decision::Replace(postnat) = engine.process_packet(&out_pkt(1, &udp)) else {
+    let Decision::Replace(postnat) = engine.process_packet(&out_pkt(1, &udp))
+    else
+    {
         panic!("packet 1 VERDICT_DROP must trigger ct_new_postnat_fix Replace");
     };
     assert_eq!(postnat.len(), udp.len());
@@ -257,7 +271,8 @@ fn quic_initial_decrypt_hostlist_match_and_postnat_fix_drop() {
 
 /// Verifies DNS IN A response populates IPCache so a bare TCP SYN matches a hostlist profile.
 #[test]
-fn dns_a_response_populates_ipcache_for_subsequent_tcp_syn() {
+fn dns_a_response_populates_ipcache_for_subsequent_tcp_syn()
+{
     let toml = r#"
         ipcache_hostname = true
         ipcache_lifetime = 3600
@@ -273,13 +288,9 @@ fn dns_a_response_populates_ipcache_for_subsequent_tcp_syn() {
     let cfg = AppConfig::from_toml_str(toml, None).expect("valid TOML");
     let engine = DesyncEngine::new(&cfg).expect("engine init");
 
-    let mut dns_resp = vec![
-        0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-    ];
+    let mut dns_resp = vec![0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00];
     dns_resp.extend_from_slice(b"\x06cached\x07example\x00\x00\x01\x00\x01");
-    dns_resp.extend_from_slice(&[
-        0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0, 0, 0, 60, 0, 4, 203, 0, 113, 10,
-    ]);
+    dns_resp.extend_from_slice(&[0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0, 0, 0, 60, 0, 4, 203, 0, 113, 10]);
     let dns_pkt = build_udp4([8, 8, 8, 8], [10, 0, 0, 2], 53, 55555, &dns_resp);
     assert_eq!(engine.process_packet(&in_pkt(1, &dns_pkt)), Decision::Pass);
 
@@ -290,13 +301,11 @@ fn dns_a_response_populates_ipcache_for_subsequent_tcp_syn() {
 
 /// Verifies autohostlist triggers: TCP retrans synthetic RST, HTTP 302 redirect append, and UDP stall append.
 #[test]
-fn autohostlist_tcp_retrans_rst_http_redirect_and_udp_stall() {
+fn autohostlist_tcp_retrans_rst_http_redirect_and_udp_stall()
+{
     let dir = clean_temp_dir("auto");
-    let (auto_tcp, auto_udp, debug_log) = (
-        dir.join("auto_tcp.txt"),
-        dir.join("auto_udp.txt"),
-        dir.join("auto_debug.log"),
-    );
+    let (auto_tcp, auto_udp, debug_log) =
+        (dir.join("auto_tcp.txt"), dir.join("auto_udp.txt"), dir.join("auto_debug.log"));
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
 
     let toml = format!(
@@ -338,7 +347,8 @@ fn autohostlist_tcp_retrans_rst_http_redirect_and_udp_stall() {
     // Flow 1: GET + 2 retransmissions => synthetic RST injected, fail counter 1/2.
     send_handshake(&engine, c, s, 30001, 80, 1);
     let get1 = build_tcp4(c, s, 30001, 80, 1001, 2001, TH_ACK | TH_PUSH, get_req);
-    for id in 3..=5 {
+    for id in 3..=5
+    {
         assert_eq!(engine.process_packet(&out_pkt(id, &get1)), Decision::Pass);
     }
     let sent = &sender.borrow().packets;
@@ -366,7 +376,8 @@ fn autohostlist_tcp_retrans_rst_http_redirect_and_udp_stall() {
 
     // UDP stall: 3 outgoing QUIC Initial packets without reply promote www.google.com.
     let udp = build_udp4(c, [142, 250, 1, 1], 49000, 443, &fake_fixture("quic_initial_www_google_com.bin"));
-    for id in 13..16 {
+    for id in 13..16
+    {
         let _ = engine.process_packet(&out_pkt(id, &udp));
     }
     let disk_udp = fs::read_to_string(&auto_udp).expect("read auto_udp");
@@ -376,7 +387,8 @@ fn autohostlist_tcp_retrans_rst_http_redirect_and_udp_stall() {
 
 /// Verifies RELATED ICMPv4 inheritance of parent flow state and `reload_lists()` hot-reload.
 #[test]
-fn related_icmp_inheritance_and_reload_lists() {
+fn related_icmp_inheritance_and_reload_lists()
+{
     let dir = clean_temp_dir("icmp-reload");
     let hl_path = dir.join("hosts.txt");
     fs::write(&hl_path, "first.example\n").expect("write initial hostlist");
@@ -415,7 +427,12 @@ fn related_icmp_inheritance_and_reload_lists() {
 
     let icmp_dis = DissectedPacket {
         ip: Some(ipv4_base([192, 0, 2, 1], c, IPPROTO_ICMP)),
-        icmp: Some(IcmpHeader { icmp_type: ICMP_DEST_UNREACH, icmp_code: ICMP_UNREACH_PORT, checksum: 0, data: 0 }),
+        icmp: Some(IcmpHeader {
+            icmp_type: ICMP_DEST_UNREACH,
+            icmp_code: ICMP_UNREACH_PORT,
+            checksum: 0,
+            data: 0,
+        }),
         payload: Some(syn),
         ..DissectedPacket::default()
     };

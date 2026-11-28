@@ -23,9 +23,8 @@ use crate::desync::tcp::process_tcp_packet;
 use crate::desync::udp::process_udp_packet;
 /// Verdict aggregation, gate evaluation, Lua verdict decoding, context guards, and cutoff checks.
 use crate::desync::verdict::{
-    SessionCtxGuard, action_is_runnable, aggregate_verdict, all_actions_cut_off,
-    any_action_runnable, extract_pos_for_side, finalize_decision, invoke_action_callback,
-    parse_lua_verdict,
+    SessionCtxGuard, action_is_runnable, aggregate_verdict, all_actions_cut_off, any_action_runnable,
+    extract_pos_for_side, finalize_decision, invoke_action_callback, parse_lua_verdict,
 };
 /// Intercepted packet metadata and kernel verdict decision enum.
 use crate::intercepter::{Decision, QueuedPacket};
@@ -52,7 +51,8 @@ use crate::rawsend::WinDivertSender;
 use crate::timer::{MonotonicTime, boottime_now};
 
 /// Orchestrates packet dissection, stateful conntrack, L7 probes, list matching, and Lua desync.
-pub struct DesyncEngine {
+pub struct DesyncEngine
+{
     /// Embedded LuaJIT runtime preloaded with blobs, startup scripts, and bindings.
     runtime: LuaRuntime,
     /// Shared raw packet transmitter used by Lua callbacks, delayed flushes, replay, and RSTs.
@@ -83,10 +83,12 @@ pub struct DesyncEngine {
     auto_confirm: Option<AutoConfirmWorker>,
 }
 
-impl DesyncEngine {
+impl DesyncEngine
+{
     /// Constructs a [`DesyncEngine`] using a real Linux `RawSender`.
     #[cfg(target_os = "linux")]
-    pub fn new(config: &AppConfig) -> Result<Self, LuaEngineError> {
+    pub fn new(config: &AppConfig) -> Result<Self, LuaEngineError>
+    {
         let sender: Rc<RefCell<dyn PacketSender>> =
             Rc::new(RefCell::new(RawSender::new(config.bind_fix4, config.bind_fix6)));
         Self::with_sender(config, sender)
@@ -94,7 +96,8 @@ impl DesyncEngine {
 
     /// Constructs a [`DesyncEngine`] using a Windows `WinDivertSender`.
     #[cfg(windows)]
-    pub fn new(config: &AppConfig) -> Result<Self, LuaEngineError> {
+    pub fn new(config: &AppConfig) -> Result<Self, LuaEngineError>
+    {
         let sender: Rc<RefCell<dyn PacketSender>> = Rc::new(RefCell::new(WinDivertSender::new()));
         Self::with_sender(config, sender)
     }
@@ -103,7 +106,8 @@ impl DesyncEngine {
     pub fn with_sender(
         config: &AppConfig,
         sender: Rc<RefCell<dyn PacketSender>>,
-    ) -> Result<Self, LuaEngineError> {
+    ) -> Result<Self, LuaEngineError>
+    {
         let runtime = LuaRuntime::with_sender(LuaConfig::from(config), Rc::clone(&sender))?;
         Self::from_runtime(runtime, sender, config)
     }
@@ -113,15 +117,14 @@ impl DesyncEngine {
         runtime: LuaRuntime,
         sender: Rc<RefCell<dyn PacketSender>>,
         config: &AppConfig,
-    ) -> Result<Self, LuaEngineError> {
+    ) -> Result<Self, LuaEngineError>
+    {
         runtime.apply_app_config(config)?;
         let (list_registry, profile_runtimes) =
             ListRegistry::load_from_config(config).map_err(|(_, err)| LuaEngineError::Io(err))?;
         let profiles: Vec<Rc<DesyncProfile>> = config.profiles.iter().cloned().map(Rc::new).collect();
-        let ipcache = RefCell::new(IpCache::new(
-            i64::from(config.ipcache.lifetime_sec),
-            config.ipcache.hostname,
-        ));
+        let ipcache =
+            RefCell::new(IpCache::new(i64::from(config.ipcache.lifetime_sec), config.ipcache.hostname));
         let auto_confirm = AutoConfirmWorker::for_profiles(&profiles, config.fwmark);
         Ok(Self {
             runtime,
@@ -142,22 +145,26 @@ impl DesyncEngine {
     }
 
     /// Returns a shared reference to the embedded [`LuaRuntime`].
-    pub fn runtime(&self) -> &LuaRuntime {
+    pub fn runtime(&self) -> &LuaRuntime
+    {
         &self.runtime
     }
 
     /// Returns a shared reference to the engine's [`IpCache`] (protected by [`RefCell`]).
-    pub fn ipcache(&self) -> &RefCell<IpCache> {
+    pub fn ipcache(&self) -> &RefCell<IpCache>
+    {
         &self.ipcache
     }
 
     /// Returns the loaded, active desync profiles evaluated for each packet.
-    pub fn profiles(&self) -> &[Rc<DesyncProfile>] {
+    pub fn profiles(&self) -> &[Rc<DesyncProfile>]
+    {
         &self.profiles
     }
 
     /// Swaps active profiles in-place after validating Lua callbacks, clearing conntrack and ipcache.
-    pub fn replace_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), LuaEngineError> {
+    pub fn replace_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), LuaEngineError>
+    {
         let swapped = build_swapped_profiles(profiles, &self.runtime)?;
         self.list_registry = swapped.registry;
         self.profiles = swapped.profiles;
@@ -169,13 +176,15 @@ impl DesyncEngine {
     }
 
     /// Resets modification signatures and reloads all hostlists and ipsets from disk (`SIGHUP`).
-    pub fn reload_lists(&self) {
+    pub fn reload_lists(&self)
+    {
         self.list_registry.reload_all(&self.profile_runtimes);
         self.runtime.conntrack().borrow_mut().reset_unmatched_profiles();
     }
 
     /// Returns a borrowed [`EngineServices`] view shared with `play_prolog` and `dp_rediscovery`.
-    pub(crate) fn services(&self) -> EngineServices<'_> {
+    pub(crate) fn services(&self) -> EngineServices<'_>
+    {
         EngineServices {
             profiles: &self.profiles,
             profile_runtimes: &self.profile_runtimes,
@@ -190,22 +199,28 @@ impl DesyncEngine {
     }
 
     /// Upgrades `last_outcome` (`Pass` < `Reasm` < `Modify` < `Desync`) without downgrading replay hits.
-    pub(crate) fn record_outcome(&self, outcome: PacketOutcome) {
+    pub(crate) fn record_outcome(&self, outcome: PacketOutcome)
+    {
         let mut slot = self.last_outcome.borrow_mut();
         if matches!(
             (&*slot, &outcome),
             (PacketOutcome::Pass, _)
                 | (PacketOutcome::Reasm, PacketOutcome::Modify(_) | PacketOutcome::Desync(_))
                 | (PacketOutcome::Modify(_), PacketOutcome::Desync(_))
-        ) {
+        )
+        {
             *slot = outcome;
         }
     }
 
     /// Processes one intercepted live packet and returns the kernel NFQUEUE [`Decision`].
-    pub fn process_packet(&self, pkt: &QueuedPacket<'_>) -> Decision {
+    pub fn process_packet(&self, pkt: &QueuedPacket<'_>) -> Decision
+    {
         let dbg = self.hostlist_auto_debug.as_deref();
-        if let Some(c) = &self.auto_confirm { c.drain_and_apply(&self.profiles, &self.profile_runtimes, dbg); }
+        if let Some(c) = &self.auto_confirm
+        {
+            c.drain_and_apply(&self.profiles, &self.profile_runtimes, dbg);
+        }
         self.last_outcome.replace(PacketOutcome::Pass);
         let now = boottime_now();
         self.ipcache.borrow_mut().purge_rate_limited(now.sec);
@@ -213,7 +228,8 @@ impl DesyncEngine {
     }
 
     /// Processes one live packet and returns both the kernel [`Decision`] and high-level [`PacketOutcome`].
-    pub fn process_packet_traced(&self, pkt: &QueuedPacket<'_>) -> (Decision, PacketOutcome) {
+    pub fn process_packet_traced(&self, pkt: &QueuedPacket<'_>) -> (Decision, PacketOutcome)
+    {
         let decision = self.process_packet(pkt);
         (decision, self.last_outcome.borrow().clone())
     }
@@ -224,18 +240,27 @@ impl DesyncEngine {
         replay: &ReplayContext<'_>,
         pkt: &QueuedPacket<'_>,
         now: MonotonicTime,
-    ) -> Decision {
+    ) -> Decision
+    {
         let dis = dissect_packet(pkt.payload, false);
-        if dis.ip.is_some() == dis.ip6.is_some() {
+        if dis.ip.is_some() == dis.ip6.is_some()
+        {
             return Decision::Pass;
         }
-        if dis.tcp.is_some() {
+        if dis.tcp.is_some()
+        {
             process_tcp_packet(self, replay, pkt, &dis, now)
-        } else if dis.udp.is_some() {
+        }
+        else if dis.udp.is_some()
+        {
             process_udp_packet(self, replay, pkt, &dis, now)
-        } else if dis.icmp.is_some() {
+        }
+        else if dis.icmp.is_some()
+        {
             process_icmp_packet(self, pkt, &dis)
-        } else {
+        }
+        else
+        {
             process_raw_ip_packet(self, pkt, &dis)
         }
     }
@@ -249,55 +274,89 @@ impl DesyncEngine {
         ps: &PlayState,
         reasm_data: Option<&[u8]>,
         decrypt_data: Option<&[u8]>,
-    ) -> Decision {
-        let Some(idx) = ps.profile_idx else {
+    ) -> Decision
+    {
+        let Some(idx) = ps.profile_idx
+        else
+        {
             return Decision::Pass;
         };
         let profile = &self.profiles[idx];
         let instances = &self.profile_runtimes[idx].action_instances;
-        if profile.actions.is_empty() {
+        if profile.actions.is_empty()
+        {
             return Decision::Pass;
         }
 
         let track_rc = ps.ctrack_replay.as_ref();
-        if let Some(entry_rc) = track_rc {
+        if let Some(entry_rc) = track_rc
+        {
             let entry = entry_rc.borrow();
-            if (ps.incoming && entry.lua_in_cutoff) || (!ps.incoming && entry.lua_out_cutoff) {
+            if (ps.incoming && entry.lua_in_cutoff) || (!ps.incoming && entry.lua_out_cutoff)
+            {
                 return Decision::Pass;
             }
         }
 
-        let pos_opt = if let Some(tp) = replay.tpos {
+        let pos_opt = if let Some(tp) = replay.tpos
+        {
             Some(if ps.b_reverse { tp.server } else { tp.client })
-        } else {
+        }
+        else
+        {
             extract_pos_for_side(track_rc, ps.b_reverse)
         };
 
-        if all_actions_cut_off(profile, instances, track_rc, pos_opt.as_ref(), ps.incoming) {
-            if let Some(entry_rc) = track_rc {
+        if all_actions_cut_off(profile, instances, track_rc, pos_opt.as_ref(), ps.incoming)
+        {
+            if let Some(entry_rc) = track_rc
+            {
                 let mut e = entry_rc.borrow_mut();
-                if ps.incoming { e.lua_in_cutoff = true; } else { e.lua_out_cutoff = true; }
+                if ps.incoming
+                {
+                    e.lua_in_cutoff = true;
+                }
+                else
+                {
+                    e.lua_out_cutoff = true;
+                }
             }
             return Decision::Pass;
         }
 
-        if !any_action_runnable(profile, instances, track_rc, pos_opt.as_ref(), ps.incoming, ps.l7payload) {
+        if !any_action_runnable(profile, instances, track_rc, pos_opt.as_ref(), ps.incoming, ps.l7payload)
+        {
             return Decision::Pass;
         }
 
         match self.try_run_profile(
-            idx, profile, instances, replay, pkt, dis, ps, pos_opt, reasm_data, decrypt_data,
-        ) {
-            Ok(decision) => {
-                let label = || Some(profile.name.clone().unwrap_or_else(|| format!("profile #{}", profile.index)));
-                match &decision {
+            idx,
+            profile,
+            instances,
+            replay,
+            pkt,
+            dis,
+            ps,
+            pos_opt,
+            reasm_data,
+            decrypt_data,
+        )
+        {
+            Ok(decision) =>
+            {
+                let label =
+                    || Some(profile.name.clone().unwrap_or_else(|| format!("profile #{}", profile.index)));
+                match &decision
+                {
                     Decision::Replace(_) => self.record_outcome(PacketOutcome::Modify(label())),
                     Decision::Drop => self.record_outcome(PacketOutcome::Desync(label())),
-                    Decision::Pass => {}
+                    Decision::Pass =>
+                    {}
                 }
                 decision
             }
-            Err(err) => {
+            Err(err) =>
+            {
                 eprintln!("desync ERROR: {err}. passing packet unmodified.");
                 Decision::Pass
             }
@@ -318,7 +377,8 @@ impl DesyncEngine {
         mut pos_opt: Option<crate::conntrack::CtrackPosition>,
         reasm_data: Option<&[u8]>,
         decrypt_data: Option<&[u8]>,
-    ) -> Result<Decision, String> {
+    ) -> Result<Decision, String>
+    {
         let lua = self.runtime.lua();
         let ctx_state = self.runtime.desync_ctx_state();
         let mut active_ctrack = ps.ctrack_replay.clone();
@@ -341,22 +401,48 @@ impl DesyncEngine {
         let desync_tbl = {
             let track_ref = active_ctrack.as_ref().map(|rc| rc.borrow());
             let table_input = DesyncTableInput {
-                dis, profile, incoming: active_incoming, ifin: pkt.ifin, ifout: pkt.ifout,
-                fwmark: pkt.mark, target_ip4: ps.target_ip4, target_ip6: ps.target_ip6,
-                target_port: ps.target_port, l7payload: ps.l7payload, l7proto: ps.l7proto,
-                track: track_ref.as_deref(), tpos: replay.tpos, b_reverse: active_b_reverse,
-                replay_piece: replay.replay_piece, replay_piece_count: replay.replay_piece_count,
-                reasm_offset: replay.reasm_offset, reasm_data, decrypt_data,
+                dis,
+                profile,
+                incoming: active_incoming,
+                ifin: pkt.ifin,
+                ifout: pkt.ifout,
+                fwmark: pkt.mark,
+                target_ip4: ps.target_ip4,
+                target_ip6: ps.target_ip6,
+                target_port: ps.target_port,
+                l7payload: ps.l7payload,
+                l7proto: ps.l7proto,
+                track: track_ref.as_deref(),
+                tpos: replay.tpos,
+                b_reverse: active_b_reverse,
+                replay_piece: replay.replay_piece,
+                replay_piece_count: replay.replay_piece_count,
+                reasm_offset: replay.reasm_offset,
+                reasm_data,
+                decrypt_data,
             };
             build_desync_table(lua, &table_input).map_err(|e| format!("failed to build desync table: {e}"))?
         };
-        let ctx_ud = self.runtime.desync_ctx_userdata().map_err(|e| format!("failed to fetch desync ctx userdata: {e}"))?;
+        let ctx_ud = self
+            .runtime
+            .desync_ctx_userdata()
+            .map_err(|e| format!("failed to fetch desync ctx userdata: {e}"))?;
 
         let mut verdict = VERDICT_PASS;
-        for (idx, action) in profile.actions.iter().enumerate() {
+        for (idx, action) in profile.actions.iter().enumerate()
+        {
             let func_n = (idx as u32) + 1;
             let instance = &instances[idx];
-            if !action_is_runnable(action, profile.index, instance, active_ctrack.as_ref(), pos_opt.as_ref(), active_incoming, ps.l7payload) {
+            if !action_is_runnable(
+                action,
+                profile.index,
+                instance,
+                active_ctrack.as_ref(),
+                pos_opt.as_ref(),
+                active_incoming,
+                ps.l7payload,
+            )
+            {
                 continue;
             }
 
@@ -364,7 +450,8 @@ impl DesyncEngine {
 
             let Some(arg_tbl) = build_action_args_table(lua, &action.args, Some(&desync_tbl), true)
                 .map_err(|e| format!("failed to build args for '{}': {e}", action.func))?
-            else {
+            else
+            {
                 return Err(format!("missing blob referenced by '{}'", action.func));
             };
 
@@ -375,9 +462,20 @@ impl DesyncEngine {
                 .and_then(|()| desync_tbl.raw_set("func_instance", instance.as_str()))
                 .map_err(|e| format!("failed to update desync table fields: {e}"))?;
 
-            let results = invoke_action_callback(ctx_state, &func, &ctx_ud, &desync_tbl, func_n, &action.func, instance)?;
+            let results = invoke_action_callback(
+                ctx_state,
+                &func,
+                &ctx_ud,
+                &desync_tbl,
+                func_n,
+                &action.func,
+                instance,
+            )?;
             verdict = aggregate_verdict(verdict, parse_lua_verdict(&results)?);
-            if ctx_state.borrow().cancel { break; }
+            if ctx_state.borrow().cancel
+            {
+                break;
+            }
 
             if active_ctrack.is_none()
                 && let Some((rc, ctx_inc)) = {

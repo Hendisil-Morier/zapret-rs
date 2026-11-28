@@ -14,19 +14,23 @@ use zapret_rs::tui::{
 };
 
 /// Creates a plain unmodified [`KeyEvent`] for `code`.
-fn key(code: KeyCode) -> KeyEvent {
+fn key(code: KeyCode) -> KeyEvent
+{
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
 /// Renders `state` into a `TestBackend` buffer of size `(width, height)` and returns the plain text.
-fn render_to_string(state: &AppState, width: u16, height: u16) -> String {
+fn render_to_string(state: &AppState, width: u16, height: u16) -> String
+{
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal.draw(|f| draw_app(f, state)).expect("draw frame");
     let buf = terminal.backend().buffer();
     let mut out = String::new();
-    for y in 0..buf.area.height {
-        for x in 0..buf.area.width {
+    for y in 0..buf.area.height
+    {
+        for x in 0..buf.area.width
+        {
             out.push_str(buf[(x, y)].symbol());
         }
         out.push('\n');
@@ -36,7 +40,8 @@ fn render_to_string(state: &AppState, width: u16, height: u16) -> String {
 
 /// Verifies configurable themes, TOML overrides, syntax highlighters, `t` cycling, and buffer colors.
 #[test]
-fn theme_syntax_highlighters_and_buffer_palette_apply_distinct_colors() {
+fn theme_syntax_highlighters_and_buffer_palette_apply_distinct_colors()
+{
     let custom = Theme::from_toml_str("preset = \"dracula\"\nframe = \"#123456\"\n").expect("parse theme");
     assert_eq!((custom.name, custom.frame), ("custom", Color::Rgb(0x12, 0x34, 0x56)));
     let hints = theme::styled_key_hints("[r] Start  [q] Quit", &custom);
@@ -50,7 +55,9 @@ fn theme_syntax_highlighters_and_buffer_palette_apply_distinct_colors() {
     assert_eq!(toml_lines[3].spans.last().and_then(|s| s.style.fg), Some(custom.ok_bright));
     let nft_lines = theme::highlight_nft("table inet zapret {\n  meta mark & 0x4000 != 0 accept\n}", &custom);
     assert_eq!(nft_lines[0].spans[0].style.fg, Some(custom.special_bright));
-    assert!(nft_lines[1].spans.iter().any(|s| s.content == "meta" && s.style.fg == Some(custom.accent_bright)));
+    assert!(
+        nft_lines[1].spans.iter().any(|s| s.content == "meta" && s.style.fg == Some(custom.accent_bright))
+    );
     assert!(nft_lines[1].spans.iter().any(|s| s.content == "accept" && s.style.fg == Some(custom.ok_bright)));
 
     let mut state = AppState::new(None, None, false);
@@ -62,14 +69,20 @@ fn theme_syntax_highlighters_and_buffer_palette_apply_distinct_colors() {
     let mut terminal = Terminal::new(backend).expect("create TestBackend terminal");
     terminal.draw(|f| draw_app(f, &state)).expect("draw colorful Run tab");
     let cells = terminal.backend().buffer().content();
-    for expected in [state.theme.frame, state.theme.ok, state.theme.special, state.theme.warn, state.theme.accent_bright] {
-        assert!(cells.iter().any(|c| c.fg == expected), "expected theme color {expected:?} in Run tab buffer");
+    for expected in
+        [state.theme.frame, state.theme.ok, state.theme.special, state.theme.warn, state.theme.accent_bright]
+    {
+        assert!(
+            cells.iter().any(|c| c.fg == expected),
+            "expected theme color {expected:?} in Run tab buffer"
+        );
     }
 }
 
 /// Verifies Tab 1 option tooltips open after a 1-second focus dwell, reset on move, and close on Esc.
 #[test]
-fn finder_option_tooltip_opens_after_one_second_dwell_and_resets_on_navigation() {
+fn finder_option_tooltip_opens_after_one_second_dwell_and_resets_on_navigation()
+{
     let mut state = AppState::new(None, None, false);
     let t0 = state.finder.hover.since.expect("initial hover timestamp armed");
     state.poll_finder_hover(t0);
@@ -100,9 +113,11 @@ fn finder_option_tooltip_opens_after_one_second_dwell_and_resets_on_navigation()
 
 /// Verifies `Tab`/`BackTab` cycles panel focus within each tab and scrolls logs/results/scripts.
 #[test]
-fn tab_cycles_panel_focus_within_tabs_and_scrolls_logs_results_and_nft_preview() {
+fn tab_cycles_panel_focus_within_tabs_and_scrolls_logs_results_and_nft_preview()
+{
     let mut state = AppState::new(None, None, false);
-    for i in 0..20 {
+    for i in 0..20
+    {
         state.push_finder_log(format!("[info] scan line {i}"));
     }
     assert_eq!(state.focus.finder, FinderFocus::Setup);

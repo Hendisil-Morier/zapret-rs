@@ -18,15 +18,18 @@ pub fn run_no_intercept_callbacks(
     mut is_empty: impl FnMut() -> bool,
     mut next_deadline: impl FnMut() -> Option<u64>,
     mut step_expired: impl FnMut() -> Option<u64>,
-) {
+)
+{
     on_tick();
-    if is_empty() {
+    if is_empty()
+    {
         return;
     }
 
     let mut deadline_ms = next_deadline();
 
-    while !stop.load(Ordering::Relaxed) && !is_empty() {
+    while !stop.load(Ordering::Relaxed) && !is_empty()
+    {
         on_tick();
         let now = boottime_ms();
 
@@ -34,7 +37,8 @@ pub fn run_no_intercept_callbacks(
             && deadline > now
         {
             let mut remaining_ms = deadline.saturating_sub(now);
-            while remaining_ms > 0 && !stop.load(Ordering::Relaxed) {
+            while remaining_ms > 0 && !stop.load(Ordering::Relaxed)
+            {
                 let slice = remaining_ms.min(MAX_SLEEP_SLICE_MS);
                 std::thread::sleep(Duration::from_millis(slice));
                 on_tick();
@@ -42,7 +46,8 @@ pub fn run_no_intercept_callbacks(
             }
         }
 
-        if stop.load(Ordering::Relaxed) {
+        if stop.load(Ordering::Relaxed)
+        {
             break;
         }
 

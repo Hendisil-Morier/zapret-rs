@@ -31,7 +31,8 @@ pub const DEFAULT_WEB_BIND: &str = "127.0.0.1:8787";
 /// Command-line flags for `zapret-rs web`.
 #[derive(Debug, Parser)]
 #[command(name = "zapret-rs web", version = env!("CARGO_PKG_VERSION"), about = "Mobile & desktop web control dashboard for zapret-rs")]
-pub struct WebCli {
+pub struct WebCli
+{
     /// Listen address as IP:PORT (use loopback, LAN IP, or Tailscale IP; e.g. 127.0.0.1:8787).
     #[arg(long = "bind", default_value = DEFAULT_WEB_BIND)]
     pub bind: String,
@@ -54,7 +55,8 @@ pub struct WebCli {
 
 /// Validated runtime configuration for [`start_web_server`].
 #[derive(Debug, Clone)]
-pub struct WebConfig {
+pub struct WebConfig
+{
     /// Resolved socket address to bind.
     pub bind: SocketAddr,
     /// Authentication policy guarding protected routes.
@@ -68,11 +70,10 @@ pub struct WebConfig {
 }
 
 /// Executes a parsed [`WebCli`] invocation until interrupted by `SIGINT`/`SIGTERM`.
-pub fn run_web(cli: WebCli) -> Result<(), String> {
-    let bind: SocketAddr = cli
-        .bind
-        .parse()
-        .map_err(|err| format!("invalid --bind address '{}': {err}", cli.bind))?;
+pub fn run_web(cli: WebCli) -> Result<(), String>
+{
+    let bind: SocketAddr =
+        cli.bind.parse().map_err(|err| format!("invalid --bind address '{}': {err}", cli.bind))?;
     let env_token = std::env::var("ZAPRET_WEB_TOKEN").ok().filter(|s| !s.trim().is_empty());
     let (auth, generated) = WebAuth::new(bind, cli.token.or(env_token), cli.no_auth)?;
 
@@ -87,14 +88,18 @@ pub fn run_web(cli: WebCli) -> Result<(), String> {
     install_signal_handlers().map_err(|err| format!("failed to install signal handlers: {err}"))?;
     let mut handle = start_web_server(cfg)?;
     eprintln!("zapret-rs web listening on http://{}", handle.addr());
-    if let Some(tok) = generated {
+    if let Some(tok) = generated
+    {
         eprintln!("Pairing passcode: {tok}");
-    } else if handle.addr().ip().is_loopback() && cli.no_auth {
+    }
+    else if handle.addr().ip().is_loopback() && cli.no_auth
+    {
         eprintln!("Authentication disabled on loopback (--no-auth).");
     }
 
     let quit = quit_flag();
-    while !quit.load(Ordering::Acquire) {
+    while !quit.load(Ordering::Acquire)
+    {
         thread::sleep(Duration::from_millis(100));
     }
     handle.shutdown();
@@ -107,15 +112,19 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    match WebCli::try_parse_from(args) {
-        Ok(cli) => match run_web(cli) {
+    match WebCli::try_parse_from(args)
+    {
+        Ok(cli) => match run_web(cli)
+        {
             Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
+            Err(err) =>
+            {
                 eprintln!("zapret-rs web error: {err}");
                 ExitCode::FAILURE
             }
         },
-        Err(err) => {
+        Err(err) =>
+        {
             let is_info = matches!(err.kind(), ClapErrorKind::DisplayHelp | ClapErrorKind::DisplayVersion);
             let _ = err.print();
             if is_info { ExitCode::SUCCESS } else { ExitCode::from(2) }

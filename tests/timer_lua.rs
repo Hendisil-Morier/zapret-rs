@@ -17,33 +17,32 @@ use zapret_rs::timer::{TimerPool, boottime_ms};
 /// Mock packet sender implementing [`PacketSender`] for headless runtime initialization.
 struct NoopSender;
 
-impl zapret_rs::rawsend::PacketSender for NoopSender {
+impl zapret_rs::rawsend::PacketSender for NoopSender
+{
     fn send(
         &mut self,
         _dst: std::net::IpAddr,
         _fwmark: u32,
         _ifout: Option<&str>,
         _packet: &[u8],
-    ) -> Result<(), zapret_rs::rawsend::RawSendError> {
+    ) -> Result<(), zapret_rs::rawsend::RawSendError>
+    {
         Ok(())
     }
 }
 
 /// Helper creating a hardened headless [`LuaRuntime`] with `NoopSender`.
-fn make_test_runtime() -> LuaRuntime {
-    let config = LuaConfig {
-        debug: true,
-        lua_gc_sec: 1,
-        ..LuaConfig::default()
-    };
-    let sender: Rc<RefCell<dyn zapret_rs::rawsend::PacketSender>> =
-        Rc::new(RefCell::new(NoopSender));
+fn make_test_runtime() -> LuaRuntime
+{
+    let config = LuaConfig { debug: true, lua_gc_sec: 1, ..LuaConfig::default() };
+    let sender: Rc<RefCell<dyn zapret_rs::rawsend::PacketSender>> = Rc::new(RefCell::new(NoopSender));
     LuaRuntime::with_sender(config, sender).expect("valid LuaRuntime creation")
 }
 
 /// Verifies basic oneshot and repeating timer registration, data passing, and `fires` counting.
 #[test]
-fn timer_set_oneshot_and_repeating() {
+fn timer_set_oneshot_and_repeating()
+{
     let runtime = make_test_runtime();
     let lua = runtime.lua();
 
@@ -105,7 +104,8 @@ fn timer_set_oneshot_and_repeating() {
 
 /// Verifies strict validation of timer period and function arguments.
 #[test]
-fn timer_argument_and_period_validation() {
+fn timer_argument_and_period_validation()
+{
     let runtime = make_test_runtime();
 
     // Period < 10 ms must fail.
@@ -122,11 +122,7 @@ fn timer_argument_and_period_validation() {
 
     // Invalid argc for timer_set (< 3 or > 5).
     assert!(runtime.exec_str(r#"timer_set("few")"#).is_err());
-    assert!(
-        runtime
-            .exec_str(r#"timer_set("many", function() end, 100, true, "d", "extra")"#)
-            .is_err()
-    );
+    assert!(runtime.exec_str(r#"timer_set("many", function() end, 100, true, "d", "extra")"#).is_err());
 
     // Invalid argc for timer_del (must be 1).
     assert!(runtime.exec_str(r#"timer_del()"#).is_err());
@@ -141,7 +137,8 @@ fn timer_argument_and_period_validation() {
 
 /// Verifies `timer_info` metadata output and `timer_enum` listing active timers.
 #[test]
-fn timer_info_and_enum_reflection() {
+fn timer_info_and_enum_reflection()
+{
     let runtime = make_test_runtime();
 
     runtime
@@ -175,7 +172,8 @@ fn timer_info_and_enum_reflection() {
 
 /// Verifies `timer_del` removes timers and prevents subsequent activations.
 #[test]
-fn timer_del_operation() {
+fn timer_del_operation()
+{
     let runtime = make_test_runtime();
     let lua = runtime.lua();
 
@@ -203,7 +201,8 @@ fn timer_del_operation() {
 
 /// Verifies re-entrant modifications where a timer deletes itself inside its own callback.
 #[test]
-fn timer_self_deletion_inside_callback() {
+fn timer_self_deletion_inside_callback()
+{
     let runtime = make_test_runtime();
     let lua = runtime.lua();
 
@@ -224,7 +223,8 @@ fn timer_self_deletion_inside_callback() {
     let pool = runtime.timer_pool();
     let mut current = boottime_ms();
 
-    for _ in 0..5 {
+    for _ in 0..5
+    {
         current += 30;
         let _ = TimerPool::run_expired(pool, lua, current);
     }
@@ -236,7 +236,8 @@ fn timer_self_deletion_inside_callback() {
 
 /// Verifies re-entrant recreation where a timer replaces itself with a different period.
 #[test]
-fn timer_recreation_inside_callback() {
+fn timer_recreation_inside_callback()
+{
     let runtime = make_test_runtime();
     let lua = runtime.lua();
 
@@ -279,7 +280,8 @@ fn timer_recreation_inside_callback() {
 /// Verifies error handling: an error in a timer callback deletes the offending timer
 /// while allowing other active timers to continue running unimpeded.
 #[test]
-fn timer_error_deletes_failing_timer() {
+fn timer_error_deletes_failing_timer()
+{
     let runtime = make_test_runtime();
     let lua = runtime.lua();
 
@@ -313,7 +315,8 @@ fn timer_error_deletes_failing_timer() {
 
 /// Verifies `--intercept=0` (`run_no_intercept`) loop executes to completion and honors `stop`.
 #[test]
-fn no_intercept_loop_execution_and_clean_exit() {
+fn no_intercept_loop_execution_and_clean_exit()
+{
     let runtime = make_test_runtime();
 
     runtime
@@ -356,7 +359,8 @@ fn no_intercept_loop_execution_and_clean_exit() {
 
 /// Verifies `do_gc` executes full Lua garbage collection when interval has elapsed.
 #[test]
-fn periodic_lua_gc_execution() {
+fn periodic_lua_gc_execution()
+{
     let runtime = make_test_runtime();
     let lua = runtime.lua();
 

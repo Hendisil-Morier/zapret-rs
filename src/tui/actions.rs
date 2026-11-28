@@ -5,20 +5,22 @@ use std::io;
 /// Timestamp tracking when waiting for a running `nfqws2` daemon to stop before scanning.
 use std::time::Instant;
 
-/// Symlink-safe TOML writer, `~/` expansion, `nft` table constant, and TOML merge helpers.
-use crate::tools::{FirewallHandle, STRAT_FINDER_NFT_TABLE, merge_nfqws2_toml};
 /// Linux `nftables` backend for Strategy Finder / live queue rules.
 #[cfg(target_os = "linux")]
 use crate::tools::NftFirewallBackend;
 /// Active OS firewall backend selector for non-Linux targets.
 #[cfg(not(target_os = "linux"))]
 use crate::tools::active_firewall_backend;
+/// Symlink-safe TOML writer, `~/` expansion, `nft` table constant, and TOML merge helpers.
+use crate::tools::{FirewallHandle, STRAT_FINDER_NFT_TABLE, merge_nfqws2_toml};
 /// Shared stop-wait state machine reused when halting `nfqws2` prior to starting a scan.
 use crate::tui::daemon_cycle::{CycleInputs, CyclePhase, CycleStep, next_step};
-/// Floating authentication modal helpers and silent `sudo` executor.
-use crate::tui::modal::{AuthModal, ModalPurpose, run_sudo_silent, zeroize_string};
 /// Detached `systemd` / standalone `nfqws2 --daemon` background launcher.
 use crate::tui::daemon_launch::{DaemonLaunchOutcome, launch_external_daemon};
+/// Floating authentication modal helpers and silent `sudo` executor.
+use crate::tui::modal::{AuthModal, ModalPurpose, run_sudo_silent, zeroize_string};
+/// Control socket auto-detection used to probe for an existing daemon before local launch.
+use crate::tui::remote::detect_control_socket;
 /// Terminal RAII session wrapper, external `$EDITOR`, and Tab 1 domain history persistence.
 use crate::tui::session::{TerminalSession, drop_fw_tui, save_domains_history};
 /// Mutable TUI application state.
@@ -31,8 +33,6 @@ use crate::tui::tab2_session::{
 use crate::tui::types::{FinderStatus, PostCapsAction, ScanUiEvent};
 /// Background scan, prerequisite validator, and live local `nfqws2` NFQUEUE worker handles.
 use crate::tui::workers::{ActiveScan, start_finder_scan, start_live_daemon, validate_scan_prereqs};
-/// Control socket auto-detection used to probe for an existing daemon before local launch.
-use crate::tui::remote::detect_control_socket;
 
 /// Attempts non-interactive `nftables` installation and flags `need_sudo` on `PermissionDenied`.
 ///
@@ -44,7 +44,8 @@ fn install_nft_non_interactive(
     tcp: &[u16],
     udp: &[u16],
     need_sudo: &mut bool,
-) -> io::Result<Box<dyn FirewallHandle>> {
+) -> io::Result<Box<dyn FirewallHandle>>
+{
     #[cfg(target_os = "linux")]
     {
         let res = NftFirewallBackend::default().install_non_interactive(qnum, fwmark, tcp, udp);
@@ -63,7 +64,8 @@ fn install_nft_non_interactive(
 }
 
 /// Queued Tab 1 scan launch waiting for an active `nfqws2` daemon to stop and release its queue.
-pub(crate) struct PendingScanStart {
+pub(crate) struct PendingScanStart
+{
     /// Timestamp when the daemon stop was initiated so a hung daemon aborts cleanly after timeout.
     started: Instant,
 }
@@ -77,20 +79,23 @@ pub(crate) fn begin_scan_stopping_daemon(
     active_scan: &mut Option<ActiveScan>,
     session_tab2: &mut Option<Tab2Session>,
     session: &mut TerminalSession,
-) -> Option<PendingScanStart> {
-    if !state.status.has_net_caps {
+) -> Option<PendingScanStart>
+{
+    if !state.status.has_net_caps
+    {
         state.open_caps_modal_for(Some(PostCapsAction::StartScan));
         return None;
     }
-    if let Err(err) = validate_scan_prereqs(state) {
+    if let Err(err) = validate_scan_prereqs(state)
+    {
         state.apply_scan_event(ScanUiEvent::Failed(err));
         return None;
     }
-    if !attach_and_stop_active_daemon(state, session_tab2, session) {
+    if !attach_and_stop_active_daemon(state, session_tab2, session)
+    {
         return None;
     }
-    if session_tab2.is_none()
-        && detect_control_socket(state.run.control_socket_override.as_deref()).is_none()
+    if session_tab2.is_none() && detect_control_socket(state.run.control_socket_override.as_deref()).is_none()
     {
         try_start_scan(state, active_scan);
         return None;
@@ -107,8 +112,11 @@ pub(crate) fn poll_pending_scan(
     state: &mut AppState,
     active_scan: &mut Option<ActiveScan>,
     session_tab2: &Option<Tab2Session>,
-) {
-    let Some(pending) = pending_scan.as_ref() else {
+)
+{
+    let Some(pending) = pending_scan.as_ref()
+    else
+    {
         return;
     };
     let inputs = CycleInputs {
@@ -118,14 +126,18 @@ pub(crate) fn poll_pending_scan(
         run_errored: false,
         elapsed: pending.started.elapsed(),
     };
-    match next_step(CyclePhase::Stopping, &inputs) {
-        CycleStep::WaitStop | CycleStep::WaitStart => {}
-        CycleStep::StartNow | CycleStep::Finished => {
+    match next_step(CyclePhase::Stopping, &inputs)
+    {
+        CycleStep::WaitStop | CycleStep::WaitStart =>
+        {}
+        CycleStep::StartNow | CycleStep::Finished =>
+        {
             *pending_scan = None;
             state.push_run_log("[scan] nfqws2 stopped; starting strategy scan.");
             try_start_scan(state, active_scan);
         }
-        CycleStep::Failed(_) => {
+        CycleStep::Failed(_) =>
+        {
             *pending_scan = None;
             let msg = "Strategy scan aborted: nfqws2 did not stop in time.".to_owned();
             state.push_run_log(format!("[error] {msg}"));
@@ -138,22 +150,25 @@ pub(crate) fn poll_pending_scan(
 ///
 /// If `has_net_caps` is unset, opens the capability grant modal with `PostCapsAction::StartScan`
 /// so the scan is retried automatically after `setcap` succeeds.
-pub(crate) fn try_start_scan(state: &mut AppState, active_scan: &mut Option<ActiveScan>) {
-    if !state.status.has_net_caps {
+pub(crate) fn try_start_scan(state: &mut AppState, active_scan: &mut Option<ActiveScan>)
+{
+    if !state.status.has_net_caps
+    {
         state.open_caps_modal_for(Some(PostCapsAction::StartScan));
         return;
     }
     let mut need_sudo = false;
-    let res = start_finder_scan(state, |q, m, t, u| {
-        install_nft_non_interactive(q, m, t, u, &mut need_sudo)
-    });
-    if need_sudo {
+    let res = start_finder_scan(state, |q, m, t, u| install_nft_non_interactive(q, m, t, u, &mut need_sudo));
+    if need_sudo
+    {
         let preview = format!("sudo nft -f -  (table inet {STRAT_FINDER_NFT_TABLE})");
         state.modal = Some(AuthModal::open(ModalPurpose::SudoForScan, preview));
         return;
     }
-    match res {
-        Ok(scan) => {
+    match res
+    {
+        Ok(scan) =>
+        {
             save_domains_history(state);
             *active_scan = Some(scan);
         }
@@ -162,7 +177,8 @@ pub(crate) fn try_start_scan(state: &mut AppState, active_scan: &mut Option<Acti
 }
 
 /// Records a daemon startup failure uniformly across Tab 2 state, banner, and log.
-fn record_start_error(state: &mut AppState, err: String) {
+fn record_start_error(state: &mut AppState, err: String)
+{
     state.run.status = crate::tui::types::RunStatus::Error(err.clone());
     state.status_banner = format!("Start failed: {err}");
     state.push_run_log(format!("[error] {err}"));
@@ -171,16 +187,21 @@ fn record_start_error(state: &mut AppState, err: String) {
 /// Attaches to an active socket, launches a persistent background daemon, or falls back to local mode.
 ///
 /// Resolution order: detected control socket → external daemon launch → in-process local daemon.
-pub(crate) fn try_start_or_attach(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) {
+pub(crate) fn try_start_or_attach(state: &mut AppState, session_tab2: &mut Option<Tab2Session>)
+{
     let detected = detect_control_socket(state.run.control_socket_override.as_deref());
     state.run.detected_socket = detected.clone();
-    if let Some(sock) = detected {
+    if let Some(sock) = detected
+    {
         attach_to_socket(state, session_tab2, sock);
         return;
     }
-    match launch_external_daemon(state, session_tab2) {
-        DaemonLaunchOutcome::Attached => {}
-        DaemonLaunchOutcome::NeedSudo(preview) => {
+    match launch_external_daemon(state, session_tab2)
+    {
+        DaemonLaunchOutcome::Attached =>
+        {}
+        DaemonLaunchOutcome::NeedSudo(preview) =>
+        {
             state.modal = Some(AuthModal::open(ModalPurpose::SudoForDaemon, preview));
         }
         DaemonLaunchOutcome::Failed(err) => record_start_error(state, err),
@@ -192,21 +213,23 @@ pub(crate) fn try_start_or_attach(state: &mut AppState, session_tab2: &mut Optio
 ///
 /// If `has_net_caps` is unset, opens the capability grant modal with `PostCapsAction::StartDaemon`
 /// so the launch is retried automatically after `setcap` succeeds.
-fn try_start_local_daemon(state: &mut AppState, session_tab2: &mut Option<Tab2Session>) {
-    if !state.status.has_net_caps {
+fn try_start_local_daemon(state: &mut AppState, session_tab2: &mut Option<Tab2Session>)
+{
+    if !state.status.has_net_caps
+    {
         state.open_caps_modal_for(Some(PostCapsAction::StartDaemon));
         return;
     }
     let mut need_sudo = false;
-    let res = start_live_daemon(state, |q, m, t, u| {
-        install_nft_non_interactive(q, m, t, u, &mut need_sudo)
-    });
-    if need_sudo {
+    let res = start_live_daemon(state, |q, m, t, u| install_nft_non_interactive(q, m, t, u, &mut need_sudo));
+    if need_sudo
+    {
         let preview = format!("sudo nft -f -  (table inet {STRAT_FINDER_NFT_TABLE})");
         state.modal = Some(AuthModal::open(ModalPurpose::SudoForDaemon, preview));
         return;
     }
-    match res {
+    match res
+    {
         Ok(daemon) => *session_tab2 = Some(Tab2Session::Local(daemon)),
         Err(err) => record_start_error(state, err),
     }
@@ -219,27 +242,35 @@ pub(crate) fn submit_auth_modal(
     state: &mut AppState,
     active_scan: &mut Option<ActiveScan>,
     session_tab2: &mut Option<Tab2Session>,
-) -> bool {
-    let Some(modal) = state.modal.as_mut() else {
+) -> bool
+{
+    let Some(modal) = state.modal.as_mut()
+    else
+    {
         return false;
     };
     let purpose = modal.purpose;
 
-    if purpose == ModalPurpose::ConfirmStopDaemon {
+    if purpose == ModalPurpose::ConfirmStopDaemon
+    {
         state.modal = None;
         execute_remote_stop(state, session_tab2);
         return false;
     }
     #[cfg(windows)]
-    if purpose == ModalPurpose::GrantCaps {
+    if purpose == ModalPurpose::GrantCaps
+    {
         state.modal = None;
         state.pending_caps_action = None;
         return false;
     }
-    if purpose == ModalPurpose::ConfirmApplyDns {
+    if purpose == ModalPurpose::ConfirmApplyDns
+    {
         state.modal = None;
-        state.status_banner = match crate::tools::apply_dns_preset(state.status.dns_preset) {
-            Ok(msg) => {
+        state.status_banner = match crate::tools::apply_dns_preset(state.status.dns_preset)
+        {
+            Ok(msg) =>
+            {
                 state.refresh_status_checks();
                 msg
             }
@@ -247,11 +278,15 @@ pub(crate) fn submit_auth_modal(
         };
         return false;
     }
-    if purpose == ModalPurpose::ConfirmMergeConfig {
+    if purpose == ModalPurpose::ConfirmMergeConfig
+    {
         state.modal = None;
-        if let Some((prev, new_toml)) = state.config.pending_merge.take() {
-            match merge_nfqws2_toml(&prev, &new_toml) {
-                Ok(merged) => {
+        if let Some((prev, new_toml)) = state.config.pending_merge.take()
+        {
+            match merge_nfqws2_toml(&prev, &new_toml)
+            {
+                Ok(merged) =>
+                {
                     state.set_active_toml(merged);
                     state.status_banner = format!(
                         "Merged into {} profile(s). Press 's' to save.",
@@ -264,41 +299,46 @@ pub(crate) fn submit_auth_modal(
         return false;
     }
 
-    let mut pw_buf = if modal.needs_password {
-        Some(modal.take_password())
-    } else {
-        None
-    };
+    let mut pw_buf = if modal.needs_password { Some(modal.take_password()) } else { None };
     let pw_ref = pw_buf.as_deref();
 
-    let result = match purpose {
-        ModalPurpose::GrantCaps => {
+    let result = match purpose
+    {
+        ModalPurpose::GrantCaps =>
+        {
             let setcap_cmd = crate::runtime::resolve_trusted_system_bin("setcap")
                 .map(|p| p.display().to_string())
                 .map_err(|err| format!("cannot locate trusted setcap: {err}"));
-            match setcap_cmd {
-                Ok(bin) => run_sudo_silent(&["--", &bin, "cap_net_admin,cap_net_raw+ep", &state.status.exe_path], pw_ref),
+            match setcap_cmd
+            {
+                Ok(bin) => run_sudo_silent(
+                    &["--", &bin, "cap_net_admin,cap_net_raw+ep", &state.status.exe_path],
+                    pw_ref,
+                ),
                 Err(err) => Err(err),
             }
         }
-        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => {
-            run_sudo_silent(&["-v"], pw_ref)
-        }
+        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => run_sudo_silent(&["-v"], pw_ref),
         ModalPurpose::ConfirmStopDaemon
         | ModalPurpose::ConfirmSpeedTest
         | ModalPurpose::ConfirmMergeConfig
         | ModalPurpose::ConfirmApplyDns => Ok(()),
     };
 
-    if let Some(ref mut secret) = pw_buf {
+    if let Some(ref mut secret) = pw_buf
+    {
         zeroize_string(secret);
     }
 
-    match result {
-        Ok(()) => {
+    match result
+    {
+        Ok(()) =>
+        {
             state.modal = None;
-            match purpose {
-                ModalPurpose::GrantCaps => {
+            match purpose
+            {
+                ModalPurpose::GrantCaps =>
+                {
                     state.status.has_net_caps = true;
                     state.status_banner = "Capabilities granted.".to_owned();
                     return true;
@@ -308,11 +348,14 @@ pub(crate) fn submit_auth_modal(
                 ModalPurpose::ConfirmStopDaemon
                 | ModalPurpose::ConfirmSpeedTest
                 | ModalPurpose::ConfirmMergeConfig
-                | ModalPurpose::ConfirmApplyDns => {}
+                | ModalPurpose::ConfirmApplyDns =>
+                {}
             }
         }
-        Err(msg) => {
-            if let Some(modal) = state.modal.as_mut() {
+        Err(msg) =>
+        {
+            if let Some(modal) = state.modal.as_mut()
+            {
                 modal.needs_password = true;
                 modal.error = Some(msg);
             }
@@ -329,20 +372,27 @@ pub(crate) fn poll_active_scan(
     state: &mut AppState,
     active_scan: &mut Option<ActiveScan>,
     session: &mut TerminalSession,
-) {
-    let Some(scan) = active_scan.as_mut() else {
+)
+{
+    let Some(scan) = active_scan.as_mut()
+    else
+    {
         return;
     };
     let mut finished = false;
-    while let Ok(ev) = scan.rx.try_recv() {
-        if matches!(ev, ScanUiEvent::Completed { .. } | ScanUiEvent::Failed(_)) {
+    while let Ok(ev) = scan.rx.try_recv()
+    {
+        if matches!(ev, ScanUiEvent::Completed { .. } | ScanUiEvent::Failed(_))
+        {
             finished = true;
         }
         state.apply_scan_event(ev);
     }
-    if finished && let Some(mut done_scan) = active_scan.take() {
+    if finished && let Some(mut done_scan) = active_scan.take()
+    {
         done_scan.shutdown(|g| drop_fw_tui(session, g));
-        if state.config.pending_merge.is_some() && state.modal.is_none() {
+        if state.config.pending_merge.is_some() && state.modal.is_none()
+        {
             let preview = format!(
                 "merge {} new profile(s) into existing {}",
                 state.config.parsed_profiles.len(),
@@ -360,8 +410,10 @@ pub(crate) fn cancel_active_scan(
     state: &mut AppState,
     active_scan: &mut Option<ActiveScan>,
     session: &mut TerminalSession,
-) {
-    if let Some(mut scan) = active_scan.take() {
+)
+{
+    if let Some(mut scan) = active_scan.take()
+    {
         scan.shutdown(|g| drop_fw_tui(session, g));
         state.finder.status = FinderStatus::Done;
         state.status_banner = "Scan stopped cleanly.".to_owned();

@@ -22,7 +22,8 @@ use crate::runtime::ProcessError;
 
 /// Unified error type surfaced cleanly from `nfqws2` startup and event loops.
 #[derive(Debug, Error)]
-pub enum DaemonError {
+pub enum DaemonError
+{
     /// CLI parsing or TOML validation failure.
     #[error("{0}")]
     Config(#[from] ConfigError),
@@ -51,7 +52,8 @@ pub enum DaemonError {
     /// Referenced `--lua-init` script file could not be opened under active privileges.
     #[cfg(target_os = "linux")]
     #[error("cannot open Lua init script '{}': {source}", path.display())]
-    ScriptIo {
+    ScriptIo
+    {
         /// Filesystem path of the unreadable startup Lua script.
         path: PathBuf,
         /// Underlying OS error returned by `File::open`.
@@ -61,7 +63,8 @@ pub enum DaemonError {
     /// Referenced hostlist, ipset, autohostlist, or debug log file failed validation.
     #[cfg(target_os = "linux")]
     #[error("cannot load list file '{}': {source}", path.display())]
-    ListIo {
+    ListIo
+    {
         /// Filesystem path of the invalid or inaccessible list file.
         path: PathBuf,
         /// Underlying OS or gzip decoding error.

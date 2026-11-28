@@ -1,15 +1,16 @@
 //! Integration tests for `zapret-rs web` Config editor, Domain hostlist, and Scan routes.
 
+/// Temporary directory creation and file verification.
+use std::fs;
 /// Raw loopback TCP HTTP helper without external HTTP client dependencies.
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
-/// Temporary directory creation and file verification.
-use std::fs;
 
 /// Web server launcher and auth helpers under test.
 use zapret_rs::tools::{WebAuth, WebConfig, start_web_server};
 
-fn raw_http(addr: SocketAddr, req: &str) -> (u16, String) {
+fn raw_http(addr: SocketAddr, req: &str) -> (u16, String)
+{
     let mut s = TcpStream::connect(addr).expect("connect web");
     s.write_all(req.as_bytes()).expect("write");
     let mut out = String::new();
@@ -24,11 +25,9 @@ fn raw_http(addr: SocketAddr, req: &str) -> (u16, String) {
 }
 
 #[test]
-fn config_editor_rejects_invalid_toml_writes_valid_and_manages_domains() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+fn config_editor_rejects_invalid_toml_writes_valid_and_manages_domains()
+{
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_web_ops_{}_{nanos}", std::process::id()));
     fs::create_dir_all(&dir).expect("mkdir");
     let cfg_path = dir.join("nfqws2.toml");
@@ -141,7 +140,8 @@ fn config_editor_rejects_invalid_toml_writes_valid_and_manages_domains() {
 
 #[cfg(unix)]
 #[test]
-fn config_apply_pushes_reload_config_to_attached_daemon() {
+fn config_apply_pushes_reload_config_to_attached_daemon()
+{
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
@@ -151,10 +151,7 @@ fn config_apply_pushes_reload_config_to_attached_daemon() {
     };
     use zapret_rs::telemetry::PacketCounters;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_web_apply_{}_{nanos}", std::process::id()));
     fs::create_dir_all(&dir).expect("mkdir");
     let sock = dir.join("control.sock");
@@ -180,9 +177,12 @@ fn config_apply_pushes_reload_config_to_attached_daemon() {
     let seen_reload = Arc::new(AtomicBool::new(false));
     let (s_flag, r_flag, h_loop) = (Arc::clone(&stop_loop), Arc::clone(&seen_reload), Arc::clone(&hub));
     let t = thread::spawn(move || {
-        while !s_flag.load(Ordering::Acquire) {
-            while let Some(cmd) = h_loop.try_recv_command() {
-                if let ControlCommand::ReloadConfig { reply, .. } = cmd {
+        while !s_flag.load(Ordering::Acquire)
+        {
+            while let Some(cmd) = h_loop.try_recv_command()
+            {
+                if let ControlCommand::ReloadConfig { reply, .. } = cmd
+                {
                     r_flag.store(true, Ordering::Release);
                     let _ = reply.send(Ok("applied 1 profile(s)".to_owned()));
                 }
@@ -204,12 +204,14 @@ fn config_apply_pushes_reload_config_to_attached_daemon() {
     let addr = web.addr();
 
     let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
+    loop
+    {
         let (_, body) = raw_http(
             addr,
             "GET /api/status HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer apply-tok\r\n\r\n",
         );
-        if body.contains("\"connected\":true") {
+        if body.contains("\"connected\":true")
+        {
             break;
         }
         assert!(Instant::now() < deadline, "daemon did not attach in time");
@@ -238,11 +240,9 @@ fn config_apply_pushes_reload_config_to_attached_daemon() {
 }
 
 #[test]
-fn config_upload_blocks_path_traversal_and_external_file_disclosure() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+fn config_upload_blocks_path_traversal_and_external_file_disclosure()
+{
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_web_confine_{}_{nanos}", std::process::id()));
     let outside = std::env::temp_dir().join(format!("zapret_outside_{}_{nanos}.txt", std::process::id()));
     fs::create_dir_all(&dir).expect("mkdir");
@@ -270,7 +270,8 @@ fn config_upload_blocks_path_traversal_and_external_file_disclosure() {
         "[[profiles]]\nhostlist_auto = \"../escape.txt\"\n".to_owned(),
         format!("hostlist_auto_debug = \"{}\"\n", outside.display()),
     ];
-    for evil in evil_toml_cases {
+    for evil in evil_toml_cases
+    {
         let body = serde_json::json!({ "toml": evil, "apply": false }).to_string();
         let req = format!(
             "POST /api/config HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer confine-tok\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",

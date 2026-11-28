@@ -13,32 +13,32 @@ use zapret_rs::tui::types::ActiveTab;
 use zapret_rs::tui::web_actions::{launch_web_ui, resolve_web_bind, stop_web_ui};
 use zapret_rs::tui::{AppAction, AppState, PromptKind, draw_app};
 
-fn key(code: KeyCode) -> KeyEvent {
+fn key(code: KeyCode) -> KeyEvent
+{
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
-fn click(column: u16, row: u16) -> MouseEvent {
-    MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column,
-        row,
-        modifiers: KeyModifiers::NONE,
-    }
+fn click(column: u16, row: u16) -> MouseEvent
+{
+    MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE }
 }
 
-fn render_screen_size(state: &AppState, width: u16, height: u16) -> String {
+fn render_screen_size(state: &AppState, width: u16, height: u16) -> String
+{
     let backend = TestBackend::new(width, height);
     let mut term = Terminal::new(backend).expect("term");
     term.draw(|f| draw_app(f, state)).expect("draw");
     term.backend().buffer().content().iter().map(|c| c.symbol()).collect()
 }
 
-fn render_screen(state: &AppState) -> String {
+fn render_screen(state: &AppState) -> String
+{
     render_screen_size(state, 120, 32)
 }
 
 #[test]
-fn global_w_key_opens_mode_modal_and_selects_lan_or_localhost() {
+fn global_w_key_opens_mode_modal_and_selects_lan_or_localhost()
+{
     let mut state = AppState::new(None, None, false);
 
     assert_eq!(state.handle_key(key(KeyCode::Char('W'))), AppAction::None);
@@ -68,7 +68,8 @@ fn global_w_key_opens_mode_modal_and_selects_lan_or_localhost() {
 }
 
 #[test]
-fn web_ui_launches_serves_healthz_displays_in_tabs_and_stops_on_second_w() {
+fn web_ui_launches_serves_healthz_displays_in_tabs_and_stops_on_second_w()
+{
     let mut state = AppState::new(None, None, false);
     state.tab = ActiveTab::Run;
 

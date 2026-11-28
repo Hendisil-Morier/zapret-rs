@@ -3,18 +3,19 @@
 /// Byte-level checksum accumulator and IPv4/TCP/UDP/ICMP checksum computation and fixup APIs.
 use zapret_rs::packet::checksum::{
     ChecksumAccumulator, fix_icmp_checksum, fix_ipv4_checksum, fix_tcp_checksum, fix_udp_checksum,
-    icmp_ipv4_checksum, icmp_ipv6_checksum, ipv4_header_checksum, tcp_ipv4_checksum,
-    tcp_ipv6_checksum, udp_ipv4_checksum, udp_ipv6_checksum,
+    icmp_ipv4_checksum, icmp_ipv6_checksum, ipv4_header_checksum, tcp_ipv4_checksum, tcp_ipv6_checksum,
+    udp_ipv4_checksum, udp_ipv6_checksum,
 };
 /// Packet error type for negative checksum validation assertions.
 use zapret_rs::packet::error::PacketError;
 
 /// Verifies the classic RFC 1071 IPv4 header checksum vector (`0xb861`) and round-trip zero check.
 #[test]
-fn ipv4_header_checksum_matches_rfc1071_vector_and_verifies_zero() {
+fn ipv4_header_checksum_matches_rfc1071_vector_and_verifies_zero()
+{
     let mut header: [u8; 20] = [
-        0x45, 0x00, 0x00, 0x73, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11, 0x12, 0x34, 0xc0, 0xa8, 0x00,
-        0x01, 0xc0, 0xa8, 0x00, 0xc7,
+        0x45, 0x00, 0x00, 0x73, 0x00, 0x00, 0x40, 0x00, 0x40, 0x11, 0x12, 0x34, 0xc0, 0xa8, 0x00, 0x01, 0xc0,
+        0xa8, 0x00, 0xc7,
     ];
 
     // Existing checksum field bytes (0x1234) must be ignored during computation.
@@ -32,7 +33,8 @@ fn ipv4_header_checksum_matches_rfc1071_vector_and_verifies_zero() {
 
 /// Verifies that splitting odd-length slices across multiple `update` calls equals one contiguous update.
 #[test]
-fn checksum_accumulator_handles_odd_length_split_slices() {
+fn checksum_accumulator_handles_odd_length_split_slices()
+{
     let payload = b"hello world! odd bytes 123";
 
     let mut whole = ChecksumAccumulator::new();
@@ -50,15 +52,15 @@ fn checksum_accumulator_handles_odd_length_split_slices() {
 
 /// Verifies TCPv4 and TCPv6 checksum fixups, stale-checksum overwrite, and odd-length payloads.
 #[test]
-fn tcp_v4_and_v6_checksum_fixups_validate_against_pseudo_header_sums() {
+fn tcp_v4_and_v6_checksum_fixups_validate_against_pseudo_header_sums()
+{
     let ip4: [u8; 20] = [
-        0x45, 0x00, 0x00, 0x2d, 0x00, 0x01, 0x40, 0x00, 64, 6, 0x00, 0x00, 192, 168, 1, 10, 93,
-        184, 216, 34,
+        0x45, 0x00, 0x00, 0x2d, 0x00, 0x01, 0x40, 0x00, 64, 6, 0x00, 0x00, 192, 168, 1, 10, 93, 184, 216, 34,
     ];
     let payload = b"hello"; // odd length (5 bytes)
     let mut tcp = [
-        0xd4, 0x31, 0x01, 0xbb, 0x00, 0x00, 0x03, 0xe8, 0x00, 0x00, 0x07, 0xd0, 0x50, 0x18, 0xff,
-        0xff, 0xde, 0xad, 0x00, 0x00,
+        0xd4, 0x31, 0x01, 0xbb, 0x00, 0x00, 0x03, 0xe8, 0x00, 0x00, 0x07, 0xd0, 0x50, 0x18, 0xff, 0xff, 0xde,
+        0xad, 0x00, 0x00,
     ];
 
     let expected4 = tcp_ipv4_checksum([192, 168, 1, 10], [93, 184, 216, 34], &tcp, payload);
@@ -82,7 +84,8 @@ fn tcp_v4_and_v6_checksum_fixups_validate_against_pseudo_header_sums() {
 
 /// Verifies UDPv4/UDPv6 checksums and RFC 768 conversion of `0x0000` checksums to `0xFFFF`.
 #[test]
-fn udp_checksum_enforces_rfc768_nonzero_mapping_for_v4_and_v6() {
+fn udp_checksum_enforces_rfc768_nonzero_mapping_for_v4_and_v6()
+{
     // Craft an IPv4 + UDP header where the 1's-complement sum equals 0xFFFF (so !sum == 0x0000 -> 0xFFFF).
     let src4 = [0, 0, 0, 1];
     let dst4 = [0, 0, 0, 2];
@@ -113,7 +116,8 @@ fn udp_checksum_enforces_rfc768_nonzero_mapping_for_v4_and_v6() {
 
 /// Verifies ICMPv4 (no pseudo-header) and ICMPv6 (IPv6 pseudo-header) checksum calculation and fixup.
 #[test]
-fn icmp_v4_and_v6_checksum_fixups_differ_by_pseudo_header() {
+fn icmp_v4_and_v6_checksum_fixups_differ_by_pseudo_header()
+{
     let payload = b"ping-data-odd";
     let mut icmp = [8, 0, 0x99, 0x99, 0x12, 0x34, 0x00, 0x01];
 
@@ -141,24 +145,16 @@ fn icmp_v4_and_v6_checksum_fixups_differ_by_pseudo_header() {
 
 /// Verifies that malformed, truncated, wrong-version, or oversized headers fail with `InvalidChecksumHeader`.
 #[test]
-fn checksum_fixups_reject_invalid_headers() {
+fn checksum_fixups_reject_invalid_headers()
+{
     let mut short_ip4 = [0x45u8; 19];
-    assert_eq!(
-        fix_ipv4_checksum(&mut short_ip4).unwrap_err(),
-        PacketError::InvalidChecksumHeader
-    );
+    assert_eq!(fix_ipv4_checksum(&mut short_ip4).unwrap_err(), PacketError::InvalidChecksumHeader);
 
     let mut wrong_ver = [0x65u8; 20];
-    assert_eq!(
-        fix_ipv4_checksum(&mut wrong_ver).unwrap_err(),
-        PacketError::InvalidChecksumHeader
-    );
+    assert_eq!(fix_ipv4_checksum(&mut wrong_ver).unwrap_err(), PacketError::InvalidChecksumHeader);
 
     let mut oversized = [0x45u8; 64];
-    assert_eq!(
-        fix_ipv4_checksum(&mut oversized).unwrap_err(),
-        PacketError::InvalidChecksumHeader
-    );
+    assert_eq!(fix_ipv4_checksum(&mut oversized).unwrap_err(), PacketError::InvalidChecksumHeader);
 
     let valid_ip4 = [0x45u8; 20];
     let mut bad_tcp = [0u8; 20];

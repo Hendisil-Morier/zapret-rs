@@ -25,7 +25,8 @@ use crate::tui::theme_config::Theme;
 
 /// Operation awaiting confirmation or `sudo` authentication inside [`AuthModal`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModalPurpose {
+pub enum ModalPurpose
+{
     /// Grant `cap_net_admin,cap_net_raw+ep` to the running binary and restart seamlessly.
     GrantCaps,
     /// Authenticate `sudo` once so temporary `nftables` rules can be installed for a scan.
@@ -44,7 +45,8 @@ pub enum ModalPurpose {
 
 /// Outcome produced by [`AuthModal::handle_key`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModalKeyResult {
+pub enum ModalKeyResult
+{
     /// Input consumed; keep modal open.
     KeepOpen,
     /// User dismissed the modal (`Esc` or `Ctrl+c`).
@@ -56,11 +58,13 @@ pub enum ModalKeyResult {
 }
 
 /// Overwrites all UTF-8 bytes of `secret` with zeros using volatile writes before clearing.
-pub fn zeroize_string(secret: &mut String) {
+pub fn zeroize_string(secret: &mut String)
+{
     // SAFETY: writing `0u8` (valid ASCII/UTF-8) to every byte in `0..len` preserves valid UTF-8.
     unsafe {
         let bytes = secret.as_bytes_mut();
-        for b in bytes.iter_mut() {
+        for b in bytes.iter_mut()
+        {
             std::ptr::write_volatile(b, 0);
         }
     }
@@ -69,7 +73,8 @@ pub fn zeroize_string(secret: &mut String) {
 
 /// Centered floating popup state for capability grants and password-masked `sudo` elevation.
 #[derive(Debug)]
-pub struct AuthModal {
+pub struct AuthModal
+{
     /// Action executed once confirmed/authenticated.
     pub purpose: ModalPurpose,
     /// `true` when `sudo -n true` failed and a password must be entered.
@@ -82,52 +87,53 @@ pub struct AuthModal {
     pub error: Option<String>,
 }
 
-impl AuthModal {
+impl AuthModal
+{
     /// Constructs a floating modal for `purpose`, probing whether `sudo` currently needs a password.
-    pub fn open(purpose: ModalPurpose, command_preview: String) -> Self {
+    pub fn open(purpose: ModalPurpose, command_preview: String) -> Self
+    {
         Self::with_password_prompt(purpose, command_preview, sudo_needs_password())
     }
 
     /// Constructs a floating confirmation dialog that requires no `sudo` password entry.
-    pub fn confirm(purpose: ModalPurpose, command_preview: String) -> Self {
+    pub fn confirm(purpose: ModalPurpose, command_preview: String) -> Self
+    {
         Self::with_password_prompt(purpose, command_preview, false)
     }
 
     /// Deterministic constructor used by offline tests to control `needs_password`.
-    pub fn with_password_prompt(
-        purpose: ModalPurpose,
-        command_preview: String,
-        needs_password: bool,
-    ) -> Self {
-        Self {
-            purpose,
-            needs_password,
-            password: String::new(),
-            command_preview,
-            error: None,
-        }
+    pub fn with_password_prompt(purpose: ModalPurpose, command_preview: String, needs_password: bool)
+    -> Self
+    {
+        Self { purpose, needs_password, password: String::new(), command_preview, error: None }
     }
 
     /// Returns the number of password characters currently typed (for masked rendering).
-    pub fn password_len(&self) -> usize {
+    pub fn password_len(&self) -> usize
+    {
         self.password.chars().count()
     }
 
     /// Takes ownership of the typed password string and zeroizes the modal's internal buffer.
-    pub fn take_password(&mut self) -> String {
+    pub fn take_password(&mut self) -> String
+    {
         let out = self.password.clone();
         zeroize_string(&mut self.password);
         out
     }
 
     /// Handles keyboard input while this floating modal has focus.
-    pub fn handle_key(&mut self, key: KeyEvent) -> ModalKeyResult {
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+    pub fn handle_key(&mut self, key: KeyEvent) -> ModalKeyResult
+    {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
+        {
             zeroize_string(&mut self.password);
             return ModalKeyResult::Close;
         }
-        match key.code {
-            KeyCode::Esc => {
+        match key.code
+        {
+            KeyCode::Esc =>
+            {
                 zeroize_string(&mut self.password);
                 ModalKeyResult::Close
             }
@@ -137,12 +143,14 @@ impl AuthModal {
             {
                 ModalKeyResult::KeepExisting
             }
-            KeyCode::Backspace if self.needs_password => {
+            KeyCode::Backspace if self.needs_password =>
+            {
                 self.password.pop();
                 self.error = None;
                 ModalKeyResult::KeepOpen
             }
-            KeyCode::Char(c) if self.needs_password => {
+            KeyCode::Char(c) if self.needs_password =>
+            {
                 self.password.push(c);
                 self.error = None;
                 ModalKeyResult::KeepOpen
@@ -152,21 +160,27 @@ impl AuthModal {
     }
 }
 
-impl Drop for AuthModal {
+impl Drop for AuthModal
+{
     /// Zeroizes any remaining password bytes before freeing memory.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         zeroize_string(&mut self.password);
     }
 }
 
 /// Runs trusted `sudo` without leaving the alternate screen (`sudo -n` if `password` is `None`, or `sudo -S`).
-pub fn run_sudo_silent(args: &[&str], password: Option<&str>) -> Result<(), String> {
+pub fn run_sudo_silent(args: &[&str], password: Option<&str>) -> Result<(), String>
+{
     let sudo_bin = crate::runtime::resolve_trusted_system_bin("sudo")
         .map_err(|err| format!("failed to locate trusted sudo: {err}"))?;
     let mut cmd = Command::new(sudo_bin);
-    if password.is_some() {
+    if password.is_some()
+    {
         cmd.args(["-S", "-p", ""]).args(args).stdin(Stdio::piped());
-    } else {
+    }
+    else
+    {
         cmd.arg("-n").args(args).stdin(Stdio::null());
     }
     let mut child = cmd
@@ -181,12 +195,13 @@ pub fn run_sudo_silent(args: &[&str], password: Option<&str>) -> Result<(), Stri
         let _ = stdin.write_all(pw.as_bytes());
         let _ = stdin.write_all(b"\n");
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|err| format!("failed waiting for sudo: {err}"))?;
-    if output.status.success() {
+    let output = child.wait_with_output().map_err(|err| format!("failed waiting for sudo: {err}"))?;
+    if output.status.success()
+    {
         Ok(())
-    } else {
+    }
+    else
+    {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let first = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("authentication failed");
         Err(first.trim().to_owned())
@@ -194,7 +209,8 @@ pub fn run_sudo_silent(args: &[&str], password: Option<&str>) -> Result<(), Stri
 }
 
 /// Computes a centered popup [`Rect`] of at most `(max_w, max_h)` clamped inside `area`.
-fn centered_rect(area: Rect, max_w: u16, max_h: u16) -> Rect {
+fn centered_rect(area: Rect, max_w: u16, max_h: u16) -> Rect
+{
     let w = max_w.min(area.width.saturating_sub(4)).max(24.min(area.width));
     let h = max_h.min(area.height.saturating_sub(2)).max(9.min(area.height));
     let x = area.x + area.width.saturating_sub(w) / 2;
@@ -203,7 +219,8 @@ fn centered_rect(area: Rect, max_w: u16, max_h: u16) -> Rect {
 }
 
 /// Renders `modal` as a centered floating overlay on top of the active TUI screen using `t`.
-pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
+pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
+{
     let is_confirm = matches!(
         modal.purpose,
         ModalPurpose::ConfirmStopDaemon
@@ -214,7 +231,8 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
     let popup = centered_rect(frame.area(), 70, if is_confirm { 11 } else { 13 });
     frame.render_widget(Clear, popup);
 
-    let (title, summary) = match modal.purpose {
+    let (title, summary) = match modal.purpose
+    {
         ModalPurpose::GrantCaps if cfg!(windows) => (
             " Administrator Privileges Required ",
             "WinDivert requires Administrator privileges to capture and inject packets.",
@@ -253,7 +271,8 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         ),
     };
 
-    let border_col = match modal.purpose {
+    let border_col = match modal.purpose
+    {
         ModalPurpose::ConfirmStopDaemon => t.err,
         ModalPurpose::SudoForScan
         | ModalPurpose::SudoForDaemon
@@ -295,15 +314,20 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         rows[1],
     );
 
-    if is_confirm {
-        let note = match modal.purpose {
-            ModalPurpose::ConfirmMergeConfig => {
+    if is_confirm
+    {
+        let note = match modal.purpose
+        {
+            ModalPurpose::ConfirmMergeConfig =>
+            {
                 "Choose Merge to update matching slots, Keep Existing to leave disk untouched, or Replace Only to discard old profiles."
             }
-            ModalPurpose::ConfirmSpeedTest => {
+            ModalPurpose::ConfirmSpeedTest =>
+            {
                 "Your unprotected baseline connection will be probed briefly before restarting the engine."
             }
-            ModalPurpose::ConfirmApplyDns => {
+            ModalPurpose::ConfirmApplyDns =>
+            {
                 "DNS changes affect active network interfaces immediately and can be reverted via the Automatic (DHCP) preset."
             }
             _ => "Packet interception will stop until the daemon is started again.",
@@ -312,14 +336,18 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
             Paragraph::new(Span::styled(note, Style::default().fg(t.muted))).wrap(Wrap { trim: true }),
             rows[2],
         );
-    } else if cfg!(windows) && modal.purpose == ModalPurpose::GrantCaps {
+    }
+    else if cfg!(windows) && modal.purpose == ModalPurpose::GrantCaps
+    {
         let notice = Paragraph::new(Line::from(Span::styled(
             " Right-click zapret-rs.exe and select \"Run as administrator\", then retry.",
             Style::default().fg(t.warn_bright),
         )))
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
         frame.render_widget(notice, rows[2]);
-    } else if modal.needs_password {
+    }
+    else if modal.needs_password
+    {
         let masked = "*".repeat(modal.password_len());
         let input = Paragraph::new(Line::from(vec![
             Span::styled(masked, Style::default().fg(t.text)),
@@ -332,7 +360,9 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
                 .title(Span::styled(" sudo password ", Style::default().fg(t.warn_bright))),
         );
         frame.render_widget(input, rows[2]);
-    } else {
+    }
+    else
+    {
         let cached = Paragraph::new(Line::from(Span::styled(
             " sudo credentials cached — press Enter to run immediately",
             Style::default().fg(t.ok_bright),
@@ -341,26 +371,26 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme) {
         frame.render_widget(cached, rows[2]);
     }
 
-    if let Some(err) = &modal.error {
+    if let Some(err) = &modal.error
+    {
         frame.render_widget(
             Paragraph::new(Span::styled(err.as_str(), Style::default().fg(t.err_bright))),
             rows[3],
         );
     }
 
-    let action_hint = match modal.purpose {
+    let action_hint = match modal.purpose
+    {
         ModalPurpose::GrantCaps if cfg!(windows) => "[Enter/Esc] Dismiss",
         ModalPurpose::GrantCaps => "[Enter] Grant & Restart   [Esc] Dismiss",
-        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon => "[Enter] Authenticate & Continue   [Esc] Cancel",
+        ModalPurpose::SudoForScan | ModalPurpose::SudoForDaemon =>
+        {
+            "[Enter] Authenticate & Continue   [Esc] Cancel"
+        }
         ModalPurpose::ConfirmStopDaemon => "[Enter] Stop Remote Daemon   [Esc] Cancel",
         ModalPurpose::ConfirmSpeedTest => "[Enter] Run Speed Test   [Esc] Cancel",
-        ModalPurpose::ConfirmMergeConfig => {
-            "[Enter] Merge Profiles   [k] Keep Existing   [Esc] Replace Only"
-        }
+        ModalPurpose::ConfirmMergeConfig => "[Enter] Merge Profiles   [k] Keep Existing   [Esc] Replace Only",
         ModalPurpose::ConfirmApplyDns => "[Enter] Apply DNS   [Esc] Cancel",
     };
-    frame.render_widget(
-        Paragraph::new(Line::from(styled_key_hints(action_hint, t))),
-        rows[4],
-    );
+    frame.render_widget(Paragraph::new(Line::from(styled_key_hints(action_hint, t))), rows[4]);
 }

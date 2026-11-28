@@ -26,11 +26,13 @@ use crate::config::runtime_cfg::parse_timeouts;
 /// Raw TOML `lua_init` item supporting a script path or an inline chunk table (`{ inline = "..." }`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
-enum RawLuaInit {
+enum RawLuaInit
+{
     /// Path to a Lua script file loaded at startup.
     File(PathBuf),
     /// Inline Lua source snippet (`{ inline = "..." }`).
-    Inline {
+    Inline
+    {
         /// Lua source code executed directly at startup.
         inline: String,
     },
@@ -39,11 +41,13 @@ enum RawLuaInit {
 /// Raw TOML `[blobs]` entry supporting inline hex (`"0x..."`) or file slice (`{ file = "...", offset = 0 }`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
-enum RawBlobSpec {
+enum RawBlobSpec
+{
     /// Hex-encoded byte sequence.
     Hex(String),
     /// Disk file and byte start offset.
-    File {
+    File
+    {
         /// Path to the binary blob file.
         file: PathBuf,
         /// Optional starting byte offset within `file`.
@@ -55,7 +59,8 @@ enum RawBlobSpec {
 /// Raw TOML `writable` setting accepting boolean enablement or a custom directory path.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
-enum RawWritable {
+enum RawWritable
+{
     /// Boolean flag (`true` uses `$TMPDIR/zapret-rs` or `/tmp/zapret-rs`, `false` disables).
     Enabled(bool),
     /// Explicit writable directory path string (empty string selects the default path).
@@ -65,7 +70,8 @@ enum RawWritable {
 /// Raw TOML `control_socket` setting accepting boolean enablement or explicit socket path.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
-enum RawControlSocket {
+enum RawControlSocket
+{
     /// Boolean flag (`true` selects default socket path, `false` disables).
     Enabled(bool),
     /// Explicit Unix socket path or `"off"`/`"none"`/`"default"`.
@@ -75,7 +81,8 @@ enum RawControlSocket {
 /// Top-level TOML configuration file structure (`nfqws2.toml`).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawConfig {
+struct RawConfig
+{
     /// Netfilter queue number (`--qnum`).
     qnum: Option<u16>,
     /// Desync firewall mark bitmask (`--fwmark`).
@@ -137,9 +144,11 @@ struct RawConfig {
     profiles: Vec<RawProfile>,
 }
 
-impl AppConfig {
+impl AppConfig
+{
     /// Parses and validates an [`AppConfig`] from TOML text, resolving relative paths from `base_dir`.
-    pub fn from_toml_str(input: &str, base_dir: Option<&Path>) -> Result<Self, ConfigError> {
+    pub fn from_toml_str(input: &str, base_dir: Option<&Path>) -> Result<Self, ConfigError>
+    {
         let raw: RawConfig = toml::from_str(input)?;
         let mut cfg = Self::default();
         apply_scalar_fields(&mut cfg, &raw, base_dir)?;
@@ -147,20 +156,25 @@ impl AppConfig {
         cfg.lua_init = raw
             .lua_init
             .into_iter()
-            .map(|entry| match entry {
+            .map(|entry| match entry
+            {
                 RawLuaInit::File(path) => LuaInitEntry::File(resolve_path(path, base_dir)),
                 RawLuaInit::Inline { inline } => LuaInitEntry::Inline(inline),
             })
             .collect();
 
-        for (name, spec) in raw.blobs {
+        for (name, spec) in raw.blobs
+        {
             let trimmed = name.trim();
-            if trimmed.is_empty() {
+            if trimmed.is_empty()
+            {
                 return Err(ConfigError::Validation("blob name cannot be empty".to_owned()));
             }
-            let data = match spec {
+            let data = match spec
+            {
                 RawBlobSpec::Hex(hex) => parse_hex_blob(trimmed, &hex)?,
-                RawBlobSpec::File { file, offset } => {
+                RawBlobSpec::File { file, offset } =>
+                {
                     let resolved = resolve_path(file, base_dir);
                     load_file_blob(trimmed, &resolved, offset)?
                 }
@@ -169,12 +183,13 @@ impl AppConfig {
         }
 
         let mut next_index = 1u32;
-        for raw_profile in raw.profiles {
-            if raw_profile.skip {
+        for raw_profile in raw.profiles
+        {
+            if raw_profile.skip
+            {
                 continue;
             }
-            cfg.profiles
-                .push(build_profile(next_index, raw_profile, base_dir)?);
+            cfg.profiles.push(build_profile(next_index, raw_profile, base_dir)?);
             next_index = next_index.saturating_add(1);
         }
 
@@ -183,11 +198,10 @@ impl AppConfig {
     }
 
     /// Reads, parses, and validates a TOML configuration file from `path`.
-    pub fn from_toml_file(path: &Path) -> Result<Self, ConfigError> {
-        let content = fs::read_to_string(path).map_err(|source| ConfigError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
+    pub fn from_toml_file(path: &Path) -> Result<Self, ConfigError>
+    {
+        let content = fs::read_to_string(path)
+            .map_err(|source| ConfigError::Io { path: path.to_path_buf(), source })?;
         Self::from_toml_str(&content, path.parent())
     }
 }
@@ -197,82 +211,96 @@ fn apply_scalar_fields(
     cfg: &mut AppConfig,
     raw: &RawConfig,
     base_dir: Option<&Path>,
-) -> Result<(), ConfigError> {
-    if let Some(qnum) = raw.qnum {
+) -> Result<(), ConfigError>
+{
+    if let Some(qnum) = raw.qnum
+    {
         cfg.qnum = qnum;
     }
-    if let Some(fwmark) = raw.fwmark {
+    if let Some(fwmark) = raw.fwmark
+    {
         cfg.fwmark = fwmark;
     }
-    if let Some(bind_fix4) = raw.bind_fix4 {
+    if let Some(bind_fix4) = raw.bind_fix4
+    {
         cfg.bind_fix4 = bind_fix4;
     }
-    if let Some(bind_fix6) = raw.bind_fix6 {
+    if let Some(bind_fix6) = raw.bind_fix6
+    {
         cfg.bind_fix6 = bind_fix6;
     }
-    if let Some(server) = raw.server {
+    if let Some(server) = raw.server
+    {
         cfg.server = server;
     }
-    if let Some(debug) = raw.debug {
+    if let Some(debug) = raw.debug
+    {
         cfg.debug = debug;
     }
-    if let Some(intercept) = raw.intercept {
+    if let Some(intercept) = raw.intercept
+    {
         cfg.intercept = intercept;
     }
-    if let Some(daemon) = raw.daemon {
+    if let Some(daemon) = raw.daemon
+    {
         cfg.daemon = daemon;
     }
     cfg.pidfile = raw.pidfile.clone().map(|p| resolve_path(p, base_dir));
     cfg.chdir = raw.chdir.clone().map(|p| resolve_path(p, base_dir));
     cfg.user = raw.user.clone();
     cfg.uid = raw.uid.clone();
-    if let Some(lua_gc) = raw.lua_gc {
+    if let Some(lua_gc) = raw.lua_gc
+    {
         cfg.lua_gc = lua_gc;
     }
-    if let Some(timeouts) = raw.ctrack_timeouts.as_deref() {
+    if let Some(timeouts) = raw.ctrack_timeouts.as_deref()
+    {
         cfg.conntrack.timeouts = parse_timeouts(timeouts)?;
     }
-    if let Some(disable) = raw.ctrack_disable {
+    if let Some(disable) = raw.ctrack_disable
+    {
         cfg.conntrack.disable = disable;
     }
-    if let Some(lifetime) = raw.ipcache_lifetime {
+    if let Some(lifetime) = raw.ipcache_lifetime
+    {
         cfg.ipcache.lifetime_sec = lifetime;
     }
-    if let Some(hostname) = raw.ipcache_hostname {
+    if let Some(hostname) = raw.ipcache_hostname
+    {
         cfg.ipcache.hostname = hostname;
     }
-    if !raw.payload_disable.is_empty() {
+    if !raw.payload_disable.is_empty()
+    {
         cfg.payload_disable = parse_l7_disable_mask(&raw.payload_disable)?;
     }
-    if !raw.reasm_disable.is_empty() {
+    if !raw.reasm_disable.is_empty()
+    {
         cfg.reasm_disable = parse_l7_disable_mask(&raw.reasm_disable)?;
     }
-    cfg.hostlist_auto_debug = raw
-        .hostlist_auto_debug
-        .clone()
-        .map(|p| resolve_path(p, base_dir));
-    cfg.writable = match &raw.writable {
+    cfg.hostlist_auto_debug = raw.hostlist_auto_debug.clone().map(|p| resolve_path(p, base_dir));
+    cfg.writable = match &raw.writable
+    {
         Some(RawWritable::Enabled(true)) => Some(WritableDirConfig::Default),
         Some(RawWritable::Enabled(false)) | None => None,
-        Some(RawWritable::Path(path)) if path.as_os_str().is_empty() => {
-            Some(WritableDirConfig::Default)
-        }
-        Some(RawWritable::Path(path)) => {
+        Some(RawWritable::Path(path)) if path.as_os_str().is_empty() => Some(WritableDirConfig::Default),
+        Some(RawWritable::Path(path)) =>
+        {
             Some(WritableDirConfig::Custom(resolve_path(path.clone(), base_dir)))
         }
     };
-    cfg.control_socket = match &raw.control_socket {
+    cfg.control_socket = match &raw.control_socket
+    {
         None => ControlSocketConfig::Auto,
         Some(RawControlSocket::Enabled(true)) => ControlSocketConfig::Default,
         Some(RawControlSocket::Enabled(false)) => ControlSocketConfig::Disabled,
-        Some(RawControlSocket::Path(raw_val)) => {
-            parse_control_socket_str(raw_val, base_dir)?
-        }
+        Some(RawControlSocket::Path(raw_val)) => parse_control_socket_str(raw_val, base_dir)?,
     };
-    if let Some(sample) = raw.control_pass_sample {
+    if let Some(sample) = raw.control_pass_sample
+    {
         cfg.control_pass_sample = sample;
     }
-    if let Some(auto_nft) = raw.auto_nft {
+    if let Some(auto_nft) = raw.auto_nft
+    {
         cfg.auto_nft = auto_nft;
     }
     Ok(())
@@ -282,14 +310,17 @@ fn apply_scalar_fields(
 pub(super) fn parse_control_socket_str(
     raw: &str,
     base_dir: Option<&Path>,
-) -> Result<ControlSocketConfig, ConfigError> {
+) -> Result<ControlSocketConfig, ConfigError>
+{
     let trimmed = raw.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty()
+    {
         return Err(ConfigError::Validation(
             "control_socket path cannot be empty (use \"off\" to disable)".to_owned(),
         ));
     }
-    match trimmed.to_ascii_lowercase().as_str() {
+    match trimmed.to_ascii_lowercase().as_str()
+    {
         "off" | "none" | "false" | "0" => Ok(ControlSocketConfig::Disabled),
         "default" | "auto" | "true" | "1" => Ok(ControlSocketConfig::Default),
         _ => Ok(ControlSocketConfig::Custom(resolve_path(PathBuf::from(trimmed), base_dir))),
@@ -297,7 +328,8 @@ pub(super) fn parse_control_socket_str(
 }
 
 /// Resolves relative file paths against `base_dir` when present.
-pub(super) fn resolve_path(path: PathBuf, base_dir: Option<&Path>) -> PathBuf {
+pub(super) fn resolve_path(path: PathBuf, base_dir: Option<&Path>) -> PathBuf
+{
     if path.is_relative()
         && let Some(dir) = base_dir
     {

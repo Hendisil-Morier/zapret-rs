@@ -6,18 +6,16 @@ use std::collections::{HashMap, VecDeque};
 /// Embedded Lua registry handle preserving per-connection `lua_state` tables.
 use mlua::{Lua, RegistryKey};
 
-/// Discovered L7 protocol and reassembly payload classification tags stored on [`CtrackEntry`].
-use crate::protocol::{L7Payload, L7Proto};
 /// Continuous stream reassembly buffer and shared pool memory budget attached to flows.
 use crate::conntrack::reasm::{GlobalBufferBudget, StreamReassembler};
 /// Connection position snapshots, delayed packet storage, and queue bounds.
-use crate::conntrack::types::{
-    CtrackPositions, DelayedPacket, RAW_PACKET_QUEUE_DELAYED_MAX,
-};
+use crate::conntrack::types::{CtrackPositions, DelayedPacket, RAW_PACKET_QUEUE_DELAYED_MAX};
 /// TCP option kind identifiers (`TCP_KIND_*`) and SYN/ACK flag masks.
 use crate::packet::constants::{TCP_KIND_MSS, TCP_KIND_SCALE, TH_ACK, TH_SYN};
 /// Parsed TCP option descriptor slice inspected on `SYN` and `SYN+ACK` packets.
 use crate::packet::types::TcpOption;
+/// Discovered L7 protocol and reassembly payload classification tags stored on [`CtrackEntry`].
+use crate::protocol::{L7Payload, L7Proto};
 /// Monotonic boottime timestamp recorded at flow creation and last packet arrival.
 use crate::timer::MonotonicTime;
 
@@ -27,17 +25,20 @@ const TCP_CTRL_MASK: u8 = 0x3F;
 const TCP_MAX_WINDOW_SCALE: u8 = 14;
 
 /// Returns `true` when TCP control flags match an initial `SYN` handshake segment (`darkmagic.c`).
-pub const fn is_tcp_syn(flags: u8) -> bool {
+pub const fn is_tcp_syn(flags: u8) -> bool
+{
     (flags & TCP_CTRL_MASK) == TH_SYN
 }
 
 /// Returns `true` when TCP control flags match a responder `SYN+ACK` segment (`darkmagic.c`).
-pub const fn is_tcp_synack(flags: u8) -> bool {
+pub const fn is_tcp_synack(flags: u8) -> bool
+{
     (flags & TCP_CTRL_MASK) == (TH_SYN | TH_ACK)
 }
 
 /// Extracts the RFC 7323 TCP window scale factor (`0..=14`) if option kind `3` is present.
-pub(crate) fn extract_tcp_scale(opts: &[TcpOption]) -> Option<u8> {
+pub(crate) fn extract_tcp_scale(opts: &[TcpOption]) -> Option<u8>
+{
     opts.iter().find_map(|opt| {
         if opt.kind == TCP_KIND_SCALE
             && let Some(data) = &opt.data
@@ -50,7 +51,8 @@ pub(crate) fn extract_tcp_scale(opts: &[TcpOption]) -> Option<u8> {
 }
 
 /// Extracts the 16-bit TCP MSS option value if option kind `2` is present, otherwise `0`.
-pub(crate) fn extract_tcp_mss(opts: &[TcpOption]) -> u16 {
+pub(crate) fn extract_tcp_mss(opts: &[TcpOption]) -> u16
+{
     opts.iter()
         .find_map(|opt| {
             if opt.kind == TCP_KIND_MSS
@@ -65,7 +67,8 @@ pub(crate) fn extract_tcp_mss(opts: &[TcpOption]) -> u16 {
 }
 
 /// Complete stateful tracking record for one active TCP or UDP connection (`t_ctrack` in `conntrack.h`).
-pub struct CtrackEntry {
+pub struct CtrackEntry
+{
     /// Cached hostlist lookup completion flag (used in Milestone 3 list matching).
     pub check_done: bool,
     /// Cached positive hostlist match result.
@@ -120,15 +123,19 @@ pub struct CtrackEntry {
     delayed_reserved: usize,
 }
 
-impl CtrackEntry {
+impl CtrackEntry
+{
     /// Creates a fresh zeroed tracking entry, allocating an empty `lua_state` table if `lua` is present.
-    pub fn new(lua: Option<&Lua>) -> mlua::Result<Self> {
+    pub fn new(lua: Option<&Lua>) -> mlua::Result<Self>
+    {
         Self::with_budget(lua, GlobalBufferBudget::default())
     }
 
     /// Creates a fresh tracking entry bound to the owning pool's shared [`GlobalBufferBudget`].
-    pub fn with_budget(lua: Option<&Lua>, budget: GlobalBufferBudget) -> mlua::Result<Self> {
-        let lua_state = match lua {
+    pub fn with_budget(lua: Option<&Lua>, budget: GlobalBufferBudget) -> mlua::Result<Self>
+    {
+        let lua_state = match lua
+        {
             Some(l) => Some(l.create_registry_value(l.create_table()?)?),
             None => None,
         };
@@ -163,22 +170,26 @@ impl CtrackEntry {
     }
 
     /// Re-initializes all state (used when a new `SYN` or mismatched `SYN-ACK` reuses a 5-tuple).
-    pub fn reinit(&mut self, lua: Option<&Lua>) -> mlua::Result<()> {
+    pub fn reinit(&mut self, lua: Option<&Lua>) -> mlua::Result<()>
+    {
         *self = Self::with_budget(lua, self.budget.clone())?;
-        if let Some(l) = lua {
+        if let Some(l) = lua
+        {
             l.expire_registry_values();
         }
         Ok(())
     }
 
     /// Clears any cached hostname metadata on this entry.
-    pub fn clear_hostname(&mut self) {
+    pub fn clear_hostname(&mut self)
+    {
         self.hostname = None;
         self.hostname_is_ip = false;
     }
 
     /// Returns `true` if `instance` on `profile_n` is cut off in the given direction (`incoming`).
-    pub fn is_instance_cutoff(&self, instance: &str, profile_n: u32, incoming: bool) -> bool {
+    pub fn is_instance_cutoff(&self, instance: &str, profile_n: u32, incoming: bool) -> bool
+    {
         self.instance_cutoffs
             .get(instance)
             .and_then(|by_prof| by_prof.get(&profile_n))
@@ -186,31 +197,30 @@ impl CtrackEntry {
     }
 
     /// Records directional instance cutoff flags (`b_in` and/or `b_out`) for `(instance, profile_n)`.
-    pub fn set_instance_cutoff(
-        &mut self,
-        instance: &str,
-        profile_n: u32,
-        b_in: bool,
-        b_out: bool,
-    ) {
+    pub fn set_instance_cutoff(&mut self, instance: &str, profile_n: u32, b_in: bool, b_out: bool)
+    {
         let entry = self
             .instance_cutoffs
             .entry(instance.to_owned())
             .or_default()
             .entry(profile_n)
             .or_insert((false, false));
-        if b_out {
+        if b_out
+        {
             entry.0 = true;
         }
-        if b_in {
+        if b_in
+        {
             entry.1 = true;
         }
     }
 
     /// Starts stream reassembly for `target_size` bytes if permitted by the shared pool byte budget.
-    pub fn try_start_reasm(&mut self, target_size: usize, seq_start: u32) -> bool {
+    pub fn try_start_reasm(&mut self, target_size: usize, seq_start: u32) -> bool
+    {
         self.clear_reasm();
-        if !self.budget.try_reserve(target_size) {
+        if !self.budget.try_reserve(target_size)
+        {
             return false;
         }
         self.reasm_reserved = target_size;
@@ -219,8 +229,10 @@ impl CtrackEntry {
     }
 
     /// Releases any buffered stream reassembly bytes back to [`Self::budget`] and resets the buffer.
-    pub fn clear_reasm(&mut self) {
-        if self.reasm_reserved > 0 {
+    pub fn clear_reasm(&mut self)
+    {
+        if self.reasm_reserved > 0
+        {
             self.budget.release(self.reasm_reserved);
             self.reasm_reserved = 0;
         }
@@ -228,12 +240,15 @@ impl CtrackEntry {
     }
 
     /// Appends one delayed packet snapshot unless queue count or global byte budget is exhausted.
-    pub fn push_delayed(&mut self, pkt: DelayedPacket) -> bool {
-        if self.delayed.len() >= RAW_PACKET_QUEUE_DELAYED_MAX {
+    pub fn push_delayed(&mut self, pkt: DelayedPacket) -> bool
+    {
+        if self.delayed.len() >= RAW_PACKET_QUEUE_DELAYED_MAX
+        {
             return false;
         }
         let pkt_bytes = pkt.raw.len();
-        if !self.budget.try_reserve(pkt_bytes) {
+        if !self.budget.try_reserve(pkt_bytes)
+        {
             return false;
         }
         self.delayed_reserved = self.delayed_reserved.saturating_add(pkt_bytes);
@@ -242,8 +257,10 @@ impl CtrackEntry {
     }
 
     /// Drains all delayed packets and releases their accounted byte reservation back to the budget.
-    pub fn take_delayed(&mut self) -> VecDeque<DelayedPacket> {
-        if self.delayed_reserved > 0 {
+    pub fn take_delayed(&mut self) -> VecDeque<DelayedPacket>
+    {
+        if self.delayed_reserved > 0
+        {
             self.budget.release(self.delayed_reserved);
             self.delayed_reserved = 0;
         }
@@ -251,9 +268,11 @@ impl CtrackEntry {
     }
 }
 
-impl Drop for CtrackEntry {
+impl Drop for CtrackEntry
+{
     /// Releases all accounted reassembly and delayed queue bytes on flow removal or reinit.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         self.clear_reasm();
         let _ = self.take_delayed();
     }

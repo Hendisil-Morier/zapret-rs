@@ -7,8 +7,8 @@ use std::net::IpAddr;
 use zapret_rs::packet::constants::{IPPROTO_HOPOPTS, IPPROTO_TCP, IPPROTO_UDP, TH_ACK, TH_PUSH};
 /// Wire packet structures and reconstruction helpers.
 use zapret_rs::packet::{
-    DissectedPacket, Ipv4Header, Ipv6ExtHeader, Ipv6Header, ReconstructOptions, TcpHeader,
-    UdpHeader, reconstruct_packet,
+    DissectedPacket, Ipv4Header, Ipv6ExtHeader, Ipv6Header, ReconstructOptions, TcpHeader, UdpHeader,
+    reconstruct_packet,
 };
 /// Raw packet sender trait and error type implemented by [`CapturingSender`].
 use zapret_rs::rawsend::{PacketSender, RawSendError};
@@ -20,7 +20,8 @@ pub const ZAPRET_LIB_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapre
 /// One packet captured from Lua `rawsend` / `rawsend_dissect` during desync execution.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct CapturedPacket {
+pub struct CapturedPacket
+{
     /// Destination IP passed to `PacketSender::send`.
     pub dst: IpAddr,
     /// Effective firewall mark applied to the outgoing socket.
@@ -34,12 +35,14 @@ pub struct CapturedPacket {
 /// Mock [`PacketSender`] recording injected packets without `CAP_NET_RAW`.
 #[derive(Default)]
 #[allow(dead_code)]
-pub struct CapturingSender {
+pub struct CapturingSender
+{
     /// Ordered list of injected packets.
     pub packets: Vec<CapturedPacket>,
 }
 
-impl PacketSender for CapturingSender {
+impl PacketSender for CapturingSender
+{
     /// Records one outgoing raw packet into `self.packets`.
     fn send(
         &mut self,
@@ -47,7 +50,8 @@ impl PacketSender for CapturingSender {
         fwmark: u32,
         ifout: Option<&str>,
         packet: &[u8],
-    ) -> Result<(), RawSendError> {
+    ) -> Result<(), RawSendError>
+    {
         self.packets.push(CapturedPacket {
             dst,
             fwmark,
@@ -60,7 +64,8 @@ impl PacketSender for CapturingSender {
 
 /// Builds a valid IPv4 + TCP wire packet with RFC-compliant checksums.
 #[allow(dead_code)]
-pub fn build_ipv4_tcp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
+pub fn build_ipv4_tcp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8>
+{
     let dis = DissectedPacket {
         ip: Some(Ipv4Header {
             version: 4,
@@ -98,7 +103,8 @@ pub fn build_ipv4_tcp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
 
 /// Builds a valid IPv4 + UDP wire packet with RFC-compliant checksums.
 #[allow(dead_code)]
-pub fn build_ipv4_udp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
+pub fn build_ipv4_udp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8>
+{
     let dis = DissectedPacket {
         ip: Some(Ipv4Header {
             version: 4,
@@ -114,12 +120,7 @@ pub fn build_ipv4_udp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
             dst: [8, 8, 8, 8],
             options: Vec::new(),
         }),
-        udp: Some(UdpHeader {
-            s_port: src_port,
-            d_port: dst_port,
-            len: 0,
-            checksum: 0,
-        }),
+        udp: Some(UdpHeader { s_port: src_port, d_port: dst_port, len: 0, checksum: 0 }),
         payload: Some(payload.to_vec()),
         ..DissectedPacket::default()
     };
@@ -129,7 +130,8 @@ pub fn build_ipv4_udp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
 
 /// Builds a valid IPv6 + Hop-by-Hop + TCP wire packet.
 #[allow(dead_code)]
-pub fn build_ipv6_tcp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
+pub fn build_ipv6_tcp(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8>
+{
     let dis = DissectedPacket {
         ip6: Some(Ipv6Header {
             flow: 0x6000_0001,

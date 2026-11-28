@@ -5,29 +5,28 @@ use std::fs;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 
-use zapret_rs::tui::hostlist_tab::{
-    delete_selected_hostlist_offline, move_selected_auto_to_blacklist_offline,
-};
+use zapret_rs::tui::hostlist_tab::{delete_selected_hostlist_offline, move_selected_hostlist_offline};
 use zapret_rs::tui::types::ActiveTab;
 use zapret_rs::tui::web_actions::apply_prompt_offline;
 use zapret_rs::tui::{AppAction, AppState, HostlistFocus, PromptKind, draw_app};
 
-fn key(code: KeyCode) -> KeyEvent {
+fn key(code: KeyCode) -> KeyEvent
+{
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
-fn type_str(state: &mut AppState, text: &str) {
-    for ch in text.chars() {
+fn type_str(state: &mut AppState, text: &str)
+{
+    for ch in text.chars()
+    {
         state.handle_key(key(KeyCode::Char(ch)));
     }
 }
 
 #[test]
-fn tab6_hostlist_interactive_add_filter_direct_delete_and_move_to_blacklist() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+fn tab6_hostlist_interactive_add_filter_direct_delete_and_move_to_blacklist()
+{
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_tui_lists_{}_{nanos}", std::process::id()));
     fs::create_dir_all(&dir).expect("mkdir");
     let cfg_path = dir.join("nfqws2.toml");
@@ -62,7 +61,8 @@ fn tab6_hostlist_interactive_add_filter_direct_delete_and_move_to_blacklist() {
     state.set_active_toml(
         "qnum = 200\nfwmark = 0x40000000\n\n[[profiles]]\nname = \"auto\"\nhostlist_auto = \"autohostlist.txt\"\nhostlist_exclude_domains = [\"bank.example.com\"]\n".to_owned(),
     );
-    for dom in ["blocked.org", "track.org"] {
+    for dom in ["blocked.org", "track.org"]
+    {
         assert_eq!(state.handle_key(key(KeyCode::Char('a'))), AppAction::None);
         assert_eq!(state.prompt_modal.as_ref().map(|m| m.kind), Some(PromptKind::AddAutoHostlist));
         type_str(&mut state, dom);
@@ -89,13 +89,23 @@ fn tab6_hostlist_interactive_add_filter_direct_delete_and_move_to_blacklist() {
 
     // Move remaining selected `blocked.org` directly into Blacklist with `x`.
     assert_eq!(state.hostlist.auto_sel, 0);
-    assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::MoveAutoToBlacklist);
-    move_selected_auto_to_blacklist_offline(&mut state);
+    assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::MoveHostlistEntry);
+    move_selected_hostlist_offline(&mut state);
     assert!(state.config.autohostlist_entries.is_empty());
-    assert_eq!(
-        state.config.exclude_entries,
-        vec!["bank.example.com".to_owned(), "blocked.org".to_owned()]
-    );
+    assert_eq!(state.config.exclude_entries, vec!["bank.example.com".to_owned(), "blocked.org".to_owned()]);
+
+    // Move `blocked.org` back from Blacklist -> Auto Hostlist via `m`.
+    assert_eq!(state.handle_key(key(KeyCode::Right)), AppAction::None);
+    assert_eq!(state.handle_key(key(KeyCode::Down)), AppAction::None);
+    assert_eq!(state.handle_key(key(KeyCode::Char('m'))), AppAction::MoveHostlistEntry);
+    move_selected_hostlist_offline(&mut state);
+    assert_eq!(state.config.autohostlist_entries, vec!["blocked.org".to_owned()]);
+    assert_eq!(state.config.exclude_entries, vec!["bank.example.com".to_owned()]);
+    assert_eq!(state.handle_key(key(KeyCode::Left)), AppAction::None);
+    assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::MoveHostlistEntry);
+    move_selected_hostlist_offline(&mut state);
+    assert!(state.config.autohostlist_entries.is_empty());
+    assert_eq!(state.config.exclude_entries, vec!["bank.example.com".to_owned(), "blocked.org".to_owned()]);
 
     // Filter with `/`, switch to Blacklist with `Right`, and delete filtered match via `Delete`.
     assert_eq!(state.handle_key(key(KeyCode::Char('/'))), AppAction::None);
@@ -107,6 +117,26 @@ fn tab6_hostlist_interactive_add_filter_direct_delete_and_move_to_blacklist() {
     assert_eq!(state.handle_key(key(KeyCode::Delete)), AppAction::DeleteSelectedDomain);
     delete_selected_hostlist_offline(&mut state);
     assert_eq!(state.config.exclude_entries, vec!["bank.example.com".to_owned()]);
+
+    // Clear filter and verify bare IP entries learned by autohostlist can be deleted and blacklisted.
+    assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
+    state.set_active_toml(
+        "qnum = 200\nfwmark = 0x40000000\n\n[[profiles]]\nname = \"auto\"\nhostlist_auto = \"autohostlist.txt\"\nhostlist_exclude_domains = [\"bank.example.com\"]\n".to_owned(),
+    );
+    fs::write(dir.join("autohostlist.txt"), "172.237.72.43\n198.51.100.7\n").expect("seed ips");
+    state.refresh_autohostlist();
+    assert_eq!(
+        state.config.autohostlist_entries,
+        vec!["172.237.72.43".to_owned(), "198.51.100.7".to_owned()]
+    );
+    assert_eq!(state.handle_key(key(KeyCode::Left)), AppAction::None);
+    assert_eq!(state.handle_key(key(KeyCode::Char('d'))), AppAction::DeleteSelectedDomain);
+    delete_selected_hostlist_offline(&mut state);
+    assert_eq!(state.config.autohostlist_entries, vec!["198.51.100.7".to_owned()]);
+    assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::MoveHostlistEntry);
+    move_selected_hostlist_offline(&mut state);
+    assert!(state.config.autohostlist_entries.is_empty());
+    assert_eq!(state.config.exclude_entries, vec!["198.51.100.7".to_owned(), "bank.example.com".to_owned()]);
 
     let _ = fs::remove_dir_all(&dir);
 }

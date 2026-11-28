@@ -6,7 +6,8 @@ use zapret_rs::packet::error::PacketError;
 use zapret_rs::packet::types::TcpOption;
 
 /// Builds a synthetic IPv4 + TCP packet with the provided 4-byte-aligned TCP options and payload.
-fn build_ipv4_tcp(tcp_options: &[u8], payload: &[u8]) -> Vec<u8> {
+fn build_ipv4_tcp(tcp_options: &[u8], payload: &[u8]) -> Vec<u8>
+{
     assert_eq!(tcp_options.len() % 4, 0);
     let tcp_len = 20 + tcp_options.len();
     let total_len = (20 + tcp_len + payload.len()) as u16;
@@ -44,7 +45,8 @@ fn build_ipv4_tcp(tcp_options: &[u8], payload: &[u8]) -> Vec<u8> {
 
 /// Verifies that all IPv4 header fields, TCP header fields, empty options, and payload bytes parse accurately.
 #[test]
-fn parse_ipv4_tcp_parses_valid_packet_fields_and_payload() {
+fn parse_ipv4_tcp_parses_valid_packet_fields_and_payload()
+{
     let pkt = build_ipv4_tcp(&[], b"hello");
     let dis = parse_ipv4_tcp(&pkt).expect("valid IPv4 TCP packet should parse");
 
@@ -78,7 +80,8 @@ fn parse_ipv4_tcp_parses_valid_packet_fields_and_payload() {
 
 /// Verifies that trailing link-layer padding bytes past `ip.total_len` are excluded from the parsed payload.
 #[test]
-fn parse_ipv4_tcp_trims_trailing_ethernet_padding() {
+fn parse_ipv4_tcp_trims_trailing_ethernet_padding()
+{
     let mut pkt = build_ipv4_tcp(&[], b"hello");
     pkt.extend_from_slice(&[0u8; 14]);
 
@@ -89,7 +92,8 @@ fn parse_ipv4_tcp_trims_trailing_ethernet_padding() {
 
 /// Verifies that 16 zero bytes inside an MD5 TCP option are preserved while trailing END padding is stripped.
 #[test]
-fn parse_ipv4_tcp_preserves_md5_zero_bytes_and_strips_trailing_end_padding() {
+fn parse_ipv4_tcp_preserves_md5_zero_bytes_and_strips_trailing_end_padding()
+{
     let mut tcp_options = Vec::with_capacity(20);
     tcp_options.extend_from_slice(&[19, 18]);
     tcp_options.extend_from_slice(&[0u8; 16]);
@@ -99,19 +103,14 @@ fn parse_ipv4_tcp_preserves_md5_zero_bytes_and_strips_trailing_end_padding() {
     let dis = parse_ipv4_tcp(&pkt).expect("packet with MD5 option and END padding should parse");
 
     assert_eq!(dis.tcp.data_offset, 10);
-    assert_eq!(
-        dis.tcp.options,
-        vec![TcpOption {
-            kind: 19,
-            data: Some(vec![0u8; 16]),
-        }]
-    );
+    assert_eq!(dis.tcp.options, vec![TcpOption { kind: 19, data: Some(vec![0u8; 16]) }]);
     assert_eq!(dis.payload, b"tls");
 }
 
 /// Verifies that 1-byte NOOP options and a multi-byte Timestamp option decode into the expected `TcpOption` sequence.
 #[test]
-fn parse_ipv4_tcp_parses_noop_and_timestamp_options() {
+fn parse_ipv4_tcp_parses_noop_and_timestamp_options()
+{
     let tcp_options = [1, 1, 8, 10, 0, 0, 0, 1, 0, 0, 0, 2];
     let pkt = build_ipv4_tcp(&tcp_options, b"data");
     let dis = parse_ipv4_tcp(&pkt).expect("packet with NOOP and Timestamp options should parse");
@@ -121,10 +120,7 @@ fn parse_ipv4_tcp_parses_noop_and_timestamp_options() {
         vec![
             TcpOption { kind: 1, data: None },
             TcpOption { kind: 1, data: None },
-            TcpOption {
-                kind: 8,
-                data: Some(vec![0, 0, 0, 1, 0, 0, 0, 2]),
-            },
+            TcpOption { kind: 8, data: Some(vec![0, 0, 0, 1, 0, 0, 0, 2]) },
         ]
     );
     assert_eq!(dis.payload, b"data");
@@ -132,7 +128,8 @@ fn parse_ipv4_tcp_parses_noop_and_timestamp_options() {
 
 /// Verifies that a non-IPv4 version nibble returns `PacketError::UnsupportedVersion`.
 #[test]
-fn parse_ipv4_tcp_rejects_unsupported_ip_version() {
+fn parse_ipv4_tcp_rejects_unsupported_ip_version()
+{
     let mut pkt = build_ipv4_tcp(&[], b"");
     pkt[0] = 0x65;
 
@@ -141,7 +138,8 @@ fn parse_ipv4_tcp_rejects_unsupported_ip_version() {
 
 /// Verifies that an IPv4 header length below 20 bytes returns `PacketError::InvalidHeaderLen`.
 #[test]
-fn parse_ipv4_tcp_rejects_invalid_ipv4_header_length() {
+fn parse_ipv4_tcp_rejects_invalid_ipv4_header_length()
+{
     let mut pkt = build_ipv4_tcp(&[], b"");
     pkt[0] = 0x44;
 
@@ -150,7 +148,8 @@ fn parse_ipv4_tcp_rejects_invalid_ipv4_header_length() {
 
 /// Verifies that a TCP data offset below 20 bytes returns `PacketError::InvalidHeaderLen`.
 #[test]
-fn parse_ipv4_tcp_rejects_invalid_tcp_data_offset() {
+fn parse_ipv4_tcp_rejects_invalid_tcp_data_offset()
+{
     let mut pkt = build_ipv4_tcp(&[], b"");
     pkt[32] = 0x40;
 
@@ -159,7 +158,8 @@ fn parse_ipv4_tcp_rejects_invalid_tcp_data_offset() {
 
 /// Verifies that a non-TCP IPv4 protocol number returns `PacketError::UnsupportedProtocol`.
 #[test]
-fn parse_ipv4_tcp_rejects_non_tcp_protocol() {
+fn parse_ipv4_tcp_rejects_non_tcp_protocol()
+{
     let mut pkt = build_ipv4_tcp(&[], b"");
     pkt[9] = 17;
 
@@ -168,24 +168,19 @@ fn parse_ipv4_tcp_rejects_non_tcp_protocol() {
 
 /// Verifies that short buffers and impossible `ip.total_len` values return `PacketError::Truncated`.
 #[test]
-fn parse_ipv4_tcp_rejects_truncated_buffers_and_impossible_total_len() {
+fn parse_ipv4_tcp_rejects_truncated_buffers_and_impossible_total_len()
+{
     let base_pkt = build_ipv4_tcp(&[], b"hello");
 
     assert_eq!(parse_ipv4_tcp(&base_pkt[..10]).unwrap_err(), PacketError::Truncated);
 
     let mut oversized_total_len = base_pkt.clone();
     oversized_total_len[2..4].copy_from_slice(&100u16.to_be_bytes());
-    assert_eq!(
-        parse_ipv4_tcp(&oversized_total_len).unwrap_err(),
-        PacketError::Truncated
-    );
+    assert_eq!(parse_ipv4_tcp(&oversized_total_len).unwrap_err(), PacketError::Truncated);
 
     let mut undersized_ip_len = base_pkt.clone();
     undersized_ip_len[2..4].copy_from_slice(&12u16.to_be_bytes());
-    assert_eq!(
-        parse_ipv4_tcp(&undersized_ip_len).unwrap_err(),
-        PacketError::Truncated
-    );
+    assert_eq!(parse_ipv4_tcp(&undersized_ip_len).unwrap_err(), PacketError::Truncated);
 
     let mut cut_tcp_len = base_pkt;
     cut_tcp_len[2..4].copy_from_slice(&30u16.to_be_bytes());

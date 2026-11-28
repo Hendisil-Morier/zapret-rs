@@ -12,34 +12,37 @@ use crate::lists::{AutoHostlistSettings, DEFAULT_IPCACHE_LIFETIME_SEC};
 
 /// Global connection tracking toggle and idle timeout configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ConntrackConfig {
+pub struct ConntrackConfig
+{
     /// Disable internal connection tracking (`--ctrack-disable`).
     pub disable: bool,
     /// Per-stage idle expiration thresholds (`syn`, `established`, `fin`, `udp`).
     pub timeouts: ConntrackTimeouts,
 }
 
-impl Default for ConntrackConfig {
+impl Default for ConntrackConfig
+{
     /// Returns enabled conntrack tracking with `zapret2` default `60:300:60:60` timeouts.
-    fn default() -> Self {
-        Self {
-            disable: false,
-            timeouts: ConntrackTimeouts::default(),
-        }
+    fn default() -> Self
+    {
+        Self { disable: false, timeouts: ConntrackTimeouts::default() }
     }
 }
 
 /// Parses `--ctrack-timeouts` in `S:E:F[:U]` colon-delimited seconds format.
-pub fn parse_timeouts(raw: &str) -> Result<ConntrackTimeouts, ConfigError> {
+pub fn parse_timeouts(raw: &str) -> Result<ConntrackTimeouts, ConfigError>
+{
     let parts: Vec<&str> = raw.trim().split(':').collect();
-    if !(3..=4).contains(&parts.len()) {
+    if !(3..=4).contains(&parts.len())
+    {
         return Err(ConfigError::Validation(format!(
             "invalid ctrack timeouts '{raw}' (expected syn:est:fin[:udp])"
         )));
     }
     let parse_sec = |s: &str| -> Result<u32, ConfigError> {
         let trimmed = s.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty()
+        {
             return Err(ConfigError::Validation(format!(
                 "invalid ctrack timeouts '{raw}' (empty timeout component)"
             )));
@@ -55,7 +58,8 @@ pub fn parse_timeouts(raw: &str) -> Result<ConntrackTimeouts, ConfigError> {
         syn: parse_sec(parts[0])?,
         established: parse_sec(parts[1])?,
         fin: parse_sec(parts[2])?,
-        udp: match parts.get(3) {
+        udp: match parts.get(3)
+        {
             Some(udp) => parse_sec(udp)?,
             None => ConntrackTimeouts::default().udp,
         },
@@ -65,26 +69,27 @@ pub fn parse_timeouts(raw: &str) -> Result<ConntrackTimeouts, ConfigError> {
 
 /// Global IP-to-hostname and hop-count cache configuration (`--ipcache-*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IpCacheConfig {
+pub struct IpCacheConfig
+{
     /// Entry time-to-live in seconds (`0` disables expiration).
     pub lifetime_sec: u32,
     /// Enable DNS response domain-to-IP learning (`--ipcache-hostname`).
     pub hostname: bool,
 }
 
-impl Default for IpCacheConfig {
+impl Default for IpCacheConfig
+{
     /// Returns `zapret2` default IPCache settings (`7200s` lifetime, hostname learning off).
-    fn default() -> Self {
-        Self {
-            lifetime_sec: DEFAULT_IPCACHE_LIFETIME_SEC as u32,
-            hostname: false,
-        }
+    fn default() -> Self
+    {
+        Self { lifetime_sec: DEFAULT_IPCACHE_LIFETIME_SEC as u32, hostname: false }
     }
 }
 
 /// Per-profile hostlist, exclusion list, autohostlist, and CIDR ipset configuration.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ProfileListsConfig {
+pub struct ProfileListsConfig
+{
     /// Include domain list files (`--hostlist`, plain or gzip).
     pub hostlist: Vec<PathBuf>,
     /// Inline include domain tokens (`--hostlist-domains`).

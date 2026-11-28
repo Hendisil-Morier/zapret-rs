@@ -18,10 +18,10 @@ pub mod probe;
 pub mod profile_state;
 /// Client-side payload stream reassembly, delayed packet queuing, and replay orchestration.
 pub mod reasm_replay;
-/// Live TOML profile reload validation and atomic engine swap helper.
-pub mod reload;
 /// Dynamic L7/hostname profile rediscovery and autohostlist gating.
 pub mod rediscovery;
+/// Live TOML profile reload validation and atomic engine swap helper.
+pub mod reload;
 /// Stateful TCP packet desync pipeline with TLS reassembly, replay, and RST handling.
 pub mod tcp;
 /// Stateful UDP packet desync pipeline with QUIC decrypt/reassembly and DNS caching.

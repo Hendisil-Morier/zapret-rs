@@ -13,7 +13,8 @@ pub const CONTROL_PROTOCOL_VERSION: u32 = 1;
 
 /// Point-in-time snapshot of [`PacketCounters`] serialized over the control socket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct CountersSnapshot {
+pub struct CountersSnapshot
+{
     /// Total packets processed by the desync engine.
     pub total: u64,
     /// Packets passed unmodified by NFQUEUE.
@@ -26,17 +27,21 @@ pub struct CountersSnapshot {
     pub desynced: u64,
 }
 
-impl From<&PacketCounters> for CountersSnapshot {
+impl From<&PacketCounters> for CountersSnapshot
+{
     /// Reads relaxed atomic totals from `counters` into a plain serializable snapshot.
-    fn from(counters: &PacketCounters) -> Self {
+    fn from(counters: &PacketCounters) -> Self
+    {
         let (total, passed, reassembled, modified, desynced) = counters.snapshot();
         Self { total, passed, reassembled, modified, desynced }
     }
 }
 
-impl CountersSnapshot {
+impl CountersSnapshot
+{
     /// Stores every snapshot field into lock-free `target` counters for TUI display.
-    pub fn store_into(&self, target: &PacketCounters) {
+    pub fn store_into(&self, target: &PacketCounters)
+    {
         use std::sync::atomic::Ordering;
         target.total.store(self.total, Ordering::Relaxed);
         target.passed.store(self.passed, Ordering::Relaxed);
@@ -48,7 +53,8 @@ impl CountersSnapshot {
 
 /// Live `nfqws2` runtime summary returned for a `status` request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DaemonStatus {
+pub struct DaemonStatus
+{
     /// Binary package version (e.g., `env!("CARGO_PKG_VERSION")`).
     pub version: String,
     /// Daemon operating system process ID.
@@ -72,7 +78,8 @@ pub struct DaemonStatus {
 /// Machine-readable error categories returned in [`Response::Error`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ControlErrorCode {
+pub enum ControlErrorCode
+{
     /// Client requested an unsupported protocol version during `hello`.
     UnsupportedVersion,
     /// Client issued another command before completing `hello`.
@@ -88,16 +95,19 @@ pub enum ControlErrorCode {
 /// Client-to-daemon control request sent as one JSON line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
-pub enum Request {
+pub enum Request
+{
     /// Negotiates wire protocol compatibility before issuing commands.
-    Hello {
+    Hello
+    {
         /// Client protocol version (must match [`CONTROL_PROTOCOL_VERSION`]).
         version: u32,
     },
     /// Requests current daemon configuration metadata and packet counters.
     Status,
     /// Subscribes this connection to live `counters` and `packet` telemetry events.
-    Subscribe {
+    Subscribe
+    {
         /// Optional client hint requesting a specific PASS sampling divisor (`0` = no PASS).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pass_sample_rate: Option<u64>,
@@ -107,7 +117,8 @@ pub enum Request {
     /// Reloads hostlist and ipset files in the running daemon engine.
     ReloadLists,
     /// Parses `toml` and swaps active desync profiles live (rejects `qnum`/`fwmark` changes).
-    ReloadConfig {
+    ReloadConfig
+    {
         /// Full replacement `nfqws2.toml` document text.
         toml: String,
     },
@@ -118,16 +129,19 @@ pub enum Request {
 /// Daemon-to-client reply or unsolicited telemetry event sent as one JSON line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum Response {
+pub enum Response
+{
     /// Successful handshake confirmation returned for [`Request::Hello`].
-    HelloOk {
+    HelloOk
+    {
         /// Agreed protocol version.
         version: u32,
         /// Daemon package version string.
         daemon_version: String,
     },
     /// Synchronous acknowledgment for commands such as `subscribe`, `reload_lists`, or `stop`.
-    Ack {
+    Ack
+    {
         /// Operation name that succeeded (`"subscribe"`, `"unsubscribe"`, `"reload_lists"`, `"stop"`).
         op: String,
         /// Optional human-readable detail returned by the daemon handler.
@@ -141,7 +155,8 @@ pub enum Response {
     /// Decoded intercepted packet snapshot sent to subscribed clients.
     Packet(PacketRecord),
     /// Typed protocol or execution failure returned for a client request.
-    Error {
+    Error
+    {
         /// Categorized failure code.
         code: ControlErrorCode,
         /// Human-readable diagnostic explanation.
@@ -150,13 +165,14 @@ pub enum Response {
 }
 
 /// Validates `client_version` against [`CONTROL_PROTOCOL_VERSION`], reporting skew distinctly.
-pub fn validate_protocol_version(client_version: u32) -> Result<(), super::CodecError> {
-    if client_version == CONTROL_PROTOCOL_VERSION {
+pub fn validate_protocol_version(client_version: u32) -> Result<(), super::CodecError>
+{
+    if client_version == CONTROL_PROTOCOL_VERSION
+    {
         Ok(())
-    } else {
-        Err(super::CodecError::UnsupportedVersion {
-            expected: CONTROL_PROTOCOL_VERSION,
-            got: client_version,
-        })
+    }
+    else
+    {
+        Err(super::CodecError::UnsupportedVersion { expected: CONTROL_PROTOCOL_VERSION, got: client_version })
     }
 }

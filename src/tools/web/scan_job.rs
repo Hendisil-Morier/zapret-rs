@@ -11,24 +11,24 @@ use std::time::Duration;
 
 /// Application config defaults for the in-process packet desync worker.
 use crate::config::{AppConfig, LuaInitEntry};
+/// Default interception fwmark constant shared with `nfqws2`.
+use crate::intercepter::DEFAULT_DESYNC_FWMARK;
 /// Capability/Admin check guarding live capture scans before opening sockets.
 use crate::runtime::has_packet_capture_privileges;
 /// Bundled Lua discovery, strategy catalog, non-interactive firewall backend, scanner, and TOML renderer.
 use crate::tools::lua_bundle::resolve_lua_scripts;
-/// Range/host-validated domain parser and strategy scan builders.
-use crate::tools::strat::{
-    CurlProbeBackend, DEFAULT_STRAT_QNUM, DomainScope, InProcessWorkerHandle, IpFamily,
-    ProbeProtocol, ProgressEvent, ScanConfig, ScanLevel, TomlRenderOptions, parse_clean_domain,
-    render_nfqws2_toml_scoped, run_scan,
-};
-/// Active non-Linux firewall backend selector.
-#[cfg(not(target_os = "linux"))]
-use crate::tools::strat::active_firewall_backend;
 /// Linux `nftables` backend invoked strictly non-interactively from web HTTP worker threads.
 #[cfg(target_os = "linux")]
 use crate::tools::strat::NftFirewallBackend;
-/// Default interception fwmark constant shared with `nfqws2`.
-use crate::intercepter::DEFAULT_DESYNC_FWMARK;
+/// Active non-Linux firewall backend selector.
+#[cfg(not(target_os = "linux"))]
+use crate::tools::strat::active_firewall_backend;
+/// Range/host-validated domain parser and strategy scan builders.
+use crate::tools::strat::{
+    CurlProbeBackend, DEFAULT_STRAT_QNUM, DomainScope, InProcessWorkerHandle, IpFamily, ProbeProtocol,
+    ProgressEvent, ScanConfig, ScanLevel, TomlRenderOptions, parse_clean_domain, render_nfqws2_toml_scoped,
+    run_scan,
+};
 /// Web runtime paths (`config`, `lua_dir`) passed into scan execution.
 use crate::tools::web::cli::WebConfig;
 /// SSE broadcaster used to push real-time scan events to connected browsers.
@@ -39,7 +39,8 @@ const MAX_SCAN_LOGS: usize = 120;
 
 /// Incoming JSON payload triggering `POST /api/scan/start`.
 #[derive(Debug, serde::Deserialize)]
-pub struct ScanStartPayload {
+pub struct ScanStartPayload
+{
     /// Target hostnames list (comma/whitespace separated or array).
     pub domains: Vec<String>,
     /// Protocol names (`"http"`, `"tls12"`, `"tls13"`, `"http3"`).
@@ -56,13 +57,15 @@ pub struct ScanStartPayload {
     pub timeout_secs: Option<f64>,
 }
 
-const fn default_true() -> bool {
+const fn default_true() -> bool
+{
     true
 }
 
 /// Summary row for one scanned `(domain, proto, ipv)` target.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct ScanTargetSummary {
+pub struct ScanTargetSummary
+{
     /// Target domain hostname.
     pub domain: String,
     /// Protocol label (`http`, `tls12`, `tls13`, `http3`).
@@ -81,7 +84,8 @@ pub struct ScanTargetSummary {
 
 /// Live or completed Strategy Finder snapshot served by `GET /api/scan` and `event: scan`.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct WebScanSnapshot {
+pub struct WebScanSnapshot
+{
     /// Lifecycle phase (`"idle"`, `"running"`, `"done"`, `"error"`).
     pub status: String,
     /// Current candidate step index.
@@ -100,9 +104,11 @@ pub struct WebScanSnapshot {
     pub error: Option<String>,
 }
 
-impl Default for WebScanSnapshot {
+impl Default for WebScanSnapshot
+{
     /// Returns an idle scan state.
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self {
             status: "idle".to_owned(),
             progress_done: 0,
@@ -118,7 +124,8 @@ impl Default for WebScanSnapshot {
 
 /// Shared coordinator managing a single background web-triggered Strategy Finder run.
 #[derive(Default)]
-pub struct WebScanJob {
+pub struct WebScanJob
+{
     /// Latest snapshot readable synchronously via `GET /api/scan`.
     state: Arc<Mutex<WebScanSnapshot>>,
     /// Active cancellation flag checked by [`run_scan`].
@@ -127,14 +134,17 @@ pub struct WebScanJob {
     join: Mutex<Option<JoinHandle<()>>>,
 }
 
-impl WebScanJob {
+impl WebScanJob
+{
     /// Returns a cloned snapshot of the current/last Strategy Finder run.
-    pub fn snapshot(&self) -> WebScanSnapshot {
+    pub fn snapshot(&self) -> WebScanSnapshot
+    {
         self.state.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
     /// Requests cancellation of an active scan, returning `true` when one was running.
-    pub fn stop(&self) -> bool {
+    pub fn stop(&self) -> bool
+    {
         if let Ok(guard) = self.stop_flag.lock()
             && let Some(flag) = guard.as_ref()
         {
@@ -150,23 +160,22 @@ impl WebScanJob {
         req: ScanStartPayload,
         cfg: &WebConfig,
         ipc: &Arc<WebIpcBridge>,
-    ) -> Result<WebScanSnapshot, (u16, String)> {
-        if !has_packet_capture_privileges().unwrap_or(false) {
+    ) -> Result<WebScanSnapshot, (u16, String)>
+    {
+        if !has_packet_capture_privileges().unwrap_or(false)
+        {
             return Err((403, "web process lacks packet capture / administrator privileges".to_owned()));
         }
         let domains: Vec<String> = req.domains.iter().filter_map(|d| parse_clean_domain(d)).collect();
-        if domains.is_empty() {
+        if domains.is_empty()
+        {
             return Err((400, "enter at least one valid domain".to_owned()));
         }
         let protos = parse_protos(&req.protos).map_err(|e| (400, e))?;
-        let level: ScanLevel = req
-            .level
-            .as_deref()
-            .unwrap_or("standard")
-            .parse()
-            .map_err(|e| (400, e))?;
+        let level: ScanLevel = req.level.as_deref().unwrap_or("standard").parse().map_err(|e| (400, e))?;
         let secs = req.timeout_secs.unwrap_or(2.0);
-        if !secs.is_finite() || secs <= 0.0 {
+        if !secs.is_finite() || secs <= 0.0
+        {
             return Err((400, "invalid scan timeout".to_owned()));
         }
         let lua_scripts = resolve_lua_scripts(cfg.lua_dir.as_deref()).map_err(|e| (400, e))?;
@@ -178,13 +187,15 @@ impl WebScanJob {
         };
         {
             let mut guard = self.state.lock().map_err(|_| (500, "scan lock poisoned".to_owned()))?;
-            if guard.status == "running" {
+            if guard.status == "running"
+            {
                 return Err((409, "a scan is already running".to_owned()));
             }
             *guard = initial.clone();
         }
         let release_claim = |msg: &str| {
-            if let Ok(mut guard) = self.state.lock() {
+            if let Ok(mut guard) = self.state.lock()
+            {
                 guard.status = "failed".to_owned();
                 guard.error = Some(msg.to_owned());
             }
@@ -214,15 +225,12 @@ impl WebScanJob {
             &udp,
         );
         #[cfg(not(target_os = "linux"))]
-        let fw_res = active_firewall_backend().install(
-            DEFAULT_STRAT_QNUM,
-            DEFAULT_DESYNC_FWMARK,
-            &tcp,
-            &udp,
-        );
-        let fw_guard = match fw_res {
+        let fw_res = active_firewall_backend().install(DEFAULT_STRAT_QNUM, DEFAULT_DESYNC_FWMARK, &tcp, &udp);
+        let fw_guard = match fw_res
+        {
             Ok(g) => g,
-            Err(e) => {
+            Err(e) =>
+            {
                 let code = if e.kind() == std::io::ErrorKind::PermissionDenied { 403 } else { 500 };
                 let msg = format!("firewall setup failed: {e}");
                 release_claim(&msg);
@@ -231,7 +239,8 @@ impl WebScanJob {
         };
 
         let stop = Arc::new(AtomicBool::new(false));
-        if let Ok(mut f) = self.stop_flag.lock() {
+        if let Ok(mut f) = self.stop_flag.lock()
+        {
             *f = Some(Arc::clone(&stop));
         }
 
@@ -244,13 +253,15 @@ impl WebScanJob {
             .spawn(move || run_scan_worker(scan_cfg, lua_scripts, fw_guard, stop, state_bg, ipc_bg))
         {
             Ok(h) => h,
-            Err(e) => {
+            Err(e) =>
+            {
                 let msg = format!("failed to spawn scan thread: {e}");
                 release_claim(&msg);
                 return Err((500, msg));
             }
         };
-        if let Ok(mut j) = self.join.lock() {
+        if let Ok(mut j) = self.join.lock()
+        {
             *j = Some(handle);
         }
         Ok(initial)
@@ -258,14 +269,18 @@ impl WebScanJob {
 }
 
 /// Parses requested protocol identifiers or returns defaults (`http,tls12,tls13`).
-fn parse_protos(raw: &[String]) -> Result<Vec<ProbeProtocol>, String> {
-    if raw.is_empty() {
+fn parse_protos(raw: &[String]) -> Result<Vec<ProbeProtocol>, String>
+{
+    if raw.is_empty()
+    {
         return Ok(vec![ProbeProtocol::Http, ProbeProtocol::Tls12, ProbeProtocol::Tls13]);
     }
     let mut out = Vec::new();
-    for item in raw {
+    for item in raw
+    {
         let p: ProbeProtocol = item.parse()?;
-        if !out.contains(&p) {
+        if !out.contains(&p)
+        {
             out.push(p);
         }
     }
@@ -273,8 +288,10 @@ fn parse_protos(raw: &[String]) -> Result<Vec<ProbeProtocol>, String> {
 }
 
 /// Appends one line to capped `logs` and broadcasts the current scan snapshot.
-fn push_scan_log(st: &mut WebScanSnapshot, line: String) {
-    if st.logs.len() >= MAX_SCAN_LOGS {
+fn push_scan_log(st: &mut WebScanSnapshot, line: String)
+{
+    if st.logs.len() >= MAX_SCAN_LOGS
+    {
         st.logs.remove(0);
     }
     st.logs.push(line);
@@ -288,19 +305,19 @@ fn run_scan_worker(
     stop: Arc<AtomicBool>,
     state: Arc<Mutex<WebScanSnapshot>>,
     ipc: Arc<WebIpcBridge>,
-) {
+)
+{
     static NEVER_STOP: AtomicBool = AtomicBool::new(false);
-    let mut base_cfg = AppConfig {
-        qnum: DEFAULT_STRAT_QNUM,
-        fwmark: DEFAULT_DESYNC_FWMARK,
-        ..AppConfig::default()
-    };
+    let mut base_cfg =
+        AppConfig { qnum: DEFAULT_STRAT_QNUM, fwmark: DEFAULT_DESYNC_FWMARK, ..AppConfig::default() };
     base_cfg.ipcache.hostname = true;
     base_cfg.lua_init = lua_scripts.iter().cloned().map(LuaInitEntry::File).collect();
 
-    let mut worker = match InProcessWorkerHandle::spawn(base_cfg, &NEVER_STOP) {
+    let mut worker = match InProcessWorkerHandle::spawn(base_cfg, &NEVER_STOP)
+    {
         Ok(w) => w,
-        Err(err) => {
+        Err(err) =>
+        {
             drop(fw_guard);
             finish_scan_error(&state, &ipc, err);
             return;
@@ -308,22 +325,41 @@ fn run_scan_worker(
     };
     let probe = CurlProbeBackend::default();
     let res = run_scan(&scan_cfg, &probe, &mut worker, &stop, |ev| {
-        let Ok(mut st) = state.lock() else { return };
-        match ev {
-            ProgressEvent::Http3Unavailable => {
+        let Ok(mut st) = state.lock()
+        else
+        {
+            return;
+        };
+        match ev
+        {
+            ProgressEvent::Http3Unavailable =>
+            {
                 push_scan_log(&mut st, "[warn] curl lacks HTTP/3 support; skipping http3".to_owned());
             }
-            ProgressEvent::Baseline { domain, proto, ipv, outcome } => {
+            ProgressEvent::Baseline { domain, proto, ipv, outcome } =>
+            {
                 let tag = if outcome.is_success() { "reachable (skip)" } else { "blocked" };
                 st.label = format!("Baseline {domain} ({proto}/{ipv}): {}", outcome.summary());
-                push_scan_log(&mut st, format!("[baseline] {domain} ({proto}/{ipv}) -> {} [{tag}]", outcome.summary()));
+                push_scan_log(
+                    &mut st,
+                    format!("[baseline] {domain} ({proto}/{ipv}) -> {} [{tag}]", outcome.summary()),
+                );
             }
-            ProgressEvent::Candidate { domain, index, total, strategy, outcome } => {
+            ProgressEvent::Candidate { domain, index, total, strategy, outcome } =>
+            {
                 st.progress_done = index;
                 st.progress_total = total;
                 st.label = format!("{domain} [{index}/{total}] {}", strategy.id);
-                if outcome.is_success() {
-                    push_scan_log(&mut st, format!("[PASS {index}/{total}] {domain} :: {} -> {}", strategy.id, outcome.summary()));
+                if outcome.is_success()
+                {
+                    push_scan_log(
+                        &mut st,
+                        format!(
+                            "[PASS {index}/{total}] {domain} :: {} -> {}",
+                            strategy.id,
+                            outcome.summary()
+                        ),
+                    );
                 }
             }
         }
@@ -332,23 +368,32 @@ fn run_scan_worker(
     drop(worker);
     drop(fw_guard);
 
-    match res {
-        Ok(report) => {
-            let rendered_toml = if report.cover.is_empty() {
+    match res
+    {
+        Ok(report) =>
+        {
+            let rendered_toml = if report.cover.is_empty()
+            {
                 String::new()
-            } else {
+            }
+            else
+            {
                 render_nfqws2_toml_scoped(
                     &report.cover,
                     &TomlRenderOptions { qnum: 200, fwmark: DEFAULT_DESYNC_FWMARK, lua_init: lua_scripts },
                     DomainScope::ScannedOnly,
                 )
             };
-            if let Ok(mut st) = state.lock() {
+            if let Ok(mut st) = state.lock()
+            {
                 st.status = "done".to_owned();
                 st.progress_done = st.progress_total;
-                st.label = if report.interrupted {
+                st.label = if report.interrupted
+                {
                     format!("Stopped early: {} covering profile(s)", report.cover.len())
-                } else {
+                }
+                else
+                {
                     format!("Done: {} minimal covering profile(s)", report.cover.len())
                 };
                 st.targets = report
@@ -373,8 +418,10 @@ fn run_scan_worker(
 }
 
 /// Records scan failure state and emits final SSE `scan` event.
-fn finish_scan_error(state: &Arc<Mutex<WebScanSnapshot>>, ipc: &WebIpcBridge, err: String) {
-    if let Ok(mut st) = state.lock() {
+fn finish_scan_error(state: &Arc<Mutex<WebScanSnapshot>>, ipc: &WebIpcBridge, err: String)
+{
+    if let Ok(mut st) = state.lock()
+    {
         st.status = "error".to_owned();
         st.label = format!("Error: {err}");
         st.error = Some(err.clone());

@@ -36,7 +36,8 @@ pub const UDP_MAX_REASM: usize = 16384;
 /// Client initiator endpoints are always stored in `(src, sport)` and server responder
 /// endpoints in `(dst, dport)`, with `l3proto` equal to `IPPROTO_IP` or `IPPROTO_IPV6`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ConnKey {
+pub struct ConnKey
+{
     /// Initiating (client) L3 IPv4 or IPv6 address.
     pub src: IpAddr,
     /// Responding (server) L3 IPv4 or IPv6 address.
@@ -51,55 +52,47 @@ pub struct ConnKey {
     pub l4proto: u8,
 }
 
-impl ConnKey {
+impl ConnKey
+{
     /// Extracts a normalized 5-tuple from `dis`, returning `None` for non-TCP/UDP or invalid L3 packets.
     ///
     /// Passing `reverse = true` swaps source/destination addresses and ports (used when a
     /// `SYN-ACK` creates the connection entry so `src/sport` still represents the client).
-    pub fn extract(dis: &DissectedPacket, reverse: bool) -> Option<Self> {
-        let (l3proto, ip_src, ip_dst) = match (&dis.ip, &dis.ip6) {
-            (Some(ip), None) => (
-                IPPROTO_IP,
-                IpAddr::V4(Ipv4Addr::from(ip.src)),
-                IpAddr::V4(Ipv4Addr::from(ip.dst)),
-            ),
-            (None, Some(ip6)) => (
-                IPPROTO_IPV6,
-                IpAddr::V6(Ipv6Addr::from(ip6.src)),
-                IpAddr::V6(Ipv6Addr::from(ip6.dst)),
-            ),
+    pub fn extract(dis: &DissectedPacket, reverse: bool) -> Option<Self>
+    {
+        let (l3proto, ip_src, ip_dst) = match (&dis.ip, &dis.ip6)
+        {
+            (Some(ip), None) =>
+            {
+                (IPPROTO_IP, IpAddr::V4(Ipv4Addr::from(ip.src)), IpAddr::V4(Ipv4Addr::from(ip.dst)))
+            }
+            (None, Some(ip6)) =>
+            {
+                (IPPROTO_IPV6, IpAddr::V6(Ipv6Addr::from(ip6.src)), IpAddr::V6(Ipv6Addr::from(ip6.dst)))
+            }
             _ => return None,
         };
 
-        let (l4proto, p_src, p_dst) = match (&dis.tcp, &dis.udp) {
+        let (l4proto, p_src, p_dst) = match (&dis.tcp, &dis.udp)
+        {
             (Some(tcp), None) => (IPPROTO_TCP, tcp.s_port, tcp.d_port),
             (None, Some(udp)) => (IPPROTO_UDP, udp.s_port, udp.d_port),
             _ => return None,
         };
 
-        if reverse {
-            Some(Self {
-                src: ip_dst,
-                dst: ip_src,
-                sport: p_dst,
-                dport: p_src,
-                l3proto,
-                l4proto,
-            })
-        } else {
-            Some(Self {
-                src: ip_src,
-                dst: ip_dst,
-                sport: p_src,
-                dport: p_dst,
-                l3proto,
-                l4proto,
-            })
+        if reverse
+        {
+            Some(Self { src: ip_dst, dst: ip_src, sport: p_dst, dport: p_src, l3proto, l4proto })
+        }
+        else
+        {
+            Some(Self { src: ip_src, dst: ip_dst, sport: p_src, dport: p_dst, l3proto, l4proto })
         }
     }
 
     /// Returns a copy with source and destination addresses and ports exchanged.
-    pub const fn swapped(self) -> Self {
+    pub const fn swapped(self) -> Self
+    {
         Self {
             src: self.dst,
             dst: self.src,
@@ -113,7 +106,8 @@ impl ConnKey {
 
 /// High-level TCP connection lifecycle state matching `zapret2`'s `t_connstate`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ConnState {
+pub enum ConnState
+{
     /// Initial handshake phase before non-SYN traffic arrives (`SYN`).
     #[default]
     Syn,
@@ -125,7 +119,8 @@ pub enum ConnState {
 
 /// Per-direction packet, byte, IPv6 flow, and TCP sequence tracking state (`t_ctrack_position`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CtrackPosition {
+pub struct CtrackPosition
+{
     /// Total packets observed from this endpoint (`pcounter`).
     pub pcounter: u64,
     /// Packets carrying non-zero L4 payload observed from this endpoint (`pdcounter`).
@@ -156,36 +151,43 @@ pub struct CtrackPosition {
     pub rseq_over_2g: bool,
 }
 
-impl CtrackPosition {
+impl CtrackPosition
+{
     /// Returns the relative starting sequence offset (`seq_last - seq0`) in modular 32-bit space.
-    pub const fn rseq(self) -> u32 {
+    pub const fn rseq(self) -> u32
+    {
         self.seq_last.wrapping_sub(self.seq0)
     }
 
     /// Returns the relative end sequence position (`pos - seq0`) in modular 32-bit space.
-    pub const fn rel_pos(self) -> u32 {
+    pub const fn rel_pos(self) -> u32
+    {
         self.pos.wrapping_sub(self.seq0)
     }
 
     /// Returns the relative high-water sequence offset (`uppos - seq0`) in modular 32-bit space.
-    pub const fn rel_uppos(self) -> u32 {
+    pub const fn rel_uppos(self) -> u32
+    {
         self.uppos.wrapping_sub(self.seq0)
     }
 
     /// Returns the prior relative high-water offset (`uppos_prev - seq0`) in modular 32-bit space.
-    pub const fn rel_uppos_prev(self) -> u32 {
+    pub const fn rel_uppos_prev(self) -> u32
+    {
         self.uppos_prev.wrapping_sub(self.seq0)
     }
 
     /// Returns `true` when the latest segment ended at or behind `uppos_prev` (`!((uppos_prev - pos) & 0x8000_0000)`).
-    pub const fn is_retransmission(self) -> bool {
+    pub const fn is_retransmission(self) -> bool
+    {
         (self.uppos_prev.wrapping_sub(self.pos) & 0x8000_0000) == 0
     }
 }
 
 /// Snapshot of connection state timestamps and bidirectional positions (`t_ctrack_positions`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CtrackPositions {
+pub struct CtrackPositions
+{
     /// Monotonic boottime of the most recent packet belonging to this flow.
     pub t_last: MonotonicTime,
     /// Current TCP handshake/teardown state (`Syn` for UDP flows until inactivity purge).
@@ -200,7 +202,8 @@ pub struct CtrackPositions {
 
 /// Queued raw packet and frozen conntrack position snapshot held during stream reassembly.
 #[derive(Debug, Clone)]
-pub struct DelayedPacket {
+pub struct DelayedPacket
+{
     /// Original L3 packet bytes captured at interception time.
     pub raw: Vec<u8>,
     /// Kernel netfilter mark attached to the packet (`nfmark`).
@@ -215,7 +218,8 @@ pub struct DelayedPacket {
 
 /// Idle expiration thresholds (seconds) and purge cadence configured for [`crate::conntrack::ConntrackPool`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ConntrackTimeouts {
+pub struct ConntrackTimeouts
+{
     /// Expiration timeout in seconds for connections in [`ConnState::Syn`].
     pub syn: u32,
     /// Expiration timeout in seconds for connections in [`ConnState::Established`].
@@ -228,9 +232,11 @@ pub struct ConntrackTimeouts {
     pub purge_interval: i64,
 }
 
-impl Default for ConntrackTimeouts {
+impl Default for ConntrackTimeouts
+{
     /// Returns `zapret2`'s default timeouts (`60:300:60:60`, purge interval `10s`).
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self {
             syn: DEFAULT_CTRACK_TIMEOUT_SYN,
             established: DEFAULT_CTRACK_TIMEOUT_EST,

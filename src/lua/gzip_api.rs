@@ -25,7 +25,8 @@ const DEFAULT_DEFLATE_MEMLEVEL: i64 = 8;
 const MAX_CAPACITY_HINT: usize = 1_048_576;
 
 /// Active compression or decompression state held inside a Lua `zstream` userdata.
-enum ZStreamKind {
+enum ZStreamKind
+{
     /// Decompression stream created by `gunzip_init`.
     Inflate(InflateStream),
     /// Compression stream created by `gzip_init`.
@@ -33,7 +34,8 @@ enum ZStreamKind {
 }
 
 /// Lua userdata representing an open or finalized `gunzip` / `gzip` stream.
-struct ZStreamUserData {
+struct ZStreamUserData
+{
     /// Inner stream state (`None` after `gunzip_end` or `gzip_end`).
     state: RefCell<Option<ZStreamKind>>,
     /// Immutable role tag distinguishing `gunzip` (`true`) from `gzip` (`false`).
@@ -43,40 +45,50 @@ struct ZStreamUserData {
 impl UserData for ZStreamUserData {}
 
 /// Extracts and validates a `ZStreamUserData` handle matching `zapret2`'s `lua_uzs`.
-fn extract_zstream(val: &Value, expect_inflate: bool) -> mlua::Result<UserDataRef<ZStreamUserData>> {
-    let ud = match val {
-        Value::UserData(ud) => ud.borrow::<ZStreamUserData>().map_err(|_| {
-            mlua::Error::external("bad argument #1 (userdata_zstream expected)")
-        })?,
-        other => {
+fn extract_zstream(val: &Value, expect_inflate: bool) -> mlua::Result<UserDataRef<ZStreamUserData>>
+{
+    let ud = match val
+    {
+        Value::UserData(ud) => ud
+            .borrow::<ZStreamUserData>()
+            .map_err(|_| mlua::Error::external("bad argument #1 (userdata_zstream expected)"))?,
+        other =>
+        {
             return Err(mlua::Error::external(format!(
                 "bad argument #1 (userdata_zstream expected, got {})",
                 other.type_name()
             )));
         }
     };
-    if ud.state.borrow().is_none() {
+    if ud.state.borrow().is_none()
+    {
         return Err(mlua::Error::external("gzip stream is not valid"));
     }
-    if ud.is_inflate != expect_inflate {
+    if ud.is_inflate != expect_inflate
+    {
         return Err(mlua::Error::external("gzip stream role mismatch"));
     }
     Ok(ud)
 }
 
 /// Coerces an optional integer parameter when present and non-nil, falling back to `default`.
-fn optional_i64_arg(lua: &Lua, args: &Variadic<Value>, idx: usize, default: i64) -> mlua::Result<i64> {
-    match args.get(idx) {
+fn optional_i64_arg(lua: &Lua, args: &Variadic<Value>, idx: usize, default: i64) -> mlua::Result<i64>
+{
+    match args.get(idx)
+    {
         Some(v) if !v.is_nil() => coerce_i64(lua, v),
         _ => Ok(default),
     }
 }
 
 /// Clamps caller's expected output buffer size hint into `[0, MAX_CAPACITY_HINT]`.
-fn clamp_capacity_hint(lua: &Lua, args: &Variadic<Value>, idx: usize, default: usize) -> mlua::Result<usize> {
-    if let Some(arg) = args.get(idx) {
+fn clamp_capacity_hint(lua: &Lua, args: &Variadic<Value>, idx: usize, default: usize) -> mlua::Result<usize>
+{
+    if let Some(arg) = args.get(idx)
+    {
         let requested = coerce_i64(lua, arg)?;
-        if requested <= 0 {
+        if requested <= 0
+        {
             return Ok(0);
         }
         return Ok(usize::try_from(requested).unwrap_or(MAX_CAPACITY_HINT).min(MAX_CAPACITY_HINT));
@@ -85,7 +97,8 @@ fn clamp_capacity_hint(lua: &Lua, args: &Variadic<Value>, idx: usize, default: u
 }
 
 /// Registers `gunzip_init`, `gunzip_end`, `gunzip_inflate`, `gzip_init`, `gzip_end`, and `gzip_deflate`.
-pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()> {
+pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()>
+{
     let globals = lua.globals();
 
     globals.set(
@@ -93,7 +106,9 @@ pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc_range("gunzip_init", &args, 0, 1)?;
             let wb = optional_i64_arg(lua, &args, 0, DEFAULT_INFLATE_WINDOW_BITS)?;
-            let Some(mode) = InflateMode::from_window_bits(wb) else {
+            let Some(mode) = InflateMode::from_window_bits(wb)
+            else
+            {
                 return Ok(Value::Nil);
             };
             let ud = lua.create_userdata(ZStreamUserData {
@@ -122,14 +137,14 @@ pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()> {
             let input = coerce_bytes(lua, &args[1])?;
             let hint = clamp_capacity_hint(lua, &args, 2, input.len().saturating_mul(4))?;
             let mut state_ref = zs.state.borrow_mut();
-            let Some(ZStreamKind::Inflate(stream)) = state_ref.as_mut() else {
+            let Some(ZStreamKind::Inflate(stream)) = state_ref.as_mut()
+            else
+            {
                 return Ok((Value::Nil, Value::Nil));
             };
-            match stream.inflate(&input, hint) {
-                Some((bytes, eof)) => Ok((
-                    Value::String(lua.create_string(&bytes)?),
-                    Value::Boolean(eof),
-                )),
+            match stream.inflate(&input, hint)
+            {
+                Some((bytes, eof)) => Ok((Value::String(lua.create_string(&bytes)?), Value::Boolean(eof))),
                 None => Ok((Value::Nil, Value::Nil)),
             }
         })?,
@@ -142,10 +157,14 @@ pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()> {
             let wb = optional_i64_arg(lua, &args, 0, DEFAULT_DEFLATE_WINDOW_BITS)?;
             let level = optional_i64_arg(lua, &args, 1, DEFAULT_DEFLATE_LEVEL)?;
             let memlevel = optional_i64_arg(lua, &args, 2, DEFAULT_DEFLATE_MEMLEVEL)?;
-            let Some(mode) = DeflateMode::from_window_bits(wb) else {
+            let Some(mode) = DeflateMode::from_window_bits(wb)
+            else
+            {
                 return Ok(Value::Nil);
             };
-            let Some(compression) = parse_deflate_level(level, memlevel) else {
+            let Some(compression) = parse_deflate_level(level, memlevel)
+            else
+            {
                 return Ok(Value::Nil);
             };
             let ud = lua.create_userdata(ZStreamUserData {
@@ -171,20 +190,21 @@ pub fn register_gzip_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc_range("gzip_deflate", &args, 1, 3)?;
             let zs = extract_zstream(&args[0], false)?;
-            let input = match args.get(1) {
+            let input = match args.get(1)
+            {
                 Some(v) if !v.is_nil() => coerce_bytes(lua, v)?,
                 _ => Vec::new(),
             };
             let hint = clamp_capacity_hint(lua, &args, 2, input.len() / 2)?;
             let mut state_ref = zs.state.borrow_mut();
-            let Some(ZStreamKind::Deflate(stream)) = state_ref.as_mut() else {
+            let Some(ZStreamKind::Deflate(stream)) = state_ref.as_mut()
+            else
+            {
                 return Ok((Value::Nil, Value::Nil));
             };
-            match stream.deflate(&input, hint) {
-                Some((bytes, eof)) => Ok((
-                    Value::String(lua.create_string(&bytes)?),
-                    Value::Boolean(eof),
-                )),
+            match stream.deflate(&input, hint)
+            {
+                Some((bytes, eof)) => Ok((Value::String(lua.create_string(&bytes)?), Value::Boolean(eof))),
                 None => Ok((Value::Nil, Value::Nil)),
             }
         })?,

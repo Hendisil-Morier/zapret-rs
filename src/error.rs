@@ -24,7 +24,8 @@ use crate::runtime::ProcessError;
 
 /// Crate-wide error type converting transparently from every core subsystem error enum via `?`.
 #[derive(Debug, Error)]
-pub enum ZapretError {
+pub enum ZapretError
+{
     /// Configuration file, CLI option, or profile validation error.
     #[error("{0}")]
     Config(#[from] ConfigError),

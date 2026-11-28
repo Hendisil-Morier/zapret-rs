@@ -23,32 +23,34 @@ use zapret_rs::intercepter::QueuedPacket;
 use zapret_rs::telemetry::{PacketCounters, PacketVerdict, build_packet_record};
 use zapret_rs::tui::remote::RemoteEvent;
 use zapret_rs::tui::{
-    ActiveTab, AppAction, AppState, ModalPurpose, RunStatus, connect_remote_daemon,
-    detect_control_socket, draw_app,
+    ActiveTab, AppAction, AppState, ModalPurpose, RunStatus, connect_remote_daemon, detect_control_socket,
+    draw_app,
 };
 
-fn temp_dir_path(label: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+fn temp_dir_path(label: &str) -> PathBuf
+{
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_tui_attach_{label}_{}_{nanos}", std::process::id()));
     fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
 
-fn key(code: KeyCode) -> KeyEvent {
+fn key(code: KeyCode) -> KeyEvent
+{
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
-fn render_to_string(state: &AppState, width: u16, height: u16) -> String {
+fn render_to_string(state: &AppState, width: u16, height: u16) -> String
+{
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal.draw(|f| draw_app(f, state)).expect("draw frame");
     let buf = terminal.backend().buffer();
     let mut out = String::new();
-    for y in 0..height {
-        for x in 0..width {
+    for y in 0..height
+    {
+        for x in 0..width
+        {
             out.push_str(buf[(x, y)].symbol());
         }
         out.push('\n');
@@ -56,7 +58,8 @@ fn render_to_string(state: &AppState, width: u16, height: u16) -> String {
     out
 }
 
-fn sample_pkt(seq: u64, outcome: PacketOutcome) -> zapret_rs::telemetry::PacketRecord {
+fn sample_pkt(seq: u64, outcome: PacketOutcome) -> zapret_rs::telemetry::PacketRecord
+{
     let mut raw = vec![0u8; 40];
     raw[0] = 0x45;
     raw[3] = 40;
@@ -73,7 +76,8 @@ fn sample_pkt(seq: u64, outcome: PacketOutcome) -> zapret_rs::telemetry::PacketR
 }
 
 #[test]
-fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
+fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect()
+{
     let dir = temp_dir_path("attach");
     let sock = dir.join("control.sock");
     let daemon_counters = Arc::new(PacketCounters::default());
@@ -113,12 +117,16 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut got_reasm = false;
     let mut got_desync = false;
-    while Instant::now() < deadline && !(got_reasm && got_desync) {
-        while let Some(rec) = attached.try_recv_desync() {
-            if rec.verdict == PacketVerdict::Reasm {
+    while Instant::now() < deadline && !(got_reasm && got_desync)
+    {
+        while let Some(rec) = attached.try_recv_desync()
+        {
+            if rec.verdict == PacketVerdict::Reasm
+            {
                 got_reasm = true;
             }
-            if rec.verdict == PacketVerdict::Desync {
+            if rec.verdict == PacketVerdict::Desync
+            {
                 got_desync = true;
             }
             state.inspector.push(rec);
@@ -169,8 +177,10 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
     attached.send_command(&Request::Stop).expect("send stop");
     let cmd_deadline = Instant::now() + Duration::from_secs(2);
     let mut saw_stop = false;
-    while Instant::now() < cmd_deadline {
-        if let Some(ControlCommand::Stop { reply }) = hub.try_recv_command() {
+    while Instant::now() < cmd_deadline
+    {
+        if let Some(ControlCommand::Stop { reply }) = hub.try_recv_command()
+        {
             let _ = reply.send(Ok("stopping".to_owned()));
             saw_stop = true;
             break;
@@ -183,18 +193,17 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
     srv.shutdown();
     let mut saw_dc = None;
     let dc_deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < dc_deadline {
-        if let Some(RemoteEvent::Disconnected(reason)) = attached.try_recv_event() {
+    while Instant::now() < dc_deadline
+    {
+        if let Some(RemoteEvent::Disconnected(reason)) = attached.try_recv_event()
+        {
             saw_dc = Some(reason);
             break;
         }
         thread::sleep(Duration::from_millis(10));
     }
     assert!(saw_dc.is_some(), "reader must report Disconnected when server shuts down");
-    state.set_detached(
-        "[error] control connection lost".to_owned(),
-        "Control connection lost".to_owned(),
-    );
+    state.set_detached("[error] control connection lost".to_owned(), "Control connection lost".to_owned());
     assert_eq!(state.run.status, RunStatus::Stopped);
     assert!(state.run.auto_reattach, "unexpected disconnect keeps auto_reattach enabled");
     state.run.detected_socket = Some(sock.clone());
@@ -208,7 +217,8 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect() {
 }
 
 #[test]
-fn attach_reports_readable_error_on_protocol_version_mismatch() {
+fn attach_reports_readable_error_on_protocol_version_mismatch()
+{
     let dir = temp_dir_path("mismatch");
     let sock = dir.join("fake.sock");
     let listener = UnixListener::bind(&sock).expect("bind fake server");
@@ -229,9 +239,7 @@ fn attach_reports_readable_error_on_protocol_version_mismatch() {
     });
 
     let counters = Arc::new(PacketCounters::default());
-    let err = connect_remote_daemon(sock, counters)
-        .err()
-        .expect("version mismatch must fail");
+    let err = connect_remote_daemon(sock, counters).err().expect("version mismatch must fail");
     assert!(err.contains("mismatch") && err.contains("99"), "got unreadable error: {err}");
 
     srv_thread.join().expect("fake server join");
@@ -239,7 +247,8 @@ fn attach_reports_readable_error_on_protocol_version_mismatch() {
 }
 
 #[test]
-fn app_state_enables_auto_attach_by_default_and_clears_pending_caps_action_on_esc() {
+fn app_state_enables_auto_attach_by_default_and_clears_pending_caps_action_on_esc()
+{
     let mut state = AppState::new(None, None, false);
     assert!(state.run.auto_reattach, "TUI must auto-attach active daemon sockets by default");
     state.open_caps_modal_for(Some(zapret_rs::tui::types::PostCapsAction::StartScan));
@@ -249,7 +258,8 @@ fn app_state_enables_auto_attach_by_default_and_clears_pending_caps_action_on_es
 }
 
 #[test]
-fn attached_clear_zeros_visible_counters_against_baseline() {
+fn attached_clear_zeros_visible_counters_against_baseline()
+{
     use std::sync::atomic::Ordering;
     use zapret_rs::tui::types::ActiveTab;
 

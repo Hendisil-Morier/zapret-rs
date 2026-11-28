@@ -23,7 +23,8 @@ const F_RESERVED: u8 = 0xE0;
 
 /// Supported zlib `windowBits` framing modes accepted by `gunzip_init`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InflateMode {
+pub enum InflateMode
+{
     /// Raw RFC 1951 deflate stream (`windowBits` in `-15..=-8`).
     Raw,
     /// RFC 1950 zlib stream (`windowBits` `0` or in `8..=15`).
@@ -34,10 +35,13 @@ pub enum InflateMode {
     AutoDetect,
 }
 
-impl InflateMode {
+impl InflateMode
+{
     /// Maps a zlib `inflateInit2` `windowBits` parameter to an [`InflateMode`].
-    pub const fn from_window_bits(window_bits: i64) -> Option<Self> {
-        match window_bits {
+    pub const fn from_window_bits(window_bits: i64) -> Option<Self>
+    {
+        match window_bits
+        {
             -15..=-8 => Some(Self::Raw),
             0 | 8..=15 => Some(Self::Zlib),
             24..=31 => Some(Self::Gzip),
@@ -54,12 +58,16 @@ fn pump_decompress(
     out: &mut Vec<u8>,
     max_out: usize,
     mut crc: Option<&mut Crc>,
-) -> Option<bool> {
+) -> Option<bool>
+{
     let cap_limit = max_out.saturating_add(1);
-    loop {
-        if out.capacity() - out.len() < MIN_OUTPUT_SPARE {
+    loop
+    {
+        if out.capacity() - out.len() < MIN_OUTPUT_SPARE
+        {
             let target = out.len().saturating_add(INFLATE_GROWTH).min(cap_limit);
-            if target > out.capacity() {
+            if target > out.capacity()
+            {
                 out.reserve(target - out.len());
             }
         }
@@ -72,7 +80,8 @@ fn pump_decompress(
         let produced = (dec.total_out() - before_out) as usize;
         *rem = &rem[consumed..];
 
-        if out.len() > max_out {
+        if out.len() > max_out
+        {
             return None;
         }
         if produced > 0
@@ -81,18 +90,24 @@ fn pump_decompress(
             c.update(&out[prev_len..]);
         }
 
-        match status {
+        match status
+        {
             Ok(Status::StreamEnd) => return Some(true),
-            Ok(Status::Ok) => {
-                if (rem.is_empty() && produced < spare_before) || (consumed == 0 && produced == 0) {
+            Ok(Status::Ok) =>
+            {
+                if (rem.is_empty() && produced < spare_before) || (consumed == 0 && produced == 0)
+                {
                     return Some(false);
                 }
             }
-            Ok(Status::BufError) => {
-                if rem.is_empty() {
+            Ok(Status::BufError) =>
+            {
+                if rem.is_empty()
+                {
                     return Some(false);
                 }
-                if consumed == 0 && produced == 0 {
+                if consumed == 0 && produced == 0
+                {
                     return None;
                 }
             }
@@ -102,16 +117,19 @@ fn pump_decompress(
 }
 
 /// Byte-granular RFC 1952 gzip header, body, and trailer parsing state.
-enum GzipPhase {
+enum GzipPhase
+{
     /// Fixed 10-byte RFC 1952 header (`ID1..=OS`).
-    Fixed {
+    Fixed
+    {
         /// Partially read 10-byte header buffer.
         buf: [u8; 10],
         /// Valid byte count currently buffered.
         len: usize,
     },
     /// 2-byte little-endian `XLEN` field when `FEXTRA` is set.
-    ExtraLen {
+    ExtraLen
+    {
         /// Header `FLG` byte.
         flg: u8,
         /// Partially read 2-byte `XLEN` buffer.
@@ -120,24 +138,28 @@ enum GzipPhase {
         len: usize,
     },
     /// Skipping `rem` bytes of `FEXTRA` subfield data.
-    ExtraData {
+    ExtraData
+    {
         /// Header `FLG` byte.
         flg: u8,
         /// Remaining `FEXTRA` payload bytes.
         rem: usize,
     },
     /// Consuming NUL-terminated `FNAME` string.
-    Fname {
+    Fname
+    {
         /// Header `FLG` byte.
         flg: u8,
     },
     /// Consuming NUL-terminated `FCOMMENT` string.
-    Fcomment {
+    Fcomment
+    {
         /// Header `FLG` byte.
         flg: u8,
     },
     /// Reading 2-byte `FHCRC` header checksum.
-    HeaderCrc {
+    HeaderCrc
+    {
         /// Partially read 2-byte CRC-16 buffer.
         buf: [u8; 2],
         /// Valid byte count currently buffered.
@@ -146,7 +168,8 @@ enum GzipPhase {
     /// Inflating raw RFC 1951 deflate payload.
     Body,
     /// Reading 8-byte RFC 1952 `CRC32` + `ISIZE` trailer.
-    Trailer {
+    Trailer
+    {
         /// Partially read 8-byte trailer buffer.
         buf: [u8; 8],
         /// Valid byte count currently buffered.
@@ -157,24 +180,30 @@ enum GzipPhase {
 }
 
 /// Advances to the next enabled RFC 1952 header stage using monotonic `stage_done` (`0..=4`).
-const fn next_phase_after(flg: u8, stage_done: u8) -> GzipPhase {
-    if stage_done < 1 && (flg & F_EXTRA) != 0 {
+const fn next_phase_after(flg: u8, stage_done: u8) -> GzipPhase
+{
+    if stage_done < 1 && (flg & F_EXTRA) != 0
+    {
         return GzipPhase::ExtraLen { flg, buf: [0; 2], len: 0 };
     }
-    if stage_done < 2 && (flg & F_NAME) != 0 {
+    if stage_done < 2 && (flg & F_NAME) != 0
+    {
         return GzipPhase::Fname { flg };
     }
-    if stage_done < 3 && (flg & F_COMMENT) != 0 {
+    if stage_done < 3 && (flg & F_COMMENT) != 0
+    {
         return GzipPhase::Fcomment { flg };
     }
-    if stage_done < 4 && (flg & F_HCRC) != 0 {
+    if stage_done < 4 && (flg & F_HCRC) != 0
+    {
         return GzipPhase::HeaderCrc { buf: [0; 2], len: 0 };
     }
     GzipPhase::Body
 }
 
 /// Streaming RFC 1952 gzip decompressor tolerating splits inside any header or trailer field.
-struct GzipInflater {
+struct GzipInflater
+{
     /// Current framing state.
     phase: GzipPhase,
     /// Running CRC-32 over header bytes prior to `FHCRC`.
@@ -185,9 +214,11 @@ struct GzipInflater {
     body_crc: Crc,
 }
 
-impl GzipInflater {
+impl GzipInflater
+{
     /// Creates a new gzip inflater positioned at byte 0 of the 10-byte header.
-    fn new() -> Self {
+    fn new() -> Self
+    {
         Self {
             phase: GzipPhase::Fixed { buf: [0; 10], len: 0 },
             header_crc: Crc::new(),
@@ -197,21 +228,29 @@ impl GzipInflater {
     }
 
     /// Updates `header_crc` when optional header checksum `FHCRC` validation is active.
-    fn update_hcrc(&mut self, flg: u8, bytes: &[u8]) {
-        if (flg & F_HCRC) != 0 {
+    fn update_hcrc(&mut self, flg: u8, bytes: &[u8])
+    {
+        if (flg & F_HCRC) != 0
+        {
             self.header_crc.update(bytes);
         }
     }
 
     /// Consumes a single header byte during `Fixed`..=`HeaderCrc` stages.
-    fn feed_header_byte(&mut self, byte: u8) -> Option<()> {
-        match &mut self.phase {
-            GzipPhase::Fixed { buf, len } => {
+    fn feed_header_byte(&mut self, byte: u8) -> Option<()>
+    {
+        match &mut self.phase
+        {
+            GzipPhase::Fixed { buf, len } =>
+            {
                 buf[*len] = byte;
                 *len += 1;
-                if *len == 10 {
+                if *len == 10
+                {
                     let flg = buf[3];
-                    if [buf[0], buf[1], buf[2]] != [GZIP_ID1, GZIP_ID2, GZIP_CM_DEFLATE] || (flg & F_RESERVED) != 0 {
+                    if [buf[0], buf[1], buf[2]] != [GZIP_ID1, GZIP_ID2, GZIP_CM_DEFLATE]
+                        || (flg & F_RESERVED) != 0
+                    {
                         return None;
                     }
                     let header = *buf;
@@ -219,83 +258,112 @@ impl GzipInflater {
                     self.phase = next_phase_after(flg, 0);
                 }
             }
-            GzipPhase::ExtraLen { flg, buf, len } => {
+            GzipPhase::ExtraLen { flg, buf, len } =>
+            {
                 let saved_flg = *flg;
                 buf[*len] = byte;
                 *len += 1;
                 let completed = (*len == 2).then(|| usize::from(u16::from_le_bytes(*buf)));
                 self.update_hcrc(saved_flg, &[byte]);
-                if let Some(rem) = completed {
-                    self.phase = if rem == 0 { next_phase_after(saved_flg, 1) } else { GzipPhase::ExtraData { flg: saved_flg, rem } };
+                if let Some(rem) = completed
+                {
+                    self.phase = if rem == 0
+                    {
+                        next_phase_after(saved_flg, 1)
+                    }
+                    else
+                    {
+                        GzipPhase::ExtraData { flg: saved_flg, rem }
+                    };
                 }
             }
-            GzipPhase::ExtraData { flg, rem } => {
+            GzipPhase::ExtraData { flg, rem } =>
+            {
                 let saved_flg = *flg;
                 *rem -= 1;
                 let finished = *rem == 0;
                 self.update_hcrc(saved_flg, &[byte]);
-                if finished {
+                if finished
+                {
                     self.phase = next_phase_after(saved_flg, 1);
                 }
             }
-            GzipPhase::Fname { flg } => {
+            GzipPhase::Fname { flg } =>
+            {
                 let saved_flg = *flg;
                 self.update_hcrc(saved_flg, &[byte]);
-                if byte == 0 {
+                if byte == 0
+                {
                     self.phase = next_phase_after(saved_flg, 2);
                 }
             }
-            GzipPhase::Fcomment { flg } => {
+            GzipPhase::Fcomment { flg } =>
+            {
                 let saved_flg = *flg;
                 self.update_hcrc(saved_flg, &[byte]);
-                if byte == 0 {
+                if byte == 0
+                {
                     self.phase = next_phase_after(saved_flg, 3);
                 }
             }
-            GzipPhase::HeaderCrc { buf, len } => {
+            GzipPhase::HeaderCrc { buf, len } =>
+            {
                 buf[*len] = byte;
                 *len += 1;
-                if *len == 2 {
-                    if u16::from_le_bytes(*buf) != (self.header_crc.sum() as u16) {
+                if *len == 2
+                {
+                    if u16::from_le_bytes(*buf) != (self.header_crc.sum() as u16)
+                    {
                         return None;
                     }
                     self.phase = GzipPhase::Body;
                 }
             }
-            GzipPhase::Body | GzipPhase::Trailer { .. } | GzipPhase::Done => {}
+            GzipPhase::Body | GzipPhase::Trailer { .. } | GzipPhase::Done =>
+            {}
         }
         Some(())
     }
 
     /// Consumes compressed input within `max_out`, appending output to `out` and returning EOF status.
-    fn feed(&mut self, mut rem: &[u8], out: &mut Vec<u8>, max_out: usize) -> Option<bool> {
-        loop {
-            match &mut self.phase {
-                GzipPhase::Body => {
-                    if pump_decompress(&mut self.body, &mut rem, out, max_out, Some(&mut self.body_crc))? {
+    fn feed(&mut self, mut rem: &[u8], out: &mut Vec<u8>, max_out: usize) -> Option<bool>
+    {
+        loop
+        {
+            match &mut self.phase
+            {
+                GzipPhase::Body =>
+                {
+                    if pump_decompress(&mut self.body, &mut rem, out, max_out, Some(&mut self.body_crc))?
+                    {
                         self.phase = GzipPhase::Trailer { buf: [0; 8], len: 0 };
                         continue;
                     }
                     return Some(false);
                 }
-                GzipPhase::Trailer { buf, len } => {
+                GzipPhase::Trailer { buf, len } =>
+                {
                     let take = (8 - *len).min(rem.len());
                     buf[*len..*len + take].copy_from_slice(&rem[..take]);
                     *len += take;
-                    if *len < 8 {
+                    if *len < 8
+                    {
                         return Some(false);
                     }
                     let crc_exp = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
                     let size_exp = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-                    if crc_exp != self.body_crc.sum() || size_exp != self.body_crc.amount() {
+                    if crc_exp != self.body_crc.sum() || size_exp != self.body_crc.amount()
+                    {
                         return None;
                     }
                     self.phase = GzipPhase::Done;
                     return Some(true);
                 }
                 GzipPhase::Done => return Some(true),
-                _ => {
-                    if rem.is_empty() {
+                _ =>
+                {
+                    if rem.is_empty()
+                    {
                         return Some(false);
                     }
                     self.feed_header_byte(rem[0])?;
@@ -307,7 +375,8 @@ impl GzipInflater {
 }
 
 /// Active decompression stream variant supporting raw deflate, zlib, gzip, and auto-detect.
-enum InflateKind {
+enum InflateKind
+{
     /// Raw RFC 1951 deflate stream (`zlib_header = false`).
     Raw(Decompress),
     /// RFC 1950 zlib stream (`zlib_header = true`).
@@ -319,22 +388,27 @@ enum InflateKind {
 }
 
 /// Streaming decompressor supporting raw deflate, zlib, gzip, and header auto-detection.
-pub struct InflateStream {
+pub struct InflateStream
+{
     /// Encapsulated decompression state machine.
     kind: InflateKind,
     /// Remaining cumulative decompressed byte budget permitted for this stream.
     remaining_output: usize,
 }
 
-impl InflateStream {
+impl InflateStream
+{
     /// Creates an [`InflateStream`] configured for `mode` with [`DEFAULT_MAX_INFLATE_OUTPUT`].
-    pub fn new(mode: InflateMode) -> Self {
+    pub fn new(mode: InflateMode) -> Self
+    {
         Self::with_max_output(mode, DEFAULT_MAX_INFLATE_OUTPUT)
     }
 
     /// Creates an [`InflateStream`] configured for `mode` and explicit `max_output` byte limit.
-    pub fn with_max_output(mode: InflateMode, max_output: usize) -> Self {
-        let kind = match mode {
+    pub fn with_max_output(mode: InflateMode, max_output: usize) -> Self
+    {
+        let kind = match mode
+        {
             InflateMode::Raw => InflateKind::Raw(Decompress::new(false)),
             InflateMode::Zlib => InflateKind::Zlib(Decompress::new(true)),
             InflateMode::Gzip => InflateKind::Gzip(Box::new(GzipInflater::new())),
@@ -344,28 +418,37 @@ impl InflateStream {
     }
 
     /// Consumes compressed `input` bytes and returns `Some((decompressed_bytes, eof))`, or `None` on error/overflow.
-    pub fn inflate(&mut self, input: &[u8], capacity_hint: usize) -> Option<(Vec<u8>, bool)> {
+    pub fn inflate(&mut self, input: &[u8], capacity_hint: usize) -> Option<(Vec<u8>, bool)>
+    {
         let mut out = Vec::with_capacity(capacity_hint.min(self.remaining_output));
-        if let InflateKind::AutoPending(first_opt) = &mut self.kind {
-            if input.is_empty() {
+        if let InflateKind::AutoPending(first_opt) = &mut self.kind
+        {
+            if input.is_empty()
+            {
                 return Some((out, false));
             }
             let prev = first_opt.take();
-            let second = match prev {
+            let second = match prev
+            {
                 Some(_) => input[0],
                 None if input.len() >= 2 => input[1],
-                None => {
+                None =>
+                {
                     *first_opt = Some(input[0]);
                     return Some((out, false));
                 }
             };
             let first = prev.unwrap_or(input[0]);
-            self.kind = if [first, second] == [GZIP_ID1, GZIP_ID2] {
+            self.kind = if [first, second] == [GZIP_ID1, GZIP_ID2]
+            {
                 InflateKind::Gzip(Box::new(GzipInflater::new()))
-            } else {
+            }
+            else
+            {
                 InflateKind::Zlib(Decompress::new(true))
             };
-            if prev.is_some() && self.inflate_inner(&[first], &mut out)? {
+            if prev.is_some() && self.inflate_inner(&[first], &mut out)?
+            {
                 self.remaining_output = self.remaining_output.saturating_sub(out.len());
                 return Some((out, true));
             }
@@ -377,10 +460,15 @@ impl InflateStream {
     }
 
     /// Dispatches `rem` into the already-resolved inner decompressor within `remaining_output`.
-    fn inflate_inner(&mut self, mut rem: &[u8], out: &mut Vec<u8>) -> Option<bool> {
+    fn inflate_inner(&mut self, mut rem: &[u8], out: &mut Vec<u8>) -> Option<bool>
+    {
         let budget = self.remaining_output;
-        match &mut self.kind {
-            InflateKind::Raw(dec) | InflateKind::Zlib(dec) => pump_decompress(dec, &mut rem, out, budget, None),
+        match &mut self.kind
+        {
+            InflateKind::Raw(dec) | InflateKind::Zlib(dec) =>
+            {
+                pump_decompress(dec, &mut rem, out, budget, None)
+            }
             InflateKind::Gzip(gz) => gz.feed(rem, out, budget),
             InflateKind::AutoPending(_) => None,
         }

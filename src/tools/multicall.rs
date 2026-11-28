@@ -24,7 +24,8 @@ use crate::tools::web::cli::run_web_cli;
 
 /// Resolved multicall applet together with the canonical binary name for `argv[0]` forwarding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MulticallApplet {
+pub enum MulticallApplet
+{
     /// Interactive `ratatui` TUI (default `zapret-rs` invocation).
     Tui,
     /// `nfqws2` NFQUEUE packet interception daemon (`daemon` or `nfqws2`).
@@ -46,19 +47,19 @@ pub enum MulticallApplet {
 }
 
 /// Normalizes an executable stem by taking its filename, stripping `.exe`, and lowercasing.
-fn normalize_applet_token(raw: &OsStr) -> String {
+fn normalize_applet_token(raw: &OsStr) -> String
+{
     let lossy = raw.to_string_lossy();
-    let name = Path::new(lossy.as_ref())
-        .file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or(lossy.as_ref());
+    let name = Path::new(lossy.as_ref()).file_name().and_then(OsStr::to_str).unwrap_or(lossy.as_ref());
     let stem = name.strip_suffix(".exe").unwrap_or(name);
     stem.to_ascii_lowercase()
 }
 
 /// Maps `argv[0]` basename alone to an applet when invoked through a named symlink/copy.
-pub fn resolve_argv0_applet(arg0: &OsStr) -> Option<MulticallApplet> {
-    match normalize_applet_token(arg0).as_str() {
+pub fn resolve_argv0_applet(arg0: &OsStr) -> Option<MulticallApplet>
+{
+    match normalize_applet_token(arg0).as_str()
+    {
         "nfqws2" => Some(MulticallApplet::Daemon),
         "strat_finder" | "strat-finder" => Some(MulticallApplet::Scan),
         "ip2net" => Some(MulticallApplet::Ip2Net),
@@ -68,8 +69,10 @@ pub fn resolve_argv0_applet(arg0: &OsStr) -> Option<MulticallApplet> {
 }
 
 /// Resolves an explicit first subcommand token (`daemon`, `scan`, `ip2net`, `mdig`, `install`, `uninstall`).
-pub fn resolve_subcommand_applet(arg1: &OsStr) -> Option<MulticallApplet> {
-    match arg1.to_string_lossy().as_ref() {
+pub fn resolve_subcommand_applet(arg1: &OsStr) -> Option<MulticallApplet>
+{
+    match arg1.to_string_lossy().as_ref()
+    {
         "daemon" | "nfqws2" => Some(MulticallApplet::Daemon),
         "scan" | "strat-finder" | "strat_finder" => Some(MulticallApplet::Scan),
         "ip2net" => Some(MulticallApplet::Ip2Net),
@@ -97,7 +100,8 @@ where
     if let Some(arg1) = raw.get(1)
         && let Some(applet) = resolve_subcommand_applet(arg1)
     {
-        let canonical = match applet {
+        let canonical = match applet
+        {
             MulticallApplet::Tui => "zapret-rs",
             MulticallApplet::Daemon => "nfqws2",
             MulticallApplet::Scan => "strat_finder",
@@ -125,7 +129,8 @@ where
     T: Into<OsString>,
 {
     let (applet, forwarded) = resolve_multicall(args);
-    match applet {
+    match applet
+    {
         MulticallApplet::Tui => None,
         MulticallApplet::Daemon => Some(run_nfqws2_cli(forwarded)),
         MulticallApplet::Scan => Some(run_strat_finder_cli(forwarded)),

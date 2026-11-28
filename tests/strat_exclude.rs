@@ -9,7 +9,8 @@ use zapret_rs::tools::{
 };
 
 #[test]
-fn parse_clean_domain_normalizes_urls_and_rejects_bad_chars() {
+fn parse_clean_domain_normalizes_urls_and_rejects_bad_chars()
+{
     assert_eq!(parse_clean_domain(" https://Bank.Example.com/login ").as_deref(), Some("bank.example.com"));
     assert_eq!(parse_clean_domain("bad domain"), None);
     assert_eq!(parse_clean_domain("evil.com\nother.com"), None);
@@ -17,7 +18,8 @@ fn parse_clean_domain_normalizes_urls_and_rejects_bad_chars() {
 }
 
 #[test]
-fn mutate_exclude_domains_toml_adds_deduplicates_and_removes_cleanly() {
+fn mutate_exclude_domains_toml_adds_deduplicates_and_removes_cleanly()
+{
     let base = "qnum = 200\nfwmark = 0x40000000\n\n[[profiles]]\nname = \"p1\"\nfilter_tcp = [\"443\"]\n";
     let added = mutate_exclude_domains_toml(base, "bank.com", true, None).expect("add");
     let cfg = AppConfig::from_toml_str(&added, None).expect("valid cfg");
@@ -36,7 +38,8 @@ fn mutate_exclude_domains_toml_adds_deduplicates_and_removes_cleanly() {
 }
 
 #[test]
-fn configured_autohostlist_paths_and_mutate_hostlist_file_work_end_to_end() {
+fn configured_autohostlist_paths_and_mutate_hostlist_file_work_end_to_end()
+{
     let dir = std::env::temp_dir().join(format!("zapret_exclude_{}", std::process::id()));
     fs::create_dir_all(&dir).expect("mkdir");
     let toml = "qnum = 200\nfwmark = 0x40000000\n\n[[profiles]]\nname = \"auto\"\nhostlist_auto = \"autohostlist.txt\"\n";

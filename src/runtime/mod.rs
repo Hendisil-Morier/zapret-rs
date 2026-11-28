@@ -34,8 +34,8 @@ pub use privilege::{
 /// Re-exported identity resolution, privilege drop, `chdir`, PID guard, and daemonization helpers.
 #[cfg(target_os = "linux")]
 pub use process::{
-    PidFileGuard, apply_chdir, daemonize, drop_privileges, drop_privileges_for,
-    drop_sudo_root_if_needed, parse_uid_spec, resolve_identity, resolve_user_spec,
+    PidFileGuard, apply_chdir, daemonize, drop_privileges, drop_privileges_for, drop_sudo_root_if_needed,
+    parse_uid_spec, resolve_identity, resolve_user_spec,
 };
 /// Re-exported signal handler registration and atomic flag helpers.
 pub use signals::{
@@ -45,6 +45,5 @@ pub use signals::{
 pub use trusted_bin::{resolve_trusted_system_bin, validate_trusted_bin_path};
 /// Re-exported `--writable` directory defaults and preparation helpers.
 pub use writable::{
-    DEFAULT_WRITABLE_SUBDIR, ensure_writable_dir, prepare_writable_dir,
-    resolve_default_writable_dir,
+    DEFAULT_WRITABLE_SUBDIR, ensure_writable_dir, prepare_writable_dir, resolve_default_writable_dir,
 };

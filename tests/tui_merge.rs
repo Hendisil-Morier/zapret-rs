@@ -9,21 +9,18 @@ use std::path::PathBuf;
 
 /// Strategy TOML fixture builders and merge helper under test.
 use zapret_rs::tools::{
-    CoveredProfile, DomainScope, IpFamily, ProbeOutcome, ProbeProtocol, ScanLevel, ScanReport,
-    StrategyMatch, TargetScanResult, TomlRenderOptions, build_catalog, merge_nfqws2_toml,
-    render_nfqws2_toml,
+    CoveredProfile, DomainScope, IpFamily, ProbeOutcome, ProbeProtocol, ScanLevel, ScanReport, StrategyMatch,
+    TargetScanResult, TomlRenderOptions, build_catalog, merge_nfqws2_toml, render_nfqws2_toml,
 };
 /// TUI session domain persistence and state machine types under test.
 use zapret_rs::tui::session::{
-    domains_history_path, save_domains_history, seed_autohostlists_from_domains,
-    seed_domains_on_startup,
+    domains_history_path, save_domains_history, seed_autohostlists_from_domains, seed_domains_on_startup,
 };
-use zapret_rs::tui::{
-    AppAction, AppState, AuthModal, FinderField, ModalPurpose, ScanUiEvent, draw_app,
-};
+use zapret_rs::tui::{AppAction, AppState, AuthModal, FinderField, ModalPurpose, ScanUiEvent, draw_app};
 
 /// Creates a unique scratch directory under the OS temp dir.
-fn temp_cfg_dir(tag: &str) -> PathBuf {
+fn temp_cfg_dir(tag: &str) -> PathBuf
+{
     let dir = std::env::temp_dir().join(format!("zapret-tui-merge-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp dir");
@@ -31,7 +28,8 @@ fn temp_cfg_dir(tag: &str) -> PathBuf {
 }
 
 #[test]
-fn startup_seeding_uses_saved_domains_then_falls_back_to_hostlist_domains() {
+fn startup_seeding_uses_saved_domains_then_falls_back_to_hostlist_domains()
+{
     let dir = temp_cfg_dir("seed");
     let cfg_path = dir.join("nfqws2.toml");
 
@@ -66,7 +64,8 @@ fn startup_seeding_uses_saved_domains_then_falls_back_to_hostlist_domains() {
 }
 
 #[test]
-fn scan_completion_stashes_pending_merge_and_esc_keeps_new_scan_only() {
+fn scan_completion_stashes_pending_merge_and_esc_keeps_new_scan_only()
+{
     let tls_strats = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
     let http_strats = build_catalog(ProbeProtocol::Http, ScanLevel::Quick, IpFamily::V4);
 
@@ -116,44 +115,36 @@ fn scan_completion_stashes_pending_merge_and_esc_keeps_new_scan_only() {
     assert!(merged.contains("old.example") && merged.contains("new.example"));
 
     // Pressing Esc on ConfirmMergeConfig discards pending_merge and keeps the new scan config.
-    state.modal = Some(AuthModal::confirm(
-        ModalPurpose::ConfirmMergeConfig,
-        "merge 2 new profile(s)".to_owned(),
-    ));
+    state.modal =
+        Some(AuthModal::confirm(ModalPurpose::ConfirmMergeConfig, "merge 2 new profile(s)".to_owned()));
     {
         use ratatui::{Terminal, backend::TestBackend};
         use zapret_rs::tui::draw_app;
         let mut term = Terminal::new(TestBackend::new(100, 30)).expect("create test terminal");
         term.draw(|f| draw_app(f, &state)).expect("render ConfirmMergeConfig modal");
-        let rendered: String =
-            term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+        let rendered: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
         assert!(rendered.contains("Merge Existing nfqws2.toml Profiles?"));
         assert!(rendered.contains("Action : merge 2 new profile(s)"));
         assert!(rendered.contains("[Enter] Merge Profiles"));
         assert!(!rendered.contains("Enter: merge profiles |"));
         assert!(!rendered.contains("sudo password"));
     }
-    assert_eq!(
-        state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-        AppAction::None
-    );
+    assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)), AppAction::None);
     assert!(state.config.pending_merge.is_none());
     assert_eq!(state.config.active_toml, rendered_new);
 
     // Pressing 'k' on ConfirmMergeConfig restores the existing config and discards the new scan.
     state.config.pending_merge = Some((prev.clone(), new_only));
     state.modal = Some(AuthModal::confirm(ModalPurpose::ConfirmMergeConfig, "merge".to_owned()));
-    assert_eq!(
-        state.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)),
-        AppAction::None
-    );
+    assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)), AppAction::None);
     assert!(state.modal.is_none());
     assert!(state.config.pending_merge.is_none());
     assert_eq!(state.config.active_toml, existing);
 }
 
 #[test]
-fn tab1_domain_scope_row_cycles_options_and_renders_in_setup_form() {
+fn tab1_domain_scope_row_cycles_options_and_renders_in_setup_form()
+{
     use ratatui::{Terminal, backend::TestBackend};
 
     let mut state = AppState::new(None, None, false);
@@ -169,8 +160,7 @@ fn tab1_domain_scope_row_cycles_options_and_renders_in_setup_form() {
     let backend = TestBackend::new(120, 32);
     let mut term = Terminal::new(backend).expect("terminal");
     term.draw(|f| draw_app(f, &state)).expect("draw");
-    let rendered: String =
-        term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+    let rendered: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
     assert!(rendered.contains("Domain Scope") && rendered.contains("Auto Hostlist"));
 
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -178,7 +168,8 @@ fn tab1_domain_scope_row_cycles_options_and_renders_in_setup_form() {
 }
 
 #[test]
-fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains() {
+fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains()
+{
     use ratatui::{Terminal, backend::TestBackend};
     use zapret_rs::tools::render_nfqws2_toml_scoped;
     use zapret_rs::tui::types::ActiveTab;
@@ -189,11 +180,7 @@ fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains() {
 
     let strat = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4)[0].clone();
     let cfg_toml = render_nfqws2_toml_scoped(
-        &[CoveredProfile {
-            strategy: strat,
-            domains: vec!["seed.example".to_owned()],
-            avg_latency_ms: 40,
-        }],
+        &[CoveredProfile { strategy: strat, domains: vec!["seed.example".to_owned()], avg_latency_ms: 40 }],
         &TomlRenderOptions::default(),
         DomainScope::AutoHostlist,
     );
@@ -212,8 +199,7 @@ fn tab3_auto_hostlist_panel_loads_and_renders_learned_domains() {
     let backend = TestBackend::new(120, 32);
     let mut term = Terminal::new(backend).expect("terminal");
     term.draw(|f| draw_app(f, &state)).expect("draw");
-    let rendered: String =
-        term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+    let rendered: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
     assert!(rendered.contains("Auto Hostlist (2)"));
     assert!(rendered.contains("blocked-one.example") && rendered.contains("blocked-two.example"));
 

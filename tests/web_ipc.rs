@@ -23,7 +23,8 @@ use zapret_rs::telemetry::{PacketCounters, build_packet_record};
 /// Web HTTP/SSE server under test.
 use zapret_rs::tools::{WebAuth, WebConfig, start_web_server};
 
-fn raw_http(addr: SocketAddr, req: &str) -> (u16, String) {
+fn raw_http(addr: SocketAddr, req: &str) -> (u16, String)
+{
     let mut s = TcpStream::connect(addr).expect("connect web");
     s.set_read_timeout(Some(Duration::from_secs(3))).expect("timeout");
     s.write_all(req.as_bytes()).expect("write");
@@ -38,7 +39,8 @@ fn raw_http(addr: SocketAddr, req: &str) -> (u16, String) {
     (status, out)
 }
 
-fn sample_packet(seq: u64) -> zapret_rs::telemetry::PacketRecord {
+fn sample_packet(seq: u64) -> zapret_rs::telemetry::PacketRecord
+{
     let mut raw = vec![0u8; 40];
     raw[0] = 0x45;
     raw[3] = 40;
@@ -55,11 +57,9 @@ fn sample_packet(seq: u64) -> zapret_rs::telemetry::PacketRecord {
 }
 
 #[test]
-fn web_bridge_streams_status_sse_and_executes_daemon_actions() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+fn web_bridge_streams_status_sse_and_executes_daemon_actions()
+{
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_web_ipc_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mkdir");
     let sock = dir.join("control.sock");
@@ -87,25 +87,27 @@ fn web_bridge_streams_status_sse_and_executes_daemon_actions() {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let reload_seen = Arc::new(AtomicBool::new(false));
     let stop_seen = Arc::new(AtomicBool::new(false));
-    let (h_stop, h_rel, h_st, hub_loop) = (
-        Arc::clone(&stop_flag),
-        Arc::clone(&reload_seen),
-        Arc::clone(&stop_seen),
-        Arc::clone(&hub),
-    );
+    let (h_stop, h_rel, h_st, hub_loop) =
+        (Arc::clone(&stop_flag), Arc::clone(&reload_seen), Arc::clone(&stop_seen), Arc::clone(&hub));
     let cmd_thread = thread::spawn(move || {
-        while !h_stop.load(Ordering::Acquire) {
-            while let Some(cmd) = hub_loop.try_recv_command() {
-                match cmd {
-                    ControlCommand::ReloadLists { reply } => {
+        while !h_stop.load(Ordering::Acquire)
+        {
+            while let Some(cmd) = hub_loop.try_recv_command()
+            {
+                match cmd
+                {
+                    ControlCommand::ReloadLists { reply } =>
+                    {
                         h_rel.store(true, Ordering::Release);
                         let _ = reply.send(Ok("reloaded 2 domains".to_owned()));
                     }
-                    ControlCommand::Stop { reply } => {
+                    ControlCommand::Stop { reply } =>
+                    {
                         h_st.store(true, Ordering::Release);
                         let _ = reply.send(Ok("stopping daemon".to_owned()));
                     }
-                    ControlCommand::ReloadConfig { reply, .. } => {
+                    ControlCommand::ReloadConfig { reply, .. } =>
+                    {
                         let _ = reply.send(Ok("ok".to_owned()));
                     }
                 }
@@ -116,25 +118,22 @@ fn web_bridge_streams_status_sse_and_executes_daemon_actions() {
 
     let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("bridge-token".to_owned()), false).expect("auth");
-    let mut web = start_web_server(WebConfig {
-        bind,
-        auth,
-        control_socket: Some(sock),
-        config: None,
-        lua_dir: None,
-    })
-    .expect("start web server");
+    let mut web =
+        start_web_server(WebConfig { bind, auth, control_socket: Some(sock), config: None, lua_dir: None })
+            .expect("start web server");
     let addr = web.addr();
 
     // Poll until background IPC bridge connects and `/api/status` reflects connected daemon.
     let deadline = Instant::now() + Duration::from_secs(3);
-    let status_body = loop {
+    let status_body = loop
+    {
         let (st, resp) = raw_http(
             addr,
             "GET /api/status HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer bridge-token\r\n\r\n",
         );
         assert_eq!(st, 200);
-        if resp.contains("\"connected\":true") {
+        if resp.contains("\"connected\":true")
+        {
             break resp;
         }
         assert!(Instant::now() < deadline, "IPC bridge failed to attach: {resp}");
@@ -155,11 +154,13 @@ fn web_bridge_streams_status_sse_and_executes_daemon_actions() {
     let mut collected = String::new();
     let sse_deadline = Instant::now() + Duration::from_secs(3);
     let mut line = String::new();
-    while Instant::now() < sse_deadline {
+    while Instant::now() < sse_deadline
+    {
         line.clear();
         sse_reader.read_line(&mut line).expect("read sse header");
         collected.push_str(&line);
-        if collected.contains("event: status") && collected.contains("tls13:multisplit:1") {
+        if collected.contains("event: status") && collected.contains("tls13:multisplit:1")
+        {
             break;
         }
     }
@@ -169,11 +170,13 @@ fn web_bridge_streams_status_sse_and_executes_daemon_actions() {
     hub.publish_packet(sample_packet(9));
     collected.clear();
     let pkt_deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < pkt_deadline {
+    while Instant::now() < pkt_deadline
+    {
         line.clear();
         sse_reader.read_line(&mut line).expect("read sse packet");
         collected.push_str(&line);
-        if collected.contains("event: packet") && collected.contains("tls13:multisplit:1") {
+        if collected.contains("event: packet") && collected.contains("tls13:multisplit:1")
+        {
             break;
         }
     }

@@ -33,11 +33,15 @@ pub(crate) fn send_delayed_queue(
     delayed: VecDeque<DelayedPacket>,
     desync_fwmark: u32,
     sender: &Rc<RefCell<dyn PacketSender>>,
-) {
+)
+{
     let mut tx = sender.borrow_mut();
-    for pkt in delayed {
+    for pkt in delayed
+    {
         let dis = dissect_packet(&pkt.raw, false);
-        let Some(dst) = extract_endpoint_ip(&dis, false) else {
+        let Some(dst) = extract_endpoint_ip(&dis, false)
+        else
+        {
             continue;
         };
         let _ = tx.send(dst, pkt.fwmark | desync_fwmark, pkt.ifout.as_deref(), &pkt.raw);
@@ -52,9 +56,11 @@ pub(crate) fn reasm_client_start(
     target_size: usize,
     max_size: usize,
     data: &[u8],
-) -> bool {
+) -> bool
+{
     entry.clear_reasm();
-    if target_size > max_size {
+    if target_size > max_size
+    {
         return false;
     }
     if proto == IPPROTO_TCP
@@ -64,17 +70,15 @@ pub(crate) fn reasm_client_start(
         return false;
     }
 
-    let seq_start = if proto == IPPROTO_TCP {
-        entry.pos.client.seq_last
-    } else {
-        0
-    };
+    let seq_start = if proto == IPPROTO_TCP { entry.pos.client.seq_last } else { 0 };
     entry.reasm_client_payload = payload_kind;
-    if !entry.try_start_reasm(target_size, seq_start) {
+    if !entry.try_start_reasm(target_size, seq_start)
+    {
         entry.reasm_client_payload = L7Payload::Unknown;
         return false;
     }
-    if !entry.reasm_client.feed(seq_start, data) {
+    if !entry.reasm_client.feed(seq_start, data)
+    {
         entry.clear_reasm();
         entry.reasm_client_payload = L7Payload::Unknown;
         return false;
@@ -89,24 +93,34 @@ pub(crate) fn reasm_client_feed(
     data: &[u8],
     desync_fwmark: u32,
     sender: &Rc<RefCell<dyn PacketSender>>,
-) -> bool {
-    let Some(entry_rc) = ctrack else {
+) -> bool
+{
+    let Some(entry_rc) = ctrack
+    else
+    {
         return false;
     };
 
     let (ok, failed_queue) = {
         let mut entry = entry_rc.borrow_mut();
-        if entry.reasm_client.is_empty() {
+        if entry.reasm_client.is_empty()
+        {
             return false;
         }
-        let seq = if proto == IPPROTO_TCP {
+        let seq = if proto == IPPROTO_TCP
+        {
             entry.pos.client.seq_last
-        } else {
+        }
+        else
+        {
             u32::try_from(entry.reasm_client.size_present()).unwrap_or(u32::MAX)
         };
-        if entry.reasm_client.feed(seq, data) {
+        if entry.reasm_client.feed(seq, data)
+        {
             (true, None)
-        } else {
+        }
+        else
+        {
             entry.clear_reasm();
             entry.reasm_client_payload = L7Payload::Unknown;
             let drained = entry.take_delayed();
@@ -114,7 +128,8 @@ pub(crate) fn reasm_client_feed(
         }
     };
 
-    if let Some(delayed) = failed_queue {
+    if let Some(delayed) = failed_queue
+    {
         send_delayed_queue(delayed, desync_fwmark, sender);
     }
     ok
@@ -125,20 +140,25 @@ pub(crate) fn reasm_client_stop(
     ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
     desync_fwmark: u32,
     sender: &Rc<RefCell<dyn PacketSender>>,
-) {
-    let Some(entry_rc) = ctrack else {
+)
+{
+    let Some(entry_rc) = ctrack
+    else
+    {
         return;
     };
     let leftover = {
         let mut entry = entry_rc.borrow_mut();
-        if !entry.reasm_client.is_empty() {
+        if !entry.reasm_client.is_empty()
+        {
             entry.clear_reasm();
             entry.reasm_client_payload = L7Payload::Unknown;
         }
         let drained = entry.take_delayed();
         (!drained.is_empty()).then_some(drained)
     };
-    if let Some(delayed) = leftover {
+    if let Some(delayed) = leftover
+    {
         send_delayed_queue(delayed, desync_fwmark, sender);
     }
 }
@@ -150,7 +170,8 @@ pub(crate) fn queue_delayed_packet(
     fwmark: u32,
     ifin: Option<&str>,
     ifout: Option<&str>,
-) -> bool {
+) -> bool
+{
     let pkt = DelayedPacket {
         raw: raw_pkt.to_vec(),
         fwmark,
@@ -177,43 +198,44 @@ pub(crate) fn replay_delayed_queue<F>(
     let mut offset = 0usize;
     let mut seq0 = 0u32;
 
-    for (idx, pkt) in delayed.into_iter().enumerate() {
+    for (idx, pkt) in delayed.into_iter().enumerate()
+    {
         let is_tcp_seq = pkt.tpos.ipproto == IPPROTO_TCP;
-        if is_tcp_seq {
-            if idx == 0 {
+        if is_tcp_seq
+        {
+            if idx == 0
+            {
                 seq0 = pkt.tpos.client.seq_last;
                 offset = 0;
-            } else {
+            }
+            else
+            {
                 offset = usize::try_from(pkt.tpos.client.seq_last.wrapping_sub(seq0)).unwrap_or(0);
             }
         }
 
         let dis = dissect_packet(&pkt.raw, false);
         let decision = play_one(idx, count, offset, &pkt);
-        if let Some(dst) = extract_endpoint_ip(&dis, false) {
+        if let Some(dst) = extract_endpoint_ip(&dis, false)
+        {
             let mut tx = sender.borrow_mut();
-            match decision {
-                Decision::Replace(mod_bytes) => {
-                    let _ = tx.send(
-                        dst,
-                        pkt.fwmark | desync_fwmark,
-                        pkt.ifout.as_deref(),
-                        &mod_bytes,
-                    );
+            match decision
+            {
+                Decision::Replace(mod_bytes) =>
+                {
+                    let _ = tx.send(dst, pkt.fwmark | desync_fwmark, pkt.ifout.as_deref(), &mod_bytes);
                 }
-                Decision::Pass => {
-                    let _ = tx.send(
-                        dst,
-                        pkt.fwmark | desync_fwmark,
-                        pkt.ifout.as_deref(),
-                        &pkt.raw,
-                    );
+                Decision::Pass =>
+                {
+                    let _ = tx.send(dst, pkt.fwmark | desync_fwmark, pkt.ifout.as_deref(), &pkt.raw);
                 }
-                Decision::Drop => {}
+                Decision::Drop =>
+                {}
             }
         }
 
-        if !is_tcp_seq {
+        if !is_tcp_seq
+        {
             let payload_len = dis.payload.as_ref().map_or(0, Vec::len);
             offset = offset.saturating_add(payload_len);
         }
@@ -221,7 +243,8 @@ pub(crate) fn replay_delayed_queue<F>(
 }
 
 /// Copies active `reasm_client` bytes into an owned vector without holding a `RefCell` borrow.
-pub(crate) fn clone_reasm_bytes(entry: Option<&Rc<RefCell<CtrackEntry>>>) -> Option<Vec<u8>> {
+pub(crate) fn clone_reasm_bytes(entry: Option<&Rc<RefCell<CtrackEntry>>>) -> Option<Vec<u8>>
+{
     let rc = entry?;
     let guard = rc.borrow();
     (!guard.reasm_client.is_empty()).then(|| guard.reasm_client.data().to_vec())
@@ -233,28 +256,24 @@ pub(crate) fn replay_and_finish(
     packet_id: u32,
     ctrack: Option<&Rc<RefCell<CtrackEntry>>>,
     delayed: VecDeque<DelayedPacket>,
-) {
+)
+{
     let replay_now = boottime_now();
-    replay_delayed_queue(
-        delayed,
-        engine.desync_fwmark,
-        &engine.sender,
-        |idx, count, off, dpkt| {
-            let rctx = ReplayContext {
-                replay_piece: idx,
-                replay_piece_count: count,
-                reasm_offset: off,
-                tpos: Some(&dpkt.tpos),
-            };
-            let qpkt = QueuedPacket {
-                packet_id,
-                mark: dpkt.fwmark,
-                ifin: dpkt.ifin.as_deref(),
-                ifout: dpkt.ifout.as_deref(),
-                payload: &dpkt.raw,
-            };
-            engine.process_packet_play(&rctx, &qpkt, replay_now)
-        },
-    );
+    replay_delayed_queue(delayed, engine.desync_fwmark, &engine.sender, |idx, count, off, dpkt| {
+        let rctx = ReplayContext {
+            replay_piece: idx,
+            replay_piece_count: count,
+            reasm_offset: off,
+            tpos: Some(&dpkt.tpos),
+        };
+        let qpkt = QueuedPacket {
+            packet_id,
+            mark: dpkt.fwmark,
+            ifin: dpkt.ifin.as_deref(),
+            ifout: dpkt.ifout.as_deref(),
+            payload: &dpkt.raw,
+        };
+        engine.process_packet_play(&rctx, &qpkt, replay_now)
+    });
     reasm_client_stop(ctrack, engine.desync_fwmark, &engine.sender);
 }

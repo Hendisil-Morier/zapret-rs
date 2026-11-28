@@ -2,7 +2,8 @@
 
 /// I/O and driver error wrapper for [`crate::intercepter`] operations.
 #[derive(Debug, thiserror::Error)]
-pub enum IntercepterError {
+pub enum IntercepterError
+{
     /// Underlying OS packet-interception I/O failure (NFQUEUE on Linux, WinDivert on Windows).
     #[cfg_attr(target_os = "linux", error("Linux NFQUEUE operation failed: {0}"))]
     #[cfg_attr(windows, error("WinDivert packet interception failed: {0}"))]

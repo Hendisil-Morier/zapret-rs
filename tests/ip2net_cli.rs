@@ -1,27 +1,29 @@
 //! Integration and CLI parity tests for the `ip2net` library module and binary.
 
+/// Writing synthetic test inputs into the child process stdin pipe.
+use std::io::Write;
 /// Buffered cursor input/output helpers for testing streaming `run_ip2net`.
 use std::io::{BufReader, Cursor};
 /// Subprocess execution and piped stdin/stdout assertions on the `ip2net` binary.
 use std::process::{Command, Stdio};
-/// Writing synthetic test inputs into the child process stdin pipe.
-use std::io::Write;
 
 /// `ip2net` configuration, validation parsers, error variants, and streaming runner.
 use zapret_rs::tools::{
-    Ip2NetConfig, Ip2NetError, Ip2NetFamily, parse_prefix_length, parse_v4_threshold,
-    parse_v6_threshold, run_ip2net,
+    Ip2NetConfig, Ip2NetError, Ip2NetFamily, parse_prefix_length, parse_v4_threshold, parse_v6_threshold,
+    run_ip2net,
 };
 
 /// Returns a `zapret-rs ip2net` command backed by the compiled unified binary.
-fn ip2net_cmd() -> Command {
+fn ip2net_cmd() -> Command
+{
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
     cmd.arg("ip2net");
     cmd
 }
 
 /// Runs `run_ip2net` on an arbitrary byte slice and returns UTF-8 stdout output.
-fn run_bytes(cfg: &Ip2NetConfig, input: &[u8]) -> String {
+fn run_bytes(cfg: &Ip2NetConfig, input: &[u8]) -> String
+{
     let mut reader = BufReader::new(Cursor::new(input));
     let mut out = Vec::new();
     run_ip2net(cfg, &mut reader, &mut out).expect("streaming ip2net execution");
@@ -29,7 +31,8 @@ fn run_bytes(cfg: &Ip2NetConfig, input: &[u8]) -> String {
 }
 
 /// Spawns `ip2net` with `args`, feeds `stdin_bytes`, and returns `(code, stdout, stderr)`.
-fn exec_ip2net(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, String, String) {
+fn exec_ip2net(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, String, String)
+{
     let mut child = ip2net_cmd()
         .args(args)
         .stdin(Stdio::piped())
@@ -37,12 +40,7 @@ fn exec_ip2net(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, String, Strin
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn ip2net binary");
-    child
-        .stdin
-        .take()
-        .expect("piped stdin")
-        .write_all(stdin_bytes)
-        .expect("write ip2net stdin");
+    child.stdin.take().expect("piped stdin").write_all(stdin_bytes).expect("write ip2net stdin");
     let output = child.wait_with_output().expect("collect ip2net output");
     (
         output.status.code(),
@@ -52,7 +50,8 @@ fn exec_ip2net(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, String, Strin
 }
 
 #[test]
-fn ipv4_grouping_dedup_and_below_threshold() {
+fn ipv4_grouping_dedup_and_below_threshold()
+{
     let cfg = Ip2NetConfig::default();
     let input = b"\
 10.0.0.3
@@ -73,62 +72,42 @@ fn ipv4_grouping_dedup_and_below_threshold() {
 }
 
 #[test]
-fn ipv4_anti_carpet_bombing_vs_strictly_larger_coverage() {
+fn ipv4_anti_carpet_bombing_vs_strictly_larger_coverage()
+{
     // At threshold 1/4 over prefix-length 29-30, 3 hosts in .0/30 fit both /29 and /30;
     // ip2net selects the narrower /30 rather than carpet-bombing /29.
-    let cfg_narrow = Ip2NetConfig::from_options(
-        Ip2NetFamily::Ipv4,
-        Some("29-30"),
-        Some("1/4"),
-        None,
-    )
-    .expect("valid narrow config");
-    assert_eq!(
-        run_bytes(&cfg_narrow, b"10.0.0.1\n10.0.0.2\n10.0.0.3\n"),
-        "10.0.0.0/30\n"
-    );
+    let cfg_narrow = Ip2NetConfig::from_options(Ip2NetFamily::Ipv4, Some("29-30"), Some("1/4"), None)
+        .expect("valid narrow config");
+    assert_eq!(run_bytes(&cfg_narrow, b"10.0.0.1\n10.0.0.2\n10.0.0.3\n"), "10.0.0.0/30\n");
 
     // At threshold 3/4 over prefix-length 29-30, 6 hosts spread across .0-.7 cover
     // strictly more than any /30 (6 > 3), so /29 wins over /30.
-    let cfg_wide = Ip2NetConfig::from_options(
-        Ip2NetFamily::Ipv4,
-        Some("29-30"),
-        Some("3/4"),
-        None,
-    )
-    .expect("valid wide config");
+    let cfg_wide = Ip2NetConfig::from_options(Ip2NetFamily::Ipv4, Some("29-30"), Some("3/4"), None)
+        .expect("valid wide config");
     assert_eq!(
-        run_bytes(
-            &cfg_wide,
-            b"10.0.0.0\n10.0.0.1\n10.0.0.2\n10.0.0.5\n10.0.0.6\n10.0.0.7\n"
-        ),
+        run_bytes(&cfg_wide, b"10.0.0.0\n10.0.0.1\n10.0.0.2\n10.0.0.5\n10.0.0.6\n10.0.0.7\n"),
         "10.0.0.0/29\n"
     );
 }
 
 #[test]
-fn ipv4_fast_prune_boundary_matches_c() {
+fn ipv4_fast_prune_boundary_matches_c()
+{
     let cfg = Ip2NetConfig::default();
     // {.1, .2, .3} starts at offset 1 == 4 * (4 - 3) / 4 -> collapses to 10.0.0.0/30.
-    assert_eq!(
-        run_bytes(&cfg, b"10.0.0.1\n10.0.0.2\n10.0.0.3\n"),
-        "10.0.0.0/30\n"
-    );
+    assert_eq!(run_bytes(&cfg, b"10.0.0.1\n10.0.0.2\n10.0.0.3\n"), "10.0.0.0/30\n");
     // {.2, .3} starts at offset 2 > 1 and only has 2/4 hosts -> emitted individually.
-    assert_eq!(
-        run_bytes(&cfg, b"10.0.0.2\n10.0.0.3\n"),
-        "10.0.0.2\n10.0.0.3\n"
-    );
+    assert_eq!(run_bytes(&cfg, b"10.0.0.2\n10.0.0.3\n"), "10.0.0.2\n10.0.0.3\n");
 
     // Verify large /1 prefix math avoids 32-bit overflow with 1/2 threshold.
-    let cfg_large =
-        Ip2NetConfig::from_options(Ip2NetFamily::Ipv4, Some("1"), Some("1/2"), None)
-            .expect("valid /1 prefix config");
+    let cfg_large = Ip2NetConfig::from_options(Ip2NetFamily::Ipv4, Some("1"), Some("1/2"), None)
+        .expect("valid /1 prefix config");
     assert_eq!(run_bytes(&cfg_large, b"0.0.0.1\n0.0.0.2\n"), "0.0.0.1\n0.0.0.2\n");
 }
 
 #[test]
-fn ipv4_passthrough_ordering_slash32_folding_and_junk_ignored() {
+fn ipv4_passthrough_ordering_slash32_folding_and_junk_ignored()
+{
     let cfg = Ip2NetConfig::default();
     let mut input = Vec::new();
     input.extend_from_slice(
@@ -159,14 +138,10 @@ not an ip
 }
 
 #[test]
-fn ipv6_grouping_thresholds_anti_carpet_bombing_and_passthrough() {
+fn ipv6_grouping_thresholds_anti_carpet_bombing_and_passthrough()
+{
     let cfg = Ip2NetConfig::default();
-    let cfg_v6 = Ip2NetConfig {
-        family: Ip2NetFamily::Ipv6,
-        zct_min: 64,
-        zct_max: 72,
-        ..cfg
-    };
+    let cfg_v6 = Ip2NetConfig { family: Ip2NetFamily::Ipv6, zct_min: 64, zct_max: 72, ..cfg };
 
     // Pass-through CIDR (< /128) preserves prefix string; /128 folds; range passes through.
     // Five addresses in 2001:db8:1::/64 satisfy threshold 5 and prefer /64 over /56.
@@ -202,28 +177,18 @@ bad:ipv6:line
 }
 
 #[test]
-fn option_parsers_validate_bounds_and_flag_order() {
-    assert_eq!(
-        parse_prefix_length("24", Ip2NetFamily::Ipv4).expect("single prefix v4"),
-        (8, 8)
-    );
-    assert_eq!(
-        parse_prefix_length("22-30", Ip2NetFamily::Ipv4).expect("range v4"),
-        (2, 10)
-    );
-    assert_eq!(
-        parse_prefix_length("56-64", Ip2NetFamily::Ipv6).expect("range v6"),
-        (64, 72)
-    );
+fn option_parsers_validate_bounds_and_flag_order()
+{
+    assert_eq!(parse_prefix_length("24", Ip2NetFamily::Ipv4).expect("single prefix v4"), (8, 8));
+    assert_eq!(parse_prefix_length("22-30", Ip2NetFamily::Ipv4).expect("range v4"), (2, 10));
+    assert_eq!(parse_prefix_length("56-64", Ip2NetFamily::Ipv6).expect("range v6"), (64, 72));
     assert_eq!(parse_v4_threshold("3/4").expect("3/4"), (3, 4));
     assert_eq!(parse_v6_threshold("5").expect("5"), 5);
 
-    for bad in ["0", "30-22", "32", "22-32", "abc", "22-24-30"] {
+    for bad in ["0", "30-22", "32", "22-32", "abc", "22-24-30"]
+    {
         assert!(
-            matches!(
-                parse_prefix_length(bad, Ip2NetFamily::Ipv4),
-                Err(Ip2NetError::InvalidPrefixLength(_))
-            ),
+            matches!(parse_prefix_length(bad, Ip2NetFamily::Ipv4), Err(Ip2NetError::InvalidPrefixLength(_))),
             "expected InvalidPrefixLength for v4 '{bad}'"
         );
     }
@@ -231,13 +196,15 @@ fn option_parsers_validate_bounds_and_flag_order() {
         parse_prefix_length("128", Ip2NetFamily::Ipv6),
         Err(Ip2NetError::InvalidPrefixLength(_))
     ));
-    for bad in ["4/4", "0/4", "1/1", "3/2", "3", "a/b"] {
+    for bad in ["4/4", "0/4", "1/1", "3/2", "3", "a/b"]
+    {
         assert!(
             matches!(parse_v4_threshold(bad), Err(Ip2NetError::InvalidV4Threshold(_))),
             "expected InvalidV4Threshold for '{bad}'"
         );
     }
-    for bad in ["0", "-1", "abc"] {
+    for bad in ["0", "-1", "abc"]
+    {
         assert!(
             matches!(parse_v6_threshold(bad), Err(Ip2NetError::InvalidV6Threshold(_))),
             "expected InvalidV6Threshold for '{bad}'"
@@ -251,7 +218,8 @@ fn option_parsers_validate_bounds_and_flag_order() {
 }
 
 #[test]
-fn binary_cli_v4_v6_flag_overrides_and_errors() {
+fn binary_cli_v4_v6_flag_overrides_and_errors()
+{
     let (code, stdout, _) = exec_ip2net(&["--version"], b"");
     assert_eq!(code, Some(0));
     assert!(stdout.starts_with("ip2net "));
@@ -269,10 +237,8 @@ fn binary_cli_v4_v6_flag_overrides_and_errors() {
     assert_eq!(stdout, "2001:db8:5::/64\n");
 
     // `-6 -4` switches back to IPv4 and accepts repeated `-4` flags.
-    let (code, stdout, stderr) = exec_ip2net(
-        &["-6", "-4", "-4"],
-        b"198.51.100.1\n198.51.100.2\n198.51.100.3\n",
-    );
+    let (code, stdout, stderr) =
+        exec_ip2net(&["-6", "-4", "-4"], b"198.51.100.1\n198.51.100.2\n198.51.100.3\n");
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(stdout, "198.51.100.0/30\n");
 

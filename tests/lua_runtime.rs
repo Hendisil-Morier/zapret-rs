@@ -31,7 +31,8 @@ const ZAPRET_TESTS_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-
 
 /// One packet injection call captured by [`CapturingSender`].
 #[derive(Debug, Clone)]
-struct CapturedPacket {
+struct CapturedPacket
+{
     /// Destination IP passed to `PacketSender::send`.
     dst: IpAddr,
     /// Effective firewall mark (`opts.fwmark | config.desync_fwmark`).
@@ -44,12 +45,14 @@ struct CapturedPacket {
 
 /// Mock [`PacketSender`] recording every packet emitted by Lua `rawsend` / `rawsend_dissect`.
 #[derive(Default)]
-struct CapturingSender {
+struct CapturingSender
+{
     /// Ordered log of transmitted packets.
     packets: Vec<CapturedPacket>,
 }
 
-impl PacketSender for CapturingSender {
+impl PacketSender for CapturingSender
+{
     /// Records an outgoing raw packet without opening a `CAP_NET_RAW` socket.
     fn send(
         &mut self,
@@ -57,7 +60,8 @@ impl PacketSender for CapturingSender {
         fwmark: u32,
         ifout: Option<&str>,
         packet: &[u8],
-    ) -> Result<(), RawSendError> {
+    ) -> Result<(), RawSendError>
+    {
         self.packets.push(CapturedPacket {
             dst,
             fwmark,
@@ -69,24 +73,19 @@ impl PacketSender for CapturingSender {
 }
 
 /// Creates a [`LuaRuntime`] preloaded with unmodified `zapret-lib.lua` and `zapret-tests.lua`.
-fn runtime_with_zapret_tests(
-    sender: Rc<RefCell<CapturingSender>>,
-) -> LuaRuntime {
-    let config = LuaConfig {
-        desync_fwmark: 0x4000_0000,
-        ..LuaConfig::default()
-    };
+fn runtime_with_zapret_tests(sender: Rc<RefCell<CapturingSender>>) -> LuaRuntime
+{
+    let config = LuaConfig { desync_fwmark: 0x4000_0000, ..LuaConfig::default() };
     let rt = LuaRuntime::with_sender(config, sender).expect("LuaRuntime should initialize");
-    rt.exec_file(Path::new(ZAPRET_LIB_LUA))
-        .expect("zapret-lib.lua should load cleanly");
-    rt.exec_file(Path::new(ZAPRET_TESTS_LUA))
-        .expect("zapret-tests.lua should load cleanly");
+    rt.exec_file(Path::new(ZAPRET_LIB_LUA)).expect("zapret-lib.lua should load cleanly");
+    rt.exec_file(Path::new(ZAPRET_TESTS_LUA)).expect("zapret-tests.lua should load cleanly");
     rt
 }
 
 /// Verifies `harden_lua` removes dangerous OS, I/O, FFI-load, and debug primitives.
 #[test]
-fn lua_security_hardening_removes_dangerous_globals() {
+fn lua_security_hardening_removes_dangerous_globals()
+{
     let rt = LuaRuntime::new(LuaConfig::default()).expect("LuaRuntime should initialize");
     rt.exec_str(
         r#"
@@ -103,7 +102,8 @@ fn lua_security_hardening_removes_dangerous_globals() {
 
 /// Runs `zapret2`'s unmodified `test_bin`, `test_bop`, `test_random`, and `test_ipstr` suites.
 #[test]
-fn zapret_tests_binary_crypto_random_and_ipstr_pass() {
+fn zapret_tests_binary_crypto_random_and_ipstr_pass()
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let rt = runtime_with_zapret_tests(sender);
     rt.exec_str(
@@ -119,7 +119,8 @@ fn zapret_tests_binary_crypto_random_and_ipstr_pass() {
 
 /// Runs `zapret2`'s unmodified `test_dissect` (20 randomized rounds) and `test_csum` suites.
 #[test]
-fn zapret_tests_dissect_and_checksum_suites_pass() {
+fn zapret_tests_dissect_and_checksum_suites_pass()
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let rt = runtime_with_zapret_tests(sender);
     rt.exec_str(
@@ -133,7 +134,8 @@ fn zapret_tests_dissect_and_checksum_suites_pass() {
 
 /// Runs `zapret2`'s unmodified `test_get_source_ip` and `test_ifaddrs` suites.
 #[test]
-fn zapret_tests_network_topology_suites_pass() {
+fn zapret_tests_network_topology_suites_pass()
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let rt = runtime_with_zapret_tests(sender);
     rt.exec_str(
@@ -148,7 +150,8 @@ fn zapret_tests_network_topology_suites_pass() {
 /// Verifies `rawsend` and `rawsend_dissect` across repeats, fwmarks, interfaces, `badsum`,
 /// IPv4/IPv6 `ipfrag2` (with HOPOPTS/DSTOPTS and `ip6_preserve_next`), ICMP, and IPIP via mock sender.
 #[test]
-fn lua_rawsend_and_rawsend_dissect_emit_valid_wire_packets() {
+fn lua_rawsend_and_rawsend_dissect_emit_valid_wire_packets()
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let rt = runtime_with_zapret_tests(Rc::clone(&sender));
 
@@ -239,7 +242,8 @@ fn lua_rawsend_and_rawsend_dissect_emit_valid_wire_packets() {
     // Verify first 3 repeated IPv4 UDP packets: fwmark OR'd with desync_fwmark, ifout, valid UDP checksum.
     let expected_v4_dst: IpAddr = "10.1.1.2".parse().expect("valid IPv4");
     let expected_v6_dst: IpAddr = "fd00::2".parse().expect("valid IPv6");
-    for pkt in &captured[0..3] {
+    for pkt in &captured[0..3]
+    {
         assert_eq!(pkt.dst, expected_v4_dst);
         assert_eq!(pkt.fwmark, 0x4000_50EA);
         assert_eq!(pkt.ifout.as_deref(), Some("eth9"));
@@ -254,16 +258,13 @@ fn lua_rawsend_and_rawsend_dissect_emit_valid_wire_packets() {
     assert_ne!(bad_udp.checksum, good_udp_sum);
     assert_ne!(bad_udp.checksum, 0);
     // Double-check against pure Rust RFC checksum helper.
-    let expected_good_sum = udp_ipv4_checksum(
-        [10, 1, 1, 1],
-        [10, 1, 1, 2],
-        &captured[0].data[20..28],
-        &captured[0].data[28..],
-    );
+    let expected_good_sum =
+        udp_ipv4_checksum([10, 1, 1, 1], [10, 1, 1, 2], &captured[0].data[20..28], &captured[0].data[28..]);
     assert_eq!(good_udp_sum, expected_good_sum);
 
     // Verify direct `rawsend` repeats.
-    for pkt in &captured[4..6] {
+    for pkt in &captured[4..6]
+    {
         assert_eq!(pkt.fwmark, 0x4000_0020);
         assert_eq!(pkt.data, captured[0].data);
     }

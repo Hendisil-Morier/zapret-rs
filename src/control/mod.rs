@@ -30,8 +30,8 @@ pub use hub::{ControlCommand, DaemonStatusMeta, TelemetryHub};
 pub use peer::{PeerCredentials, PeerUidCheck, current_euid, peer_credentials, same_uid};
 /// Re-exported control wire protocol constants, messages, and version validator.
 pub use protocol::{
-    CONTROL_PROTOCOL_VERSION, ControlErrorCode, CountersSnapshot, DEFAULT_PASS_SAMPLE_RATE,
-    DaemonStatus, Request, Response, validate_protocol_version,
+    CONTROL_PROTOCOL_VERSION, ControlErrorCode, CountersSnapshot, DEFAULT_PASS_SAMPLE_RATE, DaemonStatus,
+    Request, Response, validate_protocol_version,
 };
 /// Re-exported Unix control socket server and configuration.
 pub use server::{ControlServer, ControlServerConfig};

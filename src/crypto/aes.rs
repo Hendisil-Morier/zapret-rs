@@ -25,10 +25,12 @@ const SBOX: [u8; 256] = [
 ];
 
 /// Derives the FIPS-197 inverse substitution box (`InvSubBytes`) directly from [`SBOX`].
-const fn build_inv_sbox() -> [u8; 256] {
+const fn build_inv_sbox() -> [u8; 256]
+{
     let mut inv = [0u8; 256];
     let mut i = 0;
-    while i < 256 {
+    while i < 256
+    {
         inv[SBOX[i] as usize] = i as u8;
         i += 1;
     }
@@ -42,50 +44,50 @@ const INV_SBOX: [u8; 256] = build_inv_sbox();
 const RCON: [u8; 10] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
 
 /// Applies a 256-entry lookup table element-wise to a 4-byte word (`SubWord`).
-const fn sub_word(word: [u8; 4]) -> [u8; 4] {
-    [
-        SBOX[word[0] as usize],
-        SBOX[word[1] as usize],
-        SBOX[word[2] as usize],
-        SBOX[word[3] as usize],
-    ]
+const fn sub_word(word: [u8; 4]) -> [u8; 4]
+{
+    [SBOX[word[0] as usize], SBOX[word[1] as usize], SBOX[word[2] as usize], SBOX[word[3] as usize]]
 }
 
 /// Cyclically left-rotates a 4-byte word by one byte (`RotWord`).
-const fn rot_word(word: [u8; 4]) -> [u8; 4] {
+const fn rot_word(word: [u8; 4]) -> [u8; 4]
+{
     [word[1], word[2], word[3], word[0]]
 }
 
 /// Expands a 16-, 24-, or 32-byte AES key into up to 60 4-byte round-key words.
-fn expand_key(key: &[u8], nk: usize, rounds: usize) -> [[u8; 4]; 60] {
+fn expand_key(key: &[u8], nk: usize, rounds: usize) -> [[u8; 4]; 60]
+{
     let mut w = [[0u8; 4]; 60];
     let total_words = 4 * (rounds + 1);
-    for (dst, &word) in w[..nk].iter_mut().zip(key.as_chunks::<4>().0) {
+    for (dst, &word) in w[..nk].iter_mut().zip(key.as_chunks::<4>().0)
+    {
         *dst = word;
     }
-    for i in nk..total_words {
+    for i in nk..total_words
+    {
         let mut temp = w[i - 1];
-        if i % nk == 0 {
+        if i % nk == 0
+        {
             temp = sub_word(rot_word(temp));
             temp[0] ^= RCON[i / nk - 1];
-        } else if nk == 8 && i % nk == 4 {
+        }
+        else if nk == 8 && i % nk == 4
+        {
             // FIPS-197 Section 5.2 specifies an extra SubWord every 4th word inside AES-256.
             temp = sub_word(temp);
         }
         let prev = w[i - nk];
-        w[i] = [
-            prev[0] ^ temp[0],
-            prev[1] ^ temp[1],
-            prev[2] ^ temp[2],
-            prev[3] ^ temp[3],
-        ];
+        w[i] = [prev[0] ^ temp[0], prev[1] ^ temp[1], prev[2] ^ temp[2], prev[3] ^ temp[3]];
     }
     w
 }
 
 /// XORs 4 round-key words (`16` bytes) into the column-major AES state (`AddRoundKey`).
-fn add_round_key(state: &mut [u8; 16], round_key: &[[u8; 4]]) {
-    for (col, word) in round_key.iter().enumerate() {
+fn add_round_key(state: &mut [u8; 16], round_key: &[[u8; 4]])
+{
+    for (col, word) in round_key.iter().enumerate()
+    {
         let base = col * 4;
         state[base] ^= word[0];
         state[base + 1] ^= word[1];
@@ -95,14 +97,17 @@ fn add_round_key(state: &mut [u8; 16], round_key: &[[u8; 4]]) {
 }
 
 /// Substitutes all 16 state bytes through a 256-entry S-box (`SubBytes` / `InvSubBytes`).
-fn apply_sbox(state: &mut [u8; 16], table: &[u8; 256]) {
-    for b in state.iter_mut() {
+fn apply_sbox(state: &mut [u8; 16], table: &[u8; 256])
+{
+    for b in state.iter_mut()
+    {
         *b = table[usize::from(*b)];
     }
 }
 
 /// Cyclically left-shifts rows `1..=3` in the column-major 4x4 state (`ShiftRows`).
-fn shift_rows(s: &mut [u8; 16]) {
+fn shift_rows(s: &mut [u8; 16])
+{
     let r1 = s[1];
     s[1] = s[5];
     s[5] = s[9];
@@ -120,7 +125,8 @@ fn shift_rows(s: &mut [u8; 16]) {
 }
 
 /// Cyclically right-shifts rows `1..=3` in the column-major 4x4 state (`InvShiftRows`).
-fn inv_shift_rows(s: &mut [u8; 16]) {
+fn inv_shift_rows(s: &mut [u8; 16])
+{
     let r1 = s[13];
     s[13] = s[9];
     s[9] = s[5];
@@ -138,13 +144,16 @@ fn inv_shift_rows(s: &mut [u8; 16]) {
 }
 
 /// Multiplies a byte by `x` (`0x02`) modulo `x^8 + x^4 + x^3 + x + 1` in `GF(2^8)`.
-const fn xtime(b: u8) -> u8 {
+const fn xtime(b: u8) -> u8
+{
     (b << 1) ^ (((b >> 7) & 1) * 0x1b)
 }
 
 /// Mixes each 4-byte column over `GF(2^8)` (`MixColumns`).
-fn mix_columns(s: &mut [u8; 16]) {
-    for col in 0..4 {
+fn mix_columns(s: &mut [u8; 16])
+{
+    for col in 0..4
+    {
         let base = col * 4;
         let [a0, a1, a2, a3] = [s[base], s[base + 1], s[base + 2], s[base + 3]];
         let t = a0 ^ a1 ^ a2 ^ a3;
@@ -156,8 +165,10 @@ fn mix_columns(s: &mut [u8; 16]) {
 }
 
 /// Applies the inverse `GF(2^8)` column mix matrix `{0e, 0b, 0d, 09}` (`InvMixColumns`).
-fn inv_mix_columns(s: &mut [u8; 16]) {
-    for col in 0..4 {
+fn inv_mix_columns(s: &mut [u8; 16])
+{
+    for col in 0..4
+    {
         let base = col * 4;
         let [a0, a1, a2, a3] = [s[base], s[base + 1], s[base + 2], s[base + 3]];
         let [u, v] = [xtime(xtime(a0 ^ a2)), xtime(xtime(a1 ^ a3))];
@@ -172,41 +183,42 @@ fn inv_mix_columns(s: &mut [u8; 16]) {
 
 /// Expanded FIPS-197 AES key schedule supporting AES-128, AES-192, and AES-256.
 #[derive(Debug, Clone)]
-pub struct AesKey {
+pub struct AesKey
+{
     /// Expanded 4-byte key schedule words (`4 * (rounds + 1)` active words).
     round_keys: [[u8; 4]; 60],
     /// Round count (`10` for AES-128, `12` for AES-192, `14` for AES-256).
     rounds: usize,
 }
 
-impl AesKey {
+impl AesKey
+{
     /// Expands a 16-, 24-, or 32-byte key into an [`AesKey`] schedule.
-    pub fn new(key: &[u8]) -> Result<Self, CryptoError> {
-        let (nk, rounds) = match key.len() {
+    pub fn new(key: &[u8]) -> Result<Self, CryptoError>
+    {
+        let (nk, rounds) = match key.len()
+        {
             16 => (4, 10),
             24 => (6, 12),
             32 => (8, 14),
             other => return Err(CryptoError::InvalidKeyLength(other)),
         };
-        Ok(Self {
-            round_keys: expand_key(key, nk, rounds),
-            rounds,
-        })
+        Ok(Self { round_keys: expand_key(key, nk, rounds), rounds })
     }
 
     /// Infallibly expands a 32-byte key into an AES-256 schedule (`14` rounds).
-    pub fn new_256(key: &[u8; 32]) -> Self {
-        Self {
-            round_keys: expand_key(key, 8, 14),
-            rounds: 14,
-        }
+    pub fn new_256(key: &[u8; 32]) -> Self
+    {
+        Self { round_keys: expand_key(key, 8, 14), rounds: 14 }
     }
 
     /// Encrypts a single 16-byte plaintext block in ECB mode (FIPS-197 `Cipher`).
-    pub fn encrypt_block(&self, block: &[u8; 16]) -> [u8; 16] {
+    pub fn encrypt_block(&self, block: &[u8; 16]) -> [u8; 16]
+    {
         let mut state = *block;
         add_round_key(&mut state, &self.round_keys[0..4]);
-        for round in 1..self.rounds {
+        for round in 1..self.rounds
+        {
             apply_sbox(&mut state, &SBOX);
             shift_rows(&mut state);
             mix_columns(&mut state);
@@ -221,11 +233,13 @@ impl AesKey {
     }
 
     /// Decrypts a single 16-byte ciphertext block in ECB mode (FIPS-197 `InvCipher`).
-    pub fn decrypt_block(&self, block: &[u8; 16]) -> [u8; 16] {
+    pub fn decrypt_block(&self, block: &[u8; 16]) -> [u8; 16]
+    {
         let mut state = *block;
         let final_start = self.rounds * 4;
         add_round_key(&mut state, &self.round_keys[final_start..final_start + 4]);
-        for round in (1..self.rounds).rev() {
+        for round in (1..self.rounds).rev()
+        {
             inv_shift_rows(&mut state);
             apply_sbox(&mut state, &INV_SBOX);
             let start = round * 4;
@@ -240,20 +254,24 @@ impl AesKey {
 }
 
 /// Adds `add` to a 16-byte big-endian unsigned AES-CTR counter block (`ctr_add` in `aes-ctr.c`).
-pub fn ctr_add(iv: &mut [u8; 16], add: u64) {
+pub fn ctr_add(iv: &mut [u8; 16], add: u64)
+{
     let val = u128::from_be_bytes(*iv).wrapping_add(u128::from(add));
     *iv = val.to_be_bytes();
 }
 
 /// Encrypts or decrypts `input` with AES-CTR using a 16-, 24-, or 32-byte `key` and 16-byte `iv`.
-pub fn aes_ctr_crypt(key: &[u8], iv: &[u8; 16], input: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub fn aes_ctr_crypt(key: &[u8], iv: &[u8; 16], input: &[u8]) -> Result<Vec<u8>, CryptoError>
+{
     let aes = AesKey::new(key)?;
     let mut ctr = *iv;
     let mut out = Vec::with_capacity(input.len());
-    for chunk in input.chunks(16) {
+    for chunk in input.chunks(16)
+    {
         let keystream = aes.encrypt_block(&ctr);
         ctr_add(&mut ctr, 1);
-        for (&byte, &ks) in chunk.iter().zip(keystream.iter()) {
+        for (&byte, &ks) in chunk.iter().zip(keystream.iter())
+        {
             out.push(byte ^ ks);
         }
     }

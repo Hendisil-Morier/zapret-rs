@@ -33,15 +33,14 @@ use zapret_rs::config::{AppConfig, CliArgs, WritableDirConfig, resolve_config};
 /// Embedded `zapret2`-compatible LuaJIT runtime and configuration.
 use zapret_rs::lua::{LuaConfig, LuaRuntime};
 /// Runtime `--writable` helpers under test.
-use zapret_rs::runtime::{
-    DEFAULT_WRITABLE_SUBDIR, ensure_writable_dir, resolve_default_writable_dir,
-};
+use zapret_rs::runtime::{DEFAULT_WRITABLE_SUBDIR, ensure_writable_dir, resolve_default_writable_dir};
 
 /// Path to `zapret2`'s unmodified `zapret-tests.lua`.
 const ZAPRET_TESTS_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-tests.lua");
 
 /// Returns a `zapret-rs daemon` command backed by the compiled unified binary.
-fn nfqws2_cmd() -> Command {
+fn nfqws2_cmd() -> Command
+{
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
     cmd.arg("daemon");
     cmd
@@ -52,9 +51,11 @@ static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 /// RAII temporary test directory removed cleanly on drop.
 struct TempDir(PathBuf);
 
-impl TempDir {
+impl TempDir
+{
     /// Creates a unique directory under `std::env::temp_dir()`.
-    fn new(prefix: &str) -> Self {
+    fn new(prefix: &str) -> Self
+    {
         let id = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("{prefix}_{}_{}", std::process::id(), id));
         fs::create_dir_all(&dir).expect("create temp dir");
@@ -62,32 +63,34 @@ impl TempDir {
     }
 
     /// Returns a borrowed reference to the temporary directory path.
-    fn path(&self) -> &Path {
+    fn path(&self) -> &Path
+    {
         &self.0
     }
 }
 
-impl Drop for TempDir {
+impl Drop for TempDir
+{
     /// Removes the temporary directory tree after the test finishes.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
 
 /// Creates a [`LuaRuntime`] preloaded with unmodified `zapret-lib.lua` and `zapret-tests.lua`.
-fn runtime_with_zapret_tests() -> LuaRuntime {
+fn runtime_with_zapret_tests() -> LuaRuntime
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
-    let rt = LuaRuntime::with_sender(LuaConfig::default(), sender)
-        .expect("LuaRuntime should initialize");
-    rt.exec_file(Path::new(ZAPRET_LIB_LUA))
-        .expect("zapret-lib.lua should load");
-    rt.exec_file(Path::new(ZAPRET_TESTS_LUA))
-        .expect("zapret-tests.lua should load");
+    let rt = LuaRuntime::with_sender(LuaConfig::default(), sender).expect("LuaRuntime should initialize");
+    rt.exec_file(Path::new(ZAPRET_LIB_LUA)).expect("zapret-lib.lua should load");
+    rt.exec_file(Path::new(ZAPRET_TESTS_LUA)).expect("zapret-tests.lua should load");
     rt
 }
 
 /// Builds a synthetic RFC 1952 gzip stream enabling `FEXTRA`, `FNAME`, `FCOMMENT`, and `FHCRC`.
-fn build_full_rfc1952_gzip(payload: &[u8]) -> Vec<u8> {
+fn build_full_rfc1952_gzip(payload: &[u8]) -> Vec<u8>
+{
     let mut out = vec![0x1F, 0x8B, 8, 0x1E, 0, 0, 0, 0, 0, 3];
     let extra = b"ZAPRET_EXT";
     out.extend_from_slice(&(extra.len() as u16).to_le_bytes());
@@ -101,15 +104,18 @@ fn build_full_rfc1952_gzip(payload: &[u8]) -> Vec<u8> {
     let mut comp = Compress::new(Compression::default(), false);
     let mut deflated = Vec::with_capacity(payload.len() + 64);
     let mut rem = payload;
-    loop {
-        if deflated.capacity() - deflated.len() < 1024 {
+    loop
+    {
+        if deflated.capacity() - deflated.len() < 1024
+        {
             deflated.reserve(4096);
         }
         let flush = if rem.is_empty() { FlushCompress::Finish } else { FlushCompress::None };
         let before_in = comp.total_in();
         let status = comp.compress_vec(rem, &mut deflated, flush).expect("compress");
         rem = &rem[(comp.total_in() - before_in) as usize..];
-        if matches!(status, Status::StreamEnd) {
+        if matches!(status, Status::StreamEnd)
+        {
             break;
         }
     }
@@ -124,7 +130,8 @@ fn build_full_rfc1952_gzip(payload: &[u8]) -> Vec<u8> {
 
 /// Verifies `zapret2`'s unmodified `test_gzip()` and `test_time()` suites pass end-to-end.
 #[test]
-fn zapret_tests_gzip_and_time_pass() {
+fn zapret_tests_gzip_and_time_pass()
+{
     let rt = runtime_with_zapret_tests();
     rt.exec_str("test_gzip(); test_time()")
         .expect("unmodified zapret-tests.lua test_gzip and test_time must pass");
@@ -132,7 +139,8 @@ fn zapret_tests_gzip_and_time_pass() {
 
 /// Verifies 1-byte streaming gzip inflate with all RFC 1952 flags and corrupt-stream error handling.
 #[test]
-fn gzip_byte_by_byte_full_headers_and_corruption_checks() {
+fn gzip_byte_by_byte_full_headers_and_corruption_checks()
+{
     let rt = runtime_with_zapret_tests();
     let payload: Vec<u8> = (0..18000usize).map(|i| ((i * 29) ^ (i >> 4)) as u8).collect();
     let gz_bytes = build_full_rfc1952_gzip(&payload);
@@ -175,7 +183,8 @@ fn gzip_byte_by_byte_full_headers_and_corruption_checks() {
 
 /// Verifies raw/zlib/gzip framing modes, empty/1-arg finish, `zapret-lib` file helpers, and lifecycle errors.
 #[test]
-fn gzip_modes_file_helpers_and_lifecycle_errors() {
+fn gzip_modes_file_helpers_and_lifecycle_errors()
+{
     let tmp = TempDir::new("zapret_rs_gzip");
     let plain_path = tmp.path().join("plain.txt");
     let gz_path = tmp.path().join("packed.gz");
@@ -244,7 +253,8 @@ fn gzip_modes_file_helpers_and_lifecycle_errors() {
 
 /// Verifies `stat` file/dir/symlink/error semantics and `gmtime`/`localtime`/`timegm` parity.
 #[test]
-fn stat_and_calendar_time_bindings_match_posix() {
+fn stat_and_calendar_time_bindings_match_posix()
+{
     let tmp = TempDir::new("zapret_rs_stat");
     let file_path = tmp.path().join("data.bin");
     let link_path = tmp.path().join("data.link");
@@ -299,19 +309,14 @@ fn stat_and_calendar_time_bindings_match_posix() {
 
 /// Verifies `--writable` default resolution, file rejection, TOML/CLI config, and `nfqws2` execution.
 #[test]
-fn writable_dir_config_cli_and_nfqws2_runtime_e2e() {
+fn writable_dir_config_cli_and_nfqws2_runtime_e2e()
+{
     assert_eq!(
         resolve_default_writable_dir(Some(OsStr::new("/var/tmp/custom"))),
         PathBuf::from("/var/tmp/custom").join(DEFAULT_WRITABLE_SUBDIR)
     );
-    assert_eq!(
-        resolve_default_writable_dir(Some(OsStr::new(""))),
-        PathBuf::from("/tmp/zapret-rs")
-    );
-    assert_eq!(
-        resolve_default_writable_dir(None),
-        PathBuf::from("/tmp/zapret-rs")
-    );
+    assert_eq!(resolve_default_writable_dir(Some(OsStr::new(""))), PathBuf::from("/tmp/zapret-rs"));
+    assert_eq!(resolve_default_writable_dir(None), PathBuf::from("/tmp/zapret-rs"));
 
     let tmp = TempDir::new("zapret_rs_writable");
     let blocker = tmp.path().join("not_a_dir");
@@ -322,10 +327,7 @@ fn writable_dir_config_cli_and_nfqws2_runtime_e2e() {
 
     let cfg_dir = AppConfig::from_toml_str("writable = \"sub/lua_tmp\"\n", Some(tmp.path()))
         .expect("TOML writable path parses");
-    assert_eq!(
-        cfg_dir.writable,
-        Some(WritableDirConfig::Custom(tmp.path().join("sub/lua_tmp")))
-    );
+    assert_eq!(cfg_dir.writable, Some(WritableDirConfig::Custom(tmp.path().join("sub/lua_tmp"))));
     let cfg_bool = AppConfig::from_toml_str("writable = true\n", None).unwrap();
     assert_eq!(cfg_bool.writable, Some(WritableDirConfig::Default));
     let cfg_off = AppConfig::from_toml_str("writable = false\n", None).unwrap();

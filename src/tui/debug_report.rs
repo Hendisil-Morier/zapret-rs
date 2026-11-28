@@ -22,10 +22,12 @@ const MAX_REPORT_LOG_LINES: usize = 60;
 const MAX_REPORT_CONFIG_LINES: usize = 120;
 
 /// Formats a single [`crate::tui::speed::SpeedRow`] for both Tab 5 details and exported reports.
-fn format_speed_row(row: &crate::tui::speed::SpeedRow) -> String {
+fn format_speed_row(row: &crate::tui::speed::SpeedRow) -> String
+{
     let before = row.before.as_ref().map_or_else(|| "pending".to_owned(), describe_sample);
     let after = row.after.as_ref().map_or_else(|| "pending".to_owned(), describe_sample);
-    let result = match compare(row) {
+    let result = match compare(row)
+    {
         Change::Pending => "pending".to_owned(),
         Change::Fixed => "FIXED".to_owned(),
         Change::Broke => "BROKE".to_owned(),
@@ -36,7 +38,8 @@ fn format_speed_row(row: &crate::tui::speed::SpeedRow) -> String {
 }
 
 /// Formats one [`crate::tools::TargetScanResult`] for both Tab 5 details and exported reports.
-fn format_finder_target(t: &crate::tools::TargetScanResult) -> String {
+fn format_finder_target(t: &crate::tools::TargetScanResult) -> String
+{
     let best = t.matches.first().map_or_else(
         || if t.skipped_unblocked { "unblocked".to_owned() } else { "none".to_owned() },
         |m| format!("{} ({} ms)", m.strategy.id, m.latency_ms),
@@ -53,15 +56,19 @@ fn format_finder_target(t: &crate::tools::TargetScanResult) -> String {
 }
 
 /// Builds the live Tab 5 (`Status`) component row summarizing Tab 1 (`Strategy Finder`) state.
-pub(crate) fn check_finder_summary(state: &AppState) -> ComponentCheck {
-    if state.finder.targets.is_empty() {
-        let (health, summary) = match &state.finder.status {
+pub(crate) fn check_finder_summary(state: &AppState) -> ComponentCheck
+{
+    if state.finder.targets.is_empty()
+    {
+        let (health, summary) = match &state.finder.status
+        {
             FinderStatus::Scanning => (
                 ComponentHealth::Ok,
                 format!("Scanning ({}/{})", state.finder.progress_done, state.finder.progress_total),
             ),
             FinderStatus::Error(err) => (ComponentHealth::Err, format!("Error: {err}")),
-            FinderStatus::Idle | FinderStatus::Done => {
+            FinderStatus::Idle | FinderStatus::Done =>
+            {
                 (ComponentHealth::Ok, "Not run in this session".to_owned())
             }
         };
@@ -74,16 +81,9 @@ pub(crate) fn check_finder_summary(state: &AppState) -> ComponentCheck {
         };
     }
     let matched = state.finder.targets.iter().filter(|t| !t.matches.is_empty()).count();
-    let blocked_none = state
-        .finder.targets
-        .iter()
-        .filter(|t| !t.skipped_unblocked && t.matches.is_empty())
-        .count();
-    let health = if blocked_none > 0 && matched == 0 {
-        ComponentHealth::Warn
-    } else {
-        ComponentHealth::Ok
-    };
+    let blocked_none =
+        state.finder.targets.iter().filter(|t| !t.skipped_unblocked && t.matches.is_empty()).count();
+    let health = if blocked_none > 0 && matched == 0 { ComponentHealth::Warn } else { ComponentHealth::Ok };
     let details: Vec<String> = state.finder.targets.iter().map(format_finder_target).collect();
     ComponentCheck {
         name: "Strategy Scan",
@@ -99,9 +99,11 @@ pub(crate) fn check_finder_summary(state: &AppState) -> ComponentCheck {
 }
 
 /// Builds the live Tab 5 (`Status`) component row summarizing Tab 4 (`Speed Test`) results.
-pub(crate) fn check_speed_summary(state: &AppState) -> ComponentCheck {
+pub(crate) fn check_speed_summary(state: &AppState) -> ComponentCheck
+{
     let phase = state.speed.phase.label();
-    if state.speed.rows.is_empty() {
+    if state.speed.rows.is_empty()
+    {
         return ComponentCheck {
             name: "Speed Test",
             health: ComponentHealth::Ok,
@@ -112,21 +114,20 @@ pub(crate) fn check_speed_summary(state: &AppState) -> ComponentCheck {
     }
     let (mut fixed, mut broke, mut blocked, mut compared) = (0usize, 0usize, 0usize, 0usize);
     let mut details = Vec::with_capacity(state.speed.rows.len());
-    for row in &state.speed.rows {
-        match compare(row) {
+    for row in &state.speed.rows
+    {
+        match compare(row)
+        {
             Change::Fixed => fixed += 1,
             Change::Broke => broke += 1,
             Change::StillBlocked => blocked += 1,
             Change::Compared(_) => compared += 1,
-            Change::Pending => {}
+            Change::Pending =>
+            {}
         }
         details.push(format_speed_row(row));
     }
-    let health = if broke > 0 || blocked > 0 {
-        ComponentHealth::Warn
-    } else {
-        ComponentHealth::Ok
-    };
+    let health = if broke > 0 || blocked > 0 { ComponentHealth::Warn } else { ComponentHealth::Ok };
     ComponentCheck {
         name: "Speed Test",
         health,
@@ -139,42 +140,53 @@ pub(crate) fn check_speed_summary(state: &AppState) -> ComponentCheck {
 }
 
 /// Formats Tab 4 (`Speed Test`) results when any comparison has started or finished.
-fn append_speed_section(out: &mut String, state: &AppState) {
+fn append_speed_section(out: &mut String, state: &AppState)
+{
     let _ = writeln!(out, "=== Speed Test Results ===");
     let _ = writeln!(out, "Phase       : {}", state.speed.phase.label());
-    if state.speed.rows.is_empty() {
+    if state.speed.rows.is_empty()
+    {
         let _ = writeln!(out, "(no speed test run yet)");
         let _ = writeln!(out);
         return;
     }
-    for row in &state.speed.rows {
+    for row in &state.speed.rows
+    {
         let _ = writeln!(out, "- {}", format_speed_row(row));
     }
     let _ = writeln!(out);
 }
 
 /// Formats Tab 1 (`Strategy Finder`) target results and covered profile selections.
-fn append_finder_section(out: &mut String, state: &AppState) {
+fn append_finder_section(out: &mut String, state: &AppState)
+{
     let _ = writeln!(out, "=== Strategy Finder Results ===");
-    let domains = if state.finder.domains_input.trim().is_empty() {
+    let domains = if state.finder.domains_input.trim().is_empty()
+    {
         "(none)"
-    } else {
+    }
+    else
+    {
         state.finder.domains_input.trim()
     };
     let _ = writeln!(out, "Status      : {:?}", state.finder.status);
     let _ = writeln!(out, "Targets     : {domains}");
     let _ = writeln!(out, "Mode        : {:?} / {:?}", state.finder.ip_mode, state.finder.level);
-    if state.finder.targets.is_empty() && state.finder.cover.is_empty() {
+    if state.finder.targets.is_empty() && state.finder.cover.is_empty()
+    {
         let _ = writeln!(out, "(no completed strategy results yet)");
         let _ = writeln!(out);
         return;
     }
-    for t in &state.finder.targets {
+    for t in &state.finder.targets
+    {
         let _ = writeln!(out, "- {}", format_finder_target(t));
     }
-    if !state.finder.cover.is_empty() {
+    if !state.finder.cover.is_empty()
+    {
         let _ = writeln!(out, "Covered Profiles:");
-        for p in &state.finder.cover {
+        for p in &state.finder.cover
+        {
             let _ = writeln!(
                 out,
                 "  - {}: domains=[{}] avg={} ms",
@@ -188,42 +200,46 @@ fn append_finder_section(out: &mut String, state: &AppState) {
 }
 
 /// Formats the loaded `nfqws2.toml` text (bounded to [`MAX_REPORT_CONFIG_LINES`]).
-fn append_config_section(out: &mut String, state: &AppState) {
+fn append_config_section(out: &mut String, state: &AppState)
+{
     let _ = writeln!(out, "=== Active Config (nfqws2.toml) ===");
-    if state.config.active_toml.trim().is_empty() {
+    if state.config.active_toml.trim().is_empty()
+    {
         let _ = writeln!(out, "(empty / not loaded)");
         let _ = writeln!(out);
         return;
     }
-    if let Some(err) = &state.config.toml_error {
+    if let Some(err) = &state.config.toml_error
+    {
         let _ = writeln!(out, "Parse Error : {err}");
     }
     let lines: Vec<&str> = state.config.active_toml.lines().collect();
-    for line in lines.iter().take(MAX_REPORT_CONFIG_LINES) {
+    for line in lines.iter().take(MAX_REPORT_CONFIG_LINES)
+    {
         let _ = writeln!(out, "{line}");
     }
-    if lines.len() > MAX_REPORT_CONFIG_LINES {
-        let _ = writeln!(
-            out,
-            "... ({} more line(s) omitted)",
-            lines.len() - MAX_REPORT_CONFIG_LINES
-        );
+    if lines.len() > MAX_REPORT_CONFIG_LINES
+    {
+        let _ = writeln!(out, "... ({} more line(s) omitted)", lines.len() - MAX_REPORT_CONFIG_LINES);
     }
     let _ = writeln!(out);
 }
 
 /// Appends the trailing [`MAX_REPORT_LOG_LINES`] entries of a bounded log ring buffer.
-fn append_log_tail<'a>(out: &mut String, title: &str, lines: impl ExactSizeIterator<Item = &'a String>) {
+fn append_log_tail<'a>(out: &mut String, title: &str, lines: impl ExactSizeIterator<Item = &'a String>)
+{
     let _ = writeln!(out, "=== {title} ===");
     let skip = lines.len().saturating_sub(MAX_REPORT_LOG_LINES);
-    for line in lines.skip(skip) {
+    for line in lines.skip(skip)
+    {
         let _ = writeln!(out, "{line}");
     }
 }
 
 /// Renders a self-contained diagnostic report covering environment, component checks,
 /// speed test measurements, strategy finder outcomes, active config, counters, and logs.
-pub fn format_debug_report(state: &AppState) -> String {
+pub fn format_debug_report(state: &AppState) -> String
+{
     let checks = collect_component_statuses(state);
     let (total, passed, reasm, modified, desynced) = state.visible_counters();
 
@@ -232,17 +248,20 @@ pub fn format_debug_report(state: &AppState) -> String {
     let _ = writeln!(out, "Version     : {}", env!("CARGO_PKG_VERSION"));
     let _ = writeln!(out, "OS / Arch   : {} / {}", std::env::consts::OS, std::env::consts::ARCH);
     let _ = writeln!(out, "Executable  : {}", state.status.exe_path);
-    let _ = writeln!(out, "UID / Privs : {} / {}", state.status.uid, if state.status.has_net_caps { "OK" } else { "MISSING" });
+    let _ = writeln!(
+        out,
+        "UID / Privs : {} / {}",
+        state.status.uid,
+        if state.status.has_net_caps { "OK" } else { "MISSING" }
+    );
     let _ = writeln!(out, "Config Path : {}", state.finder.output_path);
     let _ = writeln!(out, "Lua Dir     : {}", state.finder.lua_dir_input);
     let _ = writeln!(out, "DNS Preset  : {}", state.status.dns_preset.label());
     let _ = writeln!(out, "Run Status  : {:?}", state.run.status);
-    if let Some(meta) = &state.run.remote_meta {
-        let profiles = if meta.profile_names.is_empty() {
-            "(none)".to_owned()
-        } else {
-            meta.profile_names.join(", ")
-        };
+    if let Some(meta) = &state.run.remote_meta
+    {
+        let profiles =
+            if meta.profile_names.is_empty() { "(none)".to_owned() } else { meta.profile_names.join(", ") };
         let _ = writeln!(
             out,
             "Daemon Info : pid={} ver={} qnum={} intercept={} profiles=[{profiles}]",
@@ -256,8 +275,10 @@ pub fn format_debug_report(state: &AppState) -> String {
     let _ = writeln!(out);
 
     let _ = writeln!(out, "=== Operational Component Checks ===");
-    for check in &checks {
-        let badge = match check.health {
+    for check in &checks
+    {
+        let badge = match check.health
+        {
             ComponentHealth::Ok => "OK",
             ComponentHealth::Warn => "WARN",
             ComponentHealth::Err => "ERR",
@@ -283,7 +304,8 @@ pub fn format_debug_report(state: &AppState) -> String {
 }
 
 /// Resolves the destination path (`zapret-rs-debug.txt`) beside `state.finder.output_path`.
-pub fn debug_report_path(output_path: &str) -> PathBuf {
+pub fn debug_report_path(output_path: &str) -> PathBuf
+{
     let cfg = expand_tilde(output_path);
     cfg.parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -291,7 +313,8 @@ pub fn debug_report_path(output_path: &str) -> PathBuf {
 }
 
 /// Writes [`format_debug_report`] to `zapret-rs-debug.txt` without following symlinks.
-pub fn export_debug_report(state: &AppState) -> Result<PathBuf, String> {
+pub fn export_debug_report(state: &AppState) -> Result<PathBuf, String>
+{
     let dest = debug_report_path(&state.finder.output_path);
     let content = format_debug_report(state);
     write_config_nofollow(&dest, &content)

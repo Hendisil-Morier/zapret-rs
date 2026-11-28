@@ -15,7 +15,8 @@ fn sample_pkt(
     verdict: PacketVerdict,
     info: &str,
     profile: Option<&str>,
-) -> PacketRecord {
+) -> PacketRecord
+{
     let (dir, proto, src, dst) = flow;
     PacketRecord {
         seq,
@@ -36,7 +37,8 @@ fn sample_pkt(
 }
 
 #[test]
-fn matches_query_supports_bare_terms_field_prefixes_and_negation() {
+fn matches_query_supports_bare_terms_field_prefixes_and_negation()
+{
     let tls_desync = sample_pkt(
         1,
         ("OUT", "TCP", "10.0.0.2:51000", "1.1.1.1:443"),
@@ -71,7 +73,8 @@ fn matches_query_supports_bare_terms_field_prefixes_and_negation() {
 }
 
 #[test]
-fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter() {
+fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter()
+{
     let mut insp = PacketInspectorState::default();
     insp.push(sample_pkt(
         1,
@@ -99,7 +102,8 @@ fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter() {
     assert!(insp.handle_key(KeyCode::Char('/')).is_some());
     assert!(insp.filter_editing);
 
-    for ch in "port:443".chars() {
+    for ch in "port:443".chars()
+    {
         insp.handle_key(KeyCode::Char(ch));
     }
     assert_eq!(insp.filter_query, "port:443");
@@ -125,7 +129,8 @@ fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter() {
 }
 
 #[test]
-fn app_state_guards_global_keys_during_filter_editing_and_renders_query_in_title() {
+fn app_state_guards_global_keys_during_filter_editing_and_renders_query_in_title()
+{
     use crossterm::event::{KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
     use zapret_rs::tui::{AppAction, AppState, draw_app, types::ActiveTab};
@@ -134,16 +139,11 @@ fn app_state_guards_global_keys_during_filter_editing_and_renders_query_in_title
     state.tab = ActiveTab::Run;
 
     // Enter `/` filter edit mode and type characters that collide with global bindings (`q`, `t`, `?`, `1`).
-    assert_eq!(
-        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
-        AppAction::None
-    );
+    assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)), AppAction::None);
     assert!(state.inspector.filter_editing);
-    for ch in "qt?1".chars() {
-        assert_eq!(
-            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
-            AppAction::None
-        );
+    for ch in "qt?1".chars()
+    {
+        assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)), AppAction::None);
     }
     assert_eq!(state.tab, ActiveTab::Run);
     assert!(!state.help_open);
@@ -152,12 +152,6 @@ fn app_state_guards_global_keys_during_filter_editing_and_renders_query_in_title
     let backend = TestBackend::new(120, 32);
     let mut term = Terminal::new(backend).expect("terminal");
     term.draw(|f| draw_app(f, &state)).expect("draw");
-    let rendered: String = term
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|c| c.symbol())
-        .collect();
+    let rendered: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
     assert!(rendered.contains("/: qt?1_"), "expected active filter cursor in title");
 }

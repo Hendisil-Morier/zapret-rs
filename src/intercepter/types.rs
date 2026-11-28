@@ -17,7 +17,8 @@ pub const DEFAULT_QUEUE_RCVBUF: usize = 1024 * 1024;
 
 /// Kernel NFQUEUE binding and loop-prevention settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct QueueConfig {
+pub struct QueueConfig
+{
     /// Netfilter queue number (`--qnum`).
     pub queue_num: u16,
     /// Firewall mark bitmask used by generated raw packets to bypass re-processing.
@@ -30,9 +31,11 @@ pub struct QueueConfig {
     pub fail_open: bool,
 }
 
-impl Default for QueueConfig {
+impl Default for QueueConfig
+{
     /// Returns the standard `zapret2` Linux NFQUEUE defaults.
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self {
             queue_num: DEFAULT_QUEUE_NUM,
             desync_fwmark: DEFAULT_DESYNC_FWMARK,
@@ -43,28 +46,25 @@ impl Default for QueueConfig {
     }
 }
 
-impl QueueConfig {
+impl QueueConfig
+{
     /// Returns default NFQUEUE settings bound to `queue_num`.
-    pub fn with_queue_num(queue_num: u16) -> Self {
-        Self {
-            queue_num,
-            ..Self::default()
-        }
+    pub fn with_queue_num(queue_num: u16) -> Self
+    {
+        Self { queue_num, ..Self::default() }
     }
 
     /// Returns default NFQUEUE settings overriding both `queue_num` and `desync_fwmark`.
-    pub fn with_fwmark(queue_num: u16, desync_fwmark: u32) -> Self {
-        Self {
-            queue_num,
-            desync_fwmark,
-            ..Self::default()
-        }
+    pub fn with_fwmark(queue_num: u16, desync_fwmark: u32) -> Self
+    {
+        Self { queue_num, desync_fwmark, ..Self::default() }
     }
 }
 
 /// Borrowed view of an intercepted NFQUEUE packet and its resolved interface metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct QueuedPacket<'a> {
+pub struct QueuedPacket<'a>
+{
     /// Netfilter packet sequence identifier within the queue.
     pub packet_id: u32,
     /// Kernel netfilter mark (`nfmark` / `fwmark`) attached to the skb.
@@ -79,7 +79,8 @@ pub struct QueuedPacket<'a> {
 
 /// Final verdict returned to the kernel for an intercepted packet.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Decision {
+pub enum Decision
+{
     /// Accept and continue forwarding the original packet unmodified.
     Pass,
     /// Drop the packet silently inside netfilter.
@@ -89,7 +90,8 @@ pub enum Decision {
 }
 
 /// OS-agnostic packet interception loop contract implemented by platform drivers such as `QueueCatcher`.
-pub trait PacketIntercepter {
+pub trait PacketIntercepter
+{
     /// Runs the non-blocking interception loop until `stop` becomes `true`.
     fn run_until<F, T>(
         &mut self,

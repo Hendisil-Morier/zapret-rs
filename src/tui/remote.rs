@@ -19,9 +19,8 @@ use std::time::Duration;
 
 /// Control socket candidate discovery, protocol messages, and bounded codec helpers.
 use crate::control::{
-    CONTROL_PROTOCOL_VERSION, CodecError, ControlErrorCode, ControlStream, DaemonStatus,
-    LineReader, Request, Response, control_socket_candidates, is_live_control_socket,
-    write_message,
+    CONTROL_PROTOCOL_VERSION, CodecError, ControlErrorCode, ControlStream, DaemonStatus, LineReader, Request,
+    Response, control_socket_candidates, is_live_control_socket, write_message,
 };
 /// Lock-free packet counters and serializable packet record model.
 use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict};
@@ -39,7 +38,8 @@ const REMOTE_EVENT_CHANNEL_CAP: usize = 64;
 
 /// Metadata snapshot describing an attached background `nfqws2` daemon.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemoteDaemonMeta {
+pub struct RemoteDaemonMeta
+{
     /// Connected daemon Unix socket path.
     pub socket_path: PathBuf,
     /// Remote daemon binary version banner.
@@ -60,7 +60,8 @@ pub struct RemoteDaemonMeta {
 
 /// Asynchronous control/lifecycle notifications streamed from the remote client thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RemoteEvent {
+pub enum RemoteEvent
+{
     /// Refreshed daemon status snapshot pushed in response to an in-band `status` request.
     StatusUpdated(Box<DaemonStatus>),
     /// Informational acknowledgment or log entry from a remote command (e.g. `reload_lists`).
@@ -72,7 +73,8 @@ pub enum RemoteEvent {
 }
 
 /// Active background client session streaming telemetry from a running `nfqws2` daemon.
-pub struct AttachedDaemon {
+pub struct AttachedDaemon
+{
     /// Cooperative shutdown flag stopping the background reader thread.
     stop: Arc<AtomicBool>,
     /// Shared socket handle used to send synchronous control commands (`reload_lists`, `stop`, ...).
@@ -89,71 +91,75 @@ pub struct AttachedDaemon {
     pub(crate) stop_requested: bool,
 }
 
-impl AttachedDaemon {
+impl AttachedDaemon
+{
     /// Sends one [`Request`] over the active control socket connection.
-    pub fn send_command(&self, req: &Request) -> Result<(), String> {
-        let mut stream = self
-            .writer
-            .lock()
-            .map_err(|_| "control socket writer lock poisoned".to_owned())?;
-        write_message(&mut *stream, req)
-            .map_err(|err| format!("failed to send control request: {err}"))
+    pub fn send_command(&self, req: &Request) -> Result<(), String>
+    {
+        let mut stream = self.writer.lock().map_err(|_| "control socket writer lock poisoned".to_owned())?;
+        write_message(&mut *stream, req).map_err(|err| format!("failed to send control request: {err}"))
     }
 
     /// Polls one non-`PASS` packet record without blocking.
-    pub fn try_recv_desync(&self) -> Option<PacketRecord> {
+    pub fn try_recv_desync(&self) -> Option<PacketRecord>
+    {
         self.desync_rx.try_recv().ok()
     }
 
     /// Polls one `PASS` packet record without blocking.
-    pub fn try_recv_packet(&self) -> Option<PacketRecord> {
+    pub fn try_recv_packet(&self) -> Option<PacketRecord>
+    {
         self.pkt_rx.try_recv().ok()
     }
 
     /// Polls one remote lifecycle or command event without blocking.
-    pub fn try_recv_event(&self) -> Option<RemoteEvent> {
+    pub fn try_recv_event(&self) -> Option<RemoteEvent>
+    {
         self.ev_rx.try_recv().ok()
     }
 
     /// Signals the reader thread to exit, wakes any blocked socket read, and joins it.
-    pub fn detach(&mut self) {
+    pub fn detach(&mut self)
+    {
         self.stop.store(true, Ordering::Release);
-        if let Ok(stream) = self.writer.lock() {
+        if let Ok(stream) = self.writer.lock()
+        {
             let _ = stream.shutdown(Shutdown::Both);
         }
-        if let Some(handle) = self.join.take() {
+        if let Some(handle) = self.join.take()
+        {
             let _ = handle.join();
         }
     }
 }
 
-impl Drop for AttachedDaemon {
+impl Drop for AttachedDaemon
+{
     /// Ensures detaching on drop stops the reader thread cleanly without touching the remote daemon.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         self.detach();
     }
 }
 
 /// Probes candidate paths and returns the first live non-symlink control endpoint.
-pub fn detect_control_socket(configured: Option<&Path>) -> Option<PathBuf> {
-    control_socket_candidates(configured)
-        .into_iter()
-        .find(|candidate| is_live_control_socket(candidate))
+pub fn detect_control_socket(configured: Option<&Path>) -> Option<PathBuf>
+{
+    control_socket_candidates(configured).into_iter().find(|candidate| is_live_control_socket(candidate))
 }
 
 /// Connects to `socket_path`, validates protocol `hello`, queries `status`, subscribes, and starts streaming.
 pub fn connect_remote_daemon(
     socket_path: PathBuf,
     counters: Arc<PacketCounters>,
-) -> Result<(AttachedDaemon, RemoteDaemonMeta), String> {
+) -> Result<(AttachedDaemon, RemoteDaemonMeta), String>
+{
     let stream = ControlStream::connect(&socket_path)
         .map_err(|err| format!("cannot connect to {}: {err}", socket_path.display()))?;
     let _ = stream.set_read_timeout(Some(CONNECT_TIMEOUT));
     let _ = stream.set_write_timeout(Some(CONNECT_TIMEOUT));
 
-    let writer_stream = stream
-        .try_clone()
-        .map_err(|err| format!("failed to clone control socket: {err}"))?;
+    let writer_stream = stream.try_clone().map_err(|err| format!("failed to clone control socket: {err}"))?;
     let mut reader = LineReader::new(BufReader::new(stream));
 
     let daemon_version = perform_hello(&mut reader)?;
@@ -200,19 +206,24 @@ pub fn connect_remote_daemon(
 }
 
 /// Executes the `hello` handshake and translates version skew into a clear user message.
-fn perform_hello(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<String, String> {
+fn perform_hello(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<String, String>
+{
     write_message(reader.get_mut().get_mut(), &Request::Hello { version: CONTROL_PROTOCOL_VERSION })
         .map_err(|err| format!("failed sending hello: {err}"))?;
-    match reader.read_message::<Response>() {
-        Ok(Some(Response::HelloOk { version, daemon_version })) => {
-            if version != CONTROL_PROTOCOL_VERSION {
+    match reader.read_message::<Response>()
+    {
+        Ok(Some(Response::HelloOk { version, daemon_version })) =>
+        {
+            if version != CONTROL_PROTOCOL_VERSION
+            {
                 return Err(format!(
                     "control protocol version mismatch: client v{CONTROL_PROTOCOL_VERSION}, daemon v{version}"
                 ));
             }
             Ok(daemon_version)
         }
-        Ok(Some(Response::Error { code: ControlErrorCode::UnsupportedVersion, message })) => {
+        Ok(Some(Response::Error { code: ControlErrorCode::UnsupportedVersion, message })) =>
+        {
             Err(format!("control protocol version mismatch: {message}"))
         }
         Ok(Some(Response::Error { message, .. })) => Err(format!("handshake rejected: {message}")),
@@ -223,10 +234,12 @@ fn perform_hello(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<St
 }
 
 /// Sends `status` and reads the daemon's [`DaemonStatus`] reply.
-fn fetch_initial_status(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<DaemonStatus, String> {
+fn fetch_initial_status(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<DaemonStatus, String>
+{
     write_message(reader.get_mut().get_mut(), &Request::Status)
         .map_err(|err| format!("failed requesting status: {err}"))?;
-    match reader.read_message::<Response>() {
+    match reader.read_message::<Response>()
+    {
         Ok(Some(Response::Status(st))) => Ok(st),
         Ok(Some(Response::Error { message, .. })) => Err(format!("status failed: {message}")),
         Ok(Some(other)) => Err(format!("unexpected status reply: {other:?}")),
@@ -236,10 +249,12 @@ fn fetch_initial_status(reader: &mut LineReader<BufReader<ControlStream>>) -> Re
 }
 
 /// Sends `subscribe` and awaits the initial acknowledgment before starting the reader thread.
-fn send_subscribe(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<(), String> {
+fn send_subscribe(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<(), String>
+{
     write_message(reader.get_mut().get_mut(), &Request::Subscribe { pass_sample_rate: None })
         .map_err(|err| format!("failed subscribing to telemetry: {err}"))?;
-    match reader.read_message::<Response>() {
+    match reader.read_message::<Response>()
+    {
         Ok(Some(Response::Ack { op, .. })) if op == "subscribe" => Ok(()),
         Ok(Some(Response::Error { message, .. })) => Err(format!("subscribe failed: {message}")),
         Ok(Some(other)) => Err(format!("unexpected subscribe reply: {other:?}")),
@@ -256,48 +271,62 @@ fn run_remote_reader(
     desync_tx: mpsc::SyncSender<PacketRecord>,
     ev_tx: mpsc::SyncSender<RemoteEvent>,
     stop: Arc<AtomicBool>,
-) {
+)
+{
     let mut reason: Option<String> = None;
-    while !stop.load(Ordering::Acquire) {
-        match reader.read_message::<Response>() {
-            Ok(Some(resp)) => match resp {
+    while !stop.load(Ordering::Acquire)
+    {
+        match reader.read_message::<Response>()
+        {
+            Ok(Some(resp)) => match resp
+            {
                 Response::Counters(snap) => snap.store_into(&counters),
-                Response::Packet(rec) => {
-                    if rec.verdict != PacketVerdict::Pass {
+                Response::Packet(rec) =>
+                {
+                    if rec.verdict != PacketVerdict::Pass
+                    {
                         let _ = desync_tx.try_send(rec);
-                    } else {
+                    }
+                    else
+                    {
                         let _ = pkt_tx.try_send(rec);
                     }
                 }
-                Response::Status(st) => {
+                Response::Status(st) =>
+                {
                     st.counters.store_into(&counters);
                     let _ = ev_tx.try_send(RemoteEvent::StatusUpdated(Box::new(st)));
                 }
-                Response::Ack { op, message } => {
+                Response::Ack { op, message } =>
+                {
                     let detail = message.unwrap_or_else(|| "ok".to_owned());
                     let _ = ev_tx.try_send(RemoteEvent::InfoLog(format!("[{op}] {detail}")));
                 }
-                Response::Error { message, .. } => {
+                Response::Error { message, .. } =>
+                {
                     let _ = ev_tx.try_send(RemoteEvent::Error(message));
                 }
-                Response::HelloOk { .. } => {}
+                Response::HelloOk { .. } =>
+                {}
             },
-            Ok(None) => {
+            Ok(None) =>
+            {
                 reason = Some("remote daemon closed control socket".to_owned());
                 break;
             }
-            Err(CodecError::Io(err))
-                if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+            Err(CodecError::Io(err)) if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
             {
                 continue;
             }
-            Err(err) => {
+            Err(err) =>
+            {
                 reason = Some(err.to_string());
                 break;
             }
         }
     }
-    if !stop.load(Ordering::Acquire) {
+    if !stop.load(Ordering::Acquire)
+    {
         let _ = ev_tx.try_send(RemoteEvent::Disconnected(reason));
     }
 }

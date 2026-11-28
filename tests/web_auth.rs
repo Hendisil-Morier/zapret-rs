@@ -9,12 +9,13 @@ use std::process::Command;
 
 /// Web HTTP/auth/CLI primitives under test.
 use zapret_rs::tools::{
-    HttpReadError, MAX_BODY_BYTES, MAX_HEADER_BYTES, MulticallApplet, SESSION_COOKIE_NAME,
-    WebAuth, WebConfig, read_http_request, resolve_multicall, start_web_server,
+    HttpReadError, MAX_BODY_BYTES, MAX_HEADER_BYTES, MulticallApplet, SESSION_COOKIE_NAME, WebAuth,
+    WebConfig, read_http_request, resolve_multicall, start_web_server,
 };
 
 /// Sends a raw HTTP/1.1 request over TCP and returns `(status_line, raw_response)`.
-fn raw_http(addr: SocketAddr, request: &str) -> (u16, String) {
+fn raw_http(addr: SocketAddr, request: &str) -> (u16, String)
+{
     let mut stream = TcpStream::connect(addr).expect("connect to web server");
     stream.write_all(request.as_bytes()).expect("write HTTP request");
     let mut resp = String::new();
@@ -29,7 +30,8 @@ fn raw_http(addr: SocketAddr, request: &str) -> (u16, String) {
 }
 
 #[test]
-fn web_auth_refuses_no_auth_on_non_loopback_and_signs_cookies() {
+fn web_auth_refuses_no_auth_on_non_loopback_and_signs_cookies()
+{
     let lan = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 8787);
     let err = WebAuth::new(lan, None, true).expect_err("non-loopback --no-auth must fail");
     assert!(err.contains("--no-auth"));
@@ -52,7 +54,8 @@ fn web_auth_refuses_no_auth_on_non_loopback_and_signs_cookies() {
 }
 
 #[test]
-fn http_parser_enforces_header_and_body_bounds() {
+fn http_parser_enforces_header_and_body_bounds()
+{
     let mut big_hdr = b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Pad: ".to_vec();
     big_hdr.extend(vec![b'a'; MAX_HEADER_BYTES]);
     big_hdr.extend_from_slice(b"\r\n\r\n");
@@ -68,17 +71,13 @@ fn http_parser_enforces_header_and_body_bounds() {
 }
 
 #[test]
-fn web_server_enforces_cookie_login_csrf_and_logout_over_tcp() {
+fn web_server_enforces_cookie_login_csrf_and_logout_over_tcp()
+{
     let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("secret-pass-42".to_owned()), false).expect("auth");
-    let mut srv = start_web_server(WebConfig {
-        bind,
-        auth,
-        control_socket: None,
-        config: None,
-        lua_dir: None,
-    })
-    .expect("start web server");
+    let mut srv =
+        start_web_server(WebConfig { bind, auth, control_socket: None, config: None, lua_dir: None })
+            .expect("start web server");
     let addr = srv.addr();
 
     // Unauthenticated health check works; protected check returns 401.
@@ -111,26 +110,16 @@ fn web_server_enforces_cookie_login_csrf_and_logout_over_tcp() {
     );
     let (status, resp) = raw_http(addr, &req_ok);
     assert_eq!(status, 200);
-    let set_cookie = resp
-        .lines()
-        .find(|l| l.to_ascii_lowercase().starts_with("set-cookie:"))
-        .expect("Set-Cookie header");
+    let set_cookie =
+        resp.lines().find(|l| l.to_ascii_lowercase().starts_with("set-cookie:")).expect("Set-Cookie header");
     assert!(set_cookie.contains(SESSION_COOKIE_NAME));
     assert!(set_cookie.contains("HttpOnly"));
     assert!(set_cookie.contains("SameSite=Strict"));
-    let cookie_pair = set_cookie
-        .split_once(':')
-        .expect(":")
-        .1
-        .split(';')
-        .next()
-        .expect("pair")
-        .trim();
+    let cookie_pair = set_cookie.split_once(':').expect(":").1.split(';').next().expect("pair").trim();
 
     // Authenticated request succeeds with session cookie or bearer header.
-    let authed_req = format!(
-        "GET /api/auth/check HTTP/1.1\r\nHost: localhost\r\nCookie: {cookie_pair}\r\n\r\n"
-    );
+    let authed_req =
+        format!("GET /api/auth/check HTTP/1.1\r\nHost: localhost\r\nCookie: {cookie_pair}\r\n\r\n");
     assert_eq!(raw_http(addr, &authed_req).0, 200);
 
     let bearer_req =
@@ -149,7 +138,8 @@ fn web_server_enforces_cookie_login_csrf_and_logout_over_tcp() {
 }
 
 #[test]
-fn multicall_dispatches_web_subcommand_and_cli_help() {
+fn multicall_dispatches_web_subcommand_and_cli_help()
+{
     let (applet, args) = resolve_multicall(["zapret-rs", "web", "--bind", "127.0.0.1:8787"]);
     assert_eq!(applet, MulticallApplet::Web);
     assert_eq!(args.len(), 3);
@@ -169,17 +159,13 @@ fn multicall_dispatches_web_subcommand_and_cli_help() {
 }
 
 #[test]
-fn web_server_serves_self_contained_assets_without_external_cdn() {
+fn web_server_serves_self_contained_assets_without_external_cdn()
+{
     let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("asset-pass".to_owned()), false).expect("auth");
-    let mut srv = start_web_server(WebConfig {
-        bind,
-        auth,
-        control_socket: None,
-        config: None,
-        lua_dir: None,
-    })
-    .expect("start web server");
+    let mut srv =
+        start_web_server(WebConfig { bind, auth, control_socket: None, config: None, lua_dir: None })
+            .expect("start web server");
     let addr = srv.addr();
 
     let (st_html, html) = raw_http(addr, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
@@ -204,17 +190,13 @@ fn web_server_serves_self_contained_assets_without_external_cdn() {
 }
 
 #[test]
-fn web_server_blocks_dns_rebinding_cross_origin_and_rate_limits_login() {
+fn web_server_blocks_dns_rebinding_cross_origin_and_rate_limits_login()
+{
     let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
     let (auth, _) = WebAuth::new(bind, None, true).expect("no-auth loopback");
-    let mut srv_noauth = start_web_server(WebConfig {
-        bind,
-        auth,
-        control_socket: None,
-        config: None,
-        lua_dir: None,
-    })
-    .expect("start no-auth server");
+    let mut srv_noauth =
+        start_web_server(WebConfig { bind, auth, control_socket: None, config: None, lua_dir: None })
+            .expect("start no-auth server");
     let noauth_addr = srv_noauth.addr();
 
     // DNS rebinding Host and cross-origin Origin / Sec-Fetch-Site are rejected with 403 even in --no-auth.
@@ -251,7 +233,8 @@ fn web_server_blocks_dns_rebinding_cross_origin_and_rate_limits_login() {
         "POST /api/login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{bad}",
         bad.len()
     );
-    for _ in 0..5 {
+    for _ in 0..5
+    {
         assert_eq!(raw_http(pw_addr, &bad_req).0, 401);
     }
     assert_eq!(raw_http(pw_addr, &bad_req).0, 429);

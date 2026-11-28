@@ -11,14 +11,12 @@ use ratatui::{Terminal, backend::TestBackend};
 use zapret_rs::tui::{ActiveTab, AppAction, AppState, draw_app};
 
 #[test]
-fn tab5_status_populates_checks_navigates_and_renders() {
+fn tab5_status_populates_checks_navigates_and_renders()
+{
     let mut state = AppState::new(None, None, false);
     assert!(state.status.checks.is_empty());
 
-    assert_eq!(
-        state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE)),
-        AppAction::None
-    );
+    assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE)), AppAction::None);
     assert_eq!(state.tab, ActiveTab::Status);
     assert_eq!(state.status.checks.len(), 10);
     assert_eq!(state.status.selected, 0);
@@ -52,10 +50,7 @@ fn tab5_status_populates_checks_navigates_and_renders() {
     state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
     assert_ne!(state.status.dns_preset, initial_preset);
     state.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert_eq!(
-        state.modal.as_ref().map(|m| m.purpose),
-        Some(zapret_rs::tui::ModalPurpose::ConfirmApplyDns)
-    );
+    assert_eq!(state.modal.as_ref().map(|m| m.purpose), Some(zapret_rs::tui::ModalPurpose::ConfirmApplyDns));
     state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(state.modal.is_none());
 
@@ -63,13 +58,7 @@ fn tab5_status_populates_checks_navigates_and_renders() {
     let mut term = Terminal::new(backend).expect("create test terminal");
     term.draw(|f| draw_app(f, &state)).expect("render Tab 5");
 
-    let rendered: String = term
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|c| c.symbol())
-        .collect();
+    let rendered: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
     assert!(rendered.contains("Operational Component Status"));
     assert!(rendered.contains("Component Details"));
     assert!(rendered.contains("Packet Driver"));
@@ -78,20 +67,15 @@ fn tab5_status_populates_checks_navigates_and_renders() {
 }
 
 #[test]
-fn tab5_debug_report_exports_checks_logs_and_curl_exit_hints() {
+fn tab5_debug_report_exports_checks_logs_and_curl_exit_hints()
+{
     use zapret_rs::tools::ProbeOutcome;
     use zapret_rs::tui::debug_report::debug_report_path;
 
-    let dns_err = ProbeOutcome::Failed {
-        code: 6,
-        detail: "Could not resolve host".to_owned(),
-    };
+    let dns_err = ProbeOutcome::Failed { code: 6, detail: "Could not resolve host".to_owned() };
     assert!(dns_err.summary().contains("DNS resolve failed"));
 
-    let write_err = ProbeOutcome::Failed {
-        code: 23,
-        detail: "Failed writing body".to_owned(),
-    };
+    let write_err = ProbeOutcome::Failed { code: 23, detail: "Failed writing body".to_owned() };
     assert!(write_err.summary().contains("output write error"));
 
     let dir = std::env::temp_dir().join(format!("zapret-debug-export-{}", std::process::id()));
@@ -117,22 +101,16 @@ fn tab5_debug_report_exports_checks_logs_and_curl_exit_hints() {
 }
 
 #[test]
-fn tab5_debug_report_redacts_active_web_ui_passcode() {
+fn tab5_debug_report_redacts_active_web_ui_passcode()
+{
     use zapret_rs::tui::debug_report::format_debug_report;
 
     let mut state = AppState::new(None, None, false);
-    state.web_status = Some((
-        "http://192.168.1.50:8787".to_owned(),
-        "dead-beef-cafe-1337".to_owned(),
-    ));
+    state.web_status = Some(("http://192.168.1.50:8787".to_owned(), "dead-beef-cafe-1337".to_owned()));
     state.push_run_log("[web] leaked dead-beef-cafe-1337 check");
     state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
 
-    let web_check = state
-        .status.checks
-        .iter()
-        .find(|c| c.name == "Web UI")
-        .expect("Web UI check");
+    let web_check = state.status.checks.iter().find(|c| c.name == "Web UI").expect("Web UI check");
     assert!(!web_check.summary.contains("dead-beef-cafe-1337"));
     assert!(!web_check.detail.contains("dead-beef-cafe-1337"));
 
@@ -145,11 +123,12 @@ fn tab5_debug_report_redacts_active_web_ui_passcode() {
 }
 
 #[test]
-fn tab5_debug_report_includes_speed_finder_and_active_config() {
+fn tab5_debug_report_includes_speed_finder_and_active_config()
+{
     use std::path::PathBuf;
     use zapret_rs::tools::{
-        CoveredProfile, IpFamily, ProbeOutcome, ProbeProtocol, SpeedSample, StrategyMatch,
-        StrategySpec, TargetScanResult,
+        CoveredProfile, IpFamily, ProbeOutcome, ProbeProtocol, SpeedSample, StrategyMatch, StrategySpec,
+        TargetScanResult,
     };
     use zapret_rs::tui::RemoteDaemonMeta;
     use zapret_rs::tui::debug_report::format_debug_report;
@@ -214,18 +193,19 @@ fn tab5_debug_report_includes_speed_finder_and_active_config() {
 
     // Switching back to Tab 5 must refresh status checks with the updated Speed Test & Scan rows.
     state.handle_key(KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE));
-    let speed_check = state
-        .status.checks
-        .iter()
-        .find(|c| c.name == "Speed Test")
-        .expect("Speed Test status row");
+    let speed_check =
+        state.status.checks.iter().find(|c| c.name == "Speed Test").expect("Speed Test status row");
     assert!(speed_check.summary.contains("1 fixed"));
 
     let report = format_debug_report(&state);
     assert!(report.contains("Daemon Info : pid=4242 ver=1.4.0 qnum=200 intercept=true profiles=[profile_0]"));
     assert!(report.contains("DNS Preset  : Cloudflare"));
-    assert!(report.contains("example.com: before=[TIMEOUT] after=[conn 35ms ttfb 140ms  512 KB/s] result=FIXED"));
-    assert!(report.contains("example.com (tls13/ipv4): baseline=TIMEOUT tested=17 matches=1 best=tls13:ipv4:fake_badsum (140 ms)"));
+    assert!(
+        report.contains("example.com: before=[TIMEOUT] after=[conn 35ms ttfb 140ms  512 KB/s] result=FIXED")
+    );
+    assert!(report.contains(
+        "example.com (tls13/ipv4): baseline=TIMEOUT tested=17 matches=1 best=tls13:ipv4:fake_badsum (140 ms)"
+    ));
     assert!(report.contains("tls13:ipv4:fake_badsum: domains=[example.com] avg=140 ms"));
     assert!(report.contains("qnum = 200"));
 }

@@ -7,7 +7,8 @@ use crate::rawsend::error::RawSendError;
 
 /// Unified error enum surfaced by the `zapret-rs` LuaJIT runtime.
 #[derive(Debug, thiserror::Error)]
-pub enum LuaEngineError {
+pub enum LuaEngineError
+{
     /// Embedded LuaJIT error raised during script loading or execution.
     #[error("Lua engine error: {0}")]
     Lua(#[from] mlua::Error),

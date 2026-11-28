@@ -2,7 +2,8 @@
 
 /// Errors returned by packet parsing, checksum verification, and packet reconstruction routines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum PacketError {
+pub enum PacketError
+{
     /// Input buffer ended before the expected header or payload length.
     #[error("Packet ended unexpectedly")]
     Truncated,

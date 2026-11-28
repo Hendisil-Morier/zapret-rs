@@ -16,23 +16,25 @@ const STRERROR_BUF_LEN: usize = 256;
 
 /// Resolves an OS `errno` value into its thread-safe locale error message string.
 #[cfg(unix)]
-fn strerror_string(errno: i32) -> String {
+fn strerror_string(errno: i32) -> String
+{
     let mut buf = [0 as libc::c_char; STRERROR_BUF_LEN];
     // SAFETY: `buf` is valid writable storage of `STRERROR_BUF_LEN` bytes for `strerror_r`.
     let rc = unsafe { libc::strerror_r(errno, buf.as_mut_ptr(), buf.len()) };
-    if rc == 0 {
+    if rc == 0
+    {
         // SAFETY: XSI `strerror_r` NUL-terminates `buf` upon returning `0`.
-        return unsafe { CStr::from_ptr(buf.as_ptr()) }
-            .to_string_lossy()
-            .into_owned();
+        return unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned();
     }
     std::io::Error::from_raw_os_error(errno).to_string()
 }
 
 /// Maps POSIX `st_mode` file-type bits into `zapret2`'s `stat.type` strings.
 #[cfg(unix)]
-const fn stat_file_type(mode: libc::mode_t) -> &'static str {
-    match mode & libc::S_IFMT {
+const fn stat_file_type(mode: libc::mode_t) -> &'static str
+{
+    match mode & libc::S_IFMT
+    {
         libc::S_IFREG => "file",
         libc::S_IFDIR => "dir",
         libc::S_IFLNK => "symlink",
@@ -46,25 +48,29 @@ const fn stat_file_type(mode: libc::mode_t) -> &'static str {
 
 /// Extracts the timezone abbreviation string from `libc::tm` on Unix targets.
 #[cfg(unix)]
-fn tm_zone_string(tm: &libc::tm) -> String {
-    if tm.tm_zone.is_null() {
+fn tm_zone_string(tm: &libc::tm) -> String
+{
+    if tm.tm_zone.is_null()
+    {
         String::new()
-    } else {
+    }
+    else
+    {
         // SAFETY: `localtime_r`/`gmtime_r` populate `tm_zone` with a static NUL-terminated string.
-        unsafe { CStr::from_ptr(tm.tm_zone) }
-            .to_string_lossy()
-            .into_owned()
+        unsafe { CStr::from_ptr(tm.tm_zone) }.to_string_lossy().into_owned()
     }
 }
 
 /// Fallback empty timezone string on Windows where `libc::tm` omits `tm_zone`.
 #[cfg(not(unix))]
-fn tm_zone_string(_tm: &libc::tm) -> String {
+fn tm_zone_string(_tm: &libc::tm) -> String
+{
     String::new()
 }
 
 /// Converts a populated `libc::tm` struct into a 11-field `zapret2` Lua time table.
-fn build_tm_table(lua: &Lua, tm: &libc::tm) -> mlua::Result<Table> {
+fn build_tm_table(lua: &Lua, tm: &libc::tm) -> mlua::Result<Table>
+{
     let year = tm.tm_year + 1900;
     let zone = tm_zone_string(tm);
     let formatted = format!(
@@ -93,16 +99,19 @@ fn build_tm_table(lua: &Lua, tm: &libc::tm) -> mlua::Result<Table> {
 }
 
 /// Extracts one strictly numeric `c_int` field from a Lua `tm` table (`lua.c:3851`).
-fn read_tm_int(tbl: &Table, field: &str) -> mlua::Result<libc::c_int> {
+fn read_tm_int(tbl: &Table, field: &str) -> mlua::Result<libc::c_int>
+{
     let val: Value = tbl.get(field)?;
-    let num = require_number_i64(&val)
-        .map_err(|_| mlua::Error::external(format!("invalid tm.{field}")))?;
+    let num = require_number_i64(&val).map_err(|_| mlua::Error::external(format!("invalid tm.{field}")))?;
     libc::c_int::try_from(num).map_err(|_| mlua::Error::external(format!("invalid tm.{field}")))
 }
 
 /// Validates and decodes a Lua `tm` table into a zero-initialized `libc::tm`.
-fn parse_tm_table(val: &Value) -> mlua::Result<libc::tm> {
-    let Value::Table(tbl) = val else {
+fn parse_tm_table(val: &Value) -> mlua::Result<libc::tm>
+{
+    let Value::Table(tbl) = val
+    else
+    {
         return Err(mlua::Error::external("invalid tm structure"));
     };
     // SAFETY: `libc::tm` is a plain C struct where zero-initialization sets pointer fields cleanly.
@@ -123,13 +132,15 @@ fn run_xtime(
     lua: &Lua,
     val: &Value,
     timefn: unsafe extern "C" fn(*const libc::time_t, *mut libc::tm) -> *mut libc::tm,
-) -> mlua::Result<Value> {
+) -> mlua::Result<Value>
+{
     let unixtime = coerce_i64(lua, val)? as libc::time_t;
     // SAFETY: `libc::tm` is completely overwritten by `localtime_r`/`gmtime_r` on non-null return.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     // SAFETY: pointers reference valid initialized stack locals.
     let res = unsafe { timefn(&raw const unixtime, &raw mut tm) };
-    if res.is_null() {
+    if res.is_null()
+    {
         return Ok(Value::Nil);
     }
     build_tm_table(lua, &tm).map(Value::Table)
@@ -141,23 +152,30 @@ fn run_xtime_s(
     lua: &Lua,
     val: &Value,
     timefn: unsafe extern "C" fn(*mut libc::tm, *const libc::time_t) -> libc::errno_t,
-) -> mlua::Result<Value> {
+) -> mlua::Result<Value>
+{
     let unixtime = coerce_i64(lua, val)? as libc::time_t;
     // SAFETY: `libc::tm` is completely overwritten by `localtime_s`/`gmtime_s` on `0` return.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     // SAFETY: pointers reference valid initialized stack locals.
-    if unsafe { timefn(&raw mut tm, &raw const unixtime) } != 0 {
+    if unsafe { timefn(&raw mut tm, &raw const unixtime) } != 0
+    {
         return Ok(Value::Nil);
     }
     build_tm_table(lua, &tm).map(Value::Table)
 }
 
 /// Converts a Lua `tm` table back into a Unix timestamp (or `nil`) via `mktime` or `timegm`.
-fn run_timex(val: &Value, timefn: unsafe extern "C" fn(*mut libc::tm) -> libc::time_t) -> mlua::Result<Option<i64>> {
+fn run_timex(
+    val: &Value,
+    timefn: unsafe extern "C" fn(*mut libc::tm) -> libc::time_t,
+) -> mlua::Result<Option<i64>>
+{
     let mut tm = parse_tm_table(val)?;
     // SAFETY: `tm` is a valid initialized `libc::tm` with all calendar fields populated.
     let ts = unsafe { timefn(&raw mut tm) };
-    if ts == -1 {
+    if ts == -1
+    {
         return Ok(None);
     }
     #[allow(clippy::useless_conversion)]
@@ -166,10 +184,13 @@ fn run_timex(val: &Value, timefn: unsafe extern "C" fn(*mut libc::tm) -> libc::t
 
 /// Queries POSIX `stat(2)` metadata into a Lua table on Unix.
 #[cfg(unix)]
-fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue> {
+fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue>
+{
     check_argc("stat", &args, 1)?;
     let path = coerce_str(lua, &args[0])?;
-    let Ok(c_path) = CString::new(path) else {
+    let Ok(c_path) = CString::new(path)
+    else
+    {
         let err_str = strerror_string(libc::EINVAL);
         return Ok(MultiValue::from_vec(vec![
             Value::Nil,
@@ -181,10 +202,9 @@ fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue> {
     // SAFETY: `libc::stat` writes into `st` on `0` return and resolves symlinks like C `stat(2)`.
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
     // SAFETY: `c_path` is NUL-terminated and `st` is valid writable storage.
-    if unsafe { libc::stat(c_path.as_ptr(), &raw mut st) } != 0 {
-        let errno = std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or(libc::EINVAL);
+    if unsafe { libc::stat(c_path.as_ptr(), &raw mut st) } != 0
+    {
+        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EINVAL);
         let err_str = strerror_string(errno);
         return Ok(MultiValue::from_vec(vec![
             Value::Nil,
@@ -205,12 +225,15 @@ fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue> {
 
 /// Queries `std::fs::metadata` into a Lua `stat` table on non-Unix targets.
 #[cfg(not(unix))]
-fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue> {
+fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue>
+{
     check_argc("stat", &args, 1)?;
     let path = coerce_str(lua, &args[0])?;
-    let meta = match std::fs::metadata(&path) {
+    let meta = match std::fs::metadata(&path)
+    {
         Ok(m) => m,
-        Err(err) => {
+        Err(err) =>
+        {
             let errno = err.raw_os_error().unwrap_or(libc::EINVAL);
             let err_str = err.to_string();
             return Ok(MultiValue::from_vec(vec![
@@ -225,11 +248,16 @@ fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue> {
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0.0, |d| d.as_secs_f64());
-    let ftype = if meta.is_file() {
+    let ftype = if meta.is_file()
+    {
         "file"
-    } else if meta.is_dir() {
+    }
+    else if meta.is_dir()
+    {
         "dir"
-    } else {
+    }
+    else
+    {
         "unknown"
     };
     let tbl = lua.create_table_with_capacity(0, 5)?;
@@ -242,7 +270,8 @@ fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue> {
 }
 
 /// Registers `stat`, `localtime`, `gmtime`, `timelocal`, and `timegm` on `_G`.
-pub fn register_fs_time_functions(lua: &Lua) -> mlua::Result<()> {
+pub fn register_fs_time_functions(lua: &Lua) -> mlua::Result<()>
+{
     let globals = lua.globals();
 
     globals.set("stat", lua.create_function(lua_stat)?)?;

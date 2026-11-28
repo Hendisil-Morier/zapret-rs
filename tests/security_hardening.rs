@@ -32,18 +32,16 @@ use zapret_rs::lua::{
 use zapret_rs::packet::constants::{IPPROTO_TCP, TH_ACK, TH_SYN};
 /// Packet header structs and wire reconstructor for building valid dissected packets.
 use zapret_rs::packet::{
-    DissectedPacket, Ipv4Header, ReconstructOptions, TcpHeader, dissect_packet,
-    reconstruct_packet,
+    DissectedPacket, Ipv4Header, ReconstructOptions, TcpHeader, dissect_packet, reconstruct_packet,
 };
 /// Runtime writable-directory validator and PID guard under test.
-use zapret_rs::runtime::{
-    PidFileGuard, ProcessError, ensure_writable_dir, resolve_default_writable_dir,
-};
+use zapret_rs::runtime::{PidFileGuard, ProcessError, ensure_writable_dir, resolve_default_writable_dir};
 /// Monotonic boottime timestamps used to advance flow and cache expiry sweeps.
 use zapret_rs::timer::MonotonicTime;
 
 /// Returns a `zapret-rs daemon` command backed by the compiled unified binary.
-fn nfqws2_cmd() -> Command {
+fn nfqws2_cmd() -> Command
+{
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
     cmd.arg("daemon");
     cmd
@@ -52,38 +50,41 @@ fn nfqws2_cmd() -> Command {
 /// RAII temporary test directory removed on drop.
 struct TempDir(PathBuf);
 
-impl TempDir {
-    fn new(label: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "zapret_rs_sec_{}_{}",
-            std::process::id(),
-            label
-        ));
+impl TempDir
+{
+    fn new(label: &str) -> Self
+    {
+        let dir = std::env::temp_dir().join(format!("zapret_rs_sec_{}_{}", std::process::id(), label));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp test dir");
         Self(dir)
     }
 
-    fn path(&self) -> &Path {
+    fn path(&self) -> &Path
+    {
         &self.0
     }
 }
 
-impl Drop for TempDir {
-    fn drop(&mut self) {
+impl Drop for TempDir
+{
+    fn drop(&mut self)
+    {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
 
 /// Compresses `data` into a standard RFC 1952 gzip payload.
-fn gzip_bytes(data: &[u8]) -> Vec<u8> {
+fn gzip_bytes(data: &[u8]) -> Vec<u8>
+{
     let mut enc = GzEncoder::new(Vec::new(), Compression::fast());
     enc.write_all(data).expect("write gzip payload");
     enc.finish().expect("finish gzip payload")
 }
 
 /// Builds a dissected IPv4 TCP packet for conntrack capacity testing.
-fn make_syn_or_ack(src_last: u8, sport: u16, flags: u8) -> DissectedPacket {
+fn make_syn_or_ack(src_last: u8, sport: u16, flags: u8) -> DissectedPacket
+{
     let dis = DissectedPacket {
         ip: Some(Ipv4Header {
             version: 4,
@@ -119,7 +120,8 @@ fn make_syn_or_ack(src_last: u8, sport: u16, flags: u8) -> DissectedPacket {
 }
 
 #[test]
-fn writable_dir_refuses_symlink_in_custom_and_default_modes() {
+fn writable_dir_refuses_symlink_in_custom_and_default_modes()
+{
     let tmp = TempDir::new("writable_symlink");
     let victim_dir = tmp.path().join("victim_dir");
     fs::create_dir(&victim_dir).expect("create victim dir");
@@ -129,8 +131,10 @@ fn writable_dir_refuses_symlink_in_custom_and_default_modes() {
 
     let err = ensure_writable_dir(&WritableDirConfig::Custom(custom_link), None)
         .expect_err("symlink custom writable dir must be rejected");
-    match err {
-        ProcessError::WritableDir { source, .. } => {
+    match err
+    {
+        ProcessError::WritableDir { source, .. } =>
+        {
             assert!(
                 matches!(source.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR)),
                 "unexpected errno for symlink writable dir: {source:?}"
@@ -161,7 +165,8 @@ fn writable_dir_refuses_symlink_in_custom_and_default_modes() {
 }
 
 #[test]
-fn pidfile_guard_refuses_symlink_without_truncating_target() {
+fn pidfile_guard_refuses_symlink_without_truncating_target()
+{
     let tmp = TempDir::new("pidfile_symlink");
     let victim = tmp.path().join("victim.txt");
     fs::write(&victim, b"keep-intact").expect("write victim file");
@@ -169,8 +174,10 @@ fn pidfile_guard_refuses_symlink_without_truncating_target() {
     let pid_link = tmp.path().join("daemon.pid");
     symlink(&victim, &pid_link).expect("create pid symlink");
 
-    match PidFileGuard::create(&pid_link) {
-        Err(ProcessError::PidFile { source, .. }) => {
+    match PidFileGuard::create(&pid_link)
+    {
+        Err(ProcessError::PidFile { source, .. }) =>
+        {
             assert_eq!(source.raw_os_error(), Some(libc::ELOOP));
         }
         Ok(_) => panic!("PidFileGuard::create must reject symlinks"),
@@ -192,18 +199,17 @@ fn pidfile_guard_refuses_symlink_without_truncating_target() {
 }
 
 #[test]
-fn conntrack_pool_caps_entries_and_recovers_after_expiry() {
+fn conntrack_pool_caps_entries_and_recovers_after_expiry()
+{
     let mut pool = ConntrackPool::default();
     assert_eq!(pool.max_entries(), DEFAULT_CTRACK_MAX_ENTRIES);
     pool.set_max_entries(4);
 
-    for idx in 0..4u16 {
+    for idx in 0..4u16
+    {
         let pkt = make_syn_or_ack(10 + idx as u8, 10_000 + idx, TH_SYN);
         let t = MonotonicTime { sec: 100 + i64::from(idx), nsec: 0 };
-        assert!(
-            pool.feed(None, &pkt, t).expect("feed syn").is_some(),
-            "flow {idx} within cap must insert"
-        );
+        assert!(pool.feed(None, &pkt, t).expect("feed syn").is_some(), "flow {idx} within cap must insert");
     }
     assert_eq!(pool.len(), 4);
 
@@ -282,12 +288,14 @@ fn conntrack_pool_caps_entries_and_recovers_after_expiry() {
 }
 
 #[test]
-fn ipcache_caps_entries_and_recovers_after_expiry() {
+fn ipcache_caps_entries_and_recovers_after_expiry()
+{
     let mut cache = IpCache::new(30, true);
     assert_eq!(cache.max_entries(), DEFAULT_IPCACHE_MAX_ENTRIES);
     cache.set_max_entries(4);
 
-    for host_octet in 1..=4u8 {
+    for host_octet in 1..=4u8
+    {
         cache.put_hostname(
             IpAddr::V4(Ipv4Addr::new(192, 0, 2, host_octet)),
             &format!("host{host_octet}.example"),
@@ -319,7 +327,8 @@ fn ipcache_caps_entries_and_recovers_after_expiry() {
 }
 
 #[test]
-fn gunzip_inflate_enforces_output_cap_and_rejects_bomb() {
+fn gunzip_inflate_enforces_output_cap_and_rejects_bomb()
+{
     let exact = gzip_bytes(&vec![b'A'; 1024]);
     let over = gzip_bytes(&vec![b'A'; 1025]);
 
@@ -329,16 +338,15 @@ fn gunzip_inflate_enforces_output_cap_and_rejects_bomb() {
     assert_eq!(out.len(), 1024);
 
     let mut single_over = InflateStream::with_max_output(InflateMode::Gzip, 1024);
-    assert!(
-        single_over.inflate(&over, 1024).is_none(),
-        "1025-byte single chunk must fail 1024-byte cap"
-    );
+    assert!(single_over.inflate(&over, 1024).is_none(), "1025-byte single chunk must fail 1024-byte cap");
 
     // Verify cumulative cap holds across small chunks as well.
     let mut chunked_over = InflateStream::with_max_output(InflateMode::Gzip, 1024);
     let mut failed = false;
-    for chunk in over.chunks(8) {
-        if chunked_over.inflate(chunk, 128).is_none() {
+    for chunk in over.chunks(8)
+    {
+        if chunked_over.inflate(chunk, 128).is_none()
+        {
             failed = true;
             break;
         }
@@ -381,7 +389,8 @@ fn gunzip_inflate_enforces_output_cap_and_rejects_bomb() {
 }
 
 #[test]
-fn systemd_unit_template_enables_ambient_caps_and_auto_nft() {
+fn systemd_unit_template_enables_ambient_caps_and_auto_nft()
+{
     let systemd_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("contrib/systemd");
     let unit = fs::read_to_string(systemd_dir.join("zapret-rs.service"))
         .expect("read contrib/systemd/zapret-rs.service");
@@ -390,8 +399,8 @@ fn systemd_unit_template_enables_ambient_caps_and_auto_nft() {
     assert!(unit.contains("--nft"));
     assert!(unit.contains("--control-socket /run/zapret-rs/control.sock"));
 
-    let path_unit = fs::read_to_string(systemd_dir.join("zapret-rs.path"))
-        .expect("read contrib/systemd/zapret-rs.path");
+    let path_unit =
+        fs::read_to_string(systemd_dir.join("zapret-rs.path")).expect("read contrib/systemd/zapret-rs.path");
     assert!(path_unit.contains("PathChanged=__REPO__/target/release/zapret-rs"));
     assert!(path_unit.contains("Unit=zapret-rs-restart.service"));
 
@@ -399,7 +408,8 @@ fn systemd_unit_template_enables_ambient_caps_and_auto_nft() {
         .expect("read contrib/systemd/zapret-rs-restart.service");
     assert!(restart_unit.contains("try-restart zapret-rs.service"));
 
-    if !zapret_rs::runtime::has_effective_caps(zapret_rs::runtime::CAP_MASK_NET).unwrap_or(false) {
+    if !zapret_rs::runtime::has_effective_caps(zapret_rs::runtime::CAP_MASK_NET).unwrap_or(false)
+    {
         assert!(zapret_rs::runtime::retain_net_capabilities_for(false, true).is_ok());
     }
 }

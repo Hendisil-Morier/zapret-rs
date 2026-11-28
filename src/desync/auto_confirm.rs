@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use std::io::{ErrorKind, Read, Write};
 /// Standard library TCP socket primitives for short-timeout DPI confirmation probes.
 use std::net::{IpAddr, SocketAddr, TcpStream};
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
 /// Single-thread reference counting for accessing profile autolist handles on the packet thread.
 use std::rc::Rc;
 /// Bounded worker queue and lock-free result drain channel.
@@ -17,21 +19,17 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 /// Connect and read/write bounds preventing hung sockets.
 use std::time::Duration;
-#[cfg(target_os = "linux")]
-use std::os::fd::AsRawFd;
 
 /// Default TLS ClientHello template re-targeted to each candidate SNI via `tls_mod`.
 use crate::config::{DesyncProfile, FAKE_TLS_CLIENTHELLO_DEFAULT};
 /// Desync profile runtime state containing fail pool and writable autolist handles.
 use crate::desync::profile_state::ProfileRuntime;
 /// Shared autohostlist promotion, debug-logging, and failure reset helpers.
-use crate::lists::{
-    AutoHostlistAction, AutoHostlistRecordCtx, promote_autohost, reset_autohost_failure,
-};
+use crate::lists::{AutoHostlistAction, AutoHostlistRecordCtx, promote_autohost, reset_autohost_failure};
 /// L7 protocol tags, TLS/HTTP DPI-block detectors, and TLS ClientHello SNI mutator.
 use crate::protocol::{
-    FAKE_TLS_MOD_RND, FAKE_TLS_MOD_SNI, FakeTlsMod, L7Proto, http_reply_looks_like_dpi_block,
-    is_http_reply, is_tls_fatal_alert, is_tls_server_hello_partial, tls_mod,
+    FAKE_TLS_MOD_RND, FAKE_TLS_MOD_SNI, FakeTlsMod, L7Proto, http_reply_looks_like_dpi_block, is_http_reply,
+    is_tls_fatal_alert, is_tls_server_hello_partial, tls_mod,
 };
 /// Boottime monotonic seconds clock recorded alongside promoted autohostlist entries.
 use crate::timer::boottime_secs;
@@ -45,7 +43,8 @@ const MAX_PROBE_READ_BYTES: usize = 2048;
 
 /// Queued verification task emitted when a host records a passive failure under `confirm_block`.
 #[derive(Debug, Clone)]
-pub(crate) struct AutoConfirmRequest {
+pub(crate) struct AutoConfirmRequest
+{
     /// Zero-based profile slot at the time the passive failure occurred.
     pub(crate) profile_slot: usize,
     /// Stable 1-based `DesyncProfile::index` guarding against stale results after hot-reload.
@@ -64,7 +63,8 @@ pub(crate) struct AutoConfirmRequest {
 
 /// Asynchronous probe verdict returned from the background worker to the packet thread.
 #[derive(Debug, Clone)]
-pub(crate) struct AutoConfirmResult {
+pub(crate) struct AutoConfirmResult
+{
     /// Zero-based profile slot originally targeted.
     profile_slot: usize,
     /// Stable 1-based `DesyncProfile::index` matching the target profile.
@@ -81,8 +81,10 @@ pub(crate) struct AutoConfirmResult {
 
 /// Applies Linux `SO_MARK` onto the connected probe socket so NFQUEUE skips its payload traffic.
 #[cfg(target_os = "linux")]
-fn apply_probe_fwmark(stream: &TcpStream, fwmark: u32) {
-    if fwmark == 0 {
+fn apply_probe_fwmark(stream: &TcpStream, fwmark: u32)
+{
+    if fwmark == 0
+    {
         return;
     }
     let mark = fwmark as libc::c_int;
@@ -100,13 +102,14 @@ fn apply_probe_fwmark(stream: &TcpStream, fwmark: u32) {
 }
 
 /// Builds an un-desynced TLS ClientHello (retargeted SNI) or HTTP `HEAD` probe for active verification.
-fn build_confirm_probe_payload(host: &str, l7proto: L7Proto) -> Option<Vec<u8>> {
-    match l7proto {
-        L7Proto::Tls => {
-            let modifier = FakeTlsMod {
-                sni: host.to_owned(),
-                mod_flags: FAKE_TLS_MOD_RND | FAKE_TLS_MOD_SNI,
-            };
+fn build_confirm_probe_payload(host: &str, l7proto: L7Proto) -> Option<Vec<u8>>
+{
+    match l7proto
+    {
+        L7Proto::Tls =>
+        {
+            let modifier =
+                FakeTlsMod { sni: host.to_owned(), mod_flags: FAKE_TLS_MOD_RND | FAKE_TLS_MOD_SNI };
             tls_mod(&modifier, None, &FAKE_TLS_CLIENTHELLO_DEFAULT)
         }
         L7Proto::Http => Some(
@@ -129,8 +132,10 @@ pub fn probe_endpoint_for_dpi(
     l7proto: L7Proto,
     desync_fwmark: u32,
     timeout: Duration,
-) -> Option<bool> {
-    if dst_port == 0 {
+) -> Option<bool>
+{
+    if dst_port == 0
+    {
         return None;
     }
     let payload = build_confirm_probe_payload(host, l7proto)?;
@@ -143,7 +148,8 @@ pub fn probe_endpoint_for_dpi(
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
 
-    if let Err(err) = stream.write_all(&payload) {
+    if let Err(err) = stream.write_all(&payload)
+    {
         return matches!(
             err.kind(),
             ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted | ErrorKind::BrokenPipe
@@ -152,16 +158,17 @@ pub fn probe_endpoint_for_dpi(
     }
 
     let mut buf = [0u8; MAX_PROBE_READ_BYTES];
-    match stream.read(&mut buf) {
+    match stream.read(&mut buf)
+    {
         Ok(0) => Some(true),
-        Ok(n) => {
+        Ok(n) =>
+        {
             let reply = &buf[..n];
-            match l7proto {
+            match l7proto
+            {
                 L7Proto::Tls if is_tls_fatal_alert(reply) => Some(true),
                 L7Proto::Tls if is_tls_server_hello_partial(reply) => Some(false),
-                L7Proto::Http if http_reply_looks_like_dpi_block(reply, host, host_is_ip) => {
-                    Some(true)
-                }
+                L7Proto::Http if http_reply_looks_like_dpi_block(reply, host, host_is_ip) => Some(true),
                 L7Proto::Http if is_http_reply(reply) => Some(false),
                 _ => None,
             }
@@ -183,7 +190,8 @@ pub fn probe_endpoint_for_dpi(
 }
 
 /// Non-blocking single background worker verifying candidate autohostlist failures out-of-band.
-pub(crate) struct AutoConfirmWorker {
+pub(crate) struct AutoConfirmWorker
+{
     /// Bounded queue submitting probe requests from the packet thread (`None` after shutdown).
     tx: Option<SyncSender<AutoConfirmRequest>>,
     /// Lock-free result receiver drained between packets.
@@ -194,9 +202,11 @@ pub(crate) struct AutoConfirmWorker {
     join: Option<JoinHandle<()>>,
 }
 
-impl AutoConfirmWorker {
+impl AutoConfirmWorker
+{
     /// Spawns the background DPI confirmation worker when at least one profile enables `confirm_block`.
-    pub(crate) fn for_profiles(profiles: &[Rc<DesyncProfile>], desync_fwmark: u32) -> Option<Self> {
+    pub(crate) fn for_profiles(profiles: &[Rc<DesyncProfile>], desync_fwmark: u32) -> Option<Self>
+    {
         profiles
             .iter()
             .any(|p| p.lists.hostlist_auto.is_some() && p.lists.hostlist_auto_settings.confirm_block)
@@ -204,7 +214,8 @@ impl AutoConfirmWorker {
     }
 
     /// Spawns the background DPI confirmation worker using `desync_fwmark` on Linux probes.
-    pub(crate) fn spawn(desync_fwmark: u32) -> Self {
+    pub(crate) fn spawn(desync_fwmark: u32) -> Self
+    {
         let (req_tx, req_rx) = mpsc::sync_channel::<AutoConfirmRequest>(MAX_CONFIRM_QUEUE);
         let (res_tx, res_rx) = mpsc::channel::<AutoConfirmResult>();
         let in_flight = Arc::new(Mutex::new(HashSet::<String>::new()));
@@ -213,7 +224,8 @@ impl AutoConfirmWorker {
         let join = thread::Builder::new()
             .name("zapret-autoconfirm".to_owned())
             .spawn(move || {
-                while let Ok(req) = req_rx.recv() {
+                while let Ok(req) = req_rx.recv()
+                {
                     let probe_res = probe_endpoint_for_dpi(
                         req.dst_ip,
                         req.dst_port,
@@ -223,7 +235,8 @@ impl AutoConfirmWorker {
                         desync_fwmark,
                         DEFAULT_CONFIRM_TIMEOUT,
                     );
-                    if let Ok(mut guard) = flight_bg.lock() {
+                    if let Ok(mut guard) = flight_bg.lock()
+                    {
                         guard.remove(&req.host);
                     }
                     if let Some(confirmed_blocked) = probe_res
@@ -244,27 +257,29 @@ impl AutoConfirmWorker {
             })
             .ok();
 
-        Self {
-            tx: Some(req_tx),
-            rx: res_rx,
-            in_flight,
-            join,
-        }
+        Self { tx: Some(req_tx), rx: res_rx, in_flight, join }
     }
 
     /// Enqueues `req` without blocking if the host is not already in-flight and queue capacity remains.
-    pub(crate) fn try_submit(&self, req: AutoConfirmRequest) {
-        let Some(tx) = &self.tx else {
+    pub(crate) fn try_submit(&self, req: AutoConfirmRequest)
+    {
+        let Some(tx) = &self.tx
+        else
+        {
             return;
         };
-        if !matches!(req.l7proto, L7Proto::Tls | L7Proto::Http) || req.dst_port == 0 {
+        if !matches!(req.l7proto, L7Proto::Tls | L7Proto::Http) || req.dst_port == 0
+        {
             return;
         }
         {
-            let Ok(mut guard) = self.in_flight.lock() else {
+            let Ok(mut guard) = self.in_flight.lock()
+            else
+            {
                 return;
             };
-            if !guard.insert(req.host.clone()) {
+            if !guard.insert(req.host.clone())
+            {
                 return;
             }
         }
@@ -281,17 +296,25 @@ impl AutoConfirmWorker {
         profiles: &[Rc<DesyncProfile>],
         runtimes: &[ProfileRuntime],
         debug_log: Option<&std::path::Path>,
-    ) {
-        while let Ok(res) = self.rx.try_recv() {
-            let Some(profile) = profiles.get(res.profile_slot) else {
+    )
+    {
+        while let Ok(res) = self.rx.try_recv()
+        {
+            let Some(profile) = profiles.get(res.profile_slot)
+            else
+            {
                 continue;
             };
-            if profile.index != res.profile_index {
+            if profile.index != res.profile_index
+            {
                 continue;
             }
             let rt = &runtimes[res.profile_slot];
-            if res.confirmed_blocked {
-                let Some(autolist_file) = &rt.autolist else {
+            if res.confirmed_blocked
+            {
+                let Some(autolist_file) = &rt.autolist
+                else
+                {
                     continue;
                 };
                 let mut pool = rt.fail_pool.borrow_mut();
@@ -307,12 +330,13 @@ impl AutoConfirmWorker {
                     l7proto: res.l7proto,
                     now_sec: boottime_secs(),
                 };
-                if promote_autohost(&ctx, &res.host, res.host_is_ip)
-                    == AutoHostlistAction::AddedToList
+                if promote_autohost(&ctx, &res.host, res.host_is_ip) == AutoHostlistAction::AddedToList
                 {
                     pool.reset(&res.host);
                 }
-            } else {
+            }
+            else
+            {
                 let mut pool = rt.fail_pool.borrow_mut();
                 let _ = reset_autohost_failure(
                     &mut pool,
@@ -328,10 +352,13 @@ impl AutoConfirmWorker {
     }
 }
 
-impl Drop for AutoConfirmWorker {
-    fn drop(&mut self) {
+impl Drop for AutoConfirmWorker
+{
+    fn drop(&mut self)
+    {
         self.tx.take();
-        if let Some(handle) = self.join.take() {
+        if let Some(handle) = self.join.take()
+        {
             let _ = handle.join();
         }
     }

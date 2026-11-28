@@ -5,12 +5,12 @@
 use std::ffi::CString;
 /// Parsed IPv4 and IPv6 host address types returned from OS lookups.
 use std::net::IpAddr;
-/// Explicit IPv4/IPv6 constructors used by the Unix `libc::getaddrinfo` decoder.
-#[cfg(unix)]
-use std::net::{Ipv4Addr, Ipv6Addr};
 /// Portable standard-library DNS lookup used on non-Unix targets.
 #[cfg(not(unix))]
 use std::net::ToSocketAddrs;
+/// Explicit IPv4/IPv6 constructors used by the Unix `libc::getaddrinfo` decoder.
+#[cfg(unix)]
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// Typed error derivation for invalid `mdig` configuration flags.
 use thiserror::Error;
@@ -37,7 +37,8 @@ const GLIBC_EAI_ADDRFAMILY: i32 = -9;
 
 /// Errors returned while validating `mdig` runtime options.
 #[derive(Debug, Error)]
-pub enum MdigConfigError {
+pub enum MdigConfigError
+{
     /// `--family` was not `"4"`, `"6"`, or `"46"`.
     #[error("ip family must be 4,6 or 46")]
     InvalidFamily(String),
@@ -57,7 +58,8 @@ pub enum MdigConfigError {
 
 /// Validated runtime configuration governing `mdig` resolution and logging behavior.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MdigConfig {
+pub struct MdigConfig
+{
     /// Allowed address family (`4`, `6`, or `46`).
     pub family: MdigFamily,
     /// Number of worker threads draining stdin.
@@ -72,9 +74,11 @@ pub struct MdigConfig {
     pub stats_every: u64,
 }
 
-impl Default for MdigConfig {
+impl Default for MdigConfig
+{
     /// Returns default `mdig` settings (`--family=4 --threads=1 --eagain=10 --eagain-delay=500`).
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self {
             family: MdigFamily::Ipv4,
             threads: DEFAULT_MDIG_THREADS,
@@ -86,7 +90,8 @@ impl Default for MdigConfig {
     }
 }
 
-impl MdigConfig {
+impl MdigConfig
+{
     /// Validates raw CLI flag strings into an [`MdigConfig`] matching `mdig.c` bounds.
     pub fn from_options(
         family: Option<&str>,
@@ -95,14 +100,15 @@ impl MdigConfig {
         eagain_delay: Option<&str>,
         verbose: bool,
         stats: Option<&str>,
-    ) -> Result<Self, MdigConfigError> {
-        let family = match family {
-            Some(s) => {
-                MdigFamily::parse(s).ok_or_else(|| MdigConfigError::InvalidFamily(s.into()))?
-            }
+    ) -> Result<Self, MdigConfigError>
+    {
+        let family = match family
+        {
+            Some(s) => MdigFamily::parse(s).ok_or_else(|| MdigConfigError::InvalidFamily(s.into()))?,
             None => MdigFamily::Ipv4,
         };
-        let threads = match threads {
+        let threads = match threads
+        {
             Some(s) => s
                 .parse::<usize>()
                 .ok()
@@ -110,7 +116,8 @@ impl MdigConfig {
                 .ok_or_else(|| MdigConfigError::InvalidThreads(s.into()))?,
             None => DEFAULT_MDIG_THREADS,
         };
-        let eagain = match eagain {
+        let eagain = match eagain
+        {
             Some(s) => s
                 .parse::<u32>()
                 .ok()
@@ -118,7 +125,8 @@ impl MdigConfig {
                 .ok_or_else(|| MdigConfigError::InvalidEagain(s.into()))?,
             None => DEFAULT_EAGAIN_ATTEMPTS,
         };
-        let eagain_delay_ms = match eagain_delay {
+        let eagain_delay_ms = match eagain_delay
+        {
             Some(s) => s
                 .parse::<u64>()
                 .ok()
@@ -126,11 +134,11 @@ impl MdigConfig {
                 .ok_or_else(|| MdigConfigError::InvalidEagainDelay(s.into()))?,
             None => DEFAULT_EAGAIN_DELAY_MS,
         };
-        let stats_every = match stats {
-            Some(s) => {
-                let raw = s
-                    .parse::<i64>()
-                    .map_err(|_| MdigConfigError::InvalidStats(s.into()))?;
+        let stats_every = match stats
+        {
+            Some(s) =>
+            {
+                let raw = s.parse::<i64>().map_err(|_| MdigConfigError::InvalidStats(s.into()))?;
                 if raw <= 0 { 0 } else { raw as u64 }
             }
             None => 0,
@@ -141,14 +149,17 @@ impl MdigConfig {
 
 /// DNS lookup failure wrapping a `libc::EAI_*` status code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ResolveError {
+pub struct ResolveError
+{
     /// Raw `EAI_*` error code returned by `getaddrinfo` or a test stub.
     pub code: i32,
 }
 
-impl ResolveError {
+impl ResolveError
+{
     /// Returns `true` when the failure is temporary (`EAI_AGAIN`) and eligible for retry.
-    pub const fn is_again(self) -> bool {
+    pub const fn is_again(self) -> bool
+    {
         #[cfg(unix)]
         {
             self.code == libc::EAI_AGAIN
@@ -161,10 +172,12 @@ impl ResolveError {
     }
 
     /// Maps a `libc::EAI_*` error code to the symbolic string printed by `mdig.c`.
-    pub const fn eai_name(self) -> &'static str {
+    pub const fn eai_name(self) -> &'static str
+    {
         #[cfg(unix)]
         {
-            match self.code {
+            match self.code
+            {
                 libc::EAI_NONAME => "EAI_NONAME",
                 libc::EAI_AGAIN => "EAI_AGAIN",
                 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -189,7 +202,8 @@ impl ResolveError {
 }
 
 /// Thread-safe domain resolution abstraction allowing deterministic offline test doubles.
-pub trait DnsResolver: Send + Sync {
+pub trait DnsResolver: Send + Sync
+{
     /// Resolves `domain` for `family`, returning matching IP addresses or a `ResolveError`.
     fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError>;
 }
@@ -202,22 +216,30 @@ pub struct LibcResolver;
 struct AddrInfoGuard(*mut libc::addrinfo);
 
 #[cfg(unix)]
-impl Drop for AddrInfoGuard {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
+impl Drop for AddrInfoGuard
+{
+    fn drop(&mut self)
+    {
+        if !self.0.is_null()
+        {
             unsafe { libc::freeaddrinfo(self.0) };
         }
     }
 }
 
 #[cfg(unix)]
-impl DnsResolver for LibcResolver {
-    fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError> {
-        let Ok(c_dom) = CString::new(domain) else {
+impl DnsResolver for LibcResolver
+{
+    fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError>
+    {
+        let Ok(c_dom) = CString::new(domain)
+        else
+        {
             return Err(ResolveError { code: libc::EAI_NONAME });
         };
         let mut hints: libc::addrinfo = unsafe { std::mem::zeroed() };
-        hints.ai_family = match family {
+        hints.ai_family = match family
+        {
             MdigFamily::Ipv4 => libc::AF_INET,
             MdigFamily::Ipv6 => libc::AF_INET6,
             MdigFamily::Ipv46 => libc::AF_UNSPEC,
@@ -226,17 +248,21 @@ impl DnsResolver for LibcResolver {
 
         let mut res: *mut libc::addrinfo = std::ptr::null_mut();
         let rc = unsafe { libc::getaddrinfo(c_dom.as_ptr(), std::ptr::null(), &hints, &mut res) };
-        if rc != 0 {
+        if rc != 0
+        {
             return Err(ResolveError { code: rc });
         }
 
         let _guard = AddrInfoGuard(res);
         let mut addrs = Vec::new();
         let mut cur = res;
-        while !cur.is_null() {
+        while !cur.is_null()
+        {
             let info = unsafe { &*cur };
-            if !info.ai_addr.is_null() {
-                match info.ai_family {
+            if !info.ai_addr.is_null()
+            {
+                match info.ai_family
+                {
                     libc::AF_INET
                         if (info.ai_addrlen as usize) >= std::mem::size_of::<libc::sockaddr_in>() =>
                     {
@@ -244,13 +270,13 @@ impl DnsResolver for LibcResolver {
                         addrs.push(IpAddr::V4(Ipv4Addr::from(sin.sin_addr.s_addr.to_ne_bytes())));
                     }
                     libc::AF_INET6
-                        if (info.ai_addrlen as usize)
-                            >= std::mem::size_of::<libc::sockaddr_in6>() =>
+                        if (info.ai_addrlen as usize) >= std::mem::size_of::<libc::sockaddr_in6>() =>
                     {
                         let sin6 = unsafe { &*(info.ai_addr.cast::<libc::sockaddr_in6>()) };
                         addrs.push(IpAddr::V6(Ipv6Addr::from(sin6.sin6_addr.s6_addr)));
                     }
-                    _ => {}
+                    _ =>
+                    {}
                 }
             }
             cur = info.ai_next;
@@ -260,20 +286,27 @@ impl DnsResolver for LibcResolver {
 }
 
 #[cfg(not(unix))]
-impl DnsResolver for LibcResolver {
-    fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError> {
-        let Ok(iter) = (domain, 0_u16).to_socket_addrs() else {
+impl DnsResolver for LibcResolver
+{
+    fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError>
+    {
+        let Ok(iter) = (domain, 0_u16).to_socket_addrs()
+        else
+        {
             return Err(ResolveError { code: -1 });
         };
         let mut addrs = Vec::new();
-        for sock in iter {
+        for sock in iter
+        {
             let ip = sock.ip();
-            let keep = match family {
+            let keep = match family
+            {
                 MdigFamily::Ipv4 => ip.is_ipv4(),
                 MdigFamily::Ipv6 => ip.is_ipv6(),
                 MdigFamily::Ipv46 => true,
             };
-            if keep && !addrs.contains(&ip) {
+            if keep && !addrs.contains(&ip)
+            {
                 addrs.push(ip);
             }
         }
@@ -282,18 +315,15 @@ impl DnsResolver for LibcResolver {
 }
 
 /// Validates domain characters against `mdig.c`'s `dom_valid` rules.
-pub fn is_valid_domain(dom: &str) -> bool {
+pub fn is_valid_domain(dom: &str) -> bool
+{
     !dom.is_empty()
         && !dom.starts_with('.')
-        && dom
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+        && dom.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
 
 /// Sanitizes up to 64 bytes of an invalid domain for readable verbose logging.
-pub fn beautify_invalid_domain(raw: &[u8]) -> String {
-    raw.iter()
-        .take(64)
-        .map(|&b| if b < 0x20 || (b & 0x80) != 0 { '?' } else { char::from(b) })
-        .collect()
+pub fn beautify_invalid_domain(raw: &[u8]) -> String
+{
+    raw.iter().take(64).map(|&b| if b < 0x20 || (b & 0x80) != 0 { '?' } else { char::from(b) }).collect()
 }

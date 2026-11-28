@@ -25,7 +25,8 @@ pub use crate::telemetry::PacketOutcome;
 use crate::timer::MonotonicTime;
 
 /// Contextual parameters distinguishing live packet handling from delayed-queue replay.
-pub(crate) struct ReplayContext<'a> {
+pub(crate) struct ReplayContext<'a>
+{
     /// Zero-based index within an active replay batch.
     pub(crate) replay_piece: usize,
     /// Total delayed packets in the batch (`0` during live packet interception).
@@ -36,25 +37,24 @@ pub(crate) struct ReplayContext<'a> {
     pub(crate) tpos: Option<&'a CtrackPositions>,
 }
 
-impl ReplayContext<'_> {
+impl ReplayContext<'_>
+{
     /// Returns an inactive [`ReplayContext`] used for normal live packet processing.
-    pub(crate) const fn live() -> Self {
-        Self {
-            replay_piece: 0,
-            replay_piece_count: 0,
-            reasm_offset: 0,
-            tpos: None,
-        }
+    pub(crate) const fn live() -> Self
+    {
+        Self { replay_piece: 0, replay_piece_count: 0, reasm_offset: 0, tpos: None }
     }
 
     /// Returns `true` when executing inside `replay_delayed_queue`.
-    pub(crate) const fn is_replay(&self) -> bool {
+    pub(crate) const fn is_replay(&self) -> bool
+    {
         self.replay_piece_count != 0
     }
 }
 
 /// Borrowed global engine runtime services passed into [`play_prolog`] and [`dp_rediscovery`].
-pub(crate) struct EngineServices<'a> {
+pub(crate) struct EngineServices<'a>
+{
     /// Active `zapret2` desync profiles configured by the user.
     pub(crate) profiles: &'a [Rc<DesyncProfile>],
     /// Parallel runtime hostlists, ipsets, and failure pools indexed identically to `profiles`.
@@ -76,7 +76,8 @@ pub(crate) struct EngineServices<'a> {
 }
 
 /// Mutable per-packet routing, target, L7, and conntrack state across TCP/UDP processing.
-pub(crate) struct PlayState {
+pub(crate) struct PlayState
+{
     /// Matched 0-based index into `EngineServices::profiles` (`None` until matched).
     pub(crate) profile_idx: Option<usize>,
     /// Live flow entry (`None` during delayed-packet replay, matching `desync.c`).
@@ -108,23 +109,32 @@ pub(crate) struct PlayState {
 }
 
 /// Formats an `ip:port` endpoint string for autohostlist failure debug logging.
-fn format_client_label(dis: &DissectedPacket, b_reverse: bool) -> String {
+fn format_client_label(dis: &DissectedPacket, b_reverse: bool) -> String
+{
     let from_src = !b_reverse;
-    let Some(ip) = extract_endpoint_ip(dis, from_src) else {
+    let Some(ip) = extract_endpoint_ip(dis, from_src)
+    else
+    {
         return String::new();
     };
-    let port = if let Some(tcp) = &dis.tcp {
+    let port = if let Some(tcp) = &dis.tcp
+    {
         if from_src { tcp.s_port } else { tcp.d_port }
-    } else if let Some(udp) = &dis.udp {
+    }
+    else if let Some(udp) = &dis.udp
+    {
         if from_src { udp.s_port } else { udp.d_port }
-    } else {
+    }
+    else
+    {
         0
     };
     SocketAddr::new(ip, port).to_string()
 }
 
 /// Resolves 1-based `profile.index` to 0-based slice index inside `profiles`.
-pub(crate) fn profile_slot_by_id(profiles: &[Rc<DesyncProfile>], id: u32) -> Option<usize> {
+pub(crate) fn profile_slot_by_id(profiles: &[Rc<DesyncProfile>], id: u32) -> Option<usize>
+{
     profiles.iter().position(|p| p.index == id)
 }
 
@@ -137,64 +147,75 @@ pub(crate) fn play_prolog(
     ifout: Option<&str>,
     fwmark: u32,
     now: MonotonicTime,
-) -> Option<PlayState> {
-    if dis.ip.is_some() == dis.ip6.is_some() {
+) -> Option<PlayState>
+{
+    if dis.ip.is_some() == dis.ip6.is_some()
+    {
         return None;
     }
 
     let has_payload = dis.payload.as_deref().is_some_and(|p| !p.is_empty());
     let mut l7proto = L7Proto::Unknown;
-    let l7payload = if has_payload {
-        L7Payload::Unknown
-    } else {
-        L7Payload::Empty
-    };
+    let l7payload = if has_payload { L7Payload::Unknown } else { L7Payload::Empty };
 
-    let (ctrack, ctrack_replay, b_reverse, incoming) = if replay.is_replay() {
+    let (ctrack, ctrack_replay, b_reverse, incoming) = if replay.is_replay()
+    {
         let hit = svc.conntrack.borrow().double_search(dis);
         let (entry_rc, rev) = hit?;
-        if rev {
+        if rev
+        {
             return None;
         }
         (None, Some(entry_rc), rev, rev ^ svc.server)
-    } else {
-        let hit = if !svc.ctrack_disable {
+    }
+    else
+    {
+        let hit = if !svc.ctrack_disable
+        {
             let mut pool = svc.conntrack.borrow_mut();
-            if pool.purge_rate_limited(now.sec) > 0 {
+            if pool.purge_rate_limited(now.sec) > 0
+            {
                 svc.lua.expire_registry_values();
             }
-            match pool.feed(Some(svc.lua), dis, now) {
+            match pool.feed(Some(svc.lua), dis, now)
+            {
                 Ok(found) => found,
-                Err(err) => {
+                Err(err) =>
+                {
                     eprintln!("conntrack ERROR: {err}. skipping conntrack for packet.");
                     None
                 }
             }
-        } else {
+        }
+        else
+        {
             None
         };
-        match hit {
+        match hit
+        {
             Some((rc, rev)) => (Some(Rc::clone(&rc)), Some(rc), rev, rev ^ svc.server),
-            None => {
-                let inc = ifin.is_some_and(|s| !s.is_empty())
-                    && !ifout.is_some_and(|s| !s.is_empty());
+            None =>
+            {
+                let inc = ifin.is_some_and(|s| !s.is_empty()) && !ifout.is_some_and(|s| !s.is_empty());
                 (None, None, inc, inc)
             }
         }
     };
 
     let target_ip4 = dis.ip.as_ref().map(|ip| if incoming { ip.src } else { ip.dst });
-    let target_ip6 = dis
-        .ip6
-        .as_ref()
-        .map(|ip6| if incoming { ip6.src } else { ip6.dst });
+    let target_ip6 = dis.ip6.as_ref().map(|ip6| if incoming { ip6.src } else { ip6.dst });
     let target_ip = extract_endpoint_ip(dis, incoming)?;
     let port_from_src = incoming ^ svc.server;
-    let target_port = if let Some(tcp) = &dis.tcp {
+    let target_port = if let Some(tcp) = &dis.tcp
+    {
         if port_from_src { tcp.s_port } else { tcp.d_port }
-    } else if let Some(udp) = &dis.udp {
+    }
+    else if let Some(udp) = &dis.udp
+    {
         if port_from_src { udp.s_port } else { udp.d_port }
-    } else {
+    }
+    else
+    {
         0
     };
 
@@ -202,35 +223,44 @@ pub(crate) fn play_prolog(
     let mut host_is_ip = false;
     let mut cached_prof_id = None;
     let mut prof_searched = false;
-    if let Some(entry_rc) = &ctrack_replay {
+    if let Some(entry_rc) = &ctrack_replay
+    {
         let mut entry = entry_rc.borrow_mut();
         l7proto = entry.l7proto;
         cached_prof_id = entry.profile_index;
         prof_searched = entry.profile_searched;
 
-        if !replay.is_replay() && entry.hostname.is_none() && !b_reverse {
+        if !replay.is_replay() && entry.hostname.is_none() && !b_reverse
+        {
             let cache = svc.ipcache.borrow();
-            if let Some((cached, is_ip)) = cache.get_hostname(target_ip) {
+            if let Some((cached, is_ip)) = cache.get_hostname(target_ip)
+            {
                 entry.hostname = Some(cached.to_owned());
                 entry.hostname_is_ip = is_ip;
             }
         }
-        if cached_prof_id.is_none() && !prof_searched {
+        if cached_prof_id.is_none() && !prof_searched
+        {
             host = entry.hostname.clone();
             host_is_ip = entry.hostname_is_ip;
         }
-    } else if !b_reverse {
+    }
+    else if !b_reverse
+    {
         let cache = svc.ipcache.borrow();
-        if let Some((cached, is_ip)) = cache.get_hostname(target_ip) {
+        if let Some((cached, is_ip)) = cache.get_hostname(target_ip)
+        {
             host = Some(cached.to_owned());
             host_is_ip = is_ip;
         }
     }
 
-    let profile_idx = match cached_prof_id.and_then(|id| profile_slot_by_id(svc.profiles, id)) {
+    let profile_idx = match cached_prof_id.and_then(|id| profile_slot_by_id(svc.profiles, id))
+    {
         Some(idx) => Some(idx),
         None if prof_searched => None,
-        None => {
+        None =>
+        {
             let match_input = FullMatchInput {
                 base: ProfileMatchInput {
                     is_v6: dis.ip6.is_some(),
@@ -247,7 +277,8 @@ pub(crate) fn play_prolog(
                 hostname_is_ip: host_is_ip,
             };
             let found = find_matching_profile(svc.profiles, svc.profile_runtimes, &match_input);
-            if let Some(entry_rc) = &ctrack_replay {
+            if let Some(entry_rc) = &ctrack_replay
+            {
                 let mut entry = entry_rc.borrow_mut();
                 entry.profile_searched = true;
                 entry.profile_index = found.map(|idx| svc.profiles[idx].index);
@@ -256,36 +287,30 @@ pub(crate) fn play_prolog(
         }
     };
 
-    if !replay.is_replay() {
-        if let Some(idx) = profile_idx {
-            svc.profile_runtimes[idx]
-                .fail_pool
-                .borrow_mut()
-                .purge_rate_limited(now.sec);
+    if !replay.is_replay()
+    {
+        if let Some(idx) = profile_idx
+        {
+            svc.profile_runtimes[idx].fail_pool.borrow_mut().purge_rate_limited(now.sec);
         }
-        if incoming {
+        if incoming
+        {
             let mut ttl = extract_l3_ttl(dis);
-            svc.ipcache.borrow_mut().update_ttl(
-                target_ip,
-                ifin.unwrap_or(""),
-                &mut ttl,
-                svc.server,
-                now.sec,
-            );
-            if let Some(entry_rc) = &ctrack {
+            svc.ipcache.borrow_mut().update_ttl(target_ip, ifin.unwrap_or(""), &mut ttl, svc.server, now.sec);
+            if let Some(entry_rc) = &ctrack
+            {
                 let mut entry = entry_rc.borrow_mut();
-                if entry.incoming_ttl == 0 {
+                if entry.incoming_ttl == 0
+                {
                     entry.incoming_ttl = ttl;
                 }
             }
-        } else if let Some(entry_rc) = &ctrack {
+        }
+        else if let Some(entry_rc) = &ctrack
+        {
             let mut entry = entry_rc.borrow_mut();
             if entry.incoming_ttl == 0
-                && let Some(ttl) = svc.ipcache.borrow().get_ttl(
-                    target_ip,
-                    ifout.unwrap_or(""),
-                    svc.server,
-                )
+                && let Some(ttl) = svc.ipcache.borrow().get_ttl(target_ip, ifout.unwrap_or(""), svc.server)
             {
                 entry.incoming_ttl = ttl;
             }
@@ -302,9 +327,12 @@ pub(crate) fn play_prolog(
         target_ip4,
         target_ip6,
         target_port,
-        client_label: if svc.hostlist_auto_debug.is_some() {
+        client_label: if svc.hostlist_auto_debug.is_some()
+        {
             format_client_label(dis, b_reverse)
-        } else {
+        }
+        else
+        {
             String::new()
         },
         l7proto,

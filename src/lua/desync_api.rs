@@ -31,7 +31,8 @@ use crate::timer::boottime_now;
 
 /// Mutable per-packet state backing Lua's singleton `ctx` userdata during profile execution.
 #[derive(Default)]
-pub struct DesyncContextState {
+pub struct DesyncContextState
+{
     /// True only while Lua is executing inside a direct `DesyncEngine` callback.
     pub valid: bool,
     /// Set by `execution_plan_cancel(ctx)` to abort remaining native action calls.
@@ -66,38 +67,43 @@ impl UserData for DesyncCtxUserData {}
 pub fn create_desync_ctx_userdata(
     lua: &Lua,
     state: Rc<RefCell<DesyncContextState>>,
-) -> mlua::Result<RegistryKey> {
+) -> mlua::Result<RegistryKey>
+{
     let ud = lua.create_userdata(DesyncCtxUserData(state))?;
     lua.create_registry_value(ud)
 }
 
 /// Unwraps `val` as a currently valid [`DesyncContextState`] handle, rejecting nil or stale handles.
-fn extract_valid_ctx(val: &Value) -> mlua::Result<Rc<RefCell<DesyncContextState>>> {
-    if val.is_nil() {
+fn extract_valid_ctx(val: &Value) -> mlua::Result<Rc<RefCell<DesyncContextState>>>
+{
+    if val.is_nil()
+    {
         return Err(mlua::Error::external("missing ctx"));
     }
-    let Value::UserData(ud) = val else {
+    let Value::UserData(ud) = val
+    else
+    {
         return Err(mlua::Error::external("desync_ctx expected"));
     };
     let state_rc = {
         let guard = ud.borrow::<DesyncCtxUserData>()?;
         Rc::clone(&guard.0)
     };
-    if !state_rc.borrow().valid {
+    if !state_rc.borrow().valid
+    {
         return Err(mlua::Error::external("ctx is invalid"));
     }
     Ok(state_rc)
 }
 
 /// Parses optional cutoff direction argument (`true` => out, `false` => in, `nil` => both).
-fn parse_cutoff_direction(opt: Option<&Value>) -> mlua::Result<(bool, bool)> {
-    match opt {
+fn parse_cutoff_direction(opt: Option<&Value>) -> mlua::Result<(bool, bool)>
+{
+    match opt
+    {
         None | Some(Value::Nil) => Ok((true, true)),
         Some(Value::Boolean(b_out)) => Ok((!*b_out, *b_out)),
-        Some(other) => Err(mlua::Error::external(format!(
-            "boolean expected, got {}",
-            other.type_name()
-        ))),
+        Some(other) => Err(mlua::Error::external(format!("boolean expected, got {}", other.type_name()))),
     }
 }
 
@@ -108,7 +114,8 @@ pub fn register_desync_functions(
     config: &LuaConfig,
     ctx_state: Rc<RefCell<DesyncContextState>>,
     conntrack: Rc<RefCell<ConntrackPool>>,
-) -> mlua::Result<()> {
+) -> mlua::Result<()>
+{
     let globals = lua.globals();
     let debug = config.debug;
     let ctrack_disable = config.ctrack_disable;
@@ -135,13 +142,10 @@ pub fn register_desync_functions(
             let inst = {
                 let mut state = ctx.borrow_mut();
                 state.cancel = true;
-                if debug {
-                    Some(state.instance.clone())
-                } else {
-                    None
-                }
+                if debug { Some(state.instance.clone()) } else { None }
             };
-            if let Some(name) = inst {
+            if let Some(name) = inst
+            {
                 eprintln!("execution plan cancel from '{name}'");
             }
             Ok(())
@@ -159,25 +163,23 @@ pub fn register_desync_functions(
             };
 
             let plan_tbl = lua.create_table()?;
-            let Some(profile) = profile_opt else {
+            let Some(profile) = profile_opt
+            else
+            {
                 return Ok(Value::Table(plan_tbl));
             };
-            for (idx, action) in profile.actions.iter().enumerate() {
+            for (idx, action) in profile.actions.iter().enumerate()
+            {
                 let n = (idx as u32) + 1;
-                if n <= current_func_n {
+                if n <= current_func_n
+                {
                     continue;
                 }
                 let instance = desync_instance_name(&action.func, profile.index, n);
-                let range = if incoming {
-                    action.in_range
-                } else {
-                    action.out_range
-                };
+                let range = if incoming { action.in_range } else { action.out_range };
                 let entry = lua.create_table_with_capacity(0, 7)?;
                 let arg_tbl = build_action_args_table(lua, &action.args, None, false)?
-                    .ok_or_else(|| {
-                        mlua::Error::external("unexpected blob substitution failure")
-                    })?;
+                    .ok_or_else(|| mlua::Error::external("unexpected blob substitution failure"))?;
                 entry.raw_set("arg", arg_tbl)?;
                 entry.raw_set("func", action.func.as_str())?;
                 entry.raw_set("func_n", i64::from(n))?;
@@ -197,8 +199,10 @@ pub fn register_desync_functions(
         "instance_cutoff",
         lua.create_function(move |_, args: Variadic<Value>| {
             check_argc_range("instance_cutoff", &args, 1, 2)?;
-            if args[0].is_nil() {
-                if debug {
+            if args[0].is_nil()
+            {
+                if debug
+                {
                     eprintln!("instance cutoff not possible because missing ctx");
                 }
                 return Ok(());
@@ -209,18 +213,16 @@ pub fn register_desync_functions(
                 let state = ctx.borrow();
                 (state.ctrack.clone(), state.instance.clone(), state.profile_n)
             };
-            if let Some(ctrack_rc) = ctrack_opt {
-                ctrack_rc
-                    .borrow_mut()
-                    .set_instance_cutoff(&inst, profile_n, b_in, b_out);
-                if debug {
-                    eprintln!(
-                        "instance cutoff from '{inst}' in={} out={}",
-                        u8::from(b_in),
-                        u8::from(b_out)
-                    );
+            if let Some(ctrack_rc) = ctrack_opt
+            {
+                ctrack_rc.borrow_mut().set_instance_cutoff(&inst, profile_n, b_in, b_out);
+                if debug
+                {
+                    eprintln!("instance cutoff from '{inst}' in={} out={}", u8::from(b_in), u8::from(b_out));
                 }
-            } else if debug {
+            }
+            else if debug
+            {
                 eprintln!(
                     "instance cutoff requested for '{inst}' in={} out={} without active conntrack",
                     u8::from(b_in),
@@ -241,22 +243,24 @@ pub fn register_desync_functions(
                 let state = ctx.borrow();
                 (state.ctrack.clone(), state.instance.clone())
             };
-            if let Some(ctrack_rc) = ctrack_opt {
+            if let Some(ctrack_rc) = ctrack_opt
+            {
                 let mut ct = ctrack_rc.borrow_mut();
-                if b_in {
+                if b_in
+                {
                     ct.lua_in_cutoff = true;
                 }
-                if b_out {
+                if b_out
+                {
                     ct.lua_out_cutoff = true;
                 }
-                if debug {
-                    eprintln!(
-                        "lua cutoff from '{inst}' in={} out={}",
-                        u8::from(b_in),
-                        u8::from(b_out)
-                    );
+                if debug
+                {
+                    eprintln!("lua cutoff from '{inst}' in={} out={}", u8::from(b_in), u8::from(b_out));
                 }
-            } else if debug {
+            }
+            else if debug
+            {
                 eprintln!(
                     "lua cutoff requested from '{inst}' in={} out={} without active conntrack",
                     u8::from(b_in),
@@ -271,11 +275,14 @@ pub fn register_desync_functions(
         "conntrack_feed",
         lua.create_function(move |lua, args: Variadic<Value>| {
             check_argc_range("conntrack_feed", &args, 1, 2)?;
-            if ctrack_disable {
+            if ctrack_disable
+            {
                 return Ok((Value::Nil, Value::Nil));
             }
-            let raw = match &args[0] {
-                Value::Table(dis_tbl) => {
+            let raw = match &args[0]
+            {
+                Value::Table(dis_tbl) =>
+                {
                     let dis = lua_to_dissect(lua, dis_tbl)
                         .map_err(|_| mlua::Error::external("invalid dissect data"))?;
                     let opts = parse_reconstruct_opts(lua, args.get(1))?;
@@ -290,13 +297,16 @@ pub fn register_desync_functions(
             let now = boottime_now();
             let hit = {
                 let mut pool = conntrack.borrow_mut();
-                if pool.purge_rate_limited(now.sec) > 0 {
+                if pool.purge_rate_limited(now.sec) > 0
+                {
                     lua.expire_registry_values();
                 }
                 pool.feed(Some(lua), &dis, now)?
             };
 
-            let Some((entry_rc, b_reverse)) = hit else {
+            let Some((entry_rc, b_reverse)) = hit
+            else
+            {
                 return Ok((Value::Nil, Value::Nil));
             };
 
@@ -306,7 +316,8 @@ pub fn register_desync_functions(
             };
             {
                 let mut state = ctx_state.borrow_mut();
-                if state.ctrack.is_none() {
+                if state.ctrack.is_none()
+                {
                     state.ctrack = Some(Rc::clone(&entry_rc));
                     state.incoming = b_reverse;
                 }

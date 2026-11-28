@@ -53,7 +53,8 @@ const COUNTER_TICK_INTERVAL: Duration = Duration::from_millis(150);
 
 /// Configuration options controlling socket path, UID checks, and per-client queue bounds.
 #[derive(Clone)]
-pub struct ControlServerConfig {
+pub struct ControlServerConfig
+{
     /// Filesystem path where the Unix stream listener will be bound.
     pub socket_path: PathBuf,
     /// Daemon version banner returned inside `hello_ok` replies.
@@ -68,9 +69,11 @@ pub struct ControlServerConfig {
     pub client_sndbuf: Option<i32>,
 }
 
-impl ControlServerConfig {
+impl ControlServerConfig
+{
     /// Builds default same-UID configuration binding `socket_path` with production limits.
-    pub fn new(socket_path: PathBuf, daemon_version: impl Into<String>) -> Self {
+    pub fn new(socket_path: PathBuf, daemon_version: impl Into<String>) -> Self
+    {
         Self {
             socket_path,
             daemon_version: daemon_version.into(),
@@ -83,7 +86,8 @@ impl ControlServerConfig {
 }
 
 /// Running local Unix control socket server stopped automatically on [`Drop`].
-pub struct ControlServer {
+pub struct ControlServer
+{
     /// Bound socket path returned by [`ControlServer::socket_path`].
     socket_path: PathBuf,
     /// Cooperative shutdown flag shared with accept, fanout, and client threads.
@@ -96,12 +100,11 @@ pub struct ControlServer {
     client_joins: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
 
-impl ControlServer {
+impl ControlServer
+{
     /// Binds `config.socket_path`, spawns accept/fanout threads, and begins serving `hub`.
-    pub fn start(
-        config: ControlServerConfig,
-        hub: Arc<TelemetryHub>,
-    ) -> Result<Self, ControlServerError> {
+    pub fn start(config: ControlServerConfig, hub: Arc<TelemetryHub>) -> Result<Self, ControlServerError>
+    {
         let bound = bind_control_socket(&config.socket_path)?;
         let socket_path = bound.path.clone();
         let stop = Arc::new(AtomicBool::new(false));
@@ -127,43 +130,54 @@ impl ControlServer {
     }
 
     /// Returns the filesystem path of the bound control socket.
-    pub fn socket_path(&self) -> &Path {
+    pub fn socket_path(&self) -> &Path
+    {
         &self.socket_path
     }
 
     /// Signals shutdown, joins all server threads, and ensures the socket file is removed.
-    pub fn shutdown(mut self) {
+    pub fn shutdown(mut self)
+    {
         self.stop_inner();
     }
 
     /// Idempotent internal teardown invoked by both [`ControlServer::shutdown`] and [`Drop`].
-    fn stop_inner(&mut self) {
+    fn stop_inner(&mut self)
+    {
         self.stop.store(true, Ordering::Release);
-        if let Some(handle) = self.accept_join.take() {
+        if let Some(handle) = self.accept_join.take()
+        {
             let _ = handle.join();
         }
-        if let Some(handle) = self.fanout_join.take() {
+        if let Some(handle) = self.fanout_join.take()
+        {
             let _ = handle.join();
         }
-        if let Ok(mut guard) = self.client_joins.lock() {
-            for handle in guard.drain(..) {
+        if let Ok(mut guard) = self.client_joins.lock()
+        {
+            for handle in guard.drain(..)
+            {
                 let _ = handle.join();
             }
         }
     }
 }
 
-impl Drop for ControlServer {
+impl Drop for ControlServer
+{
     /// Stops background threads and unlinks the owned socket if caller did not call `shutdown()`.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         self.stop_inner();
     }
 }
 
 /// Applies an optional `SO_SNDBUF` hint on an accepted socket when configured in tests.
 #[cfg(unix)]
-fn apply_optional_sndbuf(stream: &ControlStream, sndbuf: Option<i32>) {
-    if let Some(bytes) = sndbuf {
+fn apply_optional_sndbuf(stream: &ControlStream, sndbuf: Option<i32>)
+{
+    if let Some(bytes) = sndbuf
+    {
         // SAFETY: `stream` owns a valid socket descriptor and `bytes` points to an initialized `c_int`.
         unsafe {
             libc::setsockopt(
@@ -188,38 +202,48 @@ fn run_accept_loop(
     hub: Arc<TelemetryHub>,
     stop: Arc<AtomicBool>,
     client_joins: Arc<Mutex<Vec<JoinHandle<()>>>>,
-) {
+)
+{
     #[cfg(unix)]
     let expected_uid = config.expected_uid.unwrap_or_else(current_euid);
     let next_id = AtomicU64::new(1);
 
-    while !stop.load(Ordering::Acquire) {
-        if !bound.poll_readable(ACCEPT_POLL_MS) {
+    while !stop.load(Ordering::Acquire)
+    {
+        if !bound.poll_readable(ACCEPT_POLL_MS)
+        {
             continue;
         }
-        loop {
+        loop
+        {
             #[cfg_attr(unix, allow(unused_mut))]
-            let mut stream = match bound.accept() {
+            let mut stream = match bound.accept()
+            {
                 Ok(stream) => stream,
                 Err(err) if err.kind() == ErrorKind::WouldBlock => break,
                 Err(_) => break,
             };
             #[cfg(unix)]
-            let allowed = match peer_credentials(&stream) {
+            let allowed = match peer_credentials(&stream)
+            {
                 Ok(creds) => (config.uid_check)(creds.uid, expected_uid),
                 Err(_) => false,
             };
             #[cfg(not(unix))]
             let allowed = verify_loopback_token(&mut stream, &bound.auth_token);
-            if !allowed {
+            if !allowed
+            {
                 let _ = stream.shutdown(Shutdown::Both);
                 continue;
             }
-            let Ok(mut guard) = client_joins.lock() else {
+            let Ok(mut guard) = client_joins.lock()
+            else
+            {
                 continue;
             };
             guard.retain(|h| !h.is_finished());
-            if guard.len() >= MAX_CONTROL_CLIENTS {
+            if guard.len() >= MAX_CONTROL_CLIENTS
+            {
                 write_error_and_close(
                     stream,
                     ControlErrorCode::CommandFailed,
@@ -240,31 +264,41 @@ fn run_accept_loop(
 }
 
 /// Writes a single error line to a rejected extra client before dropping its stream.
-fn write_error_and_close(mut stream: ControlStream, code: ControlErrorCode, message: &str) {
+fn write_error_and_close(mut stream: ControlStream, code: ControlErrorCode, message: &str)
+{
     let _ = stream.set_write_timeout(Some(REJECT_WRITE_TIMEOUT));
     let _ = write_message(&mut stream, &Response::Error { code, message: message.to_owned() });
     let _ = stream.shutdown(Shutdown::Both);
 }
 
 /// Drains packet records from `hub` and emits periodic counter snapshots to active subscribers.
-fn run_fanout_loop(hub: Arc<TelemetryHub>, stop: Arc<AtomicBool>) {
-    let Some(pkt_rx) = hub.take_packet_receiver() else {
+fn run_fanout_loop(hub: Arc<TelemetryHub>, stop: Arc<AtomicBool>)
+{
+    let Some(pkt_rx) = hub.take_packet_receiver()
+    else
+    {
         return;
     };
     let mut last_counters = hub.counters().snapshot();
     let mut last_tick = Instant::now();
 
-    while !stop.load(Ordering::Acquire) {
-        match pkt_rx.recv_timeout(COUNTER_TICK_INTERVAL) {
-            Ok(rec) => {
+    while !stop.load(Ordering::Acquire)
+    {
+        match pkt_rx.recv_timeout(COUNTER_TICK_INTERVAL)
+        {
+            Ok(rec) =>
+            {
                 let is_pass = rec.verdict == PacketVerdict::Pass;
                 hub.broadcast(&Response::Packet(rec), is_pass);
-                if hub.has_subscribers() && last_tick.elapsed() >= COUNTER_TICK_INTERVAL {
+                if hub.has_subscribers() && last_tick.elapsed() >= COUNTER_TICK_INTERVAL
+                {
                     maybe_broadcast_counters(&hub, &mut last_counters, &mut last_tick);
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if hub.has_subscribers() {
+            Err(mpsc::RecvTimeoutError::Timeout) =>
+            {
+                if hub.has_subscribers()
+                {
                     maybe_broadcast_counters(&hub, &mut last_counters, &mut last_tick);
                 }
             }
@@ -274,13 +308,11 @@ fn run_fanout_loop(hub: Arc<TelemetryHub>, stop: Arc<AtomicBool>) {
 }
 
 /// Emits a `Response::Counters` event if counters changed since the previous broadcast.
-fn maybe_broadcast_counters(
-    hub: &TelemetryHub,
-    last: &mut (u64, u64, u64, u64, u64),
-    last_tick: &mut Instant,
-) {
+fn maybe_broadcast_counters(hub: &TelemetryHub, last: &mut (u64, u64, u64, u64, u64), last_tick: &mut Instant)
+{
     let current = hub.counters().snapshot();
-    if current != *last {
+    if current != *last
+    {
         *last = current;
         hub.broadcast(&Response::Counters(CountersSnapshot::from(&**hub.counters())), false);
     }

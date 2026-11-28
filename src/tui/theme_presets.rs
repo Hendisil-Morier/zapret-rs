@@ -8,7 +8,8 @@ pub const PRESET_NAMES: &[&str] = &["neon", "tokyo", "dracula", "gruvbox", "ansi
 
 /// Complete 16-slot color palette driving borders, highlights, telemetry badges, and syntax colors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Theme {
+pub struct Theme
+{
     /// Active preset identifier or `"custom"` when individual slots were overridden.
     pub name: &'static str,
     /// Primary accent color for gauges, protocol tags, and live focus highlights.
@@ -45,16 +46,20 @@ pub struct Theme {
     pub highlight_bg: Color,
 }
 
-impl Default for Theme {
+impl Default for Theme
+{
     /// Returns the vivid high-contrast `"neon"` preset by default.
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self::neon()
     }
 }
 
-impl Theme {
+impl Theme
+{
     /// Vivid high-contrast default preset tuned for dark and translucent terminals.
-    pub const fn neon() -> Self {
+    pub const fn neon() -> Self
+    {
         Self {
             name: "neon",
             accent: Color::Rgb(0, 230, 255),
@@ -77,7 +82,8 @@ impl Theme {
     }
 
     /// Tokyo Night inspired palette with crisp indigo, teal, coral, and warm amber tones.
-    pub const fn tokyo() -> Self {
+    pub const fn tokyo() -> Self
+    {
         Self {
             name: "tokyo",
             accent: Color::Rgb(42, 195, 222),
@@ -100,7 +106,8 @@ impl Theme {
     }
 
     /// Dracula palette featuring saturated purple, pink, cyan, and lime highlights.
-    pub const fn dracula() -> Self {
+    pub const fn dracula() -> Self
+    {
         Self {
             name: "dracula",
             accent: Color::Rgb(139, 233, 253),
@@ -123,7 +130,8 @@ impl Theme {
     }
 
     /// Warm Gruvbox Bright palette with retro orange, aqua, olive green, and gold accents.
-    pub const fn gruvbox() -> Self {
+    pub const fn gruvbox() -> Self
+    {
         Self {
             name: "gruvbox",
             accent: Color::Rgb(142, 192, 124),
@@ -146,7 +154,8 @@ impl Theme {
     }
 
     /// Classic 16-color bright ANSI palette for minimal terminals without truecolor support.
-    pub const fn ansi() -> Self {
+    pub const fn ansi() -> Self
+    {
         Self {
             name: "ansi",
             accent: Color::Cyan,
@@ -169,8 +178,10 @@ impl Theme {
     }
 
     /// Looks up a built-in preset by case-insensitive name.
-    pub fn from_preset(name: &str) -> Option<Self> {
-        match name.trim().to_ascii_lowercase().as_str() {
+    pub fn from_preset(name: &str) -> Option<Self>
+    {
+        match name.trim().to_ascii_lowercase().as_str()
+        {
             "neon" => Some(Self::neon()),
             "tokyo" | "tokyonight" | "tokyo-night" => Some(Self::tokyo()),
             "dracula" => Some(Self::dracula()),
@@ -181,7 +192,8 @@ impl Theme {
     }
 
     /// Cycles cleanly to the next built-in preset after `self.name`.
-    pub fn next_preset(self) -> Self {
+    pub fn next_preset(self) -> Self
+    {
         let idx = PRESET_NAMES.iter().position(|&n| n == self.name).unwrap_or(PRESET_NAMES.len() - 1);
         let next = PRESET_NAMES[(idx + 1) % PRESET_NAMES.len()];
         Self::from_preset(next).unwrap_or_else(Self::neon)

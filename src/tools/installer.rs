@@ -35,7 +35,8 @@ pub const SYMLINK_NAMES: &[&str] = &["nfqws2", "strat_finder", "ip2net", "mdig"]
     version = env!("CARGO_PKG_VERSION"),
     about = "Install zapret-rs binary, bundled Lua scripts, capabilities, and optional systemd unit"
 )]
-struct InstallCli {
+struct InstallCli
+{
     /// Target prefix (`bin/zapret-rs`, `share/zapret-rs/lua`; defaults to `~/.local` or `/usr/local`).
     #[arg(long = "prefix", value_name = "DIR")]
     prefix: Option<PathBuf>,
@@ -60,7 +61,8 @@ struct InstallCli {
     version = env!("CARGO_PKG_VERSION"),
     about = "Remove installed zapret-rs binary, symlinks, bundled Lua scripts, and optional systemd unit"
 )]
-struct UninstallCli {
+struct UninstallCli
+{
     /// Target prefix used during installation (defaults to matching `~/.local` or `/usr/local`).
     #[arg(long = "prefix", value_name = "DIR")]
     prefix: Option<PathBuf>,
@@ -70,7 +72,8 @@ struct UninstallCli {
 }
 
 /// Returns effective UID on Unix (used to choose default prefix `/usr/local` vs `~/.local`).
-fn current_euid() -> u32 {
+fn current_euid() -> u32
+{
     #[cfg(unix)]
     {
         // SAFETY: `geteuid` has no preconditions and cannot fail.
@@ -83,28 +86,29 @@ fn current_euid() -> u32 {
 }
 
 /// Chooses the default install prefix (`~/.local` for unprivileged installs, `/usr/local` otherwise).
-fn default_install_prefix(prefer_system: bool) -> PathBuf {
-    if prefer_system || current_euid() == 0 {
+fn default_install_prefix(prefer_system: bool) -> PathBuf
+{
+    if prefer_system || current_euid() == 0
+    {
         return PathBuf::from("/usr/local");
     }
-    resolve_user_home()
-        .map(|h| h.join(".local"))
-        .unwrap_or_else(|| PathBuf::from("/usr/local"))
+    resolve_user_home().map(|h| h.join(".local")).unwrap_or_else(|| PathBuf::from("/usr/local"))
 }
 
 /// Formats a consistent `"failed to <action> '<path>': <err>"` diagnostic message.
-fn path_err(action: &str, path: &Path, err: impl std::fmt::Display) -> String {
+fn path_err(action: &str, path: &Path, err: impl std::fmt::Display) -> String
+{
     format!("failed to {action} '{}': {err}", path.display())
 }
 
 /// Verifies `dir` is a non-symlink directory (creating it cleanly when absent).
-fn ensure_real_dir(dir: &Path) -> Result<(), String> {
-    if let Ok(meta) = fs::symlink_metadata(dir) {
-        if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
-            return Err(format!(
-                "refusing symlink or non-directory installation path '{}'",
-                dir.display()
-            ));
+fn ensure_real_dir(dir: &Path) -> Result<(), String>
+{
+    if let Ok(meta) = fs::symlink_metadata(dir)
+    {
+        if meta.file_type().is_symlink() || !meta.file_type().is_dir()
+        {
+            return Err(format!("refusing symlink or non-directory installation path '{}'", dir.display()));
         }
         return Ok(());
     }
@@ -113,7 +117,8 @@ fn ensure_real_dir(dir: &Path) -> Result<(), String> {
 
 /// Atomically installs executable bytes from `src` to `dst` using `O_CREAT | O_EXCL | O_NOFOLLOW`
 /// staging so pre-existing symlinks or stale stage filenames cannot be hijacked.
-fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String> {
+fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String>
+{
     let parent = dst
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -123,14 +128,17 @@ fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String> {
     let mut src_file = fs::File::open(src).map_err(|err| path_err("open source binary", src, err))?;
     let mut staged = None;
     let mut dst_file = None;
-    for attempt in 0..32u32 {
+    for attempt in 0..32u32
+    {
         let candidate = parent.join(format!(".zapret-rs.stage.{}.{}", std::process::id(), attempt));
         let mut opts = OpenOptions::new();
         opts.write(true).create_new(true);
         #[cfg(unix)]
         opts.mode(0o755).custom_flags(libc::O_NOFOLLOW);
-        match opts.open(&candidate) {
-            Ok(file) => {
+        match opts.open(&candidate)
+        {
+            Ok(file) =>
+            {
                 staged = Some(candidate);
                 dst_file = Some(file);
                 break;
@@ -139,20 +147,20 @@ fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String> {
             Err(err) => return Err(path_err("create staged binary", &candidate, err)),
         }
     }
-    let (Some(staged_path), Some(mut out_file)) = (staged, dst_file) else {
+    let (Some(staged_path), Some(mut out_file)) = (staged, dst_file)
+    else
+    {
         return Err(format!("could not allocate exclusive stage file in '{}'", parent.display()));
     };
 
-    if let Err(err) = io::copy(&mut src_file, &mut out_file) {
+    if let Err(err) = io::copy(&mut src_file, &mut out_file)
+    {
         let _ = fs::remove_file(&staged_path);
-        return Err(format!(
-            "failed to copy '{}' to '{}': {err}",
-            src.display(),
-            staged_path.display()
-        ));
+        return Err(format!("failed to copy '{}' to '{}': {err}", src.display(), staged_path.display()));
     }
     #[cfg(unix)]
-    if let Err(err) = out_file.set_permissions(fs::Permissions::from_mode(0o755)) {
+    if let Err(err) = out_file.set_permissions(fs::Permissions::from_mode(0o755))
+    {
         let _ = fs::remove_file(&staged_path);
         return Err(path_err("chmod", &staged_path, err));
     }
@@ -165,11 +173,15 @@ fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String> {
 }
 
 /// Returns `true` when `link_path` is a symlink targeting `zapret-rs`.
-fn symlink_points_to_zapret(link_path: &Path, dst_bin: &Path) -> bool {
-    let Ok(meta) = fs::symlink_metadata(link_path) else {
+fn symlink_points_to_zapret(link_path: &Path, dst_bin: &Path) -> bool
+{
+    let Ok(meta) = fs::symlink_metadata(link_path)
+    else
+    {
         return false;
     };
-    if !meta.file_type().is_symlink() {
+    if !meta.file_type().is_symlink()
+    {
         return false;
     }
     fs::read_link(link_path).is_ok_and(|target| {
@@ -180,21 +192,19 @@ fn symlink_points_to_zapret(link_path: &Path, dst_bin: &Path) -> bool {
 }
 
 /// Installs `zapret-rs`, bundled Lua scripts, optional symlinks, capabilities, and systemd unit.
-fn perform_install(cli: &InstallCli) -> Result<(), String> {
-    let prefix = cli
-        .prefix
-        .clone()
-        .unwrap_or_else(|| default_install_prefix(cli.systemd));
-    let src_bin = match &cli.source_bin {
+fn perform_install(cli: &InstallCli) -> Result<(), String>
+{
+    let prefix = cli.prefix.clone().unwrap_or_else(|| default_install_prefix(cli.systemd));
+    let src_bin = match &cli.source_bin
+    {
         Some(path) => path.clone(),
-        None => std::env::current_exe()
-            .map_err(|err| format!("cannot locate running executable: {err}"))?,
+        None => std::env::current_exe().map_err(|err| format!("cannot locate running executable: {err}"))?,
     };
     let bin_dir = prefix.join("bin");
     let dst_bin = bin_dir.join("zapret-rs");
-    let dst_is_symlink =
-        fs::symlink_metadata(&dst_bin).is_ok_and(|meta| meta.file_type().is_symlink());
-    if dst_is_symlink || fs::canonicalize(&src_bin).ok() != fs::canonicalize(&dst_bin).ok() {
+    let dst_is_symlink = fs::symlink_metadata(&dst_bin).is_ok_and(|meta| meta.file_type().is_symlink());
+    if dst_is_symlink || fs::canonicalize(&src_bin).ok() != fs::canonicalize(&dst_bin).ok()
+    {
         atomic_copy_executable(&src_bin, &dst_bin)?;
     }
 
@@ -202,16 +212,17 @@ fn perform_install(cli: &InstallCli) -> Result<(), String> {
     ensure_real_dir(&lua_dir)?;
     extract_bundled_lua(&lua_dir)?;
 
-    if cli.symlinks {
+    if cli.symlinks
+    {
         #[cfg(unix)]
-        for name in SYMLINK_NAMES {
+        for name in SYMLINK_NAMES
+        {
             let link = bin_dir.join(name);
             if let Ok(meta) = fs::symlink_metadata(&link)
                 && (meta.file_type().is_symlink() || meta.file_type().is_file())
             {
-                fs::remove_file(&link).map_err(|err| {
-                    format!("failed to replace '{}': {err}", link.display())
-                })?;
+                fs::remove_file(&link)
+                    .map_err(|err| format!("failed to replace '{}': {err}", link.display()))?;
             }
             symlink("zapret-rs", &link)
                 .map_err(|err| format!("failed to create symlink '{}': {err}", link.display()))?;
@@ -219,30 +230,37 @@ fn perform_install(cli: &InstallCli) -> Result<(), String> {
     }
 
     #[cfg(target_os = "linux")]
-    if !cli.no_caps {
+    if !cli.no_caps
+    {
         apply_net_caps(&dst_bin)?;
     }
 
     #[cfg(target_os = "linux")]
-    if cli.systemd {
+    if cli.systemd
+    {
         install_systemd_service(&dst_bin)?;
     }
 
     println!("Installed binary: {}", dst_bin.display());
     println!("Installed Lua:    {}", lua_dir.display());
-    if cli.symlinks {
+    if cli.symlinks
+    {
         println!("Created symlinks: {}", SYMLINK_NAMES.join(", "));
     }
     Ok(())
 }
 
 /// Removes installed files from `prefix` (preserving `~/.config/zapret-rs` and unrelated binaries).
-fn perform_uninstall(cli: &UninstallCli) -> Result<(), String> {
+fn perform_uninstall(cli: &UninstallCli) -> Result<(), String>
+{
     let prefix = cli.prefix.clone().unwrap_or_else(|| {
         let user_prefix = default_install_prefix(false);
-        if user_prefix.join("bin").join("zapret-rs").exists() && current_euid() != 0 {
+        if user_prefix.join("bin").join("zapret-rs").exists() && current_euid() != 0
+        {
             user_prefix
-        } else {
+        }
+        else
+        {
             default_install_prefix(cli.systemd)
         }
     });
@@ -254,9 +272,11 @@ fn perform_uninstall(cli: &UninstallCli) -> Result<(), String> {
         fs::remove_file(&main_bin)
             .map_err(|err| format!("failed to remove '{}': {err}", main_bin.display()))?;
     }
-    for name in SYMLINK_NAMES {
+    for name in SYMLINK_NAMES
+    {
         let target = bin_dir.join(name);
-        if symlink_points_to_zapret(&target, &main_bin) {
+        if symlink_points_to_zapret(&target, &main_bin)
+        {
             fs::remove_file(&target)
                 .map_err(|err| format!("failed to remove '{}': {err}", target.display()))?;
         }
@@ -270,7 +290,8 @@ fn perform_uninstall(cli: &UninstallCli) -> Result<(), String> {
             .map_err(|err| format!("failed to remove '{}': {err}", lua_share.display()))?;
     }
     #[cfg(target_os = "linux")]
-    if cli.systemd {
+    if cli.systemd
+    {
         uninstall_systemd_service()?;
     }
     println!("Uninstalled zapret-rs artifacts under {}", prefix.display());
@@ -283,17 +304,21 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = match InstallCli::try_parse_from(args) {
+    let cli = match InstallCli::try_parse_from(args)
+    {
         Ok(cli) => cli,
-        Err(err) => {
+        Err(err) =>
+        {
             let is_err = err.use_stderr();
             let _ = err.print();
             return if is_err { ExitCode::from(2) } else { ExitCode::SUCCESS };
         }
     };
-    match perform_install(&cli) {
+    match perform_install(&cli)
+    {
         Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
+        Err(err) =>
+        {
             eprintln!("install error: {err}");
             ExitCode::FAILURE
         }
@@ -306,17 +331,21 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = match UninstallCli::try_parse_from(args) {
+    let cli = match UninstallCli::try_parse_from(args)
+    {
         Ok(cli) => cli,
-        Err(err) => {
+        Err(err) =>
+        {
             let is_err = err.use_stderr();
             let _ = err.print();
             return if is_err { ExitCode::from(2) } else { ExitCode::SUCCESS };
         }
     };
-    match perform_uninstall(&cli) {
+    match perform_uninstall(&cli)
+    {
         Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
+        Err(err) =>
+        {
             eprintln!("uninstall error: {err}");
             ExitCode::FAILURE
         }

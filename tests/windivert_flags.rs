@@ -8,7 +8,8 @@ use zapret_rs::intercepter::windivert_ffi::{WINDIVERT_FLAG_SEND_ONLY, WinDivertA
 use zapret_rs::rawsend::windivert::{bump_impostor_min_ttl, parse_ifout_indices};
 
 #[test]
-fn windivert_send_only_flag_and_outbound_address_match_windivert_header() {
+fn windivert_send_only_flag_and_outbound_address_match_windivert_header()
+{
     // `windivert.h`: `WINDIVERT_FLAG_RECV_ONLY = 0x0004`, `WINDIVERT_FLAG_SEND_ONLY = 0x0008`.
     assert_eq!(WINDIVERT_FLAG_SEND_ONLY, 0x0008);
     assert_eq!(std::mem::size_of::<WinDivertAddress>(), 80);
@@ -25,7 +26,8 @@ fn windivert_send_only_flag_and_outbound_address_match_windivert_header() {
 }
 
 #[test]
-fn parse_ifout_indices_accepts_single_and_dotted_windows_indices() {
+fn parse_ifout_indices_accepts_single_and_dotted_windows_indices()
+{
     assert_eq!(parse_ifout_indices(Some("14")), Some((14, 0)));
     assert_eq!(parse_ifout_indices(Some("14.3")), Some((14, 3)));
     assert_eq!(parse_ifout_indices(Some("0")), None);
@@ -34,21 +36,21 @@ fn parse_ifout_indices_accepts_single_and_dotted_windows_indices() {
 }
 
 #[test]
-fn bump_impostor_min_ttl_raises_ttl1_and_updates_ipv4_checksum_without_allocating_for_higher_ttl() {
+fn bump_impostor_min_ttl_raises_ttl1_and_updates_ipv4_checksum_without_allocating_for_higher_ttl()
+{
     use std::borrow::Cow;
 
     // Minimal valid IPv4 header with TTL=1, proto=6 (TCP), length=20.
-    let mut pkt = [
-        0x45, 0x00, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00,
-        0x01, 0x06, 0x00, 0x00, 10, 0, 0, 1,
-        10, 0, 0, 2,
-    ];
+    let mut pkt =
+        [0x45, 0x00, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x01, 0x06, 0x00, 0x00, 10, 0, 0, 1, 10, 0, 0, 2];
     let csum = |hdr: &[u8]| -> u16 {
         let mut sum: u32 = 0;
-        for chunk in hdr.chunks_exact(2) {
+        for chunk in hdr.chunks_exact(2)
+        {
             sum += u32::from(u16::from_be_bytes([chunk[0], chunk[1]]));
         }
-        while (sum >> 16) != 0 {
+        while (sum >> 16) != 0
+        {
             sum = (sum & 0xFFFF) + (sum >> 16);
         }
         !(sum as u16)

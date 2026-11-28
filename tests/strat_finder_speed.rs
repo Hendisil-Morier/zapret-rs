@@ -1,5 +1,7 @@
 //! Offline tests for Strategy Finder scan speedups (fractional timeouts, `--resolve`, batching).
 
+/// Command-line parsing verification for fractional `--timeout` and default changes.
+use clap::Parser;
 /// Shared interior mutability linking mock applier and mock probe backend.
 use std::cell::RefCell;
 /// Scripted outcome map keyed by `(domain, strategy_id)`.
@@ -10,8 +12,6 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::rc::Rc;
 /// Shutdown flag passed into [`run_scan`].
 use std::sync::atomic::AtomicBool;
-/// Command-line parsing verification for fractional `--timeout` and default changes.
-use clap::Parser;
 /// Timeout duration passed to argument builders and batch tests.
 use std::time::Duration;
 
@@ -19,14 +19,15 @@ use std::time::Duration;
 use zapret_rs::config::DesyncProfile;
 /// Strategy finder probe, runner, and CLI symbols under test.
 use zapret_rs::tools::{
-    CurlProbeBackend, IpFamily, ProbeBackend, ProbeOutcome, ProbeProtocol, ProbeRequest,
-    ScanConfig, ScanLevel, StratFinderCli, StrategyApplier, build_catalog, format_resolve_arg,
-    prioritize_sticky, run_scan,
+    CurlProbeBackend, IpFamily, ProbeBackend, ProbeOutcome, ProbeProtocol, ProbeRequest, ScanConfig,
+    ScanLevel, StratFinderCli, StrategyApplier, build_catalog, format_resolve_arg, prioritize_sticky,
+    run_scan,
 };
 
 /// Verifies fractional second formatting for `--connect-timeout` and `--max-time` across bounds.
 #[test]
-fn build_args_supports_fractional_subsecond_and_clamped_timeouts() {
+fn build_args_supports_fractional_subsecond_and_clamped_timeouts()
+{
     let req_sub = ProbeRequest {
         domain: "example.com".to_owned(),
         proto: ProbeProtocol::Tls13,
@@ -50,7 +51,8 @@ fn build_args_supports_fractional_subsecond_and_clamped_timeouts() {
 
 /// Verifies IPv4 and bracketed IPv6 formatting for `curl --resolve` pins.
 #[test]
-fn format_resolve_arg_brackets_ipv6_and_leaves_ipv4_bare() {
+fn format_resolve_arg_brackets_ipv6_and_leaves_ipv4_bare()
+{
     let v4 = IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34));
     let v6 = IpAddr::V6(Ipv6Addr::new(0x2606, 0x2800, 0x0220, 1, 0x0248, 0x1893, 0x25c8, 0x1946));
     assert_eq!(format_resolve_arg("example.com", 443, v4), "example.com:443:93.184.216.34");
@@ -62,7 +64,8 @@ fn format_resolve_arg_brackets_ipv6_and_leaves_ipv4_bare() {
 
 /// Verifies `StratFinderCli --timeout` parses fractional values and defaults to `2.0` seconds.
 #[test]
-fn cli_timeout_accepts_fractional_values_and_defaults_to_two_seconds() {
+fn cli_timeout_accepts_fractional_values_and_defaults_to_two_seconds()
+{
     let default_cli = StratFinderCli::try_parse_from(["strat_finder"]).expect("default cli parses");
     assert!((default_cli.timeout - 2.0).abs() < f64::EPSILON);
 
@@ -74,7 +77,8 @@ fn cli_timeout_accepts_fractional_values_and_defaults_to_two_seconds() {
 /// Verifies `CurlProbeBackend::probe_batch` preserves request indices across a multi-item batch.
 #[cfg(unix)]
 #[test]
-fn curl_probe_batch_runs_requests_and_preserves_index_order() {
+fn curl_probe_batch_runs_requests_and_preserves_index_order()
+{
     use std::os::unix::fs::PermissionsExt as _;
 
     let dir = std::env::temp_dir().join(format!("zapret-probe-batch-{}", std::process::id()));
@@ -107,7 +111,8 @@ fn curl_probe_batch_runs_requests_and_preserves_index_order() {
 
 /// Shared state for mock probe/applier tests recording batch sizes and profile swaps.
 #[derive(Default)]
-struct SpeedMockState {
+struct SpeedMockState
+{
     active_strategy: Option<String>,
     outcomes: HashMap<(String, Option<String>), ProbeOutcome>,
     batch_sizes: Vec<usize>,
@@ -118,13 +123,18 @@ struct SpeedMockState {
 /// Mock applier tracking `clear()` vs non-empty `apply_profiles()` calls.
 struct SpeedMockApplier(Rc<RefCell<SpeedMockState>>);
 
-impl StrategyApplier for SpeedMockApplier {
-    fn apply_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), String> {
+impl StrategyApplier for SpeedMockApplier
+{
+    fn apply_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), String>
+    {
         let mut st = self.0.borrow_mut();
-        if profiles.is_empty() {
+        if profiles.is_empty()
+        {
             st.clear_count += 1;
             st.active_strategy = None;
-        } else {
+        }
+        else
+        {
             st.swap_count += 1;
             st.active_strategy = profiles.first().and_then(|p| p.name.clone());
         }
@@ -135,10 +145,15 @@ impl StrategyApplier for SpeedMockApplier {
 /// Mock probe recording `probe_batch` call sizes and resolving scripted outcomes.
 struct SpeedMockProbe(Rc<RefCell<SpeedMockState>>);
 
-impl ProbeBackend for SpeedMockProbe {
-    fn supports_http3(&self) -> bool { false }
+impl ProbeBackend for SpeedMockProbe
+{
+    fn supports_http3(&self) -> bool
+    {
+        false
+    }
 
-    fn probe(&self, req: &ProbeRequest) -> ProbeOutcome {
+    fn probe(&self, req: &ProbeRequest) -> ProbeOutcome
+    {
         let st = self.0.borrow();
         st.outcomes
             .get(&(req.domain.clone(), st.active_strategy.clone()))
@@ -146,7 +161,8 @@ impl ProbeBackend for SpeedMockProbe {
             .unwrap_or(ProbeOutcome::Timeout)
     }
 
-    fn probe_batch(&self, reqs: &[ProbeRequest]) -> Vec<ProbeOutcome> {
+    fn probe_batch(&self, reqs: &[ProbeRequest]) -> Vec<ProbeOutcome>
+    {
         self.0.borrow_mut().batch_sizes.push(reqs.len());
         reqs.iter().map(|r| self.probe(r)).collect()
     }
@@ -154,12 +170,20 @@ impl ProbeBackend for SpeedMockProbe {
 
 /// Verifies `prioritize_sticky` puts same-family winners first, then cross-family, preserving order.
 #[test]
-fn prioritize_sticky_orders_same_family_then_cross_family_without_duplicates() {
+fn prioritize_sticky_orders_same_family_then_cross_family_without_duplicates()
+{
     let cat = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V6);
-    let last_suffix = cat.last().expect("non-empty catalog").id
-        .split_once(':').and_then(|(_, r)| r.split_once(':')).expect("suffix").1.to_owned();
-    let mid_suffix = cat[2].id
-        .split_once(':').and_then(|(_, r)| r.split_once(':')).expect("suffix").1.to_owned();
+    let last_suffix = cat
+        .last()
+        .expect("non-empty catalog")
+        .id
+        .split_once(':')
+        .and_then(|(_, r)| r.split_once(':'))
+        .expect("suffix")
+        .1
+        .to_owned();
+    let mid_suffix =
+        cat[2].id.split_once(':').and_then(|(_, r)| r.split_once(':')).expect("suffix").1.to_owned();
 
     let sticky = vec![(IpFamily::V4, mid_suffix.clone()), (IpFamily::V6, last_suffix.clone())];
     let reordered = prioritize_sticky(cat.clone(), &sticky);
@@ -170,19 +194,29 @@ fn prioritize_sticky_orders_same_family_then_cross_family_without_duplicates() {
 
 /// Verifies `run_scan` batches all baselines in one `probe_batch` wave and promotes sticky strategies.
 #[test]
-fn run_scan_batches_baselines_and_promotes_sticky_winner_to_first_probe() {
+fn run_scan_batches_baselines_and_promotes_sticky_winner_to_first_probe()
+{
     let cat_t12 = build_catalog(ProbeProtocol::Tls12, ScanLevel::Quick, IpFamily::V4);
     let winner_t12 = cat_t12.last().expect("last tls12").id.clone();
-    let suffix = winner_t12
-        .split_once(':').and_then(|(_, r)| r.split_once(':')).expect("suffix").1.to_owned();
+    let suffix =
+        winner_t12.split_once(':').and_then(|(_, r)| r.split_once(':')).expect("suffix").1.to_owned();
     let winner_t13 = format!("tls13:ipv4:{suffix}");
 
     let state = Rc::new(RefCell::new(SpeedMockState::default()));
     {
         let mut st = state.borrow_mut();
-        st.outcomes.insert(("d1.blocked".to_owned(), Some(winner_t12)), ProbeOutcome::Available { http_code: 200, latency_ms: 20 });
-        st.outcomes.insert(("d1.blocked".to_owned(), Some(winner_t13.clone())), ProbeOutcome::Available { http_code: 200, latency_ms: 21 });
-        st.outcomes.insert(("d2.blocked".to_owned(), Some(winner_t13)), ProbeOutcome::Available { http_code: 200, latency_ms: 22 });
+        st.outcomes.insert(
+            ("d1.blocked".to_owned(), Some(winner_t12)),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 20 },
+        );
+        st.outcomes.insert(
+            ("d1.blocked".to_owned(), Some(winner_t13.clone())),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 21 },
+        );
+        st.outcomes.insert(
+            ("d2.blocked".to_owned(), Some(winner_t13)),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 22 },
+        );
     }
 
     let cfg = ScanConfig {
@@ -215,7 +249,8 @@ fn run_scan_batches_baselines_and_promotes_sticky_winner_to_first_probe() {
 /// Verifies multi-domain `(ipv, proto)` grouping shares profile swaps, drops passing domains on
 /// `stop_on_first`, and preserves original `(domain, ipv, proto)` ordering in `ScanReport::targets`.
 #[test]
-fn run_scan_sweeps_multiple_domains_concurrently_and_drops_solved_domains() {
+fn run_scan_sweeps_multiple_domains_concurrently_and_drops_solved_domains()
+{
     let cat = build_catalog(ProbeProtocol::Tls12, ScanLevel::Quick, IpFamily::V4);
     let cand0 = cat[0].id.clone();
     let cand2 = cat[2].id.clone();
@@ -225,12 +260,30 @@ fn run_scan_sweeps_multiple_domains_concurrently_and_drops_solved_domains() {
     let state = Rc::new(RefCell::new(SpeedMockState::default()));
     {
         let mut st = state.borrow_mut();
-        st.outcomes.insert(("d1.test".to_owned(), Some(cand0)), ProbeOutcome::Available { http_code: 200, latency_ms: 15 });
-        st.outcomes.insert(("d2.test".to_owned(), Some(cand2.clone())), ProbeOutcome::Available { http_code: 200, latency_ms: 25 });
-        st.outcomes.insert(("d3.test".to_owned(), Some(cand2)), ProbeOutcome::Available { http_code: 200, latency_ms: 35 });
-        st.outcomes.insert(("d1.test".to_owned(), Some(t13_0)), ProbeOutcome::Available { http_code: 200, latency_ms: 16 });
-        st.outcomes.insert(("d2.test".to_owned(), Some(t13_2.clone())), ProbeOutcome::Available { http_code: 200, latency_ms: 26 });
-        st.outcomes.insert(("d3.test".to_owned(), Some(t13_2)), ProbeOutcome::Available { http_code: 200, latency_ms: 36 });
+        st.outcomes.insert(
+            ("d1.test".to_owned(), Some(cand0)),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 15 },
+        );
+        st.outcomes.insert(
+            ("d2.test".to_owned(), Some(cand2.clone())),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 25 },
+        );
+        st.outcomes.insert(
+            ("d3.test".to_owned(), Some(cand2)),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 35 },
+        );
+        st.outcomes.insert(
+            ("d1.test".to_owned(), Some(t13_0)),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 16 },
+        );
+        st.outcomes.insert(
+            ("d2.test".to_owned(), Some(t13_2.clone())),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 26 },
+        );
+        st.outcomes.insert(
+            ("d3.test".to_owned(), Some(t13_2)),
+            ProbeOutcome::Available { http_code: 200, latency_ms: 36 },
+        );
     }
 
     let cfg = ScanConfig {
@@ -251,7 +304,10 @@ fn run_scan_sweeps_multiple_domains_concurrently_and_drops_solved_domains() {
     // Wave 0 = 6 baselines; Tls12 cand0 = 3 domains -> d1 drops; cand1 = 2; cand2 = 2 -> d2/d3 drop;
     // Sticky Tls13 runs cand0/cand2 in the top 2 positions across remaining domains!
     assert_eq!(st.batch_sizes, vec![6, 3, 2, 2, 3, 2]);
-    assert_eq!(st.swap_count, 5, "only 3 Tls12 swaps + 2 sticky Tls13 swaps instead of sweeping domains serially");
+    assert_eq!(
+        st.swap_count, 5,
+        "only 3 Tls12 swaps + 2 sticky Tls13 swaps instead of sweeping domains serially"
+    );
 
     let order: Vec<(&str, ProbeProtocol, usize)> =
         report.targets.iter().map(|t| (t.domain.as_str(), t.proto, t.tested_count)).collect();

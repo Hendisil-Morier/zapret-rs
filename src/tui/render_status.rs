@@ -25,15 +25,20 @@ fn build_status_row<'a>(
     hscroll: usize,
     summary_width: usize,
     t: &crate::tui::theme_config::Theme,
-) -> Row<'a> {
-    let (badge, badge_col) = match item.health {
+) -> Row<'a>
+{
+    let (badge, badge_col) = match item.health
+    {
         ComponentHealth::Ok => ("[OK]", t.ok_bright),
         ComponentHealth::Warn => ("[WARN]", t.warn_bright),
         ComponentHealth::Err => ("[ERR]", t.err_bright),
     };
-    let row_style = if selected {
+    let row_style = if selected
+    {
         Style::default().bg(t.highlight_bg).add_modifier(Modifier::BOLD)
-    } else {
+    }
+    else
+    {
         Style::default()
     };
     let summary = windowed_text(item.summary.as_str(), None, hscroll, summary_width);
@@ -46,7 +51,8 @@ fn build_status_row<'a>(
 }
 
 /// Renders Tab 5: operational component table and selected-row remediation/detail panel.
-pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState)
+{
     let t = &state.theme;
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -55,7 +61,8 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let summary_width = rows[0].width.saturating_sub(32) as usize;
     let table_rows: Vec<Row<'_>> = state
-        .status.checks
+        .status
+        .checks
         .iter()
         .enumerate()
         .map(|(idx, item)| {
@@ -67,19 +74,13 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let header = Row::new(["Component", "Status", "Summary"])
         .style(Style::default().fg(t.info).add_modifier(Modifier::BOLD));
-    let table = Table::new(
-        table_rows,
-        [Constraint::Length(18), Constraint::Length(8), Constraint::Min(24)],
-    )
-    .header(header)
-    .block(panel_block(
-        " Operational Component Status ",
-        t.accent_bright,
-        t.info,
-    ));
+    let table = Table::new(table_rows, [Constraint::Length(18), Constraint::Length(8), Constraint::Min(24)])
+        .header(header)
+        .block(panel_block(" Operational Component Status ", t.accent_bright, t.info));
     frame.render_widget(table, rows[0]);
 
-    let detail_lines = if let Some(sel) = state.status.checks.get(state.status.selected) {
+    let detail_lines = if let Some(sel) = state.status.checks.get(state.status.selected)
+    {
         vec![Line::from(vec![
             Span::styled(
                 format!("{}: ", sel.name),
@@ -87,14 +88,15 @@ pub fn draw_status_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             ),
             Span::styled(sel.detail.as_str(), Style::default().fg(t.text)),
         ])]
-    } else {
-        vec![Line::from(Span::styled(
-            "No operational checks collected yet.",
-            Style::default().fg(t.subtle),
-        ))]
+    }
+    else
+    {
+        vec![Line::from(Span::styled("No operational checks collected yet.", Style::default().fg(t.subtle)))]
     };
-    let detail = Paragraph::new(detail_lines)
-        .wrap(Wrap { trim: true })
-        .block(panel_block(" Component Details ", t.frame, t.info));
+    let detail = Paragraph::new(detail_lines).wrap(Wrap { trim: true }).block(panel_block(
+        " Component Details ",
+        t.frame,
+        t.info,
+    ));
     frame.render_widget(detail, rows[1]);
 }

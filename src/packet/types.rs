@@ -2,7 +2,8 @@
 
 /// Legacy IPv4 + TCP dissected packet returned by [`crate::packet::dissecter::parse_ipv4_tcp`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Dissecter {
+pub struct Dissecter
+{
     /// Parsed IPv4 header.
     pub ip: Ipv4Header,
     /// Parsed TCP header.
@@ -13,7 +14,8 @@ pub struct Dissecter {
 
 /// Parsed fields from an IPv4 header, matching `zapret2`'s Lua `dis.ip` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ipv4Header {
+pub struct Ipv4Header
+{
     /// IP version nibble (`ip_v`: always 4 for IPv4).
     pub version: u8,
     /// Header length in 32-bit words (`ip_hl`: 5 equals 20 bytes).
@@ -42,7 +44,8 @@ pub struct Ipv4Header {
 
 /// One optional entry attached to the end of a TCP header.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TcpOption {
+pub struct TcpOption
+{
     /// Option kind identifier (0 = END, 1 = NOOP, 8 = Timestamp, 19 = MD5).
     pub kind: u8,
     /// `None` for 1-byte END/NOOP options, or `Some(bytes)` for length-prefixed options.
@@ -51,7 +54,8 @@ pub struct TcpOption {
 
 /// Parsed fields from a TCP header, matching `zapret2`'s Lua `dis.tcp` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TcpHeader {
+pub struct TcpHeader
+{
     /// Sender TCP port (`th_sport`).
     pub s_port: u16,
     /// Destination TCP port (`th_dport`).
@@ -78,7 +82,8 @@ pub struct TcpHeader {
 
 /// One parsed IPv6 extension header matching `zapret2`'s Lua `ip6.exthdr[i]` entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ipv6ExtHeader {
+pub struct Ipv6ExtHeader
+{
     /// Protocol identifier of this extension header (e.g. HOPOPTS, FRAGMENT, AH).
     pub header_type: u8,
     /// `Next Header` field stored inside this extension header (`next`).
@@ -89,7 +94,8 @@ pub struct Ipv6ExtHeader {
 
 /// Parsed fields from an IPv6 base header plus extension header chain (`dis.ip6`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ipv6Header {
+pub struct Ipv6Header
+{
     /// Version (4 bits = 6), traffic class (8 bits), and flow label (20 bits) (`ip6_flow`).
     pub flow: u32,
     /// Optional explicit payload length (`ip6_plen`); `None` asks reconstruction to auto-compute it.
@@ -108,7 +114,8 @@ pub struct Ipv6Header {
 
 /// Parsed fields from an 8-byte UDP header, matching `zapret2`'s Lua `dis.udp` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UdpHeader {
+pub struct UdpHeader
+{
     /// Sender UDP port (`uh_sport`).
     pub s_port: u16,
     /// Destination UDP port (`uh_dport`).
@@ -121,7 +128,8 @@ pub struct UdpHeader {
 
 /// Unified 8-byte ICMPv4/ICMPv6 header matching `zapret2`'s `struct icmp46` and Lua `dis.icmp`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IcmpHeader {
+pub struct IcmpHeader
+{
     /// ICMP message type (`icmp_type`).
     pub icmp_type: u8,
     /// ICMP message subtype code (`icmp_code`).
@@ -134,7 +142,8 @@ pub struct IcmpHeader {
 
 /// Complete L3/L4 dissected packet view matching `zapret2`'s `struct dissect` and Lua `dis`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DissectedPacket {
+pub struct DissectedPacket
+{
     /// Resolved inner L4 protocol number (`l4proto`).
     pub l4proto: u8,
     /// Byte length from start of L4 / post-L3 payload to end of IP payload (`transport_len`).

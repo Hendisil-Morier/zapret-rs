@@ -11,8 +11,7 @@ use crate::config::blobs::default_blobs;
 use crate::config::error::ConfigError;
 /// Port, ICMP, IP protocol, and firewall mark filter evaluators.
 use crate::config::filter::{
-    IcmpFilter, IppFilter, MarkFilter, PortFilter, icmp_filters_match, ipp_filters_match,
-    port_filters_match,
+    IcmpFilter, IppFilter, MarkFilter, PortFilter, icmp_filters_match, ipp_filters_match, port_filters_match,
 };
 /// Packet position range filters evaluated per action.
 use crate::config::range::PacketRange;
@@ -20,8 +19,7 @@ use crate::config::range::PacketRange;
 use crate::config::runtime_cfg::{ConntrackConfig, IpCacheConfig, ProfileListsConfig};
 /// Default queue number, fwmark, and IP protocol constants.
 use crate::packet::constants::{
-    DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_NUM, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TCP,
-    IPPROTO_UDP,
+    DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_NUM, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TCP, IPPROTO_UDP,
 };
 /// L7 protocol enums, bitmask matchers, and default none-disable bitmask constant.
 use crate::protocol::{L7_PAYLOAD_NONE_MASK, L7Proto, l7_proto_matches};
@@ -33,7 +31,8 @@ pub const DEFAULT_PASS_SAMPLE_RATE: u64 = 20;
 
 /// Resolved startup Lua script source.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LuaInitEntry {
+pub enum LuaInitEntry
+{
     /// Path to a Lua script executed via `LuaRuntime::exec_file`.
     File(PathBuf),
     /// Inline Lua code executed via `LuaRuntime::exec_str`.
@@ -42,7 +41,8 @@ pub enum LuaInitEntry {
 
 /// Optional writable directory configuration exported to Lua via the `WRITABLE` env var (`--writable`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WritableDirConfig {
+pub enum WritableDirConfig
+{
     /// Use the default directory (`$TMPDIR/zapret-rs`, falling back to `/tmp/zapret-rs`).
     Default,
     /// Use an explicit filesystem directory path.
@@ -51,7 +51,8 @@ pub enum WritableDirConfig {
 
 /// Unix control socket binding policy for `nfqws2` (`--control-socket` / `control_socket`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum ControlSocketConfig {
+pub enum ControlSocketConfig
+{
     /// Bind the default path when packet interception is active, and skip it in `--intercept=0`.
     #[default]
     Auto,
@@ -65,7 +66,8 @@ pub enum ControlSocketConfig {
 
 /// Validated Lua desync invocation attached to a [`DesyncProfile`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DesyncAction {
+pub struct DesyncAction
+{
     /// Lua global function name invoked for matching packets.
     pub func: String,
     /// Bitmask of allowed [`crate::config::L7Payload`] variants (`0` = all).
@@ -80,7 +82,8 @@ pub struct DesyncAction {
 
 /// Packet L3/L4/L7 attributes evaluated against a [`DesyncProfile`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProfileMatchInput {
+pub struct ProfileMatchInput
+{
     /// `true` for IPv6 packets, `false` for IPv4 packets.
     pub is_v6: bool,
     /// Wire transport/next-header protocol number (`IPPROTO_TCP`, `IPPROTO_UDP`, etc.).
@@ -99,7 +102,8 @@ pub struct ProfileMatchInput {
 
 /// Validated multi-strategy profile with normalized L3/L4/L7 filters and desync actions.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DesyncProfile {
+pub struct DesyncProfile
+{
     /// 1-based active profile index (`dp.n` in `zapret2`).
     pub index: u32,
     /// Optional human-readable profile name.
@@ -128,22 +132,29 @@ pub struct DesyncProfile {
     pub actions: Vec<DesyncAction>,
 }
 
-impl DesyncProfile {
+impl DesyncProfile
+{
     /// Returns `true` if `input` satisfies mark, L3, L7, and L4 filters on this profile.
-    pub fn matches(&self, input: &ProfileMatchInput) -> bool {
-        if !self.filter_mark.matches(input.fwmark) {
+    pub fn matches(&self, input: &ProfileMatchInput) -> bool
+    {
+        if !self.filter_mark.matches(input.fwmark)
+        {
             return false;
         }
-        if (!input.is_v6 && !self.filter_ipv4) || (input.is_v6 && !self.filter_ipv6) {
+        if (!input.is_v6 && !self.filter_ipv4) || (input.is_v6 && !self.filter_ipv6)
+        {
             return false;
         }
-        if !l7_proto_matches(input.l7proto, self.filter_l7) {
+        if !l7_proto_matches(input.l7proto, self.filter_l7)
+        {
             return false;
         }
-        match input.l4proto {
+        match input.l4proto
+        {
             IPPROTO_TCP => port_filters_match(&self.filter_tcp, input.port),
             IPPROTO_UDP => port_filters_match(&self.filter_udp, input.port),
-            IPPROTO_ICMP | IPPROTO_ICMPV6 => {
+            IPPROTO_ICMP | IPPROTO_ICMPV6 =>
+            {
                 icmp_filters_match(&self.filter_icmp, input.icmp_type, input.icmp_code)
             }
             _ => ipp_filters_match(&self.filter_ipp, input.l4proto),
@@ -153,7 +164,8 @@ impl DesyncProfile {
 
 /// Complete validated application configuration merged from TOML and CLI overrides.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppConfig {
+pub struct AppConfig
+{
     /// Netfilter queue number (`--qnum`).
     pub qnum: u16,
     /// Desync firewall mark applied to injected raw packets (`--fwmark`).
@@ -206,9 +218,11 @@ pub struct AppConfig {
     pub profiles: Vec<DesyncProfile>,
 }
 
-impl Default for AppConfig {
+impl Default for AppConfig
+{
     /// Returns standard `zapret2`-compatible runtime defaults with built-in default blobs.
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self {
             qnum: DEFAULT_QUEUE_NUM,
             fwmark: DEFAULT_DESYNC_FWMARK,
@@ -239,25 +253,33 @@ impl Default for AppConfig {
     }
 }
 
-impl AppConfig {
+impl AppConfig
+{
     /// Enforces cross-field invariants that apply after merging TOML and CLI overrides.
-    pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.user.is_some() && self.uid.is_some() {
+    pub fn validate(&self) -> Result<(), ConfigError>
+    {
+        if self.user.is_some() && self.uid.is_some()
+        {
             return Err(ConfigError::Validation(
                 "cannot specify both `user` and `uid` for privilege drop".to_owned(),
             ));
         }
-        for profile in &self.profiles {
-            if let Err(msg) = profile.lists.hostlist_auto_settings.validate() {
+        for profile in &self.profiles
+        {
+            if let Err(msg) = profile.lists.hostlist_auto_settings.validate()
+            {
                 return Err(ConfigError::Validation(msg.to_owned()));
             }
-            if profile.lists.hostlist_auto.is_some() {
-                if self.server {
+            if profile.lists.hostlist_auto.is_some()
+            {
+                if self.server
+                {
                     return Err(ConfigError::Validation(
                         "autohostlist is not supported in server mode".to_owned(),
                     ));
                 }
-                if self.conntrack.disable {
+                if self.conntrack.disable
+                {
                     return Err(ConfigError::Validation(
                         "autohostlist is not supported when conntrack is disabled".to_owned(),
                     ));

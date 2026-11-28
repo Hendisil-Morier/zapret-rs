@@ -19,7 +19,8 @@ const HUB_COMMAND_CHANNEL_CAP: usize = 32;
 
 /// Mutable daemon runtime metadata included in `Response::Status` snapshots.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DaemonStatusMeta {
+pub struct DaemonStatusMeta
+{
     /// Binary package version string.
     pub version: String,
     /// Daemon process ID.
@@ -37,28 +38,33 @@ pub struct DaemonStatusMeta {
 }
 
 /// Command sent from an authenticated control client to the packet-loop thread.
-pub enum ControlCommand {
+pub enum ControlCommand
+{
     /// Reloads hostlists and ipsets in the running `DesyncEngine`.
-    ReloadLists {
+    ReloadLists
+    {
         /// One-shot reply channel returning a summary or failure message.
         reply: SyncSender<Result<String, String>>,
     },
     /// Parses replacement TOML and swaps profiles inside the running `DesyncEngine`.
-    ReloadConfig {
+    ReloadConfig
+    {
         /// Replacement TOML configuration text pushed by a control client.
         toml: String,
         /// One-shot reply channel returning the new profile count or rejection reason.
         reply: SyncSender<Result<String, String>>,
     },
     /// Triggers clean shutdown of the running daemon process.
-    Stop {
+    Stop
+    {
         /// One-shot reply channel confirming shutdown initiation.
         reply: SyncSender<Result<String, String>>,
     },
 }
 
 /// Registered subscriber sink maintained by the telemetry fanout thread.
-pub(crate) struct SubscriberSink {
+pub(crate) struct SubscriberSink
+{
     /// Unique connection identifier.
     pub(crate) id: u64,
     /// Bounded non-blocking channel feeding the client's writer thread.
@@ -70,7 +76,8 @@ pub(crate) struct SubscriberSink {
 }
 
 /// Shared coordination state connecting the packet loop with the control server thread.
-pub struct TelemetryHub {
+pub struct TelemetryHub
+{
     /// Shared atomic packet counters updated on every intercepted packet.
     counters: Arc<PacketCounters>,
     /// Mutable daemon metadata snapshot served for `status` requests.
@@ -93,13 +100,11 @@ pub struct TelemetryHub {
     cmd_rx: Mutex<Receiver<ControlCommand>>,
 }
 
-impl TelemetryHub {
+impl TelemetryHub
+{
     /// Constructs a new hub with `counters`, initial `meta`, and PASS sampling rate.
-    pub fn new(
-        counters: Arc<PacketCounters>,
-        meta: DaemonStatusMeta,
-        pass_sample_rate: u64,
-    ) -> Arc<Self> {
+    pub fn new(counters: Arc<PacketCounters>, meta: DaemonStatusMeta, pass_sample_rate: u64) -> Arc<Self>
+    {
         let (pkt_tx, pkt_rx) = mpsc::sync_channel(HUB_PACKET_CHANNEL_CAP);
         let (cmd_tx, cmd_rx) = mpsc::sync_channel(HUB_COMMAND_CHANNEL_CAP);
         Arc::new(Self {
@@ -117,50 +122,62 @@ impl TelemetryHub {
     }
 
     /// Returns a reference to the shared atomic [`PacketCounters`].
-    pub fn counters(&self) -> &Arc<PacketCounters> {
+    pub fn counters(&self) -> &Arc<PacketCounters>
+    {
         &self.counters
     }
 
     /// Returns `true` when at least one authenticated client is currently subscribed.
-    pub fn has_subscribers(&self) -> bool {
+    pub fn has_subscribers(&self) -> bool
+    {
         self.subscriber_count.load(Ordering::Relaxed) > 0
     }
 
     /// Returns the configured PASS packet sampling divisor (`0` disables PASS records).
-    pub fn pass_sample_rate(&self) -> u64 {
+    pub fn pass_sample_rate(&self) -> u64
+    {
         self.pass_sample_rate.load(Ordering::Relaxed)
     }
 
     /// Returns `true` if the hot path should build and publish a record for `verdict`.
-    pub fn should_publish(&self, verdict: PacketVerdict) -> bool {
-        if !self.has_subscribers() {
+    pub fn should_publish(&self, verdict: PacketVerdict) -> bool
+    {
+        if !self.has_subscribers()
+        {
             return false;
         }
-        if verdict != PacketVerdict::Pass {
+        if verdict != PacketVerdict::Pass
+        {
             return true;
         }
         let sample = self.pass_sample_rate();
-        if sample == 0 {
+        if sample == 0
+        {
             return false;
         }
         self.pass_seen.fetch_add(1, Ordering::Relaxed).is_multiple_of(sample)
     }
 
     /// Attempts to queue `record` for subscribed clients without ever blocking the caller.
-    pub fn publish_packet(&self, record: PacketRecord) {
+    pub fn publish_packet(&self, record: PacketRecord)
+    {
         let _ = self.pkt_tx.try_send(record);
     }
 
     /// Replaces the tracked profile list in status responses after a live config reload.
-    pub fn set_profile_names(&self, names: Vec<String>) {
-        if let Ok(mut guard) = self.meta.write() {
+    pub fn set_profile_names(&self, names: Vec<String>)
+    {
+        if let Ok(mut guard) = self.meta.write()
+        {
             guard.profile_names = names;
         }
     }
 
     /// Builds a consistent [`DaemonStatus`] combining current metadata and atomic counters.
-    pub fn status_snapshot(&self) -> DaemonStatus {
-        let meta = match self.meta.read() {
+    pub fn status_snapshot(&self) -> DaemonStatus
+    {
+        let meta = match self.meta.read()
+        {
             Ok(guard) => guard.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         };
@@ -178,8 +195,10 @@ impl TelemetryHub {
     }
 
     /// Enqueues a [`ControlCommand`] toward the packet loop without waiting on completion.
-    pub fn try_send_command(&self, cmd: ControlCommand) -> Result<(), String> {
-        match self.cmd_tx.try_send(cmd) {
+    pub fn try_send_command(&self, cmd: ControlCommand) -> Result<(), String>
+    {
+        match self.cmd_tx.try_send(cmd)
+        {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => Err("daemon command queue is full".to_owned()),
             Err(TrySendError::Disconnected(_)) => Err("daemon loop is shutting down".to_owned()),
@@ -187,18 +206,22 @@ impl TelemetryHub {
     }
 
     /// Pops one pending [`ControlCommand`] for non-blocking execution in `next_loop_timeout`.
-    pub fn try_recv_command(&self) -> Option<ControlCommand> {
+    pub fn try_recv_command(&self) -> Option<ControlCommand>
+    {
         self.cmd_rx.lock().ok()?.try_recv().ok()
     }
 
     /// Takes the packet receiver once for the control server's fanout thread.
-    pub(crate) fn take_packet_receiver(&self) -> Option<Receiver<PacketRecord>> {
+    pub(crate) fn take_packet_receiver(&self) -> Option<Receiver<PacketRecord>>
+    {
         self.pkt_rx.lock().ok()?.take()
     }
 
     /// Registers or updates one subscriber sink and synchronizes `subscriber_count`.
-    pub(crate) fn add_subscriber(&self, sink: SubscriberSink) {
-        if let Ok(mut guard) = self.subscribers.lock() {
+    pub(crate) fn add_subscriber(&self, sink: SubscriberSink)
+    {
+        if let Ok(mut guard) = self.subscribers.lock()
+        {
             guard.retain(|item| item.id != sink.id);
             guard.push(sink);
             self.subscriber_count.store(guard.len(), Ordering::Relaxed);
@@ -206,24 +229,31 @@ impl TelemetryHub {
     }
 
     /// Removes subscriber `id` and clears `subscriber_count` when none remain.
-    pub(crate) fn remove_subscriber(&self, id: u64) {
-        if let Ok(mut guard) = self.subscribers.lock() {
+    pub(crate) fn remove_subscriber(&self, id: u64)
+    {
+        if let Ok(mut guard) = self.subscribers.lock()
+        {
             guard.retain(|item| item.id != id);
             self.subscriber_count.store(guard.len(), Ordering::Relaxed);
         }
     }
 
     /// Broadcasts `msg` non-blockingly to all subscribers, disconnecting full or dead sinks.
-    pub(crate) fn broadcast(&self, msg: &Response, is_pass_packet: bool) {
+    pub(crate) fn broadcast(&self, msg: &Response, is_pass_packet: bool)
+    {
         let mut dropped_hooks = Vec::new();
-        if let Ok(mut guard) = self.subscribers.lock() {
+        if let Ok(mut guard) = self.subscribers.lock()
+        {
             guard.retain(|sink| {
-                if is_pass_packet && sink.pass_sample_rate == Some(0) {
+                if is_pass_packet && sink.pass_sample_rate == Some(0)
+                {
                     return true;
                 }
-                match sink.tx.try_send(msg.clone()) {
+                match sink.tx.try_send(msg.clone())
+                {
                     Ok(()) => true,
-                    Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                    Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) =>
+                    {
                         dropped_hooks.push(Arc::clone(&sink.disconnect));
                         false
                     }
@@ -231,7 +261,8 @@ impl TelemetryHub {
             });
             self.subscriber_count.store(guard.len(), Ordering::Relaxed);
         }
-        for hook in dropped_hooks {
+        for hook in dropped_hooks
+        {
             hook();
         }
     }

@@ -7,11 +7,11 @@ use std::env;
 use std::ffi::CString;
 /// OS string slice for `TMPDIR` overrides.
 use std::ffi::OsStr;
-/// Filesystem directory creation, canonicalization, and probe file checks.
-use std::fs::{self, OpenOptions};
 /// Unix-only `DirBuilder` permission mode helper.
 #[cfg(unix)]
 use std::fs::DirBuilder;
+/// Filesystem directory creation, canonicalization, and probe file checks.
+use std::fs::{self, OpenOptions};
 /// Standard I/O error classification for `AlreadyExists` and non-directory targets.
 use std::io;
 /// Raw FD wrappers preventing path TOCTOU races between directory validation and `fchown`.
@@ -42,44 +42,44 @@ pub const DEFAULT_WRITABLE_SUBDIR: &str = "zapret-rs";
 static PROBE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Resolves the default `--writable` directory path from `TMPDIR` or `std::env::temp_dir()`.
-pub fn resolve_default_writable_dir(tmpdir: Option<&OsStr>) -> PathBuf {
-    let base = tmpdir
-        .filter(|val| !val.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(env::temp_dir);
+pub fn resolve_default_writable_dir(tmpdir: Option<&OsStr>) -> PathBuf
+{
+    let base = tmpdir.filter(|val| !val.is_empty()).map(PathBuf::from).unwrap_or_else(env::temp_dir);
     base.join(DEFAULT_WRITABLE_SUBDIR)
 }
 
 /// Verifies `dir` is writable by atomically creating and removing a unique temporary probe file.
-fn probe_dir_writable(dir: &Path) -> Result<(), ProcessError> {
+fn probe_dir_writable(dir: &Path) -> Result<(), ProcessError>
+{
     let seq = PROBE_SEQ.fetch_add(1, Ordering::Relaxed);
     let probe_path = dir.join(format!(".zapret_probe_{}_{}", std::process::id(), seq));
     let mut opts = OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
     opts.custom_flags(libc::O_NOFOLLOW);
-    match opts.open(&probe_path) {
-        Ok(file) => {
+    match opts.open(&probe_path)
+    {
+        Ok(file) =>
+        {
             drop(file);
             let _ = fs::remove_file(&probe_path);
             Ok(())
         }
-        Err(source) => Err(ProcessError::WritableDir {
-            path: dir.to_path_buf(),
-            source,
-        }),
+        Err(source) => Err(ProcessError::WritableDir { path: dir.to_path_buf(), source }),
     }
 }
 
 /// Opens an existing directory without following symlinks and returns `(fd, stat)`.
 #[cfg(unix)]
-fn open_dir_nofollow(path: &Path) -> Result<(OwnedFd, libc::stat), io::Error> {
-    let c_path = CString::new(path.as_os_str().as_bytes())
-        .map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
+fn open_dir_nofollow(path: &Path) -> Result<(OwnedFd, libc::stat), io::Error>
+{
+    let c_path =
+        CString::new(path.as_os_str().as_bytes()).map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
     let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     // SAFETY: `c_path` is a valid NUL-terminated path string and flags require a non-symlink directory.
     let raw_fd = unsafe { libc::open(c_path.as_ptr(), flags) };
-    if raw_fd < 0 {
+    if raw_fd < 0
+    {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: `raw_fd` was returned by `libc::open` and is exclusively owned here.
@@ -87,10 +87,12 @@ fn open_dir_nofollow(path: &Path) -> Result<(OwnedFd, libc::stat), io::Error> {
     // SAFETY: `libc::stat` is plain data overwritten by `fstat`.
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
     // SAFETY: `fd` is an open directory descriptor and `st` is valid writable storage.
-    if unsafe { libc::fstat(fd.as_raw_fd(), &raw mut st) } < 0 {
+    if unsafe { libc::fstat(fd.as_raw_fd(), &raw mut st) } < 0
+    {
         return Err(io::Error::last_os_error());
     }
-    if (st.st_mode & libc::S_IFMT) != libc::S_IFDIR {
+    if (st.st_mode & libc::S_IFMT) != libc::S_IFDIR
+    {
         return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
     }
     Ok((fd, st))
@@ -98,24 +100,24 @@ fn open_dir_nofollow(path: &Path) -> Result<(OwnedFd, libc::stat), io::Error> {
 
 /// Attempts `fchown(fd, uid, -1)` on an already-opened directory FD without symlink TOCTOU risk.
 #[cfg(unix)]
-fn try_fchown_dir(fd: &OwnedFd, uid: libc::uid_t) -> bool {
+fn try_fchown_dir(fd: &OwnedFd, uid: libc::uid_t) -> bool
+{
     // SAFETY: `fd` is a verified `O_NOFOLLOW` directory descriptor and `u32::MAX` preserves GID.
     unsafe { libc::fchown(fd.as_raw_fd(), uid, libc::gid_t::MAX) == 0 }
 }
 
 /// Creates `target` (`0o755` on Unix) and returns `Ok(true)` if newly created or `Ok(false)` if it existed.
-fn create_writable_dir(target: &Path) -> Result<bool, ProcessError> {
+fn create_writable_dir(target: &Path) -> Result<bool, ProcessError>
+{
     #[cfg(unix)]
     let res = DirBuilder::new().mode(0o755).create(target);
     #[cfg(not(unix))]
     let res = fs::create_dir(target);
-    match res {
+    match res
+    {
         Ok(()) => Ok(true),
         Err(source) if source.kind() == io::ErrorKind::AlreadyExists => Ok(false),
-        Err(source) => Err(ProcessError::WritableDir {
-            path: target.to_path_buf(),
-            source,
-        }),
+        Err(source) => Err(ProcessError::WritableDir { path: target.to_path_buf(), source }),
     }
 }
 
@@ -125,43 +127,37 @@ fn validate_and_chown_dir(
     target: &Path,
     created_fresh: bool,
     identity: Option<&IdentitySpec>,
-) -> Result<(PathBuf, bool), ProcessError> {
-    let (dir_fd, st) = open_dir_nofollow(target).map_err(|source| ProcessError::WritableDir {
-        path: target.to_path_buf(),
-        source,
-    })?;
-    if !created_fresh {
+) -> Result<(PathBuf, bool), ProcessError>
+{
+    let (dir_fd, st) = open_dir_nofollow(target)
+        .map_err(|source| ProcessError::WritableDir { path: target.to_path_buf(), source })?;
+    if !created_fresh
+    {
         // SAFETY: `geteuid()` always succeeds and takes no arguments.
         let euid = unsafe { libc::geteuid() };
         let expected_uid = identity.map_or(euid, |id| id.uid);
-        let non_sticky_world_writable =
-            (st.st_mode & 0o002) != 0 && (st.st_mode & 0o1000) == 0;
-        if st.st_uid != expected_uid || non_sticky_world_writable {
+        let non_sticky_world_writable = (st.st_mode & 0o002) != 0 && (st.st_mode & 0o1000) == 0;
+        if st.st_uid != expected_uid || non_sticky_world_writable
+        {
             return Err(ProcessError::WritableDir {
                 path: target.to_path_buf(),
                 source: io::Error::from_raw_os_error(libc::EACCES),
             });
         }
     }
-    let canonical = fs::canonicalize(target).map_err(|source| ProcessError::WritableDir {
-        path: target.to_path_buf(),
-        source,
-    })?;
-    let canon_meta = fs::metadata(&canonical).map_err(|source| ProcessError::WritableDir {
-        path: target.to_path_buf(),
-        source,
-    })?;
-    if canon_meta.dev() != st.st_dev || canon_meta.ino() != st.st_ino {
+    let canonical = fs::canonicalize(target)
+        .map_err(|source| ProcessError::WritableDir { path: target.to_path_buf(), source })?;
+    let canon_meta = fs::metadata(&canonical)
+        .map_err(|source| ProcessError::WritableDir { path: target.to_path_buf(), source })?;
+    if canon_meta.dev() != st.st_dev || canon_meta.ino() != st.st_ino
+    {
         return Err(ProcessError::WritableDir {
             path: target.to_path_buf(),
             source: io::Error::from_raw_os_error(libc::ELOOP),
         });
     }
-    let chowned = if created_fresh {
-        identity.is_some_and(|id| try_fchown_dir(&dir_fd, id.uid))
-    } else {
-        false
-    };
+    let chowned =
+        if created_fresh { identity.is_some_and(|id| try_fchown_dir(&dir_fd, id.uid)) } else { false };
     Ok((canonical, chowned))
 }
 
@@ -171,11 +167,10 @@ fn validate_and_chown_dir(
     target: &Path,
     _created_fresh: bool,
     _identity: Option<&IdentitySpec>,
-) -> Result<(PathBuf, bool), ProcessError> {
-    let canonical = fs::canonicalize(target).map_err(|source| ProcessError::WritableDir {
-        path: target.to_path_buf(),
-        source,
-    })?;
+) -> Result<(PathBuf, bool), ProcessError>
+{
+    let canonical = fs::canonicalize(target)
+        .map_err(|source| ProcessError::WritableDir { path: target.to_path_buf(), source })?;
     Ok((canonical, false))
 }
 
@@ -183,17 +178,18 @@ fn validate_and_chown_dir(
 pub fn ensure_writable_dir(
     cfg: &WritableDirConfig,
     identity: Option<&IdentitySpec>,
-) -> Result<PathBuf, ProcessError> {
-    let target = match cfg {
-        WritableDirConfig::Default => {
-            resolve_default_writable_dir(env::var_os("TMPDIR").as_deref())
-        }
+) -> Result<PathBuf, ProcessError>
+{
+    let target = match cfg
+    {
+        WritableDirConfig::Default => resolve_default_writable_dir(env::var_os("TMPDIR").as_deref()),
         WritableDirConfig::Custom(path) => path.clone(),
     };
 
     let created_fresh = create_writable_dir(&target)?;
     let (canonical, chowned) = validate_and_chown_dir(&target, created_fresh, identity)?;
-    if !chowned {
+    if !chowned
+    {
         probe_dir_writable(&canonical)?;
     }
     Ok(canonical)
@@ -203,7 +199,8 @@ pub fn ensure_writable_dir(
 pub fn prepare_writable_dir(
     cfg: &WritableDirConfig,
     identity: Option<&IdentitySpec>,
-) -> Result<PathBuf, ProcessError> {
+) -> Result<PathBuf, ProcessError>
+{
     let dir = ensure_writable_dir(cfg, identity)?;
     // SAFETY: invoked once during single-threaded `nfqws2` startup prior to thread creation or Lua init.
     unsafe {

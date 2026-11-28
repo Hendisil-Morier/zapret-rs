@@ -8,10 +8,12 @@ use thiserror::Error;
 
 /// Errors raised during process initialization, daemonization, privilege dropping, or signal setup.
 #[derive(Debug, Error)]
-pub enum ProcessError {
+pub enum ProcessError
+{
     /// Failed to change the working directory via `--chdir`.
     #[error("failed to change working directory to '{}': {source}", path.display())]
-    Chdir {
+    Chdir
+    {
         /// Target working directory path requested by configuration or CLI.
         path: PathBuf,
         /// Underlying OS error returned by `chdir`.
@@ -20,7 +22,8 @@ pub enum ProcessError {
     },
     /// Failed to create, write, or flush the daemon PID file.
     #[error("failed to manage PID file '{}': {source}", path.display())]
-    PidFile {
+    PidFile
+    {
         /// Resolved PID file path targeted on disk.
         path: PathBuf,
         /// Underlying OS I/O error returned during file creation or writing.
@@ -35,7 +38,8 @@ pub enum ProcessError {
     InvalidUidSpec(String),
     /// Failed one step of UID/GID/supplementary-group transition or `PR_SET_KEEPCAPS`.
     #[error("privilege drop failed at {step}: {source}")]
-    PrivilegeDrop {
+    PrivilegeDrop
+    {
         /// Kernel or libc step name (`prctl(PR_SET_KEEPCAPS)`, `initgroups`, `setgroups`, `setgid`, `setuid`).
         step: &'static str,
         /// Underlying OS error (`EPERM`, `EINVAL`, etc.).
@@ -44,7 +48,8 @@ pub enum ProcessError {
     },
     /// Failed to inspect or constrain Linux process capabilities via `capget`/`capset`/`prctl`.
     #[error("capability management failed at {step}: {source}")]
-    Capabilities {
+    Capabilities
+    {
         /// Capability syscall or step identifier (`capget`, `capset(...)`, etc.).
         step: &'static str,
         /// Underlying OS error (`EPERM`, `EINVAL`, `EFAULT`, etc.).
@@ -53,7 +58,8 @@ pub enum ProcessError {
     },
     /// Failed during background daemon fork, `setsid`, or standard descriptor redirection.
     #[error("daemonize failed at {step}: {source}")]
-    Daemonize {
+    Daemonize
+    {
         /// Step identifier within daemonization (`fork`, `setsid`, `open(/dev/null)`, `dup2`).
         step: &'static str,
         /// Underlying OS error returned by libc.
@@ -62,7 +68,8 @@ pub enum ProcessError {
     },
     /// Failed to install a POSIX signal disposition via `sigaction`.
     #[error("failed to install signal handler for {signal}: {source}")]
-    SignalInstall {
+    SignalInstall
+    {
         /// Signal name (`SIGINT`, `SIGTERM`, `SIGHUP`).
         signal: &'static str,
         /// Underlying OS error returned by `sigaction`.
@@ -71,7 +78,8 @@ pub enum ProcessError {
     },
     /// Failed to create, access, or verify the `--writable` Lua directory.
     #[error("could not prepare writable dir '{}': {source}", path.display())]
-    WritableDir {
+    WritableDir
+    {
         /// Target writable directory path on disk.
         path: PathBuf,
         /// Underlying OS error returned during directory setup or probe write.

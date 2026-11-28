@@ -1,17 +1,17 @@
 //! Per-client control socket reader, writer, handshake gate, and command dispatcher.
 
+/// Authenticated peer control stream.
+use crate::control::transport::ControlStream;
 /// Buffered JSON line reading and OS timeout/would-block classification.
 use std::io::{BufReader, ErrorKind};
 /// Bidirectional stream shutdown used to cleanly disconnect stalled or closed peers.
 use std::net::Shutdown;
-/// Authenticated peer control stream.
-use crate::control::transport::ControlStream;
+/// Shared telemetry hub reference and disconnect callback wrapper.
+use std::sync::Arc;
 /// Cooperative liveness flag tracking client disconnects and server shutdown.
 use std::sync::atomic::{AtomicBool, Ordering};
 /// Bounded outbound event queue and one-shot command reply channels.
 use std::sync::mpsc::{self, Receiver, SyncSender};
-/// Shared telemetry hub reference and disconnect callback wrapper.
-use std::sync::Arc;
 /// Dedicated per-client socket writer thread.
 use std::thread;
 /// Client socket read/write timeouts and packet-loop command reply wait budget.
@@ -43,8 +43,11 @@ pub(crate) fn serve_client(
     config: ControlServerConfig,
     hub: Arc<TelemetryHub>,
     server_stop: Arc<AtomicBool>,
-) {
-    let Ok(writer_stream) = stream.try_clone() else {
+)
+{
+    let Ok(writer_stream) = stream.try_clone()
+    else
+    {
         return;
     };
     let _ = stream.set_read_timeout(Some(CLIENT_READ_TIMEOUT));
@@ -61,9 +64,12 @@ pub(crate) fn serve_client(
     let mut reader = LineReader::new(BufReader::new(stream));
     let mut handshaked = false;
 
-    while client_alive.load(Ordering::Acquire) && !server_stop.load(Ordering::Acquire) {
-        match reader.read_message::<Request>() {
-            Ok(Some(req)) => {
+    while client_alive.load(Ordering::Acquire) && !server_stop.load(Ordering::Acquire)
+    {
+        match reader.read_message::<Request>()
+        {
+            Ok(Some(req)) =>
+            {
                 let keep_open = handle_client_request(
                     id,
                     req,
@@ -74,17 +80,18 @@ pub(crate) fn serve_client(
                     &client_alive,
                     reader.get_ref().get_ref(),
                 );
-                if !keep_open {
+                if !keep_open
+                {
                     break;
                 }
             }
             Ok(None) => break,
-            Err(CodecError::Io(err))
-                if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+            Err(CodecError::Io(err)) if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
             {
                 continue;
             }
-            Err(CodecError::LineTooLong { .. } | CodecError::Json(_)) => {
+            Err(CodecError::LineTooLong { .. } | CodecError::Json(_)) =>
+            {
                 let _ = out_tx.try_send(Response::Error {
                     code: ControlErrorCode::BadRequest,
                     message: "malformed or oversized control request".to_owned(),
@@ -112,32 +119,34 @@ fn handle_client_request(
     out_tx: &SyncSender<Response>,
     client_alive: &Arc<AtomicBool>,
     stream_ref: &ControlStream,
-) -> bool {
-    if !*handshaked {
+) -> bool
+{
+    if !*handshaked
+    {
         return handle_pre_handshake(req, handshaked, config, out_tx);
     }
 
-    match req {
+    match req
+    {
         Request::Hello { version } => handle_hello(version, &config.daemon_version, out_tx),
         Request::Status => send_or_close(out_tx, Response::Status(hub.status_snapshot())),
-        Request::Subscribe { pass_sample_rate } => {
+        Request::Subscribe { pass_sample_rate } =>
+        {
             register_subscriber(id, pass_sample_rate, hub, out_tx, client_alive, stream_ref)
         }
-        Request::Unsubscribe => {
+        Request::Unsubscribe =>
+        {
             hub.remove_subscriber(id);
             send_or_close(out_tx, Response::Ack { op: "unsubscribe".to_owned(), message: None })
         }
-        Request::ReloadLists => dispatch_loop_command("reload_lists", hub, out_tx, |reply| {
-            ControlCommand::ReloadLists { reply }
-        }),
-        Request::ReloadConfig { toml } => {
-            dispatch_loop_command("reload_config", hub, out_tx, |reply| {
-                ControlCommand::ReloadConfig { toml, reply }
-            })
+        Request::ReloadLists =>
+        {
+            dispatch_loop_command("reload_lists", hub, out_tx, |reply| ControlCommand::ReloadLists { reply })
         }
-        Request::Stop => dispatch_loop_command("stop", hub, out_tx, |reply| {
-            ControlCommand::Stop { reply }
+        Request::ReloadConfig { toml } => dispatch_loop_command("reload_config", hub, out_tx, |reply| {
+            ControlCommand::ReloadConfig { toml, reply }
         }),
+        Request::Stop => dispatch_loop_command("stop", hub, out_tx, |reply| ControlCommand::Stop { reply }),
     }
 }
 
@@ -147,10 +156,14 @@ fn handle_pre_handshake(
     handshaked: &mut bool,
     config: &ControlServerConfig,
     out_tx: &SyncSender<Response>,
-) -> bool {
-    match req {
-        Request::Hello { version } => match validate_protocol_version(version) {
-            Ok(()) => {
+) -> bool
+{
+    match req
+    {
+        Request::Hello { version } => match validate_protocol_version(version)
+        {
+            Ok(()) =>
+            {
                 *handshaked = true;
                 send_or_close(
                     out_tx,
@@ -160,13 +173,11 @@ fn handle_pre_handshake(
                     },
                 )
             }
-            Err(err) => {
+            Err(err) =>
+            {
                 let _ = send_or_close(
                     out_tx,
-                    Response::Error {
-                        code: ControlErrorCode::UnsupportedVersion,
-                        message: err.to_string(),
-                    },
+                    Response::Error { code: ControlErrorCode::UnsupportedVersion, message: err.to_string() },
                 );
                 true
             }
@@ -182,8 +193,10 @@ fn handle_pre_handshake(
 }
 
 /// Responds to redundant post-handshake `hello` requests consistently.
-fn handle_hello(version: u32, daemon_version: &str, out_tx: &SyncSender<Response>) -> bool {
-    match validate_protocol_version(version) {
+fn handle_hello(version: u32, daemon_version: &str, out_tx: &SyncSender<Response>) -> bool
+{
+    match validate_protocol_version(version)
+    {
         Ok(()) => send_or_close(
             out_tx,
             Response::HelloOk {
@@ -193,10 +206,7 @@ fn handle_hello(version: u32, daemon_version: &str, out_tx: &SyncSender<Response
         ),
         Err(err) => send_or_close(
             out_tx,
-            Response::Error {
-                code: ControlErrorCode::UnsupportedVersion,
-                message: err.to_string(),
-            },
+            Response::Error { code: ControlErrorCode::UnsupportedVersion, message: err.to_string() },
         ),
     }
 }
@@ -209,22 +219,20 @@ fn register_subscriber(
     out_tx: &SyncSender<Response>,
     client_alive: &Arc<AtomicBool>,
     stream_ref: &ControlStream,
-) -> bool {
+) -> bool
+{
     let shutdown_ref = stream_ref.try_clone().ok();
     let alive_flag = Arc::clone(client_alive);
     let disconnect: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         alive_flag.store(false, Ordering::Release);
-        if let Some(ref sock) = shutdown_ref {
+        if let Some(ref sock) = shutdown_ref
+        {
             let _ = sock.shutdown(Shutdown::Both);
         }
     });
-    hub.add_subscriber(SubscriberSink {
-        id,
-        tx: out_tx.clone(),
-        pass_sample_rate,
-        disconnect,
-    });
-    if !send_or_close(out_tx, Response::Ack { op: "subscribe".to_owned(), message: None }) {
+    hub.add_subscriber(SubscriberSink { id, tx: out_tx.clone(), pass_sample_rate, disconnect });
+    if !send_or_close(out_tx, Response::Ack { op: "subscribe".to_owned(), message: None })
+    {
         return false;
     }
     send_or_close(out_tx, Response::Counters(CountersSnapshot::from(&**hub.counters())))
@@ -241,21 +249,17 @@ where
     F: FnOnce(SyncSender<Result<String, String>>) -> ControlCommand,
 {
     let (reply_tx, reply_rx) = mpsc::sync_channel(1);
-    if let Err(err) = hub.try_send_command(make_cmd(reply_tx)) {
-        return send_or_close(
-            out_tx,
-            Response::Error { code: ControlErrorCode::ShuttingDown, message: err },
-        );
+    if let Err(err) = hub.try_send_command(make_cmd(reply_tx))
+    {
+        return send_or_close(out_tx, Response::Error { code: ControlErrorCode::ShuttingDown, message: err });
     }
-    match reply_rx.recv_timeout(COMMAND_REPLY_TIMEOUT) {
-        Ok(Ok(msg)) => send_or_close(
-            out_tx,
-            Response::Ack { op: op_name.to_owned(), message: Some(msg) },
-        ),
-        Ok(Err(err)) => send_or_close(
-            out_tx,
-            Response::Error { code: ControlErrorCode::CommandFailed, message: err },
-        ),
+    match reply_rx.recv_timeout(COMMAND_REPLY_TIMEOUT)
+    {
+        Ok(Ok(msg)) => send_or_close(out_tx, Response::Ack { op: op_name.to_owned(), message: Some(msg) }),
+        Ok(Err(err)) =>
+        {
+            send_or_close(out_tx, Response::Error { code: ControlErrorCode::CommandFailed, message: err })
+        }
         Err(_) => send_or_close(
             out_tx,
             Response::Error {
@@ -267,20 +271,22 @@ where
 }
 
 /// Non-blocking send to client's writer queue; returns `false` if client stalled or disconnected.
-fn send_or_close(out_tx: &SyncSender<Response>, resp: Response) -> bool {
+fn send_or_close(out_tx: &SyncSender<Response>, resp: Response) -> bool
+{
     out_tx.try_send(resp).is_ok()
 }
 
 /// Drains `out_rx` into `stream` until the session drops `out_tx` or `alive` clears.
-fn run_client_writer(
-    mut stream: ControlStream,
-    out_rx: Receiver<Response>,
-    alive: Arc<AtomicBool>,
-) {
-    while alive.load(Ordering::Acquire) {
-        match out_rx.recv_timeout(CLIENT_READ_TIMEOUT) {
-            Ok(resp) => {
-                if write_message(&mut stream, &resp).is_err() {
+fn run_client_writer(mut stream: ControlStream, out_rx: Receiver<Response>, alive: Arc<AtomicBool>)
+{
+    while alive.load(Ordering::Acquire)
+    {
+        match out_rx.recv_timeout(CLIENT_READ_TIMEOUT)
+        {
+            Ok(resp) =>
+            {
+                if write_message(&mut stream, &resp).is_err()
+                {
                     break;
                 }
             }

@@ -18,14 +18,15 @@ use zapret_rs::desync::DesyncEngine;
 use zapret_rs::rawsend::{PacketSender, RawSendError};
 /// Strategy catalog, set cover, and TOML renderer under test.
 use zapret_rs::tools::{
-    CoveredProfile, DomainStrategies, IpFamily, ProbeProtocol, ScanLevel, StrategyMatch,
-    TomlRenderOptions, build_catalog, rank_matches, render_nfqws2_toml, select_minimal_cover,
+    CoveredProfile, DomainStrategies, IpFamily, ProbeProtocol, ScanLevel, StrategyMatch, TomlRenderOptions,
+    build_catalog, rank_matches, render_nfqws2_toml, select_minimal_cover,
 };
 
 /// No-op [`PacketSender`] recording zero I/O for offline engine hot-swap tests.
 struct NoopSender;
 
-impl PacketSender for NoopSender {
+impl PacketSender for NoopSender
+{
     /// Accepts every packet without touching real network sockets.
     fn send(
         &mut self,
@@ -33,7 +34,8 @@ impl PacketSender for NoopSender {
         _fwmark: u32,
         _ifout: Option<&str>,
         _packet: &[u8],
-    ) -> Result<(), RawSendError> {
+    ) -> Result<(), RawSendError>
+    {
         Ok(())
     }
 }
@@ -41,7 +43,8 @@ impl PacketSender for NoopSender {
 /// Verifies `DesyncEngine::replace_profiles` swaps profiles, rejects unknown Lua functions,
 /// and clears both `conntrack` and `ipcache` state.
 #[test]
-fn engine_replace_profiles_validates_and_clears_state() {
+fn engine_replace_profiles_validates_and_clears_state()
+{
     let mut cfg = AppConfig::default();
     cfg.ipcache.hostname = true;
     cfg.lua_init.push(LuaInitEntry::Inline(
@@ -54,57 +57,35 @@ fn engine_replace_profiles_validates_and_clears_state() {
 
     // Seed ipcache so we can verify `replace_profiles` clears it.
     let target_ip = IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34));
-    engine
-        .ipcache()
-        .borrow_mut()
-        .put_hostname(target_ip, "example.com", false, 100);
+    engine.ipcache().borrow_mut().put_hostname(target_ip, "example.com", false, 100);
     assert!(!engine.ipcache().borrow().is_empty());
 
     let catalog = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
-    let split = catalog
-        .iter()
-        .find(|s| s.family == "multisplit")
-        .expect("multisplit candidate");
+    let split = catalog.iter().find(|s| s.family == "multisplit").expect("multisplit candidate");
     let profile = split.to_profile(1, &["example.com".to_owned()]);
 
-    engine
-        .replace_profiles(vec![profile.clone()])
-        .expect("valid Lua callbacks should swap cleanly");
+    engine.replace_profiles(vec![profile.clone()]).expect("valid Lua callbacks should swap cleanly");
     assert_eq!(engine.profiles().len(), 1);
     assert_eq!(engine.profiles()[0].name, profile.name);
-    assert!(
-        engine.ipcache().borrow().is_empty(),
-        "ipcache must be cleared after profile hot-swap"
-    );
+    assert!(engine.ipcache().borrow().is_empty(), "ipcache must be cleared after profile hot-swap");
 
     // A profile referencing an undefined Lua callback must fail without clobbering active profiles.
     let mut broken = profile.clone();
     broken.actions[0].func = "nonexistent_lua_desync_fn".to_owned();
-    let err = engine
-        .replace_profiles(vec![broken])
-        .expect_err("missing Lua callback must be rejected");
-    assert!(
-        err.to_string().contains("nonexistent_lua_desync_fn"),
-        "unexpected error: {err}"
-    );
-    assert_eq!(
-        engine.profiles().len(),
-        1,
-        "failed swap must preserve previous profiles"
-    );
+    let err = engine.replace_profiles(vec![broken]).expect_err("missing Lua callback must be rejected");
+    assert!(err.to_string().contains("nonexistent_lua_desync_fn"), "unexpected error: {err}");
+    assert_eq!(engine.profiles().len(), 1, "failed swap must preserve previous profiles");
 }
 
 /// Verifies catalog sizes grow monotonically across `Quick < Standard < Force` and include IPv6
 /// extension headers and TLS 1.2 `wssize` variants where expected.
 #[test]
-fn catalog_expands_deterministically_by_level_proto_and_family() {
-    for proto in [
-        ProbeProtocol::Http,
-        ProbeProtocol::Tls12,
-        ProbeProtocol::Tls13,
-        ProbeProtocol::Http3,
-    ] {
-        for ipv in [IpFamily::V4, IpFamily::V6] {
+fn catalog_expands_deterministically_by_level_proto_and_family()
+{
+    for proto in [ProbeProtocol::Http, ProbeProtocol::Tls12, ProbeProtocol::Tls13, ProbeProtocol::Http3]
+    {
+        for ipv in [IpFamily::V4, IpFamily::V6]
+        {
             let quick = build_catalog(proto, ScanLevel::Quick, ipv);
             let standard = build_catalog(proto, ScanLevel::Standard, ipv);
             let force = build_catalog(proto, ScanLevel::Force, ipv);
@@ -142,16 +123,15 @@ fn catalog_expands_deterministically_by_level_proto_and_family() {
 /// Verifies every catalog strategy across all protocols round-trips cleanly through
 /// `render_nfqws2_toml` and `AppConfig::from_toml_str`.
 #[test]
-fn rendered_toml_parses_cleanly_for_every_catalog_strategy() {
+fn rendered_toml_parses_cleanly_for_every_catalog_strategy()
+{
     let mut covered = Vec::new();
-    for proto in [
-        ProbeProtocol::Http,
-        ProbeProtocol::Tls12,
-        ProbeProtocol::Tls13,
-        ProbeProtocol::Http3,
-    ] {
-        for ipv in [IpFamily::V4, IpFamily::V6] {
-            for strategy in build_catalog(proto, ScanLevel::Force, ipv) {
+    for proto in [ProbeProtocol::Http, ProbeProtocol::Tls12, ProbeProtocol::Tls13, ProbeProtocol::Http3]
+    {
+        for ipv in [IpFamily::V4, IpFamily::V6]
+        {
+            for strategy in build_catalog(proto, ScanLevel::Force, ipv)
+            {
                 covered.push(CoveredProfile {
                     strategy,
                     domains: vec!["example.com".to_owned(), "test.org".to_owned()],
@@ -178,10 +158,12 @@ fn rendered_toml_parses_cleanly_for_every_catalog_strategy() {
     assert_eq!(parsed.profiles.len(), covered.len());
 
     // Spot-check OOB (`in_range = "-s1"`) and syndata (`out_range = "-d1"`) round-trip fidelity.
-    for (orig, loaded) in covered.iter().zip(parsed.profiles.iter()) {
+    for (orig, loaded) in covered.iter().zip(parsed.profiles.iter())
+    {
         assert_eq!(loaded.name.as_deref(), Some(orig.strategy.id.as_str()));
         assert_eq!(loaded.actions.len(), orig.strategy.actions.len());
-        for (a, b) in orig.strategy.actions.iter().zip(loaded.actions.iter()) {
+        for (a, b) in orig.strategy.actions.iter().zip(loaded.actions.iter())
+        {
             assert_eq!(a.func, b.func);
             assert_eq!(a.payload_mask, b.payload_mask);
             assert_eq!(a.in_range, b.in_range);
@@ -194,7 +176,8 @@ fn rendered_toml_parses_cleanly_for_every_catalog_strategy() {
 /// Verifies ranking and greedy multi-domain set cover minimize profile count and break ties
 /// by strategy weight and latency.
 #[test]
-fn minimal_set_cover_selects_shared_simplest_fastest_profiles() {
+fn minimal_set_cover_selects_shared_simplest_fastest_profiles()
+{
     let tls_cat = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
     let s_simple = tls_cat[0].clone();
     let s_mid = tls_cat[tls_cat.len() / 2].clone();
@@ -247,14 +230,12 @@ fn minimal_set_cover_selects_shared_simplest_fastest_profiles() {
 /// Verifies `select_minimal_cover` merges `tls12` and `tls13` into one non-shadowing TLS profile
 /// per domain, choosing a strategy that passes both when available or preferring `tls13` when disjoint.
 #[test]
-fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing() {
+fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing()
+{
     let cat12 = build_catalog(ProbeProtocol::Tls12, ScanLevel::Standard, IpFamily::V4);
     let cat13 = build_catalog(ProbeProtocol::Tls13, ScanLevel::Standard, IpFamily::V4);
     let find = |cat: &[zapret_rs::tools::StrategySpec], suffix: &str| {
-        cat.iter()
-            .find(|s| s.id.ends_with(suffix))
-            .expect("strategy in catalog")
-            .clone()
+        cat.iter().find(|s| s.id.ends_with(suffix)).expect("strategy in catalog").clone()
     };
 
     // Shared case: `tls12` matched both `sniext+1` (faster) and `2`, while `tls13` only matched `2`.
@@ -288,10 +269,7 @@ fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing() {
             domain: "store.steampowered.com".to_owned(),
             proto: ProbeProtocol::Tls12,
             ipv: IpFamily::V4,
-            matches: vec![StrategyMatch {
-                strategy: find(&cat12, "multisplit:sniext+1"),
-                latency_ms: 100,
-            }],
+            matches: vec![StrategyMatch { strategy: find(&cat12, "multisplit:sniext+1"), latency_ms: 100 }],
         },
         DomainStrategies {
             domain: "store.steampowered.com".to_owned(),
@@ -308,11 +286,13 @@ fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing() {
 /// Verifies every Lua action function emitted by `build_catalog` exists in the sibling
 /// `zapret2/lua/zapret-antidpi.lua` script when present in the workspace.
 #[test]
-fn all_catalog_lua_callbacks_exist_in_zapret2_antidpi() {
+fn all_catalog_lua_callbacks_exist_in_zapret2_antidpi()
+{
     let lua_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("lua");
     let lib_lua = lua_dir.join("zapret-lib.lua");
     let antidpi_lua = lua_dir.join("zapret-antidpi.lua");
-    if !lib_lua.is_file() || !antidpi_lua.is_file() {
+    if !lib_lua.is_file() || !antidpi_lua.is_file()
+    {
         return;
     }
 
@@ -324,13 +304,10 @@ fn all_catalog_lua_callbacks_exist_in_zapret2_antidpi() {
 
     let mut profiles = Vec::new();
     let mut idx = 1u32;
-    for proto in [
-        ProbeProtocol::Http,
-        ProbeProtocol::Tls12,
-        ProbeProtocol::Tls13,
-        ProbeProtocol::Http3,
-    ] {
-        for spec in build_catalog(proto, ScanLevel::Force, IpFamily::V6) {
+    for proto in [ProbeProtocol::Http, ProbeProtocol::Tls12, ProbeProtocol::Tls13, ProbeProtocol::Http3]
+    {
+        for spec in build_catalog(proto, ScanLevel::Force, IpFamily::V6)
+        {
             profiles.push(spec.to_profile(idx, &[]));
             idx += 1;
         }

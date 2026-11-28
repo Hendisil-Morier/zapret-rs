@@ -19,15 +19,15 @@ use zapret_rs::tools::{
 };
 
 /// Extracts the value for `key` (e.g., `"CapEff:"` or `"NoNewPrivs:"`) from `/proc/self/status`.
-fn status_field<'a>(status: &'a str, key: &str) -> Option<&'a str> {
-    status
-        .lines()
-        .find_map(|line| line.strip_prefix(key).map(str::trim))
+fn status_field<'a>(status: &'a str, key: &str) -> Option<&'a str>
+{
+    status.lines().find_map(|line| line.strip_prefix(key).map(str::trim))
 }
 
 /// Spawns `cat /proc/self/status` with [`clear_child_privileges`] in `pre_exec` and asserts
 /// all capability masks are zero and `NoNewPrivs` is `1`.
-fn assert_child_has_zero_caps_and_no_new_privs() {
+fn assert_child_has_zero_caps_and_no_new_privs()
+{
     let mut cmd = Command::new("/bin/cat");
     cmd.arg("/proc/self/status");
     // SAFETY: `clear_child_privileges` uses only async-signal-safe `prctl` and `SYS_capset`.
@@ -41,7 +41,8 @@ fn assert_child_has_zero_caps_and_no_new_privs() {
     assert_eq!(status_field(&text, "CapEff:"), Some("0000000000000000"));
     assert_eq!(status_field(&text, "CapPrm:"), Some("0000000000000000"));
     assert_eq!(status_field(&text, "CapInh:"), Some("0000000000000000"));
-    if let Some(amb) = status_field(&text, "CapAmb:") {
+    if let Some(amb) = status_field(&text, "CapAmb:")
+    {
         assert_eq!(amb, "0000000000000000");
     }
     assert_eq!(status_field(&text, "NoNewPrivs:"), Some("1"));
@@ -49,7 +50,8 @@ fn assert_child_has_zero_caps_and_no_new_privs() {
 
 /// Verifies spawned children using [`clear_child_privileges`] get zero caps and `NoNewPrivs=1`.
 #[test]
-fn child_pre_exec_clears_capabilities_and_sets_no_new_privs() {
+fn child_pre_exec_clears_capabilities_and_sets_no_new_privs()
+{
     assert_child_has_zero_caps_and_no_new_privs();
 }
 
@@ -57,7 +59,8 @@ fn child_pre_exec_clears_capabilities_and_sets_no_new_privs() {
 /// capabilities still strips every capability from children via [`clear_child_privileges`].
 #[test]
 #[ignore = "requires unshare -r -n with full namespace capabilities"]
-fn live_child_pre_exec_strips_root_capabilities() {
+fn live_child_pre_exec_strips_root_capabilities()
+{
     assert_child_has_zero_caps_and_no_new_privs();
 }
 
@@ -65,11 +68,11 @@ fn live_child_pre_exec_strips_root_capabilities() {
 /// rules directly into the kernel and [`Drop`] removes `table inet zapret_strat_finder` cleanly.
 #[test]
 #[ignore = "requires unshare -r -n with CAP_NET_ADMIN and nft binary"]
-fn live_nft_firewall_backend_installs_and_cleans_up_table() {
+fn live_nft_firewall_backend_installs_and_cleans_up_table()
+{
     let nft = NftFirewallBackend::default();
-    let guard = nft
-        .install(210, 0x4000_0000, &[80, 443], &[443])
-        .expect("real nft -f - install must succeed");
+    let guard =
+        nft.install(210, 0x4000_0000, &[80, 443], &[443]).expect("real nft -f - install must succeed");
 
     let list_active = Command::new("nft")
         .args(["list", "table", "inet", STRAT_FINDER_NFT_TABLE])
@@ -92,15 +95,13 @@ fn live_nft_firewall_backend_installs_and_cleans_up_table() {
         .args(["list", "table", "inet", STRAT_FINDER_NFT_TABLE])
         .output()
         .expect("nft list table after drop");
-    assert!(
-        !list_after.status.success(),
-        "table must be deleted when NftQueueGuard drops"
-    );
+    assert!(!list_after.status.success(), "table must be deleted when NftQueueGuard drops");
 }
 
 /// Verifies `--print-nft`, `is_nft_perm_denied`, and the non-root `setcap` error guidance.
 #[test]
-fn print_nft_perm_classifier_and_setcap_guidance() {
+fn print_nft_perm_classifier_and_setcap_guidance()
+{
     assert!(is_nft_perm_denied("Error: Could not process rule: Operation not permitted"));
     assert!(is_nft_perm_denied("nft: Permission denied"));
     assert!(!is_nft_perm_denied("Error: syntax error, unexpected newline"));
@@ -119,7 +120,8 @@ fn print_nft_perm_classifier_and_setcap_guidance() {
     assert!(stdout.contains("nft delete table inet zapret_strat_finder"));
 
     // Running without capabilities prints the one-time `setcap` instruction instead of crashing.
-    if unsafe { libc::geteuid() } != 0 {
+    if unsafe { libc::geteuid() } != 0
+    {
         let missing = Command::new(bin)
             .args(["daemon", "--strat-finder", "--domain", "example.com", "--no-nft"])
             .output()
@@ -135,7 +137,8 @@ fn print_nft_perm_classifier_and_setcap_guidance() {
 
 /// Verifies [`write_config_nofollow`] writes regular files and refuses symlink targets (`ELOOP`).
 #[test]
-fn write_config_nofollow_writes_regular_file_and_refuses_symlink() {
+fn write_config_nofollow_writes_regular_file_and_refuses_symlink()
+{
     let dir = std::env::temp_dir().join(format!("strat_privs_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp dir");
@@ -146,8 +149,7 @@ fn write_config_nofollow_writes_regular_file_and_refuses_symlink() {
     let link = dir.join("config_link.toml");
     symlink(&target, &link).expect("create symlink");
 
-    let err = write_config_nofollow(&link, "qnum = 200\n")
-        .expect_err("symlink destination must be refused");
+    let err = write_config_nofollow(&link, "qnum = 200\n").expect_err("symlink destination must be refused");
     assert_eq!(err.raw_os_error(), Some(libc::ELOOP));
     assert_eq!(fs::read_to_string(&target).expect("read victim"), "untouched");
 

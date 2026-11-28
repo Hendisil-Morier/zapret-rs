@@ -3,7 +3,8 @@
 /// Canonical L7 protocol identifiers ordered identically to `t_l7proto` in `zapret2/nfq2/protocol.h`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
-pub enum L7Proto {
+pub enum L7Proto
+{
     /// Wildcard matching any protocol (`"all"`).
     All = 0,
     /// Unidentified application protocol (`"unknown"`).
@@ -38,10 +39,13 @@ pub enum L7Proto {
     UtpBt = 15,
 }
 
-impl L7Proto {
+impl L7Proto
+{
     /// Parses a `zapret2` L7 protocol name into an [`L7Proto`] variant.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name.trim() {
+    pub fn from_name(name: &str) -> Option<Self>
+    {
+        match name.trim()
+        {
             "all" => Some(Self::All),
             "unknown" => Some(Self::Unknown),
             "known" => Some(Self::Known),
@@ -63,8 +67,10 @@ impl L7Proto {
     }
 
     /// Returns the canonical `zapret2` Lua/CLI name for this L7 protocol.
-    pub const fn as_str(self) -> &'static str {
-        match self {
+    pub const fn as_str(self) -> &'static str
+    {
+        match self
+        {
             Self::All => "all",
             Self::Unknown => "unknown",
             Self::Known => "known",
@@ -85,13 +91,15 @@ impl L7Proto {
     }
 
     /// Returns the single-bit flag representing `self` inside a 64-bit `filter_l7` mask.
-    pub const fn bit(self) -> u64 {
+    pub const fn bit(self) -> u64
+    {
         1u64 << (self as u8)
     }
 }
 
 /// Returns `true` if `proto` satisfies `filter_mask` (`0` or `L7Proto::Known` handled identically to `l7_proto_match`).
-pub const fn l7_proto_matches(proto: L7Proto, filter_mask: u64) -> bool {
+pub const fn l7_proto_matches(proto: L7Proto, filter_mask: u64) -> bool
+{
     filter_mask == 0
         || (filter_mask & proto.bit()) != 0
         || ((filter_mask & L7Proto::Known.bit()) != 0 && (proto as u8) > (L7Proto::Known as u8))
@@ -100,7 +108,8 @@ pub const fn l7_proto_matches(proto: L7Proto, filter_mask: u64) -> bool {
 /// Canonical L7 payload identifiers ordered identically to `t_l7payload` in `zapret2/nfq2/protocol.h`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
-pub enum L7Payload {
+pub enum L7Payload
+{
     /// Wildcard matching any payload (`"all"`).
     All = 0,
     /// Unclassified non-empty payload (`"unknown"`).
@@ -165,10 +174,13 @@ pub enum L7Payload {
     UtpBtHandshake = 30,
 }
 
-impl L7Payload {
+impl L7Payload
+{
     /// Parses a `zapret2` L7 payload name into an [`L7Payload`] variant.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name.trim() {
+    pub fn from_name(name: &str) -> Option<Self>
+    {
+        match name.trim()
+        {
             "all" => Some(Self::All),
             "unknown" => Some(Self::Unknown),
             "empty" => Some(Self::Empty),
@@ -205,8 +217,10 @@ impl L7Payload {
     }
 
     /// Returns the canonical `zapret2` Lua/CLI name for this payload type.
-    pub const fn as_str(self) -> &'static str {
-        match self {
+    pub const fn as_str(self) -> &'static str
+    {
+        match self
+        {
             Self::All => "all",
             Self::Unknown => "unknown",
             Self::Empty => "empty",
@@ -242,7 +256,8 @@ impl L7Payload {
     }
 
     /// Returns the single-bit flag representing `self` inside a 64-bit `payload` mask.
-    pub const fn bit(self) -> u64 {
+    pub const fn bit(self) -> u64
+    {
         1u64 << (self as u8)
     }
 }
@@ -251,11 +266,11 @@ impl L7Payload {
 pub const L7_PAYLOAD_NONE_MASK: u64 = 1u64 << 31;
 
 /// Returns `true` if `payload` satisfies `filter_mask` (`0` or `L7Payload::Known` handled identically to `l7_payload_match`).
-pub const fn l7_payload_matches(payload: L7Payload, filter_mask: u64) -> bool {
+pub const fn l7_payload_matches(payload: L7Payload, filter_mask: u64) -> bool
+{
     filter_mask == 0
         || (filter_mask & payload.bit()) != 0
-        || ((filter_mask & L7Payload::Known.bit()) != 0
-            && (payload as u8) > (L7Payload::Known as u8))
+        || ((filter_mask & L7Payload::Known.bit()) != 0 && (payload as u8) > (L7Payload::Known as u8))
 }
 
 /// Ordered slice containing every [`L7Payload`] variant in bitmask discriminant order (`0..=30`).
@@ -294,19 +309,17 @@ pub const ALL_L7_PAYLOADS: [L7Payload; 31] = [
 ];
 
 /// Returns canonical payload names enabled in `mask` (`"all"` when `mask == 0`).
-pub fn l7_payload_names(mask: u64) -> Vec<&'static str> {
-    if mask == 0 {
+pub fn l7_payload_names(mask: u64) -> Vec<&'static str>
+{
+    if mask == 0
+    {
         return vec!["all"];
     }
-    ALL_L7_PAYLOADS
-        .iter()
-        .copied()
-        .filter(|pl| (mask & pl.bit()) != 0)
-        .map(L7Payload::as_str)
-        .collect()
+    ALL_L7_PAYLOADS.iter().copied().filter(|pl| (mask & pl.bit()) != 0).map(L7Payload::as_str).collect()
 }
 
 /// Formats a payload bitmask as a comma-separated string (`"all"` when `mask == 0`).
-pub fn l7_payload_str_list(mask: u64) -> String {
+pub fn l7_payload_str_list(mask: u64) -> String
+{
     l7_payload_names(mask).join(",")
 }

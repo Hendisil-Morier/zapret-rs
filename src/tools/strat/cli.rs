@@ -20,23 +20,24 @@ use crate::config::{AppConfig, LuaInitEntry, parse_u32_radix};
 use crate::intercepter::DEFAULT_DESYNC_FWMARK;
 /// Least-privilege capability checks, elevation drop, and signal handling.
 use crate::runtime::{
-    drop_elevated_root_if_needed, has_packet_capture_privileges, install_signal_handlers,
-    quit_flag,
+    drop_elevated_root_if_needed, has_packet_capture_privileges, install_signal_handlers, quit_flag,
 };
-/// Strategy catalog types and expansion function.
-use crate::tools::strat::catalog::{IpFamily, ProbeProtocol, ScanLevel, build_catalog};
 /// Embedded Lua script discovery and fallback extractor.
 use crate::tools::lua_bundle::{detect_lua_dir, resolve_lua_scripts};
+/// Strategy catalog types and expansion function.
+use crate::tools::strat::catalog::{IpFamily, ProbeProtocol, ScanLevel, build_catalog};
+/// JSON and stdout scan report formatters.
+use crate::tools::strat::cli_report::{format_report_json, print_report_summary};
+/// Temporary `nftables` queue guard backend and ruleset printer on Linux.
+#[cfg(target_os = "linux")]
+use crate::tools::strat::firewall::FirewallBackend;
+/// OS-agnostic firewall backend selector and [`FirewallBackend`] trait.
+#[cfg(not(target_os = "linux"))]
+use crate::tools::strat::firewall::active_firewall_backend;
 /// Interactive terminal setup wizard and domain/tilde helpers.
 use crate::tools::strat::interactive::{
     InteractiveDefaults, expand_tilde, normalize_domain, prompt_interactive_wizard,
 };
-/// OS-agnostic firewall backend selector and [`FirewallBackend`] trait.
-#[cfg(not(target_os = "linux"))]
-use crate::tools::strat::firewall::active_firewall_backend;
-/// Temporary `nftables` queue guard backend and ruleset printer on Linux.
-#[cfg(target_os = "linux")]
-use crate::tools::strat::firewall::FirewallBackend;
 /// Temporary `nftables` queue guard backend and ruleset printer on Linux.
 #[cfg(target_os = "linux")]
 use crate::tools::strat::nft::{NftFirewallBackend, build_nft_cleanup_cmd};
@@ -44,14 +45,12 @@ use crate::tools::strat::nft::{NftFirewallBackend, build_nft_cleanup_cmd};
 use crate::tools::strat::probe::CurlProbeBackend;
 /// In-process NFQUEUE worker thread and scan orchestrator.
 use crate::tools::strat::runner::{ProgressEvent, ScanConfig, run_scan};
-/// JSON and stdout scan report formatters.
-use crate::tools::strat::cli_report::{format_report_json, print_report_summary};
-/// In-process capture worker handle.
-use crate::tools::strat::worker::InProcessWorkerHandle;
 /// Minimal profile cover and symlink-safe `nfqws2.toml` serializer.
 use crate::tools::strat::toml::{
     CoveredProfile, TomlRenderOptions, render_nfqws2_toml, write_config_nofollow,
 };
+/// In-process capture worker handle.
+use crate::tools::strat::worker::InProcessWorkerHandle;
 
 /// Default NFQUEUE number for `strat_finder` (distinct from `nfqws2`'s default `200`).
 pub const DEFAULT_STRAT_QNUM: u16 = 210;
@@ -59,7 +58,8 @@ pub const DEFAULT_STRAT_QNUM: u16 = 210;
 /// Command-line options accepted by `strat_finder` and `nfqws2 --strat-finder`.
 #[derive(Debug, Parser)]
 #[command(name = "strat_finder", version = env!("CARGO_PKG_VERSION"), about = "Native in-process DPI-bypass strategy finder for zapret-rs (nfqws2)")]
-pub struct StratFinderCli {
+pub struct StratFinderCli
+{
     /// Target domain(s) to probe (repeatable or comma-separated; launches interactive wizard if omitted on a TTY).
     #[arg(short = 'd', long = "domain", value_delimiter = ',')]
     pub domains: Vec<String>,
@@ -131,17 +131,21 @@ where
     let mut out = Vec::with_capacity(raw.len());
     let mut past_double_dash = false;
 
-    for (idx, arg) in raw.into_iter().enumerate() {
-        if idx == 0 {
+    for (idx, arg) in raw.into_iter().enumerate()
+    {
+        if idx == 0
+        {
             out.push(OsString::from("nfqws2 --strat-finder"));
             continue;
         }
-        if !past_double_dash && arg == "--" {
+        if !past_double_dash && arg == "--"
+        {
             past_double_dash = true;
             out.push(arg);
             continue;
         }
-        if !past_double_dash && !found && arg == "--strat-finder" {
+        if !past_double_dash && !found && arg == "--strat-finder"
+        {
             found = true;
             continue;
         }
@@ -158,37 +162,54 @@ fn run_list_mode(
     families: &[IpFamily],
     level: ScanLevel,
     fwmark: u32,
-) -> Result<(), String> {
+) -> Result<(), String>
+{
     let mut sample_cover = Vec::new();
     let domains: Vec<String> = cli.domains.iter().filter_map(|d| normalize_domain(d)).collect();
-    for &ipv in families {
-        for &proto in protos {
+    for &ipv in families
+    {
+        for &proto in protos
+        {
             let catalog = build_catalog(proto, level, ipv);
             println!("# {proto}/{ipv} ({level}): {} candidates", catalog.len());
-            for spec in &catalog {
+            for spec in &catalog
+            {
                 println!("  [w={:02}] {}", spec.weight, spec.id);
             }
-            if let Some(first) = catalog.into_iter().next() {
-                sample_cover.push(CoveredProfile { strategy: first, domains: domains.clone(), avg_latency_ms: 0 });
+            if let Some(first) = catalog.into_iter().next()
+            {
+                sample_cover.push(CoveredProfile {
+                    strategy: first,
+                    domains: domains.clone(),
+                    avg_latency_ms: 0,
+                });
             }
         }
     }
-    if let Some(out_path) = &cli.write_config {
+    if let Some(out_path) = &cli.write_config
+    {
         let out_path = expand_tilde(&out_path.to_string_lossy());
         let lua_init = resolve_lua_scripts(cli.lua_dir.as_deref()).unwrap_or_default();
         let toml = render_nfqws2_toml(&sample_cover, &TomlRenderOptions { qnum: cli.qnum, fwmark, lua_init });
-        write_config_nofollow(&out_path, &toml).map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
+        write_config_nofollow(&out_path, &toml)
+            .map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
         eprintln!("Wrote sample nfqws2 config to {}", out_path.display());
     }
     Ok(())
 }
 
 /// Ensures packet capture privileges are active (`CAP_NET_ADMIN|CAP_NET_RAW` on Linux, Admin on Windows).
-fn ensure_least_privilege_net_caps() -> Result<(), String> {
-    if let Some((uid, gid)) = drop_elevated_root_if_needed().map_err(|err| format!("privilege drop failed: {err}"))? {
-        eprintln!("[sec] dropped root privileges to uid={uid}, gid={gid} (retaining only CAP_NET_ADMIN, CAP_NET_RAW)");
+fn ensure_least_privilege_net_caps() -> Result<(), String>
+{
+    if let Some((uid, gid)) =
+        drop_elevated_root_if_needed().map_err(|err| format!("privilege drop failed: {err}"))?
+    {
+        eprintln!(
+            "[sec] dropped root privileges to uid={uid}, gid={gid} (retaining only CAP_NET_ADMIN, CAP_NET_RAW)"
+        );
     }
-    if !has_packet_capture_privileges().map_err(|err| format!("capability check failed: {err}"))? {
+    if !has_packet_capture_privileges().map_err(|err| format!("capability check failed: {err}"))?
+    {
         #[cfg(target_os = "linux")]
         {
             let exe = std::env::current_exe()
@@ -203,7 +224,8 @@ fn ensure_least_privilege_net_caps() -> Result<(), String> {
         }
         #[cfg(windows)]
         return Err(
-            "missing Administrator privileges.\nRight-click zapret-rs.exe and choose 'Run as administrator'.".to_owned(),
+            "missing Administrator privileges.\nRight-click zapret-rs.exe and choose 'Run as administrator'."
+                .to_owned(),
         );
         #[cfg(not(any(target_os = "linux", windows)))]
         return Err("packet capture is not supported on this operating system".to_owned());
@@ -212,29 +234,44 @@ fn ensure_least_privilege_net_caps() -> Result<(), String> {
 }
 
 /// Executes a parsed [`StratFinderCli`] session, launching the interactive wizard when appropriate.
-pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
+pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
+{
     let mut level: ScanLevel = cli.level.parse()?;
     let mut protos = Vec::new();
-    for raw in &cli.protos {
+    for raw in &cli.protos
+    {
         let p: ProbeProtocol = raw.parse()?;
-        if !protos.contains(&p) {
+        if !protos.contains(&p)
+        {
             protos.push(p);
         }
     }
-    if protos.is_empty() {
+    if protos.is_empty()
+    {
         return Err("at least one protocol must be specified via --proto".to_owned());
     }
-    let mut families = match (cli.ipv4, cli.ipv6) {
+    let mut families = match (cli.ipv4, cli.ipv6)
+    {
         (false, true) => vec![IpFamily::V6],
         (true, true) => vec![IpFamily::V4, IpFamily::V6],
         _ => vec![IpFamily::V4],
     };
-    let fwmark = parse_u32_radix(&cli.fwmark)
-        .ok_or_else(|| format!("invalid --fwmark '{}' (expected hex like 0x40000000 or decimal)", cli.fwmark))?;
+    let fwmark = parse_u32_radix(&cli.fwmark).ok_or_else(|| {
+        format!("invalid --fwmark '{}' (expected hex like 0x40000000 or decimal)", cli.fwmark)
+    })?;
     let fwmark = if fwmark == 0 { DEFAULT_DESYNC_FWMARK } else { fwmark };
 
-    if cli.print_nft {
-        let dummy = ScanConfig { domains: Vec::new(), protos, families, level, timeout: Duration::from_secs(1), stop_on_first: false, force_blocked: false };
+    if cli.print_nft
+    {
+        let dummy = ScanConfig {
+            domains: Vec::new(),
+            protos,
+            families,
+            level,
+            timeout: Duration::from_secs(1),
+            stop_on_first: false,
+            force_blocked: false,
+        };
         let (tcp, udp) = dummy.required_ports();
         #[cfg(target_os = "linux")]
         {
@@ -248,7 +285,8 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
         }
         return Ok(());
     }
-    if cli.list_strategies {
+    if cli.list_strategies
+    {
         return run_list_mode(&cli, &protos, &families, level, fwmark);
     }
 
@@ -260,20 +298,36 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
     let mut write_config = cli.write_config.clone().map(|p| expand_tilde(&p.to_string_lossy()));
 
     let interactive = cli.interactive || (domains.is_empty() && io::stdin().is_terminal());
-    if interactive {
+    if interactive
+    {
         let defaults = InteractiveDefaults {
-            domains, protos, families, level, stop_on_first,
-            lua_dir: lua_dir.or_else(|| detect_lua_dir(None)), write_config,
+            domains,
+            protos,
+            families,
+            level,
+            stop_on_first,
+            lua_dir: lua_dir.or_else(|| detect_lua_dir(None)),
+            write_config,
         };
         let stdin = io::stdin();
         let sel = prompt_interactive_wizard(&mut stdin.lock(), &mut io::stderr(), &defaults)?;
-        (domains, protos, families, level, stop_on_first, lua_dir, write_config) =
-            (sel.domains, sel.protos, sel.families, sel.level, sel.stop_on_first, sel.lua_dir, sel.write_config);
-    } else if domains.is_empty() {
+        (domains, protos, families, level, stop_on_first, lua_dir, write_config) = (
+            sel.domains,
+            sel.protos,
+            sel.families,
+            sel.level,
+            sel.stop_on_first,
+            sel.lua_dir,
+            sel.write_config,
+        );
+    }
+    else if domains.is_empty()
+    {
         let mut buf = String::new();
         let _ = io::Read::read_to_string(&mut io::stdin(), &mut buf);
         domains.extend(buf.split(|c: char| c.is_whitespace() || c == ',').filter_map(normalize_domain));
-        if domains.is_empty() {
+        if domains.is_empty()
+        {
             return Err("no target domains provided (pass --domain <DOMAIN> or run interactively)".to_owned());
         }
     }
@@ -285,20 +339,29 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
     base_cfg.ipcache.hostname = true;
     base_cfg.lua_init = lua_scripts.iter().cloned().map(LuaInitEntry::File).collect();
 
-    if !cli.timeout.is_finite() || cli.timeout <= 0.0 {
+    if !cli.timeout.is_finite() || cli.timeout <= 0.0
+    {
         return Err(format!("invalid --timeout '{}' (expected positive seconds, e.g. 2.0)", cli.timeout));
     }
     let scan_cfg = ScanConfig {
-        domains, protos, families, level, stop_on_first,
-        timeout: Duration::from_secs_f64(cli.timeout.clamp(0.2, 60.0)), force_blocked: cli.force_blocked,
+        domains,
+        protos,
+        families,
+        level,
+        stop_on_first,
+        timeout: Duration::from_secs_f64(cli.timeout.clamp(0.2, 60.0)),
+        force_blocked: cli.force_blocked,
     };
 
     // Spawn packet worker before installing firewall rules so Drop tears down rules first.
     let mut worker = InProcessWorkerHandle::spawn(base_cfg, quit_flag())?;
     let (tcp_ports, udp_ports) = scan_cfg.required_ports();
-    let _fw_guard = if cli.no_nft {
+    let _fw_guard = if cli.no_nft
+    {
         None
-    } else {
+    }
+    else
+    {
         #[cfg(target_os = "linux")]
         {
             Some(
@@ -318,24 +381,49 @@ pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String> {
     };
 
     let probe = CurlProbeBackend::new(cli.curl_bin);
-    let report = run_scan(&scan_cfg, &probe, &mut worker, quit_flag(), |ev| match ev {
+    let report = run_scan(&scan_cfg, &probe, &mut worker, quit_flag(), |ev| match ev
+    {
         ProgressEvent::Http3Unavailable => eprintln!("[warn] curl lacks HTTP3 support; skipping http3"),
-        ProgressEvent::Baseline { domain, proto, ipv, outcome } => eprintln!("[baseline] {domain} ({proto}/{ipv}) -> {}", outcome.summary()),
-        ProgressEvent::Candidate { domain, index, total, strategy, outcome } if outcome.is_success() => {
+        ProgressEvent::Baseline { domain, proto, ipv, outcome } =>
+        {
+            eprintln!("[baseline] {domain} ({proto}/{ipv}) -> {}", outcome.summary())
+        }
+        ProgressEvent::Candidate { domain, index, total, strategy, outcome } if outcome.is_success() =>
+        {
             eprintln!("[PASS {index}/{total}] {domain} :: {} -> {}", strategy.id, outcome.summary());
         }
-        ProgressEvent::Candidate { .. } => {}
+        ProgressEvent::Candidate { .. } =>
+        {}
     })?;
 
-    if cli.json { print!("{}", format_report_json(&report)); } else { print_report_summary(&report); }
+    if cli.json
+    {
+        print!("{}", format_report_json(&report));
+    }
+    else
+    {
+        print_report_summary(&report);
+    }
 
-    if let Some(out_path) = write_config {
-        if report.cover.is_empty() {
+    if let Some(out_path) = write_config
+    {
+        if report.cover.is_empty()
+        {
             eprintln!("No working strategies found; skipping config write to {}", out_path.display());
-        } else {
-            let toml = render_nfqws2_toml(&report.cover, &TomlRenderOptions { qnum: 200, fwmark, lua_init: lua_scripts });
-            write_config_nofollow(&out_path, &toml).map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
-            eprintln!("\nWrote nfqws2 config to {}\nRun with: nfqws2 --config {}", out_path.display(), out_path.display());
+        }
+        else
+        {
+            let toml = render_nfqws2_toml(
+                &report.cover,
+                &TomlRenderOptions { qnum: 200, fwmark, lua_init: lua_scripts },
+            );
+            write_config_nofollow(&out_path, &toml)
+                .map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
+            eprintln!(
+                "\nWrote nfqws2 config to {}\nRun with: nfqws2 --config {}",
+                out_path.display(),
+                out_path.display()
+            );
         }
     }
     Ok(())
@@ -347,15 +435,19 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    match StratFinderCli::try_parse_from(args) {
-        Ok(cli) => match run_strat_finder(cli) {
+    match StratFinderCli::try_parse_from(args)
+    {
+        Ok(cli) => match run_strat_finder(cli)
+        {
             Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
+            Err(err) =>
+            {
                 eprintln!("strat_finder error: {err}");
                 ExitCode::FAILURE
             }
         },
-        Err(err) => {
+        Err(err) =>
+        {
             let is_info = matches!(err.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion);
             let _ = err.print();
             if is_info { ExitCode::SUCCESS } else { ExitCode::from(2) }

@@ -16,10 +16,8 @@ use crate::intercepter::{Decision, QueuedPacket};
 use crate::packet::{DissectedPacket, dissect_packet};
 
 /// Resolves cached `(hostname, is_ip)` from dst or src endpoint in `ipcache` when flow host is absent.
-fn lookup_dual_ipcache_host(
-    engine: &DesyncEngine,
-    dis: &DissectedPacket,
-) -> Option<(String, bool)> {
+fn lookup_dual_ipcache_host(engine: &DesyncEngine, dis: &DissectedPacket) -> Option<(String, bool)>
+{
     let cache = engine.ipcache.borrow();
     if let Some(dst_ip) = extract_endpoint_ip(dis, false)
         && let Some((host, is_ip)) = cache.get_hostname(dst_ip)
@@ -41,11 +39,15 @@ fn autohostlist_allows(
     hostname: Option<&str>,
     hostname_is_ip: bool,
     ctrack_check: Option<(bool, bool)>,
-) -> bool {
-    let Some(host) = hostname else {
+) -> bool
+{
+    let Some(host) = hostname
+    else
+    {
         return true;
     };
-    if engine.profile_runtimes[profile_idx].autolist.is_none() {
+    if engine.profile_runtimes[profile_idx].autolist.is_none()
+    {
         return true;
     }
     if let Some((done, result)) = ctrack_check
@@ -53,10 +55,7 @@ fn autohostlist_allows(
     {
         return result;
     }
-    engine.profile_runtimes[profile_idx]
-        .hostlists
-        .check(host, hostname_is_ip, false)
-        .matched
+    engine.profile_runtimes[profile_idx].hostlists.check(host, hostname_is_ip, false).matched
 }
 
 /// Processes an ICMPv4 or ICMPv6 packet, inheriting parent flow state on RELATED error messages.
@@ -64,11 +63,15 @@ pub(crate) fn process_icmp_packet(
     engine: &DesyncEngine,
     pkt: &QueuedPacket<'_>,
     dis: &DissectedPacket,
-) -> Decision {
-    if dis.ip.is_some() == dis.ip6.is_some() {
+) -> Decision
+{
+    if dis.ip.is_some() == dis.ip6.is_some()
+    {
         return Decision::Pass;
     }
-    let Some(icmp) = &dis.icmp else {
+    let Some(icmp) = &dis.icmp
+    else
+    {
         return Decision::Pass;
     };
 
@@ -85,12 +88,9 @@ pub(crate) fn process_icmp_packet(
         && let Some(attached) = dis.payload.as_deref()
     {
         let inner = dissect_packet(attached, true);
-        if inner.ip.is_some() || inner.ip6.is_some() {
-            l7payload = if inner.ip.is_some() {
-                L7Payload::Ipv4
-            } else {
-                L7Payload::Ipv6
-            };
+        if inner.ip.is_some() || inner.ip6.is_some()
+        {
+            l7payload = if inner.ip.is_some() { L7Payload::Ipv4 } else { L7Payload::Ipv6 };
             if let Some((entry_rc, rev)) = engine.runtime().conntrack().borrow().double_search(&inner)
             {
                 b_reverse = !rev;
@@ -106,11 +106,13 @@ pub(crate) fn process_icmp_packet(
         }
     }
 
-    let incoming = if ctrack.is_some() {
+    let incoming = if ctrack.is_some()
+    {
         b_reverse ^ engine.server
-    } else {
-        b_reverse = pkt.ifin.is_some_and(|s| !s.is_empty())
-            && !pkt.ifout.is_some_and(|s| !s.is_empty());
+    }
+    else
+    {
+        b_reverse = pkt.ifin.is_some_and(|s| !s.is_empty()) && !pkt.ifout.is_some_and(|s| !s.is_empty());
         b_reverse
     };
 
@@ -121,16 +123,18 @@ pub(crate) fn process_icmp_packet(
         host_is_ip = is_ip;
     }
 
-    let Some(dst_ip) = extract_endpoint_ip(dis, false) else {
+    let Some(dst_ip) = extract_endpoint_ip(dis, false)
+    else
+    {
         return Decision::Pass;
     };
     let src_ip = extract_endpoint_ip(dis, true);
 
-    let profile_idx = match inherited_prof_id
-        .and_then(|id| profile_slot_by_id(&engine.profiles, id))
+    let profile_idx = match inherited_prof_id.and_then(|id| profile_slot_by_id(&engine.profiles, id))
     {
         Some(idx) => Some(idx),
-        None => {
+        None =>
+        {
             let match_input = FullMatchInput {
                 base: ProfileMatchInput {
                     is_v6: dis.ip6.is_some(),
@@ -146,9 +150,9 @@ pub(crate) fn process_icmp_packet(
                 hostname: host.as_deref(),
                 hostname_is_ip: host_is_ip,
             };
-            let found =
-                find_matching_profile(&engine.profiles, &engine.profile_runtimes, &match_input);
-            if let (Some(idx), Some(rc)) = (found, &ctrack) {
+            let found = find_matching_profile(&engine.profiles, &engine.profile_runtimes, &match_input);
+            if let (Some(idx), Some(rc)) = (found, &ctrack)
+            {
                 let mut e = rc.borrow_mut();
                 e.profile_searched = true;
                 e.profile_index = Some(engine.profiles[idx].index);
@@ -157,29 +161,25 @@ pub(crate) fn process_icmp_packet(
         }
     };
 
-    let Some(idx) = profile_idx else {
+    let Some(idx) = profile_idx
+    else
+    {
         return Decision::Pass;
     };
-    if !autohostlist_allows(engine, idx, host.as_deref(), host_is_ip, ctrack_check) {
+    if !autohostlist_allows(engine, idx, host.as_deref(), host_is_ip, ctrack_check)
+    {
         return Decision::Pass;
     }
 
     let target_ip4 = dis.ip.as_ref().map(|ip| if incoming { ip.src } else { ip.dst });
-    let target_ip6 = dis
-        .ip6
-        .as_ref()
-        .map(|ip6| if incoming { ip6.src } else { ip6.dst });
+    let target_ip6 = dis.ip6.as_ref().map(|ip6| if incoming { ip6.src } else { ip6.dst });
     let ps = PlayState {
         profile_idx: Some(idx),
         ctrack: ctrack.clone(),
         ctrack_replay: ctrack,
         b_reverse,
         incoming,
-        target_ip: if incoming {
-            src_ip.unwrap_or(dst_ip)
-        } else {
-            dst_ip
-        },
+        target_ip: if incoming { src_ip.unwrap_or(dst_ip) } else { dst_ip },
         target_ip4,
         target_ip6,
         target_port: 0,
@@ -198,15 +198,20 @@ pub(crate) fn process_raw_ip_packet(
     engine: &DesyncEngine,
     pkt: &QueuedPacket<'_>,
     dis: &DissectedPacket,
-) -> Decision {
-    if dis.ip.is_some() == dis.ip6.is_some() {
+) -> Decision
+{
+    if dis.ip.is_some() == dis.ip6.is_some()
+    {
         return Decision::Pass;
     }
-    let Some(dst_ip) = extract_endpoint_ip(dis, false) else {
+    let Some(dst_ip) = extract_endpoint_ip(dis, false)
+    else
+    {
         return Decision::Pass;
     };
     let src_ip = extract_endpoint_ip(dis, true);
-    let (host, host_is_ip) = match lookup_dual_ipcache_host(engine, dis) {
+    let (host, host_is_ip) = match lookup_dual_ipcache_host(engine, dis)
+    {
         Some((h, is_ip)) => (Some(h), is_ip),
         None => (None, false),
     };
@@ -226,36 +231,26 @@ pub(crate) fn process_raw_ip_packet(
         hostname: host.as_deref(),
         hostname_is_ip: host_is_ip,
     };
-    let Some(idx) =
-        find_matching_profile(&engine.profiles, &engine.profile_runtimes, &match_input)
-    else {
+    let Some(idx) = find_matching_profile(&engine.profiles, &engine.profile_runtimes, &match_input)
+    else
+    {
         return Decision::Pass;
     };
-    if !autohostlist_allows(engine, idx, host.as_deref(), host_is_ip, None) {
+    if !autohostlist_allows(engine, idx, host.as_deref(), host_is_ip, None)
+    {
         return Decision::Pass;
     }
 
-    let b_reverse =
-        pkt.ifin.is_some_and(|s| !s.is_empty()) && !pkt.ifout.is_some_and(|s| !s.is_empty());
-    let target_ip4 = dis
-        .ip
-        .as_ref()
-        .map(|ip| if b_reverse { ip.src } else { ip.dst });
-    let target_ip6 = dis
-        .ip6
-        .as_ref()
-        .map(|ip6| if b_reverse { ip6.src } else { ip6.dst });
+    let b_reverse = pkt.ifin.is_some_and(|s| !s.is_empty()) && !pkt.ifout.is_some_and(|s| !s.is_empty());
+    let target_ip4 = dis.ip.as_ref().map(|ip| if b_reverse { ip.src } else { ip.dst });
+    let target_ip6 = dis.ip6.as_ref().map(|ip6| if b_reverse { ip6.src } else { ip6.dst });
     let ps = PlayState {
         profile_idx: Some(idx),
         ctrack: None,
         ctrack_replay: None,
         b_reverse,
         incoming: b_reverse,
-        target_ip: if b_reverse {
-            src_ip.unwrap_or(dst_ip)
-        } else {
-            dst_ip
-        },
+        target_ip: if b_reverse { src_ip.unwrap_or(dst_ip) } else { dst_ip },
         target_ip4,
         target_ip6,
         target_port: 0,

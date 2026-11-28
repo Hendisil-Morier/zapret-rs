@@ -19,22 +19,19 @@ use std::time::Duration;
 use crate::config::{AppConfig, CliArgs, LuaInitEntry, resolve_config};
 /// Unix control socket server, telemetry hub, and directory helpers.
 use crate::control::{
-    ControlServer, ControlServerConfig, DaemonStatusMeta, TelemetryHub,
-    prepare_control_socket_dir, resolve_control_socket_path,
+    ControlServer, ControlServerConfig, DaemonStatusMeta, TelemetryHub, prepare_control_socket_dir,
+    resolve_control_socket_path,
 };
 /// Core stateful DPI desync engine, list-file validation, and control command/reload helpers.
-use crate::desync::{
-    DesyncEngine, collect_profile_names, drain_hub_commands, verify_config_list_files,
-};
+use crate::desync::{DesyncEngine, collect_profile_names, drain_hub_commands, verify_config_list_files};
 /// Linux NFQUEUE interception listener and configuration.
 use crate::intercepter::{QueueCatcher, QueueConfig};
 /// Packet sender trait, Linux raw socket sender, and socket error variants.
 use crate::rawsend::{PacketSender, RawSendError, RawSender};
 /// Process lifecycle management: PID files, `chdir`, privilege drop, caps, signals, writable dir, and daemonization.
 use crate::runtime::{
-    PidFileGuard, apply_chdir, daemonize, drop_privileges_for, install_signal_handlers,
-    prepare_writable_dir, quit_flag, resolve_identity, retain_net_capabilities_for,
-    take_reload_requested,
+    PidFileGuard, apply_chdir, daemonize, drop_privileges_for, install_signal_handlers, prepare_writable_dir,
+    quit_flag, resolve_identity, retain_net_capabilities_for, take_reload_requested,
 };
 /// Shared packet counters and L3/L4/L7 packet record builder for control subscribers.
 use crate::telemetry::{PacketCounters, build_packet_record};
@@ -51,20 +48,21 @@ use crate::tools::strat::nft::NftFirewallBackend;
 const CONTROL_LOOP_TIMEOUT_CAP: Duration = Duration::from_millis(50);
 
 /// Checks that every `LuaInitEntry::File` script can be opened before `--dry-run` exits or loops begin.
-fn verify_lua_init_files(entries: &[LuaInitEntry]) -> Result<(), DaemonError> {
-    for entry in entries {
-        if let LuaInitEntry::File(path) = entry {
-            File::open(path).map_err(|source| DaemonError::ScriptIo {
-                path: path.clone(),
-                source,
-            })?;
+fn verify_lua_init_files(entries: &[LuaInitEntry]) -> Result<(), DaemonError>
+{
+    for entry in entries
+    {
+        if let LuaInitEntry::File(path) = entry
+        {
+            File::open(path).map_err(|source| DaemonError::ScriptIo { path: path.clone(), source })?;
         }
     }
     Ok(())
 }
 
 /// Validates all hostlists, ipsets, autohostlists, and autohostlist debug log paths (`test_list_files`).
-fn verify_list_files(config: &AppConfig) -> Result<(), DaemonError> {
+fn verify_list_files(config: &AppConfig) -> Result<(), DaemonError>
+{
     verify_config_list_files(config).map_err(|(path, source)| DaemonError::ListIo { path, source })
 }
 
@@ -75,14 +73,19 @@ fn poll_signals_and_commands(
     config: &AppConfig,
     config_dir: Option<&Path>,
     fw_guard: Option<&mut Option<Box<dyn FirewallHandle>>>,
-) {
-    if take_reload_requested() {
-        if config.debug {
+)
+{
+    if take_reload_requested()
+    {
+        if config.debug
+        {
             eprintln!("nfqws2: SIGHUP received, reloading lists");
         }
         engine.borrow().reload_lists();
     }
-    let Some(active_hub) = hub else {
+    let Some(active_hub) = hub
+    else
+    {
         return;
     };
     let swapped = drain_hub_commands(
@@ -94,7 +97,8 @@ fn poll_signals_and_commands(
         quit_flag(),
         config.debug,
     );
-    if swapped && let Some(guard @ Some(_)) = fw_guard {
+    if swapped && let Some(guard @ Some(_)) = fw_guard
+    {
         refresh_auto_nft_ports(config.qnum, config.fwmark, &engine.borrow(), guard);
     }
 }
@@ -106,7 +110,8 @@ fn next_loop_timeout(
     config: &AppConfig,
     config_dir: Option<&Path>,
     fw_guard: &mut Option<Box<dyn FirewallHandle>>,
-) -> Option<Duration> {
+) -> Option<Duration>
+{
     poll_signals_and_commands(engine, hub, config, config_dir, Some(fw_guard));
     let now = boottime_ms();
     let deadline = {
@@ -115,9 +120,12 @@ fn next_loop_timeout(
         TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
     };
     let wait = duration_until(deadline, boottime_ms());
-    if hub.is_some() {
+    if hub.is_some()
+    {
         Some(wait.map_or(CONTROL_LOOP_TIMEOUT_CAP, |d| d.min(CONTROL_LOOP_TIMEOUT_CAP)))
-    } else {
+    }
+    else
+    {
         wait
     }
 }
@@ -128,13 +136,17 @@ fn refresh_auto_nft_ports(
     fwmark: u32,
     engine: &DesyncEngine,
     fw_guard: &mut Option<Box<dyn FirewallHandle>>,
-) {
+)
+{
     let mut cfg = AppConfig { qnum, fwmark, ..AppConfig::default() };
     cfg.profiles = engine.profiles().iter().map(|p| (**p).clone()).collect();
     let (tcp, udp) = collect_config_port_ranges(&cfg);
-    match NftFirewallBackend::default().install_ranges_non_interactive(qnum, fwmark, &tcp, &udp) {
-        Ok(new_guard) => {
-            if let Some(old) = fw_guard.as_mut() {
+    match NftFirewallBackend::default().install_ranges_non_interactive(qnum, fwmark, &tcp, &udp)
+    {
+        Ok(new_guard) =>
+        {
+            if let Some(old) = fw_guard.as_mut()
+            {
                 old.disarm();
             }
             *fw_guard = Some(new_guard);
@@ -144,15 +156,18 @@ fn refresh_auto_nft_ports(
 }
 
 /// Installs the managed temporary `nftables` queue table when `--nft` (`auto_nft`) is enabled.
-fn maybe_install_auto_nft(config: &AppConfig) -> Result<Option<Box<dyn FirewallHandle>>, DaemonError> {
-    if !config.auto_nft || !config.intercept {
+fn maybe_install_auto_nft(config: &AppConfig) -> Result<Option<Box<dyn FirewallHandle>>, DaemonError>
+{
+    if !config.auto_nft || !config.intercept
+    {
         return Ok(None);
     }
     let (tcp, udp) = collect_config_port_ranges(config);
     let guard = NftFirewallBackend::default()
         .install_ranges(config.qnum, config.fwmark, &tcp, &udp)
         .map_err(DaemonError::Nft)?;
-    if config.debug {
+    if config.debug
+    {
         eprintln!(
             "nfqws2: installed auto-cleaned nftables rules on queue {} (fwmark 0x{:08x})",
             config.qnum, config.fwmark
@@ -162,14 +177,15 @@ fn maybe_install_auto_nft(config: &AppConfig) -> Result<Option<Box<dyn FirewallH
 }
 
 /// Daemonizes if requested and writes the active child PID file prior to firewall or IPC setup.
-fn prepare_daemon_runtime(
-    config: &AppConfig,
-    pid_guard: &mut Option<PidFileGuard>,
-) -> Result<(), DaemonError> {
-    if config.daemon {
+fn prepare_daemon_runtime(config: &AppConfig, pid_guard: &mut Option<PidFileGuard>)
+-> Result<(), DaemonError>
+{
+    if config.daemon
+    {
         daemonize()?;
     }
-    if let Some(guard) = pid_guard.as_mut() {
+    if let Some(guard) = pid_guard.as_mut()
+    {
         guard.write_current_pid()?;
     }
     Ok(())
@@ -181,8 +197,11 @@ fn start_control_session(
     config: &AppConfig,
     engine: &DesyncEngine,
     config_path: Option<&Path>,
-) -> Result<(Option<Arc<TelemetryHub>>, Option<ControlServer>), DaemonError> {
-    let Some(path) = socket_path else {
+) -> Result<(Option<Arc<TelemetryHub>>, Option<ControlServer>), DaemonError>
+{
+    let Some(path) = socket_path
+    else
+    {
         return Ok((None, None));
     };
     let meta = DaemonStatusMeta {
@@ -197,24 +216,29 @@ fn start_control_session(
     let hub = TelemetryHub::new(Arc::new(PacketCounters::default()), meta, config.control_pass_sample);
     let srv_cfg = ControlServerConfig::new(path.to_path_buf(), env!("CARGO_PKG_VERSION"));
     let srv = ControlServer::start(srv_cfg, Arc::clone(&hub))?;
-    if config.debug {
+    if config.debug
+    {
         eprintln!("nfqws2: control socket listening at {}", srv.socket_path().display());
     }
     Ok((Some(hub), Some(srv)))
 }
 
 /// Executes the `nfqws2` startup pipeline (`chdir`, identity, `preinit`, `droproot`, signals) and event loop.
-pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
+pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError>
+{
     let config = resolve_config(cli)?;
-    if let Some(dir) = &config.chdir {
+    if let Some(dir) = &config.chdir
+    {
         apply_chdir(dir)?;
     }
 
     let identity = resolve_identity(config.user.as_deref(), config.uid.as_deref())?;
     verify_lua_init_files(&config.lua_init)?;
     verify_list_files(&config)?;
-    if cli.dry_run {
-        if let Some(id) = &identity {
+    if cli.dry_run
+    {
+        if let Some(id) = &identity
+        {
             drop_privileges_for(id, config.intercept, false)?;
             verify_lua_init_files(&config.lua_init)?;
             verify_list_files(&config)?;
@@ -224,13 +248,16 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
     }
 
     let control_socket_path = resolve_control_socket_path(&config.control_socket, config.intercept);
-    if let Some(writable_cfg) = &config.writable {
+    if let Some(writable_cfg) = &config.writable
+    {
         let writable_dir = prepare_writable_dir(writable_cfg, identity.as_ref())?;
-        if config.debug {
+        if config.debug
+        {
             eprintln!("nfqws2: LUA writable dir: {}", writable_dir.display());
         }
     }
-    if let Some(ref sock_path) = control_socket_path {
+    if let Some(ref sock_path) = control_socket_path
+    {
         let uid = identity.as_ref().map(|id| id.uid);
         let gid = identity.as_ref().and_then(|id| id.gids.first().copied());
         prepare_control_socket_dir(sock_path, uid, gid)?;
@@ -238,18 +265,26 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
 
     let mut pid_guard = config.pidfile.as_deref().map(PidFileGuard::create).transpose()?;
     let mut raw_sender = RawSender::new(config.bind_fix4, config.bind_fix6);
-    match raw_sender.preinit() {
-        Ok(()) => {}
-        Err(RawSendError::SocketIo(err)) if !config.intercept && err.kind() == ErrorKind::PermissionDenied => {
-            if config.debug {
+    match raw_sender.preinit()
+    {
+        Ok(()) =>
+        {}
+        Err(RawSendError::SocketIo(err))
+            if !config.intercept && err.kind() == ErrorKind::PermissionDenied =>
+        {
+            if config.debug
+            {
                 eprintln!("nfqws2: skipping rawsend preinit without CAP_NET_RAW in --intercept=0 mode");
             }
         }
         Err(err) => return Err(err.into()),
     }
-    if let Some(id) = &identity {
+    if let Some(id) = &identity
+    {
         drop_privileges_for(id, config.intercept, config.auto_nft)?;
-    } else if config.intercept {
+    }
+    else if config.intercept
+    {
         retain_net_capabilities_for(true, config.auto_nft)?;
     }
 
@@ -258,7 +293,8 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
     let config_dir = cli.config.as_deref().and_then(Path::parent);
     let engine = RefCell::new(DesyncEngine::with_sender(&config, sender)?);
 
-    if !config.intercept {
+    if !config.intercept
+    {
         prepare_daemon_runtime(&config, &mut pid_guard)?;
         let (hub, srv) = start_control_session(
             control_socket_path.as_deref(),
@@ -278,7 +314,8 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
                 TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
             },
         );
-        if let Some(ctrl) = srv {
+        if let Some(ctrl) = srv
+        {
             ctrl.shutdown();
         }
         return Ok(());
@@ -298,20 +335,25 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError> {
         quit_flag(),
         || next_loop_timeout(&engine, hub.as_deref(), &config, config_dir, &mut fw_guard),
         |pkt| {
-            if let Some(ref active_hub) = hub {
+            if let Some(ref active_hub) = hub
+            {
                 let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
                 let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
-                if active_hub.should_publish(verdict) {
+                if active_hub.should_publish(verdict)
+                {
                     active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
                 }
                 decision
-            } else {
+            }
+            else
+            {
                 engine.borrow().process_packet(pkt)
             }
         },
     );
     drop(fw_guard);
-    if let Some(ctrl) = srv {
+    if let Some(ctrl) = srv
+    {
         ctrl.shutdown();
     }
     loop_result?;

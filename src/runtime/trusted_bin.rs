@@ -24,7 +24,8 @@ pub const TRUSTED_SYSTEM_BIN_DIRS: &[&str] = &[
 ///
 /// Never searches `PATH`, protecting root and ambient-capability processes (`CAP_NET_ADMIN`)
 /// against unprivileged binary planting.
-pub fn resolve_trusted_system_bin(name: &str) -> io::Result<PathBuf> {
+pub fn resolve_trusted_system_bin(name: &str) -> io::Result<PathBuf>
+{
     if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".."
     {
         return Err(io::Error::new(
@@ -35,9 +36,11 @@ pub fn resolve_trusted_system_bin(name: &str) -> io::Result<PathBuf> {
 
     #[cfg(unix)]
     {
-        for dir in TRUSTED_SYSTEM_BIN_DIRS {
+        for dir in TRUSTED_SYSTEM_BIN_DIRS
+        {
             let candidate = Path::new(dir).join(name);
-            if validate_unix_candidate(&candidate, true).is_ok() {
+            if validate_unix_candidate(&candidate, true).is_ok()
+            {
                 return Ok(candidate);
             }
         }
@@ -60,19 +63,19 @@ pub fn resolve_trusted_system_bin(name: &str) -> io::Result<PathBuf> {
 ///
 /// Bare names (single normal component) resolve through [`resolve_trusted_system_bin`].
 /// Explicit paths must be absolute and point to a non-writable, root-owned executable binary.
-pub fn validate_trusted_bin_path(path: &Path) -> io::Result<PathBuf> {
+pub fn validate_trusted_bin_path(path: &Path) -> io::Result<PathBuf>
+{
     let mut comps = path.components();
-    if let (Some(Component::Normal(name)), None) = (comps.next(), comps.next()) {
+    if let (Some(Component::Normal(name)), None) = (comps.next(), comps.next())
+    {
         let bare = name.to_str().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "executable name is not valid UTF-8",
-            )
+            io::Error::new(io::ErrorKind::InvalidInput, "executable name is not valid UTF-8")
         })?;
         return resolve_trusted_system_bin(bare);
     }
 
-    if !path.is_absolute() {
+    if !path.is_absolute()
+    {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
@@ -93,16 +96,16 @@ pub fn validate_trusted_bin_path(path: &Path) -> io::Result<PathBuf> {
 
 /// Returns `true` when `path` starts inside one of [`TRUSTED_SYSTEM_BIN_DIRS`].
 #[cfg(unix)]
-fn is_under_trusted_system_dir(path: &Path) -> bool {
-    TRUSTED_SYSTEM_BIN_DIRS
-        .iter()
-        .any(|dir| path.starts_with(Path::new(dir)))
+fn is_under_trusted_system_dir(path: &Path) -> bool
+{
+    TRUSTED_SYSTEM_BIN_DIRS.iter().any(|dir| path.starts_with(Path::new(dir)))
 }
 
 /// Verifies `candidate` resolves to a regular, executable, non-group/world-writable binary
 /// inside safe non-writable directories.
 #[cfg(unix)]
-fn validate_unix_candidate(candidate: &Path, allow_overflow_uid: bool) -> io::Result<()> {
+fn validate_unix_candidate(candidate: &Path, allow_overflow_uid: bool) -> io::Result<()>
+{
     /// Unix file permission mode inspection trait.
     use std::os::unix::fs::PermissionsExt as _;
 
@@ -113,7 +116,8 @@ fn validate_unix_candidate(candidate: &Path, allow_overflow_uid: bool) -> io::Re
         )
     })?;
     let parent_meta = fs::metadata(parent)?;
-    if !parent_meta.is_dir() {
+    if !parent_meta.is_dir()
+    {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!("parent '{}' is not a directory", parent.display()),
@@ -123,7 +127,8 @@ fn validate_unix_candidate(candidate: &Path, allow_overflow_uid: bool) -> io::Re
 
     let canon = fs::canonicalize(candidate)?;
     let target_meta = fs::metadata(&canon)?;
-    if !target_meta.is_file() {
+    if !target_meta.is_file()
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("target '{}' is not a regular file", canon.display()),
@@ -131,9 +136,11 @@ fn validate_unix_candidate(candidate: &Path, allow_overflow_uid: bool) -> io::Re
     }
     check_safe_owner_and_mode(&target_meta, &canon, allow_overflow_uid, true)?;
 
-    if let Some(canon_parent) = canon.parent() {
+    if let Some(canon_parent) = canon.parent()
+    {
         let canon_parent_meta = fs::metadata(canon_parent)?;
-        if !canon_parent_meta.is_dir() {
+        if !canon_parent_meta.is_dir()
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("canonical parent '{}' is not a directory", canon_parent.display()),
@@ -144,15 +151,14 @@ fn validate_unix_candidate(candidate: &Path, allow_overflow_uid: bool) -> io::Re
 
     // Reject world-writable ancestor directories (e.g., `/tmp`, `/var/tmp`, `/dev/shm`).
     let mut ancestor = canon.parent();
-    while let Some(dir) = ancestor {
+    while let Some(dir) = ancestor
+    {
         let dir_meta = fs::metadata(dir)?;
-        if (dir_meta.permissions().mode() & 0o002) != 0 {
+        if (dir_meta.permissions().mode() & 0o002) != 0
+        {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                format!(
-                    "refusing executable inside world-writable directory '{}'",
-                    dir.display()
-                ),
+                format!("refusing executable inside world-writable directory '{}'", dir.display()),
             ));
         }
         ancestor = dir.parent();
@@ -168,34 +174,32 @@ fn check_safe_owner_and_mode(
     path: &Path,
     allow_overflow_uid: bool,
     require_exec: bool,
-) -> io::Result<()> {
+) -> io::Result<()>
+{
     /// Unix metadata permission mode and owner UID inspection trait.
     use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
     const OVERFLOW_UID: u32 = 65_534;
     let uid = meta.uid();
     let owner_ok = uid == 0 || (allow_overflow_uid && uid == OVERFLOW_UID);
-    if !owner_ok {
+    if !owner_ok
+    {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!(
-                "refusing non-root-owned executable path '{}' (uid={uid})",
-                path.display()
-            ),
+            format!("refusing non-root-owned executable path '{}' (uid={uid})", path.display()),
         ));
     }
 
     let mode = meta.permissions().mode();
-    if (mode & 0o022) != 0 {
+    if (mode & 0o022) != 0
+    {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!(
-                "refusing group/world-writable path '{}' (mode={mode:o})",
-                path.display()
-            ),
+            format!("refusing group/world-writable path '{}' (mode={mode:o})", path.display()),
         ));
     }
-    if require_exec && (mode & 0o111) == 0 {
+    if require_exec && (mode & 0o111) == 0
+    {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("path '{}' is not marked executable", path.display()),

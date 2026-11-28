@@ -1,10 +1,10 @@
 //! Operational health checks for `zapret-rs` dependencies, drivers, scripts, and daemon IPC.
 
-/// Path resolution for `lua/` script directories.
-use std::path::PathBuf;
 /// Path checks for `WinDivert64.sys` on Windows.
 #[cfg(windows)]
 use std::path::Path;
+/// Path resolution for `lua/` script directories.
+use std::path::PathBuf;
 /// Subprocess probes for `curl --version` and `nft --version` / `systemctl is-active`.
 use std::process::{Command, Stdio};
 
@@ -24,7 +24,8 @@ use crate::tui::types::RunStatus;
 
 /// Three-state operational health level for a `zapret-rs` dependency.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ComponentHealth {
+pub enum ComponentHealth
+{
     /// Component is present, loaded/reachable, and ready.
     Ok,
     /// Component is usable with caveats (e.g., missing HTTP/3 or manual `nft` mode).
@@ -35,7 +36,8 @@ pub enum ComponentHealth {
 
 /// One diagnostic row shown in Tab 5 (`Status`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ComponentCheck {
+pub struct ComponentCheck
+{
     /// Short component label (`Privileges`, `Packet Driver`, `Lua Scripts`, etc.).
     pub name: &'static str,
     /// Operational health level.
@@ -47,7 +49,8 @@ pub struct ComponentCheck {
 }
 
 /// Collects live operational status across privileges, driver, Lua, `curl`, DNS, config, IPC, scan, and speed test.
-pub fn collect_component_statuses(state: &AppState) -> Vec<ComponentCheck> {
+pub fn collect_component_statuses(state: &AppState) -> Vec<ComponentCheck>
+{
     vec![
         check_privileges(state),
         check_packet_driver(state),
@@ -63,7 +66,8 @@ pub fn collect_component_statuses(state: &AppState) -> Vec<ComponentCheck> {
 }
 
 /// Checks whether the embedded HTTP/SSE mobile/browser Web UI is running inside the TUI.
-fn check_web_ui(state: &AppState) -> ComponentCheck {
+fn check_web_ui(state: &AppState) -> ComponentCheck
+{
     match &state.web_status {
         Some((url, passcode)) => {
             let auth_desc = if passcode.starts_with("none") { "no passcode (localhost)" } else { "passcode active (hidden)" };
@@ -84,10 +88,12 @@ fn check_web_ui(state: &AppState) -> ComponentCheck {
 }
 
 /// Checks the active OS DNS servers and displays the currently selected DNS preset.
-fn check_dns_resolver(state: &AppState) -> ComponentCheck {
+fn check_dns_resolver(state: &AppState) -> ComponentCheck
+{
     let st = detect_dns_status();
     let preset = state.status.dns_preset.label();
-    if st.servers.is_empty() {
+    if st.servers.is_empty()
+    {
         return ComponentCheck {
             name: "DNS Resolver",
             health: ComponentHealth::Warn,
@@ -112,18 +118,21 @@ fn check_dns_resolver(state: &AppState) -> ComponentCheck {
 }
 
 /// Checks OS packet-capture privileges (`Administrator` on Windows, `CAP_NET_ADMIN` / `uid` on Linux).
-fn check_privileges(state: &AppState) -> ComponentCheck {
+fn check_privileges(state: &AppState) -> ComponentCheck
+{
     #[cfg(windows)]
     {
-        if state.status.has_net_caps {
+        if state.status.has_net_caps
+        {
             ComponentCheck {
                 name: "Privileges",
                 health: ComponentHealth::Ok,
                 summary: "Administrator (elevated)".to_owned(),
-                detail: "Process token is elevated; WinDivert driver loading is permitted."
-                    .to_owned(),
+                detail: "Process token is elevated; WinDivert driver loading is permitted.".to_owned(),
             }
-        } else {
+        }
+        else
+        {
             ComponentCheck {
                 name: "Privileges",
                 health: ComponentHealth::Err,
@@ -135,15 +144,17 @@ fn check_privileges(state: &AppState) -> ComponentCheck {
     }
     #[cfg(not(windows))]
     {
-        if state.status.has_net_caps {
+        if state.status.has_net_caps
+        {
             ComponentCheck {
                 name: "Privileges",
                 health: ComponentHealth::Ok,
                 summary: format!("UID {} | CAP_NET_ADMIN+RAW active", state.status.uid),
-                detail: "Effective packet capture and raw-socket capabilities are active."
-                    .to_owned(),
+                detail: "Effective packet capture and raw-socket capabilities are active.".to_owned(),
             }
-        } else {
+        }
+        else
+        {
             ComponentCheck {
                 name: "Privileges",
                 health: ComponentHealth::Err,
@@ -158,7 +169,8 @@ fn check_privileges(state: &AppState) -> ComponentCheck {
 }
 
 /// Checks WinDivert (`WinDivert.dll` + `WinDivert64.sys`) on Windows or `nftables` / `NFQUEUE` on Linux.
-fn check_packet_driver(state: &AppState) -> ComponentCheck {
+fn check_packet_driver(state: &AppState) -> ComponentCheck
+{
     #[cfg(windows)]
     {
         let dll_res = WinDivertApi::load();
@@ -193,7 +205,8 @@ fn check_packet_driver(state: &AppState) -> ComponentCheck {
     }
     #[cfg(not(windows))]
     {
-        if state.finder.no_nft {
+        if state.finder.no_nft
+        {
             return ComponentCheck {
                 name: "Packet Driver",
                 health: ComponentHealth::Warn,
@@ -209,7 +222,8 @@ fn check_packet_driver(state: &AppState) -> ComponentCheck {
             .stderr(Stdio::null())
             .output()
         {
-            Ok(out) if out.status.success() => {
+            Ok(out) if out.status.success() =>
+            {
                 let ver = String::from_utf8_lossy(&out.stdout).trim().to_owned();
                 ComponentCheck {
                     name: "Packet Driver",
@@ -229,23 +243,27 @@ fn check_packet_driver(state: &AppState) -> ComponentCheck {
                 name: "Packet Driver",
                 health: ComponentHealth::Err,
                 summary: "nft binary not found".to_owned(),
-                detail: format!(
-                    "Failed to run nft ({err}). Install nftables or launch with --no-nft."
-                ),
+                detail: format!("Failed to run nft ({err}). Install nftables or launch with --no-nft."),
             },
         }
     }
 }
 
 /// Checks `zapret-lib.lua` and `zapret-antidpi.lua` resolution from the configured Lua directory.
-fn check_lua_scripts(state: &AppState) -> ComponentCheck {
-    let lua_opt = if state.finder.lua_dir_input.trim().is_empty() {
+fn check_lua_scripts(state: &AppState) -> ComponentCheck
+{
+    let lua_opt = if state.finder.lua_dir_input.trim().is_empty()
+    {
         None
-    } else {
+    }
+    else
+    {
         Some(PathBuf::from(state.finder.lua_dir_input.trim()))
     };
-    match resolve_lua_scripts(lua_opt.as_deref()) {
-        Ok(paths) => {
+    match resolve_lua_scripts(lua_opt.as_deref())
+    {
+        Ok(paths) =>
+        {
             let dir = paths
                 .first()
                 .and_then(|p| p.parent())
@@ -271,7 +289,8 @@ fn check_lua_scripts(state: &AppState) -> ComponentCheck {
 }
 
 /// Checks `curl` availability, version, and `--http3-only` support.
-fn check_curl_probe() -> ComponentCheck {
+fn check_curl_probe() -> ComponentCheck
+{
     let backend = CurlProbeBackend::default();
     let ver_out = Command::new(backend.curl_bin())
         .arg("--version")
@@ -279,22 +298,25 @@ fn check_curl_probe() -> ComponentCheck {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output();
-    match ver_out {
-        Ok(out) if out.status.success() => {
+    match ver_out
+    {
+        Ok(out) if out.status.success() =>
+        {
             let text = String::from_utf8_lossy(&out.stdout);
             let first_line = text.lines().next().unwrap_or("curl").trim();
             let short_ver = first_line.split(" (").next().unwrap_or(first_line).trim();
             let h3 = backend.supports_http3();
-            if h3 {
+            if h3
+            {
                 ComponentCheck {
                     name: "Probe (curl)",
                     health: ComponentHealth::Ok,
                     summary: format!("{short_ver} (HTTP/3 ready)"),
-                    detail: format!(
-                        "{first_line} — HTTP/1.1, TLS 1.2/1.3, and HTTP/3 probes are supported."
-                    ),
+                    detail: format!("{first_line} — HTTP/1.1, TLS 1.2/1.3, and HTTP/3 probes are supported."),
                 }
-            } else {
+            }
+            else
+            {
                 ComponentCheck {
                     name: "Probe (curl)",
                     health: ComponentHealth::Warn,
@@ -309,8 +331,9 @@ fn check_curl_probe() -> ComponentCheck {
             name: "Probe (curl)",
             health: ComponentHealth::Err,
             summary: format!("curl exited with {}", out.status),
-            detail: "curl --version failed; Strategy Finder and Speed Test require a working curl binary on PATH."
-                .to_owned(),
+            detail:
+                "curl --version failed; Strategy Finder and Speed Test require a working curl binary on PATH."
+                    .to_owned(),
         },
         Err(err) => ComponentCheck {
             name: "Probe (curl)",
@@ -322,8 +345,10 @@ fn check_curl_probe() -> ComponentCheck {
 }
 
 /// Checks the active `nfqws2.toml` parse status and profile count.
-fn check_config(state: &AppState) -> ComponentCheck {
-    if state.config.active_toml.trim().is_empty() {
+fn check_config(state: &AppState) -> ComponentCheck
+{
+    if state.config.active_toml.trim().is_empty()
+    {
         return ComponentCheck {
             name: "Config",
             health: ComponentHealth::Warn,
@@ -332,7 +357,8 @@ fn check_config(state: &AppState) -> ComponentCheck {
                 .to_owned(),
         };
     }
-    if let Some(err) = &state.config.toml_error {
+    if let Some(err) = &state.config.toml_error
+    {
         return ComponentCheck {
             name: "Config",
             health: ComponentHealth::Err,
@@ -349,13 +375,16 @@ fn check_config(state: &AppState) -> ComponentCheck {
 }
 
 /// Checks live daemon / control IPC reachability and `systemd` unit state on Linux.
-fn check_daemon_ipc(state: &AppState) -> ComponentCheck {
+fn check_daemon_ipc(state: &AppState) -> ComponentCheck
+{
     let detected = detect_control_socket(state.run.control_socket_override.as_deref());
-    let base_summary = match &state.run.status {
+    let base_summary = match &state.run.status
+    {
         RunStatus::Running => "In-process engine running".to_owned(),
         RunStatus::Attached => "Attached to daemon IPC".to_owned(),
         RunStatus::Error(err) => format!("Error: {err}"),
-        RunStatus::Stopped => match &detected {
+        RunStatus::Stopped => match &detected
+        {
             Some(sock) => format!("Daemon reachable at {}", sock.display()),
             None => "Idle (no active daemon IPC)".to_owned(),
         },
@@ -369,7 +398,8 @@ fn check_daemon_ipc(state: &AppState) -> ComponentCheck {
         .stderr(Stdio::null())
         .output()
     {
-        Ok(out) => {
+        Ok(out) =>
+        {
             let s = String::from_utf8_lossy(&out.stdout).trim().to_owned();
             if s.is_empty() { "not installed".to_owned() } else { s }
         }
@@ -379,19 +409,16 @@ fn check_daemon_ipc(state: &AppState) -> ComponentCheck {
     #[cfg(target_os = "linux")]
     let detail = format!(
         "Control endpoint: {}. systemd unit (zapret-rs.service): {svc_note}.",
-        detected
-            .as_ref()
-            .map_or_else(|| "none active".to_owned(), |p| p.display().to_string())
+        detected.as_ref().map_or_else(|| "none active".to_owned(), |p| p.display().to_string())
     );
     #[cfg(not(target_os = "linux"))]
     let detail = format!(
         "Control IPC endpoint: {}.",
-        detected
-            .as_ref()
-            .map_or_else(|| "none active".to_owned(), |p| p.display().to_string())
+        detected.as_ref().map_or_else(|| "none active".to_owned(), |p| p.display().to_string())
     );
 
-    let health = match &state.run.status {
+    let health = match &state.run.status
+    {
         RunStatus::Error(_) => ComponentHealth::Err,
         _ => ComponentHealth::Ok,
     };

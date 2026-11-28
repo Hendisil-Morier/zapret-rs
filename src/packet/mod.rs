@@ -27,15 +27,15 @@ pub mod validate;
 pub use constants::*;
 /// Re-exported packet dissection functions.
 pub use dissecter::{
-    dissect_icmp_header, dissect_ipv4_header, dissect_packet, dissect_tcp_header,
-    dissect_udp_header, parse_ipv4_header, parse_ipv4_tcp,
+    dissect_icmp_header, dissect_ipv4_header, dissect_packet, dissect_tcp_header, dissect_udp_header,
+    parse_ipv4_header, parse_ipv4_tcp,
 };
 /// Re-exported packet error type.
 pub use error::PacketError;
 /// Re-exported standalone header serializers.
 pub use header_encode::{
-    reconstruct_icmp_header, reconstruct_ipv4_header, reconstruct_ipv6_header,
-    reconstruct_tcp_header, reconstruct_udp_header,
+    reconstruct_icmp_header, reconstruct_ipv4_header, reconstruct_ipv6_header, reconstruct_tcp_header,
+    reconstruct_udp_header,
 };
 /// Re-exported IPv6 extension-header dissector and finder.
 pub use ipv6_ext::{dissect_ipv6_header, find_ipv6_exthdr};
@@ -43,11 +43,11 @@ pub use ipv6_ext::{dissect_ipv6_header, find_ipv6_exthdr};
 pub use reconstruct::{ReconstructOptions, reconstruct_packet};
 /// Re-exported packet header and container structs.
 pub use types::{
-    DissectedPacket, Dissecter, IcmpHeader, Ipv4Header, Ipv6ExtHeader, Ipv6Header, TcpHeader,
-    TcpOption, UdpHeader,
+    DissectedPacket, Dissecter, IcmpHeader, Ipv4Header, Ipv6ExtHeader, Ipv6Header, TcpHeader, TcpOption,
+    UdpHeader,
 };
 /// Re-exported header bounds validators and destination extractor.
 pub use validate::{
-    check_icmp_header, check_ipv4_header, check_ipv4_payload, check_ipv6_header,
-    check_ipv6_payload, check_tcp_header, check_udp_header, check_udp_payload, extract_dst,
+    check_icmp_header, check_ipv4_header, check_ipv4_payload, check_ipv6_header, check_ipv6_payload,
+    check_tcp_header, check_udp_header, check_udp_payload, extract_dst,
 };

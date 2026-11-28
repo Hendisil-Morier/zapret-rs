@@ -12,7 +12,8 @@ use crate::tools::strat::catalog::{IpFamily, ProbeProtocol, ScanLevel};
 
 /// Pre-filled defaults passed into [`prompt_interactive_wizard`].
 #[derive(Debug, Clone)]
-pub struct InteractiveDefaults {
+pub struct InteractiveDefaults
+{
     /// Domains already provided on the command line, if any.
     pub domains: Vec<String>,
     /// Default protocols shown in the prompt.
@@ -31,7 +32,8 @@ pub struct InteractiveDefaults {
 
 /// Resolved options produced by [`prompt_interactive_wizard`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InteractiveSelections {
+pub struct InteractiveSelections
+{
     /// Normalized target hostnames (guaranteed non-empty).
     pub domains: Vec<String>,
     /// Protocols selected for probing (guaranteed non-empty).
@@ -49,31 +51,35 @@ pub struct InteractiveSelections {
 }
 
 /// Normalizes a domain token by stripping any URL scheme, path, port, and surrounding whitespace.
-pub fn normalize_domain(raw: &str) -> Option<String> {
+pub fn normalize_domain(raw: &str) -> Option<String>
+{
     let trimmed = raw.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty()
+    {
         return None;
     }
-    let no_scheme = trimmed
-        .strip_prefix("https://")
-        .or_else(|| trimmed.strip_prefix("http://"))
-        .unwrap_or(trimmed);
+    let no_scheme =
+        trimmed.strip_prefix("https://").or_else(|| trimmed.strip_prefix("http://")).unwrap_or(trimmed);
     let host = no_scheme.split(['/', '?', '#']).next().unwrap_or("").trim();
     let host = host.split(':').next().unwrap_or("").trim().trim_end_matches('.');
     if host.is_empty() { None } else { Some(host.to_ascii_lowercase()) }
 }
 
 /// Resolves the invoking user's home directory (`$HOME`/`%USERPROFILE%`, falling back to `getpwuid_r` on Unix).
-pub(crate) fn resolve_user_home() -> Option<PathBuf> {
-    if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+pub(crate) fn resolve_user_home() -> Option<PathBuf>
+{
+    if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty())
+    {
         // When invoked via `sudo`, prefer the dropped UID's passwd home over `/root`.
         let sudo_uid = std::env::var("SUDO_UID").ok().and_then(|s| s.parse::<u32>().ok());
-        if sudo_uid.is_none() || Path::new(&home) != Path::new("/root") {
+        if sudo_uid.is_none() || Path::new(&home) != Path::new("/root")
+        {
             return Some(PathBuf::from(home));
         }
     }
     #[cfg(windows)]
-    if let Some(home) = std::env::var_os("USERPROFILE").filter(|h| !h.is_empty()) {
+    if let Some(home) = std::env::var_os("USERPROFILE").filter(|h| !h.is_empty())
+    {
         return Some(PathBuf::from(home));
     }
     #[cfg(unix)]
@@ -87,11 +93,15 @@ pub(crate) fn resolve_user_home() -> Option<PathBuf> {
         let mut buf = vec![0u8; 4096];
         let mut res: *mut libc::passwd = std::ptr::null_mut();
         // SAFETY: `pwd`, `buf`, and `res` are valid writable buffers matching `getpwuid_r` ABI.
-        let rc = unsafe { libc::getpwuid_r(uid, &raw mut pwd, buf.as_mut_ptr().cast(), buf.len(), &raw mut res) };
-        if rc == 0 && !res.is_null() && !pwd.pw_dir.is_null() {
+        let rc =
+            unsafe { libc::getpwuid_r(uid, &raw mut pwd, buf.as_mut_ptr().cast(), buf.len(), &raw mut res) };
+        if rc == 0 && !res.is_null() && !pwd.pw_dir.is_null()
+        {
             // SAFETY: `pw_dir` points to a NUL-terminated string inside `buf`.
             let cstr = unsafe { std::ffi::CStr::from_ptr(pwd.pw_dir) };
-            if let Ok(s) = cstr.to_str() && !s.is_empty() {
+            if let Ok(s) = cstr.to_str()
+                && !s.is_empty()
+            {
                 return Some(PathBuf::from(s));
             }
         }
@@ -100,9 +110,11 @@ pub(crate) fn resolve_user_home() -> Option<PathBuf> {
 }
 
 /// Expands a leading `~` or `~/` path prefix using the invoking user's home directory.
-pub fn expand_tilde(raw: &str) -> PathBuf {
+pub fn expand_tilde(raw: &str) -> PathBuf
+{
     let trimmed = raw.trim();
-    if trimmed == "~" {
+    if trimmed == "~"
+    {
         return resolve_user_home().unwrap_or_else(|| PathBuf::from("~"));
     }
     if let Some(rest) = trimmed.strip_prefix("~/")
@@ -114,7 +126,8 @@ pub fn expand_tilde(raw: &str) -> PathBuf {
 }
 
 /// Returns the default config path (`$XDG_CONFIG_HOME/zapret-rs/nfqws2.toml` or `~/.config/zapret-rs/nfqws2.toml`).
-pub fn default_output_config_path() -> PathBuf {
+pub fn default_output_config_path() -> PathBuf
+{
     xdg_zapret_dir("XDG_CONFIG_HOME", &[".config"])
         .map(|d| d.join("nfqws2.toml"))
         .unwrap_or_else(|| PathBuf::from("nfqws2.toml"))
@@ -125,40 +138,47 @@ fn read_prompt_line<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<String, String>
+{
     write!(writer, "{prompt}").map_err(|err| format!("failed to write prompt: {err}"))?;
     writer.flush().map_err(|err| format!("failed to flush prompt: {err}"))?;
     let mut line = String::new();
-    let n = reader
-        .read_line(&mut line)
-        .map_err(|err| format!("failed to read input: {err}"))?;
-    if n == 0 {
+    let n = reader.read_line(&mut line).map_err(|err| format!("failed to read input: {err}"))?;
+    if n == 0
+    {
         return Err("interactive input ended unexpectedly (EOF)".to_owned());
     }
     Ok(line.trim().to_owned())
 }
 
 /// Parses comma- or space-separated protocol tokens into a deduplicated list.
-fn parse_proto_list(raw: &str) -> Result<Vec<ProbeProtocol>, String> {
+fn parse_proto_list(raw: &str) -> Result<Vec<ProbeProtocol>, String>
+{
     let mut out = Vec::new();
-    for tok in raw.split(|c: char| c.is_whitespace() || c == ',') {
-        if tok.is_empty() {
+    for tok in raw.split(|c: char| c.is_whitespace() || c == ',')
+    {
+        if tok.is_empty()
+        {
             continue;
         }
         let p: ProbeProtocol = tok.parse()?;
-        if !out.contains(&p) {
+        if !out.contains(&p)
+        {
             out.push(p);
         }
     }
-    if out.is_empty() {
+    if out.is_empty()
+    {
         return Err("please enter at least one protocol (http, tls12, tls13, http3)".to_owned());
     }
     Ok(out)
 }
 
 /// Parses an IP version answer (`4`, `6`, `46`, `ipv4`, `ipv6`, `both`).
-fn parse_ip_families(raw: &str) -> Result<Vec<IpFamily>, String> {
-    match raw.trim().to_ascii_lowercase().as_str() {
+fn parse_ip_families(raw: &str) -> Result<Vec<IpFamily>, String>
+{
+    match raw.trim().to_ascii_lowercase().as_str()
+    {
         "4" | "v4" | "ipv4" => Ok(vec![IpFamily::V4]),
         "6" | "v6" | "ipv6" => Ok(vec![IpFamily::V6]),
         "46" | "64" | "both" | "all" => Ok(vec![IpFamily::V4, IpFamily::V6]),
@@ -167,8 +187,10 @@ fn parse_ip_families(raw: &str) -> Result<Vec<IpFamily>, String> {
 }
 
 /// Parses a yes/no response, returning `default` when `raw` is empty.
-fn parse_yes_no(raw: &str, default: bool) -> Result<bool, String> {
-    match raw.trim().to_ascii_lowercase().as_str() {
+fn parse_yes_no(raw: &str, default: bool) -> Result<bool, String>
+{
+    match raw.trim().to_ascii_lowercase().as_str()
+    {
         "" => Ok(default),
         "y" | "yes" | "1" | "true" => Ok(true),
         "n" | "no" | "0" | "false" => Ok(false),
@@ -177,10 +199,12 @@ fn parse_yes_no(raw: &str, default: bool) -> Result<bool, String> {
 }
 
 /// Formats `families` compactly as `"4"`, `"6"`, or `"46"`.
-fn format_families(families: &[IpFamily]) -> &'static str {
+fn format_families(families: &[IpFamily]) -> &'static str
+{
     let v4 = families.contains(&IpFamily::V4);
     let v6 = families.contains(&IpFamily::V6);
-    match (v4, v6) {
+    match (v4, v6)
+    {
         (true, true) => "46",
         (false, true) => "6",
         _ => "4",
@@ -192,26 +216,22 @@ fn prompt_domains<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     default_domains: &[String],
-) -> Result<Vec<String>, String> {
-    let hint = if default_domains.is_empty() {
-        String::new()
-    } else {
-        format!(" [{}]", default_domains.join(", "))
-    };
-    loop {
-        let line = read_prompt_line(
-            reader,
-            writer,
-            &format!("Target domain(s) (comma/space separated){hint}: "),
-        )?;
-        if line.is_empty() && !default_domains.is_empty() {
+) -> Result<Vec<String>, String>
+{
+    let hint =
+        if default_domains.is_empty() { String::new() } else { format!(" [{}]", default_domains.join(", ")) };
+    loop
+    {
+        let line =
+            read_prompt_line(reader, writer, &format!("Target domain(s) (comma/space separated){hint}: "))?;
+        if line.is_empty() && !default_domains.is_empty()
+        {
             return Ok(default_domains.to_vec());
         }
-        let parsed: Vec<String> = line
-            .split(|c: char| c.is_whitespace() || c == ',')
-            .filter_map(normalize_domain)
-            .collect();
-        if !parsed.is_empty() {
+        let parsed: Vec<String> =
+            line.split(|c: char| c.is_whitespace() || c == ',').filter_map(normalize_domain).collect();
+        if !parsed.is_empty()
+        {
             return Ok(parsed);
         }
         let _ = writeln!(writer, "  Please enter at least one domain (e.g., youtube.com).");
@@ -223,114 +243,112 @@ pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     defaults: &InteractiveDefaults,
-) -> Result<InteractiveSelections, String> {
+) -> Result<InteractiveSelections, String>
+{
     let _ = writeln!(writer, "\n=== strat_finder interactive setup (press Enter for defaults) ===");
 
     let domains = prompt_domains(reader, writer, &defaults.domains)?;
 
-    let proto_default: String = defaults
-        .protos
-        .iter()
-        .map(|p| p.as_str())
-        .collect::<Vec<_>>()
-        .join(",");
-    let protos = loop {
+    let proto_default: String = defaults.protos.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(",");
+    let protos = loop
+    {
         let line = read_prompt_line(
             reader,
             writer,
             &format!("Protocols (http,tls12,tls13,http3) [{proto_default}]: "),
         )?;
-        if line.is_empty() {
+        if line.is_empty()
+        {
             break defaults.protos.clone();
         }
-        match parse_proto_list(&line) {
+        match parse_proto_list(&line)
+        {
             Ok(list) => break list,
-            Err(msg) => {
+            Err(msg) =>
+            {
                 let _ = writeln!(writer, "  {msg}");
             }
         }
     };
 
     let fam_default = format_families(&defaults.families);
-    let families = loop {
-        let line = read_prompt_line(
-            reader,
-            writer,
-            &format!("IP version (4, 6, or 46) [{fam_default}]: "),
-        )?;
-        if line.is_empty() {
+    let families = loop
+    {
+        let line = read_prompt_line(reader, writer, &format!("IP version (4, 6, or 46) [{fam_default}]: "))?;
+        if line.is_empty()
+        {
             break defaults.families.clone();
         }
-        match parse_ip_families(&line) {
+        match parse_ip_families(&line)
+        {
             Ok(list) => break list,
-            Err(msg) => {
+            Err(msg) =>
+            {
                 let _ = writeln!(writer, "  {msg}");
             }
         }
     };
 
-    let level = loop {
+    let level = loop
+    {
         let line = read_prompt_line(
             reader,
             writer,
             &format!("Scan level (quick, standard, force) [{}]: ", defaults.level),
         )?;
-        if line.is_empty() {
+        if line.is_empty()
+        {
             break defaults.level;
         }
-        match line.parse::<ScanLevel>() {
+        match line.parse::<ScanLevel>()
+        {
             Ok(lvl) => break lvl,
-            Err(msg) => {
+            Err(msg) =>
+            {
                 let _ = writeln!(writer, "  {msg}");
             }
         }
     };
 
     let stop_hint = if defaults.stop_on_first { "Y/n" } else { "y/N" };
-    let stop_on_first = loop {
+    let stop_on_first = loop
+    {
         let line = read_prompt_line(
             reader,
             writer,
             &format!("Stop on first working strategy per domain? [{stop_hint}]: "),
         )?;
-        match parse_yes_no(&line, defaults.stop_on_first) {
+        match parse_yes_no(&line, defaults.stop_on_first)
+        {
             Ok(val) => break val,
-            Err(msg) => {
+            Err(msg) =>
+            {
                 let _ = writeln!(writer, "  {msg}");
             }
         }
     };
 
-    let lua_hint = defaults
-        .lua_dir
-        .as_deref()
-        .map(Path::display)
-        .map_or_else(|| "auto".to_owned(), |d| d.to_string());
-    let lua_line = read_prompt_line(
-        reader,
-        writer,
-        &format!("Lua scripts directory [{lua_hint}]: "),
-    )?;
-    let lua_dir = if lua_line.is_empty() {
-        defaults.lua_dir.clone()
-    } else {
-        Some(expand_tilde(&lua_line))
-    };
+    let lua_hint =
+        defaults.lua_dir.as_deref().map(Path::display).map_or_else(|| "auto".to_owned(), |d| d.to_string());
+    let lua_line = read_prompt_line(reader, writer, &format!("Lua scripts directory [{lua_hint}]: "))?;
+    let lua_dir = if lua_line.is_empty() { defaults.lua_dir.clone() } else { Some(expand_tilde(&lua_line)) };
 
-    let default_cfg = defaults
-        .write_config
-        .clone()
-        .unwrap_or_else(default_output_config_path);
+    let default_cfg = defaults.write_config.clone().unwrap_or_else(default_output_config_path);
     let cfg_line = read_prompt_line(
         reader,
         writer,
         &format!("Write nfqws2.toml to path ('none' to skip) [{}]: ", default_cfg.display()),
     )?;
-    let write_config = if cfg_line.is_empty() {
+    let write_config = if cfg_line.is_empty()
+    {
         Some(default_cfg)
-    } else if matches!(cfg_line.to_ascii_lowercase().as_str(), "none" | "-" | "skip") {
+    }
+    else if matches!(cfg_line.to_ascii_lowercase().as_str(), "none" | "-" | "skip")
+    {
         None
-    } else {
+    }
+    else
+    {
         Some(expand_tilde(&cfg_line))
     };
 
@@ -345,13 +363,5 @@ pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
         write_config.as_deref().map_or_else(|| "none".to_owned(), |p| p.display().to_string()),
     );
 
-    Ok(InteractiveSelections {
-        domains,
-        protos,
-        families,
-        level,
-        stop_on_first,
-        lua_dir,
-        write_config,
-    })
+    Ok(InteractiveSelections { domains, protos, families, level, stop_on_first, lua_dir, write_config })
 }

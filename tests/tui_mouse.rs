@@ -19,18 +19,26 @@ use zapret_rs::tui::{AppState, speed::Side};
 const AREA: Rect = Rect { x: 0, y: 0, width: 120, height: 32 };
 
 /// Builds a synthetic left mouse button down event at `(x, y)`.
-fn click(x: u16, y: u16) -> MouseEvent {
-    MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x, row: y, modifiers: KeyModifiers::NONE }
+fn click(x: u16, y: u16) -> MouseEvent
+{
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: x,
+        row: y,
+        modifiers: KeyModifiers::NONE,
+    }
 }
 
 /// Builds a synthetic mouse scroll event at `(x, y)`.
-fn scroll(x: u16, y: u16, down: bool) -> MouseEvent {
+fn scroll(x: u16, y: u16, down: bool) -> MouseEvent
+{
     let kind = if down { MouseEventKind::ScrollDown } else { MouseEventKind::ScrollUp };
     MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE }
 }
 
 /// Builds a dummy packet record for Tab 2 inspector mouse tests.
-fn dummy_pkt(seq: u64) -> PacketRecord {
+fn dummy_pkt(seq: u64) -> PacketRecord
+{
     PacketRecord {
         seq,
         direction: "OUT".to_owned(),
@@ -50,19 +58,22 @@ fn dummy_pkt(seq: u64) -> PacketRecord {
 }
 
 #[test]
-fn mouse_clicks_switch_header_tabs_and_trigger_footer_help_and_theme() {
+fn mouse_clicks_switch_header_tabs_and_trigger_footer_help_and_theme()
+{
     let mut state = AppState::new(None, None, false);
     assert_eq!(state.tab, ActiveTab::Finder);
 
-    // Header row y = 1: 1:Finder [1..12], 2:Run [15..23], 3:Config [26..37], 4:Speed [40..55], 5:Status [58..69], 6:Hostlist [72..85].
-    handle_mouse_event(&mut state, click(17, 1), AREA);
+    // Header row y = 1 (`|` divider): 1:Finder [1..12], 2:Run [13..21], 3:Config [22..33], 4:Speed [34..49], 5:Status [50..61], 6:Hostlist [62..75], 7:Settings [76..89].
+    handle_mouse_event(&mut state, click(15, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Run);
-    handle_mouse_event(&mut state, click(28, 1), AREA);
+    handle_mouse_event(&mut state, click(25, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Config);
-    handle_mouse_event(&mut state, click(45, 1), AREA);
+    handle_mouse_event(&mut state, click(38, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Speed);
-    handle_mouse_event(&mut state, click(75, 1), AREA);
+    handle_mouse_event(&mut state, click(65, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Hostlist);
+    handle_mouse_event(&mut state, click(79, 1), AREA);
+    assert_eq!(state.tab, ActiveTab::Settings);
     handle_mouse_event(&mut state, click(3, 1), AREA);
     assert_eq!(state.tab, ActiveTab::Finder);
 
@@ -78,7 +89,8 @@ fn mouse_clicks_switch_header_tabs_and_trigger_footer_help_and_theme() {
 }
 
 #[test]
-fn mouse_interacts_with_finder_run_config_and_speed_panels() {
+fn mouse_interacts_with_finder_run_config_and_speed_panels()
+{
     let mut state = AppState::new(None, None, false);
 
     // Tab 1: click ProtoHttp row (body starts at y=3, inner row 0=y=4 -> ProtoHttp is y=5).
@@ -88,7 +100,8 @@ fn mouse_interacts_with_finder_run_config_and_speed_panels() {
     assert!(!state.finder.proto_http);
 
     // Tab 1 right-bottom Live Scan Log scroll wheel focuses Log and increments offset.
-    for i in 0..8 {
+    for i in 0..8
+    {
         state.push_finder_log(format!("line {i}"));
     }
     handle_mouse_event(&mut state, scroll(80, 26, false), AREA);
@@ -130,12 +143,7 @@ fn mouse_interacts_with_finder_run_config_and_speed_panels() {
     state.speed.record(
         Side::Before,
         0,
-        SpeedSample {
-            outcome: ProbeOutcome::Timeout,
-            connect_ms: 0,
-            ttfb_ms: 0,
-            bytes_per_sec: 0,
-        },
+        SpeedSample { outcome: ProbeOutcome::Timeout, connect_ms: 0, ttfb_ms: 0, bytes_per_sec: 0 },
     );
     handle_mouse_event(&mut state, click(20, 10), AREA);
     assert_eq!(state.speed.selected, 1);

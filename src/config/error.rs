@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 /// Errors produced when parsing filters, loading blobs, or validating TOML/CLI config.
 #[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
+pub enum ConfigError
+{
     /// Port filter syntax or bounds failure (`[~]p1[-p2]|*`).
     #[error("invalid port filter '{0}'")]
     InvalidPortFilter(String),
@@ -32,7 +33,8 @@ pub enum ConfigError {
     InvalidL7Payload(String),
     /// Invalid hex or empty/oversized blob definition.
     #[error("invalid blob '{name}': {detail}")]
-    InvalidBlob {
+    InvalidBlob
+    {
         /// Lua blob global name.
         name: String,
         /// Specific validation failure reason.
@@ -40,7 +42,8 @@ pub enum ConfigError {
     },
     /// Filesystem read or seek error when loading config, blob, or script files.
     #[error("failed reading configuration file '{}': {source}", path.display())]
-    Io {
+    Io
+    {
         /// Path that failed to open, seek, or read.
         path: PathBuf,
         /// Underlying OS I/O error.

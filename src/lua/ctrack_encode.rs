@@ -9,16 +9,19 @@ use crate::conntrack::{CtrackEntry, CtrackPosition, CtrackPositions};
 use crate::packet::constants::IPPROTO_TCP;
 
 /// Serializes one endpoint direction (`client` or `server`) into a Lua table (`lua_pushf_ctrack_pos`).
-pub fn ctrack_pos_to_lua(lua: &Lua, pos: &CtrackPosition, ipproto: u8) -> mlua::Result<Table> {
+pub fn ctrack_pos_to_lua(lua: &Lua, pos: &CtrackPosition, ipproto: u8) -> mlua::Result<Table>
+{
     let tbl = lua.create_table_with_capacity(0, 5)?;
     tbl.raw_set("pcounter", i64::try_from(pos.pcounter).unwrap_or(i64::MAX))?;
     tbl.raw_set("pdcounter", i64::try_from(pos.pdcounter).unwrap_or(i64::MAX))?;
     tbl.raw_set("pbcounter", i64::try_from(pos.pbcounter).unwrap_or(i64::MAX))?;
-    if pos.ip6flow != 0 {
+    if pos.ip6flow != 0
+    {
         tbl.raw_set("ip6_flow", i64::from(pos.ip6flow))?;
     }
 
-    if ipproto == IPPROTO_TCP {
+    if ipproto == IPPROTO_TCP
+    {
         let tcp = lua.create_table_with_capacity(0, 11)?;
         tcp.raw_set("seq0", i64::from(pos.seq0))?;
         tcp.raw_set("seq", i64::from(pos.seq_last))?;
@@ -47,25 +50,31 @@ pub fn ctrack_to_lua(
     entry: &CtrackEntry,
     tpos_override: Option<&CtrackPositions>,
     direct_is_server: bool,
-) -> mlua::Result<Table> {
+) -> mlua::Result<Table>
+{
     let tpos = tpos_override.unwrap_or(&entry.pos);
     let tbl = lua.create_table_with_capacity(0, 9)?;
 
-    if entry.incoming_ttl != 0 {
+    if entry.incoming_ttl != 0
+    {
         tbl.raw_set("incoming_ttl", i64::from(entry.incoming_ttl))?;
     }
     tbl.raw_set("l7proto", entry.l7proto.as_str())?;
-    match &entry.hostname {
-        Some(host) => {
+    match &entry.hostname
+    {
+        Some(host) =>
+        {
             tbl.raw_set("hostname", host.as_str())?;
             tbl.raw_set("hostname_is_ip", entry.hostname_is_ip)?;
         }
-        None => {
+        None =>
+        {
             tbl.raw_set("hostname", Value::Nil)?;
         }
     }
 
-    if let Some(key) = &entry.lua_state {
+    if let Some(key) = &entry.lua_state
+    {
         let state_tbl: Value = lua.registry_value(key)?;
         tbl.raw_set("lua_state", state_tbl)?;
     }
@@ -80,10 +89,13 @@ pub fn ctrack_to_lua(
     let server_tbl = ctrack_pos_to_lua(lua, &tpos.server, tpos.ipproto)?;
     pos_tbl.raw_set("client", client_tbl.clone())?;
     pos_tbl.raw_set("server", server_tbl.clone())?;
-    if direct_is_server {
+    if direct_is_server
+    {
         pos_tbl.raw_set("direct", server_tbl)?;
         pos_tbl.raw_set("reverse", client_tbl)?;
-    } else {
+    }
+    else
+    {
         pos_tbl.raw_set("direct", client_tbl)?;
         pos_tbl.raw_set("reverse", server_tbl)?;
     }

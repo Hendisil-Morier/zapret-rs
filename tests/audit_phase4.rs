@@ -4,16 +4,17 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use zapret_rs::lists::{
-    AutoHostlistAction, AutoHostlistRecordCtx, AutoHostlistSettings, HostFailPool,
-    HostlistCollection, HostlistFile, IpCache, sanitize_http_host, sanitize_wire_hostname,
-};
 use zapret_rs::config::L7Proto;
 use zapret_rs::desync::dns_cache::feed_dns_response;
+use zapret_rs::lists::{
+    AutoHostlistAction, AutoHostlistRecordCtx, AutoHostlistSettings, HostFailPool, HostlistCollection,
+    HostlistFile, IpCache, sanitize_http_host, sanitize_wire_hostname,
+};
 use zapret_rs::protocol::{http_extract_host, tls_hello_extract_host};
 
 /// Builds a synthetic TLS ClientHello carrying the raw `sni_bytes` inside extension `0x0000`.
-fn build_tls_ch_with_raw_sni(sni_bytes: &[u8]) -> Vec<u8> {
+fn build_tls_ch_with_raw_sni(sni_bytes: &[u8]) -> Vec<u8>
+{
     let entry_len = 3 + sni_bytes.len();
     let sni_list_len = entry_len;
     let ext_payload_len = 2 + sni_list_len;
@@ -46,7 +47,8 @@ fn build_tls_ch_with_raw_sni(sni_bytes: &[u8]) -> Vec<u8> {
 }
 
 /// Builds a minimal IPv4 DNS A response for raw QNAME `labels`.
-fn build_dns_a_response_with_qname(labels: &[&[u8]]) -> Vec<u8> {
+fn build_dns_a_response_with_qname(labels: &[&[u8]]) -> Vec<u8>
+{
     let mut pkt = vec![
         0x12, 0x34, // txid
         0x81, 0x80, // flags: standard query response, no error
@@ -54,7 +56,8 @@ fn build_dns_a_response_with_qname(labels: &[&[u8]]) -> Vec<u8> {
         0x00, 0x01, // ancount = 1
         0x00, 0x00, 0x00, 0x00,
     ];
-    for lbl in labels {
+    for lbl in labels
+    {
         pkt.push(lbl.len() as u8);
         pkt.extend_from_slice(lbl);
     }
@@ -70,7 +73,8 @@ fn build_dns_a_response_with_qname(labels: &[&[u8]]) -> Vec<u8> {
 
 /// Verifies wire hostnames with directive/control chars are rejected across TLS, HTTP, DNS, and autohostlist.
 #[test]
-fn wire_hostnames_reject_directive_injection_and_bound_fail_pool() {
+fn wire_hostnames_reject_directive_injection_and_bound_fail_pool()
+{
     assert_eq!(sanitize_wire_hostname("!exempt.example"), None);
     assert_eq!(sanitize_wire_hostname("^strict.example"), None);
     assert_eq!(sanitize_wire_hostname("#comment.example"), None);
@@ -84,7 +88,8 @@ fn wire_hostnames_reject_directive_injection_and_bound_fail_pool() {
         b"^strict.example".as_slice(),
         b"bad\n!exempt.com".as_slice(),
         b"nul\x00host.com".as_slice(),
-    ] {
+    ]
+    {
         let ch = build_tls_ch_with_raw_sni(bad_sni);
         assert_eq!(tls_hello_extract_host(&ch, false), None);
     }
@@ -109,10 +114,7 @@ fn wire_hostnames_reject_directive_injection_and_bound_fail_pool() {
 
     let autolist = Rc::new(RefCell::new(HostlistFile::default()));
     let hostlists = HostlistCollection::default();
-    let settings = AutoHostlistSettings {
-        fail_threshold: 1,
-        ..AutoHostlistSettings::default()
-    };
+    let settings = AutoHostlistSettings { fail_threshold: 1, ..AutoHostlistSettings::default() };
     let mut ctx = AutoHostlistRecordCtx {
         settings: &settings,
         fail_pool: &mut fail_pool,
@@ -134,21 +136,24 @@ fn wire_hostnames_reject_directive_injection_and_bound_fail_pool() {
 /// Minimal `PacketSender` stub for instantiating `LuaRuntime` in unit tests.
 struct NoopSender;
 
-impl zapret_rs::rawsend::PacketSender for NoopSender {
+impl zapret_rs::rawsend::PacketSender for NoopSender
+{
     fn send(
         &mut self,
         _: std::net::IpAddr,
         _: u32,
         _: Option<&str>,
         _: &[u8],
-    ) -> Result<(), zapret_rs::rawsend::RawSendError> {
+    ) -> Result<(), zapret_rs::rawsend::RawSendError>
+    {
         Ok(())
     }
 }
 
 /// Verifies `ChunkMode::Text` blocks LuaJIT binary bytecode and registry expiry reclaims dropped keys.
 #[test]
-fn lua_blocks_binary_bytecode_and_reclaims_expired_registry_slots() {
+fn lua_blocks_binary_bytecode_and_reclaims_expired_registry_slots()
+{
     use zapret_rs::conntrack::CtrackEntry;
     use zapret_rs::lua::{LuaConfig, LuaRuntime};
     use zapret_rs::timer::pool::TimerPool;
@@ -189,36 +194,29 @@ fn lua_blocks_binary_bytecode_and_reclaims_expired_registry_slots() {
 
     TimerPool::run_expired(rt.timer_pool(), rt.lua(), u64::MAX / 2);
     rt.lua().gc_collect().expect("gc_collect must succeed");
-    let timer_alive: bool = rt
-        .lua()
-        .load("return weak_probe[1] ~= nil")
-        .eval()
-        .expect("eval weak_probe");
+    let timer_alive: bool = rt.lua().load("return weak_probe[1] ~= nil").eval().expect("eval weak_probe");
     assert!(!timer_alive, "expired oneshot timer must release registry value");
 
     // Verify `CtrackEntry::reinit` also releases old `lua_state` table references.
     let mut entry = CtrackEntry::new(Some(rt.lua())).expect("ctrack entry");
-    if let Some(ref key) = entry.lua_state {
+    if let Some(ref key) = entry.lua_state
+    {
         let tbl: mlua::Table = rt.lua().registry_value(key).expect("lua_state table");
         let weak: mlua::Table = rt.lua().globals().get("weak_probe").expect("weak_probe");
         weak.set(2, tbl).expect("set weak_probe[2]");
     }
     entry.reinit(Some(rt.lua())).expect("reinit must succeed");
     rt.lua().gc_collect().expect("gc_collect must succeed");
-    let ctrack_alive: bool = rt
-        .lua()
-        .load("return weak_probe[2] ~= nil")
-        .eval()
-        .expect("eval weak_probe[2]");
+    let ctrack_alive: bool = rt.lua().load("return weak_probe[2] ~= nil").eval().expect("eval weak_probe[2]");
     assert!(!ctrack_alive, "CtrackEntry::reinit must release old lua_state registry slot");
 }
 
 /// Verifies concurrent flows share a global reassembly/delayed byte budget that returns to zero on drop.
 #[test]
-fn conntrack_global_buffer_budget_caps_multi_flow_amplification_and_frees_to_zero() {
+fn conntrack_global_buffer_budget_caps_multi_flow_amplification_and_frees_to_zero()
+{
     use zapret_rs::conntrack::{
-        ConntrackPool, ConntrackTimeouts, DEFAULT_GLOBAL_REASM_BUDGET_BYTES, DelayedPacket,
-        CtrackPositions,
+        ConntrackPool, ConntrackTimeouts, CtrackPositions, DEFAULT_GLOBAL_REASM_BUDGET_BYTES, DelayedPacket,
     };
     use zapret_rs::packet::constants::{IPPROTO_TCP, TH_SYN};
     use zapret_rs::packet::{DissectedPacket, Ipv4Header, TcpHeader};
@@ -311,7 +309,8 @@ fn conntrack_global_buffer_budget_caps_multi_flow_amplification_and_frees_to_zer
 /// Verifies `nfqueue::drain_batch_with` yields after `MAX_NFQUEUE_BATCH_PACKETS` so outer timers stay responsive.
 #[cfg(target_os = "linux")]
 #[test]
-fn nfqueue_drain_batch_yields_after_cap() {
+fn nfqueue_drain_batch_yields_after_cap()
+{
     use std::io::ErrorKind;
     use std::sync::atomic::AtomicBool;
     use zapret_rs::intercepter::nfqueue::{MAX_NFQUEUE_BATCH_PACKETS, drain_batch_with};
@@ -326,9 +325,12 @@ fn nfqueue_drain_batch_yields_after_cap() {
         |err: &std::io::Error| err.kind() == ErrorKind::WouldBlock,
         |_| false,
         || {
-            if remaining == 0 {
+            if remaining == 0
+            {
                 Err(std::io::Error::from(ErrorKind::WouldBlock))
-            } else {
+            }
+            else
+            {
                 remaining -= 1;
                 handled += 1;
                 Ok(())
@@ -346,9 +348,12 @@ fn nfqueue_drain_batch_yields_after_cap() {
         |err: &std::io::Error| err.kind() == ErrorKind::WouldBlock,
         |_| false,
         || {
-            if remaining == 0 {
+            if remaining == 0
+            {
                 Err(std::io::Error::from(ErrorKind::WouldBlock))
-            } else {
+            }
+            else
+            {
                 remaining -= 1;
                 handled += 1;
                 Ok(())
@@ -363,7 +368,8 @@ fn nfqueue_drain_batch_yields_after_cap() {
 
 /// Verifies cached Lua action callbacks and TelemetryHub subscriber gating skip idle formatting.
 #[test]
-fn cached_lua_action_and_idle_telemetry_gating_work() {
+fn cached_lua_action_and_idle_telemetry_gating_work()
+{
     use std::sync::Arc;
     use zapret_rs::config::AppConfig;
     use zapret_rs::control::{DaemonStatusMeta, TelemetryHub};
@@ -384,12 +390,10 @@ func = "drop_test"
     )
     .expect("valid test config");
 
-    let rt = LuaRuntime::with_sender(LuaConfig::default(), Rc::new(RefCell::new(NoopSender)))
-        .expect("runtime");
+    let rt =
+        LuaRuntime::with_sender(LuaConfig::default(), Rc::new(RefCell::new(NoopSender))).expect("runtime");
     rt.apply_app_config(&cfg).expect("apply config caches action");
-    let func = rt
-        .resolve_cached_action(0, 0, "drop_test")
-        .expect("cached action key resolves O(1)");
+    let func = rt.resolve_cached_action(0, 0, "drop_test").expect("cached action key resolves O(1)");
     assert!(func.call::<u8>(()).is_ok());
 
     let hub = TelemetryHub::new(

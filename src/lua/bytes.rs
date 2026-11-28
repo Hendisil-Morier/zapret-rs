@@ -17,7 +17,8 @@ where
         check_argc(name, &args, 2)?;
         let b1 = require_strict_bytes(&args[0])?.as_bytes();
         let b2 = require_strict_bytes(&args[1])?.as_bytes();
-        if b1.len() != b2.len() {
+        if b1.len() != b2.len()
+        {
             return Err(mlua::Error::external("string lengths must be the same"));
         }
         let out: Vec<u8> = b1.iter().zip(b2.iter()).map(|(&x, &y)| op(x, y)).collect();
@@ -27,8 +28,10 @@ where
 }
 
 /// Decodes one ASCII hex digit into `0..=15`, or `None` if invalid.
-fn decode_hex_nibble(b: u8) -> Option<u8> {
-    match b {
+fn decode_hex_nibble(b: u8) -> Option<u8>
+{
+    match b
+    {
         b'0'..=b'9' => Some(b - b'0'),
         b'a'..=b'f' => Some(b - b'a' + 10),
         b'A'..=b'F' => Some(b - b'A' + 10),
@@ -37,7 +40,8 @@ fn decode_hex_nibble(b: u8) -> Option<u8> {
 }
 
 /// Registers `brandom*`, `bcryptorandom`, `bxor`, `bor`, `band`, and `parse_hex` globals into `lua`.
-pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()> {
+pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()>
+{
     let globals = lua.globals();
 
     globals.set(
@@ -45,7 +49,8 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc("brandom", &args, 1)?;
             let len = coerce_i64(lua, &args[0])?;
-            if len < 0 {
+            if len < 0
+            {
                 return Err(mlua::Error::external("brandom: invalid arg"));
             }
             let mut buf = vec![0u8; len as usize];
@@ -59,13 +64,12 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc("brandom_az", &args, 1)?;
             let len = coerce_i64(lua, &args[0])?;
-            if len < 0 {
+            if len < 0
+            {
                 return Err(mlua::Error::external("brandom_az: invalid arg"));
             }
             let mut rng = rand::rng();
-            let buf: Vec<u8> = (0..len as usize)
-                .map(|_| rng.random_range(b'a'..=b'z'))
-                .collect();
+            let buf: Vec<u8> = (0..len as usize).map(|_| rng.random_range(b'a'..=b'z')).collect();
             lua.create_string(&buf)
         })?,
     )?;
@@ -75,7 +79,8 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc("brandom_az09", &args, 1)?;
             let len = coerce_i64(lua, &args[0])?;
-            if len < 0 {
+            if len < 0
+            {
                 return Err(mlua::Error::external("brandom_az09: invalid arg"));
             }
             let mut rng = rand::rng();
@@ -94,7 +99,8 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc("bcryptorandom", &args, 1)?;
             let len = coerce_i64(lua, &args[0])?;
-            if len < 0 {
+            if len < 0
+            {
                 return Err(mlua::Error::external("bcryptorandom: invalid arg"));
             }
             let mut buf = vec![0u8; len as usize];
@@ -114,15 +120,21 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc("parse_hex", &args, 1)?;
             let raw = require_strict_bytes(&args[0])?.as_bytes();
-            if !raw.len().is_multiple_of(2) {
+            if !raw.len().is_multiple_of(2)
+            {
                 return Ok(Value::Nil);
             }
             let mut out = Vec::with_capacity(raw.len() / 2);
-            for &[b_hi, b_lo] in raw.as_chunks::<2>().0 {
-                let Some(hi) = decode_hex_nibble(b_hi) else {
+            for &[b_hi, b_lo] in raw.as_chunks::<2>().0
+            {
+                let Some(hi) = decode_hex_nibble(b_hi)
+                else
+                {
                     return Ok(Value::Nil);
                 };
-                let Some(lo) = decode_hex_nibble(b_lo) else {
+                let Some(lo) = decode_hex_nibble(b_lo)
+                else
+                {
                     return Ok(Value::Nil);
                 };
                 out.push((hi << 4) | lo);

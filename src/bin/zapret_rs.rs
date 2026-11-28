@@ -34,10 +34,14 @@ Subcommands:
     about = "Unified zapret-rs binary: interactive TUI, nfqws2 daemon, strat_finder, ip2net, and mdig",
     after_help = SUBCOMMAND_HELP
 )]
-struct ZapretTuiCli {
-    /// Optional `nfqws2.toml` path to pre-load into the Config and Run tabs.
+struct ZapretTuiCli
+{
+    /// Centralized `config.toml` (or direct `nfqws2.toml`, auto-detected) to load at startup.
     #[arg(short = 'c', long = "config")]
     config: Option<PathBuf>,
+    /// Explicit `nfqws2.toml` path overriding `nfqws2_config` inside centralized `config.toml`.
+    #[arg(long = "nfqws2-config")]
+    nfqws2_config: Option<PathBuf>,
     /// Optional directory containing `zapret-lib.lua` and `zapret-antidpi.lua`.
     #[arg(long = "lua-dir")]
     lua_dir: Option<PathBuf>,
@@ -53,8 +57,10 @@ struct ZapretTuiCli {
 }
 
 /// Dispatches multicall applets first, then parses TUI flags and opens the interactive interface.
-fn main() -> ExitCode {
-    if let Some(code) = dispatch_headless_applet(std::env::args_os()) {
+fn main() -> ExitCode
+{
+    if let Some(code) = dispatch_headless_applet(std::env::args_os())
+    {
         return code;
     }
     let cli = ZapretTuiCli::parse();
@@ -62,14 +68,17 @@ fn main() -> ExitCode {
     {
         let opts = TuiOptions {
             config: cli.config,
+            nfqws2_config: cli.nfqws2_config,
             lua_dir: cli.lua_dir,
             no_nft: cli.no_nft,
             control_socket: cli.control_socket,
             theme: cli.theme,
         };
-        match run_tui(opts) {
+        match run_tui(opts)
+        {
             Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
+            Err(err) =>
+            {
                 eprintln!("zapret-rs TUI error: {err}");
                 ExitCode::FAILURE
             }

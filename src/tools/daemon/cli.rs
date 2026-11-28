@@ -26,29 +26,36 @@ where
     T: Into<OsString>,
 {
     let argv: Vec<OsString> = args.into_iter().map(Into::into).collect();
-    if let Some(sf_args) = extract_strat_finder_args(argv.iter().cloned()) {
+    if let Some(sf_args) = extract_strat_finder_args(argv.iter().cloned())
+    {
         return run_strat_finder_cli(sf_args);
     }
-    let cli = match CliArgs::try_parse_from(argv) {
+    let cli = match CliArgs::try_parse_from(argv)
+    {
         Ok(cli) => cli,
-        Err(err) => {
+        Err(err) =>
+        {
             let is_err = err.use_stderr();
             let _ = err.print();
             return if is_err { ExitCode::from(2) } else { ExitCode::SUCCESS };
         }
     };
     #[cfg(target_os = "linux")]
-    match run_daemon_linux(&cli) {
+    match run_daemon_linux(&cli)
+    {
         Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
+        Err(err) =>
+        {
             eprintln!("nfqws2 error: {err}");
             ExitCode::FAILURE
         }
     }
     #[cfg(windows)]
-    match run_daemon_windows(&cli) {
+    match run_daemon_windows(&cli)
+    {
         Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
+        Err(err) =>
+        {
             eprintln!("nfqws2 error: {err}");
             ExitCode::FAILURE
         }

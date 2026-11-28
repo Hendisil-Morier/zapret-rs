@@ -23,12 +23,9 @@ use crate::tools::mdig::resolver::{MdigOutputs, run_mdig_resolver};
 
 /// Command-line flags accepted by the `mdig` companion utility.
 #[derive(Debug, Parser)]
-#[command(
-    name = "mdig",
-    version,
-    about = "Multi-threaded DNS resolver and raw DNS query/reply helper"
-)]
-struct MdigCli {
+#[command(name = "mdig", version, about = "Multi-threaded DNS resolver and raw DNS query/reply helper")]
+struct MdigCli
+{
     /// Address family (`4`, `6`, or `46`).
     #[arg(long = "family", value_name = "4|6|46")]
     family: Option<String>,
@@ -62,13 +59,18 @@ struct MdigCli {
 }
 
 /// Opens an optional log file as a buffered writer, printing the `mdig.c` diagnostic on error.
-fn open_optional_log(path: Option<&Path>) -> Result<Option<BufWriter<File>>, ExitCode> {
-    let Some(path) = path else {
+fn open_optional_log(path: Option<&Path>) -> Result<Option<BufWriter<File>>, ExitCode>
+{
+    let Some(path) = path
+    else
+    {
         return Ok(None);
     };
-    match File::create(path) {
+    match File::create(path)
+    {
         Ok(file) => Ok(Some(BufWriter::new(file))),
-        Err(_) => {
+        Err(_) =>
+        {
             eprintln!("failed to create {}", path.display());
             Err(ExitCode::from(5))
         }
@@ -76,27 +78,30 @@ fn open_optional_log(path: Option<&Path>) -> Result<Option<BufWriter<File>>, Exi
 }
 
 /// Handles `--dns-parse-query` mode, returning exit code `0`, `10`, or `11`.
-fn handle_dns_parse_query() -> ExitCode {
+fn handle_dns_parse_query() -> ExitCode
+{
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = stdin.lock();
     let mut writer = BufWriter::new(stdout.lock());
     let outcome = read_and_parse_dns_reply(&mut reader, &mut writer)
         .and_then(|()| writer.flush().map_err(MdigDnsError::WriteFailed));
-    match outcome {
+    match outcome
+    {
         Ok(()) => ExitCode::SUCCESS,
-        Err(MdigDnsError::WriteFailed(ref err)) if err.kind() == ErrorKind::BrokenPipe => {
-            ExitCode::SUCCESS
-        }
-        Err(MdigDnsError::ReadFailed) => {
+        Err(MdigDnsError::WriteFailed(ref err)) if err.kind() == ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+        Err(MdigDnsError::ReadFailed) =>
+        {
             eprintln!("{}", MdigDnsError::ReadFailed);
             ExitCode::from(10)
         }
-        Err(MdigDnsError::WriteFailed(err)) => {
+        Err(MdigDnsError::WriteFailed(err)) =>
+        {
             eprintln!("{err}");
             ExitCode::from(10)
         }
-        Err(MdigDnsError::ParseFailed) => {
+        Err(MdigDnsError::ParseFailed) =>
+        {
             eprintln!("{}", MdigDnsError::ParseFailed);
             ExitCode::from(11)
         }
@@ -105,17 +110,22 @@ fn handle_dns_parse_query() -> ExitCode {
 }
 
 /// Handles `--dns-make-query=DOMAIN` mode, returning exit code `0`, `1`, or `10`.
-fn handle_dns_make_query(domain: &str, cfg: &MdigConfig) -> ExitCode {
-    let Some(packet) = build_dns_query(domain, cfg.family) else {
+fn handle_dns_make_query(domain: &str, cfg: &MdigConfig) -> ExitCode
+{
+    let Some(packet) = build_dns_query(domain, cfg.family)
+    else
+    {
         eprintln!("{}", MdigDnsError::InvalidQuery);
         return ExitCode::from(1);
     };
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    match out.write_all(&packet).and_then(|()| out.flush()) {
+    match out.write_all(&packet).and_then(|()| out.flush())
+    {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) if err.kind() == ErrorKind::BrokenPipe => ExitCode::SUCCESS,
-        Err(_) => {
+        Err(_) =>
+        {
             eprintln!("could not write DNS query blob to stdout");
             ExitCode::from(10)
         }
@@ -128,16 +138,19 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = match MdigCli::try_parse_from(args) {
+    let cli = match MdigCli::try_parse_from(args)
+    {
         Ok(cli) => cli,
-        Err(err) => {
+        Err(err) =>
+        {
             let is_err = err.use_stderr();
             let _ = err.print();
             return if is_err { ExitCode::from(1) } else { ExitCode::SUCCESS };
         }
     };
 
-    if cli.dns_parse_query {
+    if cli.dns_parse_query
+    {
         return handle_dns_parse_query();
     }
 
@@ -148,23 +161,28 @@ where
         cli.eagain_delay.as_deref(),
         cli.verbose,
         cli.stats.as_deref(),
-    ) {
+    )
+    {
         Ok(cfg) => cfg,
-        Err(err) => {
+        Err(err) =>
+        {
             eprintln!("{err}");
             return ExitCode::from(1);
         }
     };
 
-    if let Some(domain) = cli.dns_make_query.as_deref() {
+    if let Some(domain) = cli.dns_make_query.as_deref()
+    {
         return handle_dns_make_query(domain, &cfg);
     }
 
-    let mut log_resolved = match open_optional_log(cli.log_resolved.as_deref()) {
+    let mut log_resolved = match open_optional_log(cli.log_resolved.as_deref())
+    {
         Ok(writer) => writer,
         Err(code) => return code,
     };
-    let mut log_failed = match open_optional_log(cli.log_failed.as_deref()) {
+    let mut log_failed = match open_optional_log(cli.log_failed.as_deref())
+    {
         Ok(writer) => writer,
         Err(code) => return code,
     };

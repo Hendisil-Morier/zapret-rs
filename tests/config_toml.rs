@@ -10,8 +10,8 @@ use clap::{Parser, error::ErrorKind};
 
 /// Config, schema, filter, L7, and CLI types under test.
 use zapret_rs::config::{
-    AppConfig, CliArgs, ConfigError, ControlSocketConfig, L7Payload, L7Proto, LuaInitEntry,
-    PacketRange, ProfileMatchInput, l7_payload_matches, resolve_config,
+    AppConfig, CliArgs, ConfigError, ControlSocketConfig, L7Payload, L7Proto, LuaInitEntry, PacketRange,
+    ProfileMatchInput, l7_payload_matches, resolve_config,
 };
 /// NFQUEUE queue config constructor verified from resolved configuration.
 use zapret_rs::intercepter::QueueConfig;
@@ -21,13 +21,15 @@ use zapret_rs::lua::LuaConfig;
 use zapret_rs::packet::constants::{IPPROTO_ICMP, IPPROTO_TCP, IPPROTO_UDP};
 
 /// Returns a unique temporary directory path under `std::env::temp_dir()`.
-fn unique_temp_dir(label: &str) -> PathBuf {
+fn unique_temp_dir(label: &str) -> PathBuf
+{
     std::env::temp_dir().join(format!("zapret-rs-{}-{label}", std::process::id()))
 }
 
 /// Verifies the golden TOML configuration shape deserializes blobs, init scripts, profiles, and action args.
 #[test]
-fn toml_file_loads_blobs_profiles_actions_and_relative_paths() {
+fn toml_file_loads_blobs_profiles_actions_and_relative_paths()
+{
     let dir = unique_temp_dir("toml-golden");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp test dir");
@@ -112,7 +114,8 @@ args = { blob = "fake_default_tls", tcp_md5 = true, disabled_flag = false, repea
 
 /// Verifies `filter_defaults`: specifying `filter_tcp` implicitly denies UDP, ICMP, and other IP protocols.
 #[test]
-fn profile_matching_applies_l3_mark_and_cross_l4_denial() {
+fn profile_matching_applies_l3_mark_and_cross_l4_denial()
+{
     let toml_body = r#"
 [[profiles]]
 name = "tcp-only"
@@ -147,33 +150,28 @@ filter_mark = "0x10/0xff"
 
 /// Verifies strict TOML validation rejects unknown fields and malformed values.
 #[test]
-fn toml_rejects_unknown_fields_and_empty_action_func() {
+fn toml_rejects_unknown_fields_and_empty_action_func()
+{
     let unknown = r#"nonexistent_field = 123"#;
-    assert!(matches!(
-        AppConfig::from_toml_str(unknown, None),
-        Err(ConfigError::TomlParse(_))
-    ));
+    assert!(matches!(AppConfig::from_toml_str(unknown, None), Err(ConfigError::TomlParse(_))));
 
     let empty_func = r#"
 [[profiles]]
 [[profiles.actions]]
 func = "   "
 "#;
-    assert!(matches!(
-        AppConfig::from_toml_str(empty_func, None),
-        Err(ConfigError::Validation(_))
-    ));
+    assert!(matches!(AppConfig::from_toml_str(empty_func, None), Err(ConfigError::Validation(_))));
 }
 
 /// Verifies `clap` CLI flags, `--version`, overrides over TOML, conflict errors, and target config conversion.
 #[test]
-fn clap_cli_parses_overrides_version_and_validates_conflicts() {
+fn clap_cli_parses_overrides_version_and_validates_conflicts()
+{
     let dir = unique_temp_dir("cli-override");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp dir");
     let toml_path = dir.join("base.toml");
-    fs::write(&toml_path, "qnum = 200\nfwmark = 0x40000000\ndebug = false\n")
-        .expect("write base toml");
+    fs::write(&toml_path, "qnum = 200\nfwmark = 0x40000000\ndebug = false\n").expect("write base toml");
 
     let cli = CliArgs::try_parse_from([
         "nfqws2",
@@ -211,12 +209,9 @@ fn clap_cli_parses_overrides_version_and_validates_conflicts() {
     assert!(lcfg.bind_fix4);
     assert!(lcfg.debug);
 
-    let conflict = CliArgs::try_parse_from(["nfqws2", "--user=nobody", "--uid=65534"])
-        .expect("syntax is valid");
-    assert!(matches!(
-        resolve_config(&conflict),
-        Err(ConfigError::Validation(_))
-    ));
+    let conflict =
+        CliArgs::try_parse_from(["nfqws2", "--user=nobody", "--uid=65534"]).expect("syntax is valid");
+    assert!(matches!(resolve_config(&conflict), Err(ConfigError::Validation(_))));
 
     let ver_err = CliArgs::try_parse_from(["nfqws2", "--version"]).expect_err("version displays");
     assert_eq!(ver_err.kind(), ErrorKind::DisplayVersion);
@@ -224,7 +219,8 @@ fn clap_cli_parses_overrides_version_and_validates_conflicts() {
 
 /// Verifies numeric `0`/`1` CLI bool flags and repeatable `--lua-init` `@file`/inline handling.
 #[test]
-fn clap_cli_parses_numeric_bools_and_lua_init_entries() {
+fn clap_cli_parses_numeric_bools_and_lua_init_entries()
+{
     let cli = CliArgs::try_parse_from([
         "nfqws2",
         "--intercept=0",
@@ -247,15 +243,13 @@ fn clap_cli_parses_numeric_bools_and_lua_init_entries() {
 
     let empty_file = CliArgs::try_parse_from(["nfqws2", "--lua-init=@"])
         .expect("clap syntax accepts string before validation");
-    assert!(matches!(
-        resolve_config(&empty_file),
-        Err(ConfigError::Validation(_))
-    ));
+    assert!(matches!(resolve_config(&empty_file), Err(ConfigError::Validation(_))));
 }
 
 /// Verifies M3 TOML options, relative list path resolution, `to_lua_config`, and autohostlist guards.
 #[test]
-fn parses_m3_toml_lists_timeouts_and_validates_autohostlist_constraints() {
+fn parses_m3_toml_lists_timeouts_and_validates_autohostlist_constraints()
+{
     let dir = unique_temp_dir("m3-toml");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp test dir");
@@ -333,20 +327,15 @@ ipset_exclude_ip = ["127.0.0.0/8"]
     assert_eq!(lcfg.ctrack_timeouts.established, 34);
 
     let srv_conflict = "server = true\n[[profiles]]\nhostlist_auto = \"auto.txt\"\n";
-    assert!(matches!(
-        AppConfig::from_toml_str(srv_conflict, None),
-        Err(ConfigError::Validation(_))
-    ));
+    assert!(matches!(AppConfig::from_toml_str(srv_conflict, None), Err(ConfigError::Validation(_))));
     let ct_conflict = "ctrack_disable = true\n[[profiles]]\nhostlist_auto = \"auto.txt\"\n";
-    assert!(matches!(
-        AppConfig::from_toml_str(ct_conflict, None),
-        Err(ConfigError::Validation(_))
-    ));
+    assert!(matches!(AppConfig::from_toml_str(ct_conflict, None), Err(ConfigError::Validation(_))));
 }
 
 /// Verifies M3 CLI flags override TOML values and bare `--payload-disable` disables all payloads.
 #[test]
-fn cli_m3_flags_override_toml_settings() {
+fn cli_m3_flags_override_toml_settings()
+{
     let dir = unique_temp_dir("m3-cli");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp test dir");
@@ -377,29 +366,23 @@ fn cli_m3_flags_override_toml_settings() {
     assert_eq!(resolved.payload_disable, 0);
     assert_eq!(resolved.hostlist_auto_debug, Some(PathBuf::from("/tmp/auto-dbg.log")));
 
-    let err_cli = CliArgs::try_parse_from([
-        "nfqws2",
-        "--config",
-        toml_path.to_str().expect("utf8 path"),
-        "--server",
-    ])
-    .expect("CLI syntax valid");
+    let err_cli =
+        CliArgs::try_parse_from(["nfqws2", "--config", toml_path.to_str().expect("utf8 path"), "--server"])
+            .expect("CLI syntax valid");
     assert!(matches!(resolve_config(&err_cli), Err(ConfigError::Validation(_))));
     let _ = fs::remove_dir_all(&dir);
 }
 
 /// Verifies `control_socket` and `control_pass_sample` TOML fields and CLI overrides.
 #[test]
-fn control_socket_and_sample_rate_parse_from_toml_and_cli() {
+fn control_socket_and_sample_rate_parse_from_toml_and_cli()
+{
     let dir = unique_temp_dir("ctl-cfg");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp dir");
     let toml_path = dir.join("ctl.toml");
-    fs::write(
-        &toml_path,
-        "control_socket = \"run/custom.sock\"\ncontrol_pass_sample = 7\n",
-    )
-    .expect("write ctl toml");
+    fs::write(&toml_path, "control_socket = \"run/custom.sock\"\ncontrol_pass_sample = 7\n")
+        .expect("write ctl toml");
 
     let cfg = AppConfig::from_toml_file(&toml_path).expect("parse ctl toml");
     assert_eq!(cfg.control_socket, ControlSocketConfig::Custom(dir.join("run/custom.sock")));
@@ -423,13 +406,9 @@ fn control_socket_and_sample_rate_parse_from_toml_and_cli() {
 
     let nft_cfg = AppConfig::from_toml_str("auto_nft = true\n", None).expect("auto_nft parses");
     assert!(nft_cfg.auto_nft);
-    let nft_cli = CliArgs::try_parse_from([
-        "nfqws2",
-        "--config",
-        toml_path.to_str().expect("utf8 path"),
-        "--nft",
-    ])
-    .expect("--nft parses");
+    let nft_cli =
+        CliArgs::try_parse_from(["nfqws2", "--config", toml_path.to_str().expect("utf8 path"), "--nft"])
+            .expect("--nft parses");
     assert!(resolve_config(&nft_cli).expect("resolve --nft").auto_nft);
     let no_nft_cli = CliArgs::try_parse_from(["nfqws2", "--nft=0"]).expect("--nft=0 parses");
     assert!(!resolve_config(&no_nft_cli).expect("resolve --nft=0").auto_nft);

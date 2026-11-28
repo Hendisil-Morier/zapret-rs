@@ -15,8 +15,8 @@ use std::time::Duration;
 use crate::config::{AppConfig, CliArgs, resolve_config};
 /// Cross-platform control IPC server, telemetry hub, and directory helpers.
 use crate::control::{
-    ControlServer, ControlServerConfig, DaemonStatusMeta, TelemetryHub,
-    prepare_control_socket_dir, resolve_control_socket_path,
+    ControlServer, ControlServerConfig, DaemonStatusMeta, TelemetryHub, prepare_control_socket_dir,
+    resolve_control_socket_path,
 };
 /// Core stateful DPI desync engine, profile names, and control command dispatcher.
 use crate::desync::{DesyncEngine, collect_profile_names, drain_hub_commands};
@@ -28,10 +28,10 @@ use crate::runtime::{install_signal_handlers, prepare_writable_dir, quit_flag};
 use crate::telemetry::{PacketCounters, build_packet_record};
 /// Monotonic clock, scheduled timer pool, and `--intercept=0` execution loop.
 use crate::timer::{TimerPool, boottime_ms, duration_until, run_no_intercept_callbacks};
-/// Target port range collector and WinDivert filter-expression builder.
-use crate::tools::strat::firewall::{PortRangePair, collect_config_port_ranges};
 /// Shared daemon startup and event-loop error enum.
 use crate::tools::daemon::error::DaemonError;
+/// Target port range collector and WinDivert filter-expression builder.
+use crate::tools::strat::firewall::{PortRangePair, collect_config_port_ranges};
 /// WinDivert filter string generator matching configured TCP/UDP port ranges.
 use crate::tools::strat::windivert::build_windivert_filter_ranges;
 
@@ -42,7 +42,8 @@ const CONTROL_LOOP_TIMEOUT_CAP: Duration = Duration::from_millis(50);
 type WindowsControlHandles = (Option<Arc<TelemetryHub>>, Option<ControlServer>);
 
 /// Collects inclusive `(tcp_ranges, udp_ranges)` matching the active `engine` profiles.
-fn collect_engine_port_ranges(qnum: u16, fwmark: u32, engine: &DesyncEngine) -> PortRangePair {
+fn collect_engine_port_ranges(qnum: u16, fwmark: u32, engine: &DesyncEngine) -> PortRangePair
+{
     let mut cfg = AppConfig { qnum, fwmark, ..AppConfig::default() };
     cfg.profiles = engine.profiles().iter().map(|p| (**p).clone()).collect();
     collect_config_port_ranges(&cfg)
@@ -60,12 +61,15 @@ fn poll_windows_loop(
     active_ports: &PortRangePair,
     pending_ports: &RefCell<Option<PortRangePair>>,
     round_stop: &AtomicBool,
-) -> Option<Duration> {
-    if quit_flag().load(Ordering::Acquire) {
+) -> Option<Duration>
+{
+    if quit_flag().load(Ordering::Acquire)
+    {
         round_stop.store(true, Ordering::Release);
         return None;
     }
-    if let Some(active_hub) = hub {
+    if let Some(active_hub) = hub
+    {
         let mut eng = engine.borrow_mut();
         let swapped = drain_hub_commands(
             &mut eng,
@@ -76,9 +80,11 @@ fn poll_windows_loop(
             quit_flag(),
             config.debug,
         );
-        if swapped {
+        if swapped
+        {
             let new_ports = collect_engine_port_ranges(config.qnum, config.fwmark, &eng);
-            if new_ports != *active_ports {
+            if new_ports != *active_ports
+            {
                 *pending_ports.borrow_mut() = Some(new_ports);
                 round_stop.store(true, Ordering::Release);
                 return None;
@@ -93,9 +99,12 @@ fn poll_windows_loop(
     }
     let deadline = engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms();
     let wait = duration_until(deadline, boottime_ms());
-    if hub.is_some() {
+    if hub.is_some()
+    {
         Some(wait.map_or(CONTROL_LOOP_TIMEOUT_CAP, |d| d.min(CONTROL_LOOP_TIMEOUT_CAP)))
-    } else {
+    }
+    else
+    {
         wait
     }
 }
@@ -106,8 +115,11 @@ fn start_windows_control_server(
     config: &AppConfig,
     engine: &DesyncEngine,
     config_path: Option<&Path>,
-) -> Result<WindowsControlHandles, DaemonError> {
-    let Some(path) = socket_path else {
+) -> Result<WindowsControlHandles, DaemonError>
+{
+    let Some(path) = socket_path
+    else
+    {
         return Ok((None, None));
     };
     prepare_control_socket_dir(path, None, None)?;
@@ -127,18 +139,22 @@ fn start_windows_control_server(
 }
 
 /// Executes the Windows WinDivert daemon startup pipeline and packet event loop.
-pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError> {
+pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError>
+{
     let config = resolve_config(cli)?;
-    if let Some(dir) = &config.chdir {
+    if let Some(dir) = &config.chdir
+    {
         std::env::set_current_dir(dir)?;
     }
-    if config.writable.is_some() {
+    if config.writable.is_some()
+    {
         let _ = prepare_writable_dir(
             config.writable.as_ref().unwrap_or(&crate::config::WritableDirConfig::Default),
             None,
         )?;
     }
-    if cli.dry_run {
+    if cli.dry_run
+    {
         let _ = DesyncEngine::new(&config)?;
         return Ok(());
     }
@@ -154,11 +170,13 @@ pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError> {
         cli.config.as_deref(),
     )?;
 
-    if !config.intercept {
+    if !config.intercept
+    {
         run_no_intercept_callbacks(
             quit_flag(),
             || {
-                if let Some(active_hub) = hub.as_deref() {
+                if let Some(active_hub) = hub.as_deref()
+                {
                     let mut eng = engine.borrow_mut();
                     drain_hub_commands(
                         &mut eng,
@@ -180,7 +198,8 @@ pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError> {
                 TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
             },
         );
-        if let Some(srv) = control_server {
+        if let Some(srv) = control_server
+        {
             srv.shutdown();
         }
         return Ok(());
@@ -188,7 +207,8 @@ pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError> {
 
     let mut active_ports = collect_config_port_ranges(&config);
     let mut loop_result = Ok(());
-    while !quit_flag().load(Ordering::Acquire) {
+    while !quit_flag().load(Ordering::Acquire)
+    {
         let filter = build_windivert_filter_ranges(&active_ports.0, &active_ports.1);
         let mut catcher = WinDivertIntercepter::bind(&filter)?;
         let round_stop = AtomicBool::new(false);
@@ -207,28 +227,37 @@ pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError> {
                 )
             },
             |pkt| {
-                if let Some(ref active_hub) = hub {
+                if let Some(ref active_hub) = hub
+                {
                     let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
                     let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
-                    if active_hub.should_publish(verdict) {
+                    if active_hub.should_publish(verdict)
+                    {
                         active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
                     }
                     decision
-                } else {
+                }
+                else
+                {
                     engine.borrow().process_packet(pkt)
                 }
             },
         );
-        if loop_result.is_err() {
+        if loop_result.is_err()
+        {
             break;
         }
-        if let Some(next_ports) = pending_ports.into_inner() {
+        if let Some(next_ports) = pending_ports.into_inner()
+        {
             active_ports = next_ports;
-        } else {
+        }
+        else
+        {
             break;
         }
     }
-    if let Some(srv) = control_server {
+    if let Some(srv) = control_server
+    {
         srv.shutdown();
     }
     loop_result?;

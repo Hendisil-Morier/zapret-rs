@@ -17,7 +17,8 @@ use crate::tui::theme::{highlight_nft, highlight_toml, panel_block};
 use crate::tui::types::ConfigFocus;
 
 /// Renders Tab 3: scrollable `nfqws2.toml` preview, `nftables` script, and capability diagnostics.
-pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
+pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState)
+{
     let t = &state.theme;
     let cols = Layout::default()
         .direction(Direction::Horizontal)
@@ -25,7 +26,8 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(area);
 
     let toml_focused = state.focus.config == ConfigFocus::Toml;
-    let (toml_lines, toml_title, border_color, title_color) = if state.config.active_toml.is_empty() {
+    let (toml_lines, toml_title, border_color, title_color) = if state.config.active_toml.is_empty()
+    {
         (
             vec![
                 Line::from(Span::styled("# No active nfqws2.toml yet.", Style::default().fg(t.muted))),
@@ -38,7 +40,9 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             if toml_focused { t.accent_bright } else { t.frame },
             t.accent_bright,
         )
-    } else if let Some(err) = &state.config.toml_error {
+    }
+    else if let Some(err) = &state.config.toml_error
+    {
         let short = err.lines().next().unwrap_or(err.as_str());
         (
             highlight_toml(&state.config.active_toml, t),
@@ -46,17 +50,25 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState) {
             t.err,
             t.err_bright,
         )
-    } else {
+    }
+    else
+    {
         (
             highlight_toml(&state.config.active_toml, t),
-            format!(" nfqws2.toml ({}) [VALID: {} profiles] ", state.finder.output_path, state.config.parsed_profiles.len()),
+            format!(
+                " nfqws2.toml ({}) [VALID: {} profiles] ",
+                state.finder.output_path,
+                state.config.parsed_profiles.len()
+            ),
             if toml_focused { t.accent_bright } else { t.ok },
             t.ok_bright,
         )
     };
-    let toml_pane = Paragraph::new(toml_lines)
-        .scroll((state.config.toml_scroll, 0))
-        .block(panel_block(&toml_title, border_color, title_color));
+    let toml_pane = Paragraph::new(toml_lines).scroll((state.config.toml_scroll, 0)).block(panel_block(
+        &toml_title,
+        border_color,
+        title_color,
+    ));
     frame.render_widget(toml_pane, cols[0]);
 
     let nft_focused = state.focus.config == ConfigFocus::Nft;

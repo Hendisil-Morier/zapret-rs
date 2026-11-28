@@ -29,24 +29,27 @@ use zapret_rs::tools::{
 /// TUI state, packet inspector, floating modal, frame renderer, and action/event enums under test.
 use zapret_rs::tui::{
     ActiveTab, AppAction, AppState, AuthModal, FinderField, FinderStatus, IpMode, ModalPurpose,
-    PacketVerdict, RunStatus, ScanUiEvent, VerdictFilter, build_packet_record, draw_app,
-    format_hex_dump,
+    PacketVerdict, RunStatus, ScanUiEvent, VerdictFilter, build_packet_record, draw_app, format_hex_dump,
 };
 
 /// Creates a plain unmodified [`KeyEvent`] for `code`.
-fn key(code: KeyCode) -> KeyEvent {
+fn key(code: KeyCode) -> KeyEvent
+{
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
 /// Renders `state` into a `TestBackend` buffer of size `(width, height)` and returns the plain text.
-fn render_to_string(state: &AppState, width: u16, height: u16) -> String {
+fn render_to_string(state: &AppState, width: u16, height: u16) -> String
+{
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal.draw(|f| draw_app(f, state)).expect("draw frame");
     let buf = terminal.backend().buffer();
     let mut out = String::new();
-    for y in 0..height {
-        for x in 0..width {
+    for y in 0..height
+    {
+        for x in 0..width
+        {
             out.push_str(buf[(x, y)].symbol());
         }
         out.push('\n');
@@ -57,7 +60,8 @@ fn render_to_string(state: &AppState, width: u16, height: u16) -> String {
 /// Verifies form editing, text-input key isolation (`q`/`1`), toggles, scan event handling,
 /// and tab transitions across all three views.
 #[test]
-fn tui_state_machine_handles_form_editing_scan_events_and_navigation() {
+fn tui_state_machine_handles_form_editing_scan_events_and_navigation()
+{
     let mut state = AppState::new(None, None, false);
     assert_eq!(state.tab, ActiveTab::Finder);
     assert_eq!(state.focused_field(), FinderField::Domains);
@@ -65,7 +69,8 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation() {
     // Enter text edit mode on Domains; typing 'q' and '1' must insert characters, not quit or switch tabs.
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
     assert!(state.finder.editing_text);
-    for ch in "q1.example.com".chars() {
+    for ch in "q1.example.com".chars()
+    {
         assert_eq!(state.handle_key(key(KeyCode::Char(ch))), AppAction::None);
     }
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
@@ -165,7 +170,8 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation() {
 /// Verifies the floating capability/sudo modal masks passwords, renders cleanly in `TestBackend`,
 /// submits on `Enter`, and zeroizes its password buffer on `take_password`.
 #[test]
-fn tui_floating_auth_modal_masks_password_renders_and_submits() {
+fn tui_floating_auth_modal_masks_password_renders_and_submits()
+{
     let mut state = AppState::new(None, None, false);
     state.modal = Some(AuthModal::with_password_prompt(
         ModalPurpose::GrantCaps,
@@ -173,7 +179,8 @@ fn tui_floating_auth_modal_masks_password_renders_and_submits() {
         true,
     ));
 
-    for ch in "s3cr3t".chars() {
+    for ch in "s3cr3t".chars()
+    {
         assert_eq!(state.handle_key(key(KeyCode::Char(ch))), AppAction::None);
     }
     let screen = render_to_string(&state, 100, 30);
@@ -189,7 +196,8 @@ fn tui_floating_auth_modal_masks_password_renders_and_submits() {
 
 /// Verifies all three tabs render cleanly without panicking at standard (`120x36`) and compact (`80x24`) sizes.
 #[test]
-fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
+fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend()
+{
     let mut state = AppState::new(None, None, false);
     state.finder.domains_input = "example.com".to_owned();
     state.run.counters.total.store(99, Ordering::Relaxed);
@@ -198,7 +206,8 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
     state.run.counters.modified.store(7, Ordering::Relaxed);
     state.run.counters.desynced.store(2, Ordering::Relaxed);
 
-    for &(w, h) in &[(120u16, 36u16), (80, 24)] {
+    for &(w, h) in &[(120u16, 36u16), (80, 24)]
+    {
         state.tab = ActiveTab::Finder;
         let finder_screen = render_to_string(&state, w, h);
         assert!(finder_screen.contains("Strategy Setup"));
@@ -224,7 +233,8 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend() {
 
 /// Verifies the compiled `zapret-rs` binary handles `--version` and `--help` cleanly without a TTY.
 #[test]
-fn zapret_rs_tui_binary_cli_version_and_help() {
+fn zapret_rs_tui_binary_cli_version_and_help()
+{
     let bin = env!("CARGO_BIN_EXE_zapret-rs");
 
     let ver = Command::new(bin).arg("--version").output().expect("run zapret-rs --version");
@@ -245,18 +255,37 @@ fn zapret_rs_tui_binary_cli_version_and_help() {
 /// Verifies live packet inspector decoding (HTTP Host, TCP flags, verdicts, hex dump),
 /// filtering (`f`), pausing (`p`), and floating packet detail rendering (`d` / `Esc`).
 #[test]
-fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
+fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal()
+{
     let http_payload = b"GET / HTTP/1.1\r\nHost: store.steampowered.com\r\n\r\n".to_vec();
     let dis = DissectedPacket {
         ip: Some(Ipv4Header {
-            version: 4, header_len: 5, tos: 0, total_len: 0, id: 1, frag_off: 0,
-            ttl: 64, protocol: IPPROTO_TCP, checksum: 0,
-            src: [192, 168, 1, 10], dst: [104, 18, 2, 3], options: Vec::new(),
+            version: 4,
+            header_len: 5,
+            tos: 0,
+            total_len: 0,
+            id: 1,
+            frag_off: 0,
+            ttl: 64,
+            protocol: IPPROTO_TCP,
+            checksum: 0,
+            src: [192, 168, 1, 10],
+            dst: [104, 18, 2, 3],
+            options: Vec::new(),
         }),
         ip6: None,
         tcp: Some(TcpHeader {
-            s_port: 51234, d_port: 80, seq: 1000, ack: 2000, reserved: 0, data_offset: 5,
-            flags: TH_PUSH | TH_ACK, window: 64240, checksum: 0, urgent_ptr: 0, options: Vec::new(),
+            s_port: 51234,
+            d_port: 80,
+            seq: 1000,
+            ack: 2000,
+            reserved: 0,
+            data_offset: 5,
+            flags: TH_PUSH | TH_ACK,
+            window: 64240,
+            checksum: 0,
+            urgent_ptr: 0,
+            options: Vec::new(),
         }),
         udp: None,
         icmp: None,
@@ -286,7 +315,8 @@ fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
     state.inspector.push(rec_desync);
     // Push a `REASM` pass-through packet and 400 `PASS` packets to verify neither evicts `DESYNC`.
     state.inspector.push(build_packet_record(2, &qpkt, &PacketOutcome::Reasm));
-    for seq in 3..=402 {
+    for seq in 3..=402
+    {
         state.inspector.push(build_packet_record(seq, &qpkt, &PacketOutcome::Pass));
     }
     assert_eq!(state.inspector.packets.len(), 300);
@@ -325,7 +355,8 @@ fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal() {
 /// Verifies Tab 3 `e`/`Enter` triggers `AppAction::EditConfig`, starter TOML parses cleanly,
 /// and invalid vs valid TOML updates the Config tab validation badge.
 #[test]
-fn config_tab_edit_action_and_toml_validation_badge() {
+fn config_tab_edit_action_and_toml_validation_badge()
+{
     let mut state = AppState::new(None, None, false);
     state.status.has_net_caps = true;
     state.tab = ActiveTab::Config;
@@ -347,22 +378,24 @@ fn config_tab_edit_action_and_toml_validation_badge() {
     assert!(ok_screen.contains("[VALID:") && ok_screen.contains("[?] Keys"));
     state.handle_key(key(KeyCode::Char('?')));
     let help_screen = render_to_string(&state, 120, 32);
-    assert!(help_screen.contains("Keybindings") && help_screen.contains("[?]") && help_screen.contains("[e/Enter] Edit ($EDITOR)"));
+    assert!(
+        help_screen.contains("Keybindings")
+            && help_screen.contains("[?]")
+            && help_screen.contains("[e/Enter] Edit ($EDITOR)")
+    );
     state.handle_key(key(KeyCode::Esc));
     assert!(!state.help_open);
 }
 
 /// Verifies `zapret-rs` routes both explicit subcommands and `argv[0]` symlinks to each applet.
 #[test]
-fn zapret_rs_multicall_subcommands_and_symlink_dispatch() {
+fn zapret_rs_multicall_subcommands_and_symlink_dispatch()
+{
     let bin = env!("CARGO_BIN_EXE_zapret-rs");
 
-    for (sub, expected_ver) in [
-        ("daemon", "nfqws2"),
-        ("scan", "strat_finder"),
-        ("ip2net", "ip2net"),
-        ("mdig", "mdig"),
-    ] {
+    for (sub, expected_ver) in
+        [("daemon", "nfqws2"), ("scan", "strat_finder"), ("ip2net", "ip2net"), ("mdig", "mdig")]
+    {
         let out = Command::new(bin).args([sub, "--version"]).output().expect("subcommand --version");
         assert!(out.status.success(), "{sub} --version failed: {out:?}");
         let stdout = String::from_utf8_lossy(&out.stdout);
@@ -374,7 +407,8 @@ fn zapret_rs_multicall_subcommands_and_symlink_dispatch() {
         let dir = std::env::temp_dir().join(format!("zapret-rs-sym-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create symlink temp dir");
-        for name in ["nfqws2", "ip2net", "mdig", "strat_finder"] {
+        for name in ["nfqws2", "ip2net", "mdig", "strat_finder"]
+        {
             let link = dir.join(name);
             std::os::unix::fs::symlink(bin, &link).expect("symlink applet");
             let out = Command::new(&link).arg("--version").output().expect("run symlinked applet");
@@ -388,7 +422,8 @@ fn zapret_rs_multicall_subcommands_and_symlink_dispatch() {
 
 /// Verifies OS firewall backends own their Tab 3 panel titles, filter previews, and unsupported fallback.
 #[test]
-fn firewall_backends_supply_distinct_preview_titles_and_unsupported_error() {
+fn firewall_backends_supply_distinct_preview_titles_and_unsupported_error()
+{
     use zapret_rs::tools::{
         FirewallBackend, NftFirewallBackend, UnsupportedFirewallBackend, active_firewall_backend,
     };
@@ -400,7 +435,8 @@ fn firewall_backends_supply_distinct_preview_titles_and_unsupported_error() {
     let unsupported = UnsupportedFirewallBackend;
     assert_eq!(unsupported.preview_title(), " Packet Filter Preview ");
     assert!(unsupported.preview_filter(200, 0x4000_0000, &[443], &[]).contains("not implemented"));
-    let err = match unsupported.install(200, 0x4000_0000, &[443], &[]) {
+    let err = match unsupported.install(200, 0x4000_0000, &[443], &[])
+    {
         Ok(_) => panic!("unsupported backend should not install firewall rules"),
         Err(e) => e,
     };
@@ -411,4 +447,22 @@ fn firewall_backends_supply_distinct_preview_titles_and_unsupported_error() {
     assert_eq!(active.preview_title(), " Temporary nftables Script ");
     #[cfg(windows)]
     assert_eq!(active.preview_title(), " WinDivert Filter ");
+}
+
+/// Verifies `H` and `L` cycle across all seven top-level tabs with cyclic wrap-around.
+#[test]
+fn tui_h_and_l_cycle_top_level_tabs_cyclically()
+{
+    let mut state = AppState::new(None, None, false);
+    assert_eq!(state.tab, ActiveTab::Finder);
+    assert_eq!(state.handle_key(key(KeyCode::Char('H'))), AppAction::None);
+    assert_eq!(state.tab, ActiveTab::Settings);
+    assert_eq!(state.handle_key(key(KeyCode::Char('H'))), AppAction::None);
+    assert_eq!(state.tab, ActiveTab::Hostlist);
+    assert_eq!(state.handle_key(key(KeyCode::Char('L'))), AppAction::None);
+    assert_eq!(state.tab, ActiveTab::Settings);
+    assert_eq!(state.handle_key(key(KeyCode::Char('L'))), AppAction::None);
+    assert_eq!(state.tab, ActiveTab::Finder);
+    assert_eq!(state.handle_key(key(KeyCode::Char('L'))), AppAction::None);
+    assert_eq!(state.tab, ActiveTab::Run);
 }

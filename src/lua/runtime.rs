@@ -23,9 +23,7 @@ use crate::lua::constants::{LuaConfig, harden_lua, register_constants};
 /// Cryptographic Lua bindings (`hash`, `aes`, `aes_gcm`, `aes_ctr`, `hkdf`).
 use crate::lua::crypto_api::register_crypto_functions;
 /// Desync context userdata and Rust host execution helpers (`raw_packet`, `execution_plan`, cutoffs).
-use crate::lua::desync_api::{
-    DesyncContextState, create_desync_ctx_userdata, register_desync_functions,
-};
+use crate::lua::desync_api::{DesyncContextState, create_desync_ctx_userdata, register_desync_functions};
 /// Typed error wrapper for Lua runtime operations.
 use crate::lua::error::LuaEngineError;
 /// POSIX `stat` and calendar time (`localtime`, `gmtime`, `timelocal`, `timegm`) Lua bindings.
@@ -54,7 +52,8 @@ use crate::rawsend::WinDivertSender;
 use crate::timer::pool::TimerPool;
 
 /// Self-contained `zapret2`-compatible LuaJIT execution environment.
-pub struct LuaRuntime {
+pub struct LuaRuntime
+{
     /// Embedded LuaJIT state initialized with `zapret2` globals and bindings.
     lua: Lua,
     /// Snapshot of runtime configuration flags exposed to Lua.
@@ -73,10 +72,12 @@ pub struct LuaRuntime {
     last_gc_ms: Cell<u64>,
 }
 
-impl LuaRuntime {
+impl LuaRuntime
+{
     /// Creates a new [`LuaRuntime`] backed by a real Linux `RawSender`.
     #[cfg(target_os = "linux")]
-    pub fn new(config: LuaConfig) -> Result<Self, LuaEngineError> {
+    pub fn new(config: LuaConfig) -> Result<Self, LuaEngineError>
+    {
         let sender: Rc<RefCell<dyn PacketSender>> =
             Rc::new(RefCell::new(RawSender::new(config.bind_fix4, config.bind_fix6)));
         Self::with_sender(config, sender)
@@ -84,7 +85,8 @@ impl LuaRuntime {
 
     /// Creates a new [`LuaRuntime`] backed by a Windows `WinDivertSender`.
     #[cfg(windows)]
-    pub fn new(config: LuaConfig) -> Result<Self, LuaEngineError> {
+    pub fn new(config: LuaConfig) -> Result<Self, LuaEngineError>
+    {
         let sender: Rc<RefCell<dyn PacketSender>> = Rc::new(RefCell::new(WinDivertSender::new()));
         Self::with_sender(config, sender)
     }
@@ -93,7 +95,8 @@ impl LuaRuntime {
     pub fn with_sender(
         config: LuaConfig,
         sender: Rc<RefCell<dyn PacketSender>>,
-    ) -> Result<Self, LuaEngineError> {
+    ) -> Result<Self, LuaEngineError>
+    {
         let lua = Lua::new();
         harden_lua(&lua)?;
         register_constants(&lua, &config)?;
@@ -109,12 +112,7 @@ impl LuaRuntime {
 
         let desync_ctx = Rc::new(RefCell::new(DesyncContextState::default()));
         let conntrack = Rc::new(RefCell::new(ConntrackPool::new(config.ctrack_timeouts)));
-        register_desync_functions(
-            &lua,
-            &config,
-            Rc::clone(&desync_ctx),
-            Rc::clone(&conntrack),
-        )?;
+        register_desync_functions(&lua, &config, Rc::clone(&desync_ctx), Rc::clone(&conntrack))?;
 
         let timer_pool = Rc::new(RefCell::new(TimerPool::new()));
         register_timer_functions(&lua, Rc::clone(&timer_pool))?;
@@ -134,36 +132,44 @@ impl LuaRuntime {
     }
 
     /// Returns a shared reference to the underlying `mlua::Lua` state.
-    pub fn lua(&self) -> &Lua {
+    pub fn lua(&self) -> &Lua
+    {
         &self.lua
     }
 
     /// Returns the runtime configuration active in this Lua environment.
-    pub fn config(&self) -> &LuaConfig {
+    pub fn config(&self) -> &LuaConfig
+    {
         &self.config
     }
 
     /// Returns the shared handle controlling the active Lua desync context state.
-    pub fn desync_ctx_state(&self) -> &Rc<RefCell<DesyncContextState>> {
+    pub fn desync_ctx_state(&self) -> &Rc<RefCell<DesyncContextState>>
+    {
         &self.desync_ctx
     }
 
     /// Returns the shared handle controlling the connection tracking pool.
-    pub fn conntrack(&self) -> &Rc<RefCell<ConntrackPool>> {
+    pub fn conntrack(&self) -> &Rc<RefCell<ConntrackPool>>
+    {
         &self.conntrack
     }
 
     /// Returns the shared handle controlling registered timers.
-    pub fn timer_pool(&self) -> &Rc<RefCell<TimerPool>> {
+    pub fn timer_pool(&self) -> &Rc<RefCell<TimerPool>>
+    {
         &self.timer_pool
     }
 
     /// Performs periodic Lua garbage collection if configured interval has elapsed.
-    pub fn do_gc(&self, now_ms: u64) {
-        if self.config.lua_gc_sec > 0 {
+    pub fn do_gc(&self, now_ms: u64)
+    {
+        if self.config.lua_gc_sec > 0
+        {
             let interval_ms = self.config.lua_gc_sec.saturating_mul(1000);
             let last = self.last_gc_ms.get();
-            if now_ms.saturating_sub(last) >= interval_ms {
+            if now_ms.saturating_sub(last) >= interval_ms
+            {
                 let _ = self.lua.gc_collect();
                 self.last_gc_ms.set(now_ms);
             }
@@ -171,25 +177,32 @@ impl LuaRuntime {
     }
 
     /// Fetches the singleton `desync_ctx` userdata handle stored in Lua's registry.
-    pub fn desync_ctx_userdata(&self) -> mlua::Result<AnyUserData> {
+    pub fn desync_ctx_userdata(&self) -> mlua::Result<AnyUserData>
+    {
         self.lua.registry_value(&self.desync_ctx_key)
     }
 
     /// Registers a named binary blob global variable directly into Lua's `_G`.
-    pub fn set_blob(&self, name: &str, data: &[u8]) -> Result<(), LuaEngineError> {
+    pub fn set_blob(&self, name: &str, data: &[u8]) -> Result<(), LuaEngineError>
+    {
         let lua_str = self.lua.create_string(data)?;
         self.lua.globals().set(name, lua_str)?;
         Ok(())
     }
 
     /// Verifies that every action function referenced by `profiles` exists and caches registry keys.
-    pub fn verify_desync_functions(&self, profiles: &[DesyncProfile]) -> Result<(), LuaEngineError> {
+    pub fn verify_desync_functions(&self, profiles: &[DesyncProfile]) -> Result<(), LuaEngineError>
+    {
         let globals = self.lua.globals();
         let mut cached = Vec::with_capacity(profiles.len());
-        for profile in profiles {
+        for profile in profiles
+        {
             let mut funcs = Vec::with_capacity(profile.actions.len());
-            for action in &profile.actions {
-                let Value::Function(func) = globals.get::<Value>(action.func.as_str())? else {
+            for action in &profile.actions
+            {
+                let Value::Function(func) = globals.get::<Value>(action.func.as_str())?
+                else
+                {
                     return Err(LuaEngineError::MissingFunction(action.func.clone()));
                 };
                 funcs.push(self.lua.create_registry_value(func)?);
@@ -207,36 +220,36 @@ impl LuaRuntime {
         profile_slot: usize,
         action_slot: usize,
         func_name: &str,
-    ) -> Result<Function, String> {
-        if let Some(key) = self
-            .action_funcs
-            .borrow()
-            .get(profile_slot)
-            .and_then(|v| v.get(action_slot))
+    ) -> Result<Function, String>
+    {
+        if let Some(key) = self.action_funcs.borrow().get(profile_slot).and_then(|v| v.get(action_slot))
         {
-            return self
-                .lua
-                .registry_value(key)
-                .map_err(|e| format!("failed to resolve '{func_name}': {e}"));
+            return self.lua.registry_value(key).map_err(|e| format!("failed to resolve '{func_name}': {e}"));
         }
         let val = self
             .lua
             .globals()
             .get::<Value>(func_name)
             .map_err(|e| format!("failed to resolve '{func_name}': {e}"))?;
-        let Value::Function(func) = val else {
+        let Value::Function(func) = val
+        else
+        {
             return Err(format!("desync function '{func_name}' does not exist"));
         };
         Ok(func)
     }
 
     /// Loads `config.blobs`, executes `config.lua_init` scripts, and verifies profile action functions.
-    pub fn apply_app_config(&self, config: &AppConfig) -> Result<(), LuaEngineError> {
-        for (name, data) in &config.blobs {
+    pub fn apply_app_config(&self, config: &AppConfig) -> Result<(), LuaEngineError>
+    {
+        for (name, data) in &config.blobs
+        {
             self.set_blob(name, data)?;
         }
-        for entry in &config.lua_init {
-            match entry {
+        for entry in &config.lua_init
+        {
+            match entry
+            {
                 LuaInitEntry::File(path) => self.exec_file(path)?,
                 LuaInitEntry::Inline(code) => self.exec_str(code)?,
             }
@@ -246,29 +259,32 @@ impl LuaRuntime {
     }
 
     /// Evaluates an inline Lua source string against this runtime (text chunks only).
-    pub fn exec_str(&self, code: &str) -> Result<(), LuaEngineError> {
+    pub fn exec_str(&self, code: &str) -> Result<(), LuaEngineError>
+    {
         self.lua.load(code).set_mode(ChunkMode::Text).exec()?;
         Ok(())
     }
 
     /// Reads and executes a Lua script file from `path` using text mode only.
-    pub fn exec_file(&self, path: &Path) -> Result<(), LuaEngineError> {
-        let (resolved, source) = match std::fs::read(path) {
+    pub fn exec_file(&self, path: &Path) -> Result<(), LuaEngineError>
+    {
+        let (resolved, source) = match std::fs::read(path)
+        {
             Ok(bytes) => (path.to_path_buf(), bytes),
-            Err(orig_err) if orig_err.kind() == std::io::ErrorKind::NotFound => {
-                if let Some((alt, bytes)) = fallback_lua_read(path) {
+            Err(orig_err) if orig_err.kind() == std::io::ErrorKind::NotFound =>
+            {
+                if let Some((alt, bytes)) = fallback_lua_read(path)
+                {
                     (alt, bytes)
-                } else {
+                }
+                else
+                {
                     return Err(orig_err.into());
                 }
             }
             Err(err) => return Err(err.into()),
         };
-        self.lua
-            .load(&source)
-            .set_name(resolved.to_string_lossy())
-            .set_mode(ChunkMode::Text)
-            .exec()?;
+        self.lua.load(&source).set_name(resolved.to_string_lossy()).set_mode(ChunkMode::Text).exec()?;
         Ok(())
     }
 }
@@ -276,9 +292,11 @@ impl LuaRuntime {
 /// Probes installed/sibling Lua directories when a configured `zapret-*.lua` path moved.
 ///
 /// Relative `./lua` in the caller's working directory is never probed automatically.
-fn fallback_lua_read(missing: &Path) -> Option<(PathBuf, Vec<u8>)> {
+fn fallback_lua_read(missing: &Path) -> Option<(PathBuf, Vec<u8>)>
+{
     let fname = missing.file_name()?.to_str()?;
-    if !fname.starts_with("zapret-") || !fname.ends_with(".lua") {
+    if !fname.starts_with("zapret-") || !fname.ends_with(".lua")
+    {
         return None;
     }
     let mut candidates = Vec::new();
@@ -286,23 +304,28 @@ fn fallback_lua_read(missing: &Path) -> Option<(PathBuf, Vec<u8>)> {
         && let Some(dir) = exe.parent()
     {
         candidates.push(dir.join("lua").join(fname));
-        if let Some(prefix) = dir.parent() {
+        if let Some(prefix) = dir.parent()
+        {
             candidates.push(prefix.join("share").join("zapret-rs").join("lua").join(fname));
         }
     }
     candidates.push(PathBuf::from("/usr/local/share/zapret-rs/lua").join(fname));
     candidates.push(PathBuf::from("/usr/share/zapret-rs/lua").join(fname));
-    for cand in candidates {
-        if let Ok(bytes) = std::fs::read(&cand) {
+    for cand in candidates
+    {
+        if let Ok(bytes) = std::fs::read(&cand)
+        {
             return Some((cand, bytes));
         }
     }
     None
 }
 
-impl Drop for LuaRuntime {
+impl Drop for LuaRuntime
+{
     /// Clears conntrack entries, cached action keys, and `ctx.ctrack` before `Lua` drops.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         self.action_funcs.borrow_mut().clear();
         self.desync_ctx.borrow_mut().ctrack = None;
         self.conntrack.borrow_mut().clear();

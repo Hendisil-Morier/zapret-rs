@@ -24,7 +24,8 @@ pub const SPEED_WRITE_OUT: &str = "%{http_code}\n%{redirect_url}\n%{time_total}\
 
 /// One URL to measure with a label for the results table.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpeedTarget {
+pub struct SpeedTarget
+{
     /// Short name shown in the table (domain, or `control` for the download target).
     pub label: String,
     /// Hostname used for spoof-redirect detection.
@@ -37,7 +38,8 @@ pub struct SpeedTarget {
 
 /// Result of measuring one [`SpeedTarget`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpeedSample {
+pub struct SpeedSample
+{
     /// Classified result; only [`ProbeOutcome::Available`] carries meaningful timings below.
     pub outcome: ProbeOutcome,
     /// TCP connect time in milliseconds (`0` when the probe failed).
@@ -49,7 +51,8 @@ pub struct SpeedSample {
 }
 
 /// Builds the target fetching the front page of `domain` over HTTPS.
-pub fn domain_target(domain: &str) -> SpeedTarget {
+pub fn domain_target(domain: &str) -> SpeedTarget
+{
     SpeedTarget {
         label: domain.to_owned(),
         host: domain.to_owned(),
@@ -59,7 +62,8 @@ pub fn domain_target(domain: &str) -> SpeedTarget {
 }
 
 /// Builds the fixed unaffected 25 MB download target.
-pub fn control_target() -> SpeedTarget {
+pub fn control_target() -> SpeedTarget
+{
     SpeedTarget {
         label: format!("control ({CONTROL_HOST})"),
         host: CONTROL_HOST.to_owned(),
@@ -69,7 +73,8 @@ pub fn control_target() -> SpeedTarget {
 }
 
 /// Converts a `curl` seconds field such as `0.026674` into whole milliseconds.
-fn secs_field_to_ms(field: Option<&str>) -> u64 {
+fn secs_field_to_ms(field: Option<&str>) -> u64
+{
     field
         .and_then(|s| s.trim().parse::<f64>().ok())
         .filter(|v| v.is_finite() && *v >= 0.0)
@@ -79,7 +84,8 @@ fn secs_field_to_ms(field: Option<&str>) -> u64 {
 /// Parses the connect time, first-byte time, and speed from the last three `-w` lines.
 ///
 /// Missing or malformed fields become `0` rather than failing the whole sample.
-pub fn parse_timing_lines(stdout: &str) -> (u64, u64, u64) {
+pub fn parse_timing_lines(stdout: &str) -> (u64, u64, u64)
+{
     let mut lines = stdout.lines().skip(3);
     let connect_ms = secs_field_to_ms(lines.next());
     let ttfb_ms = secs_field_to_ms(lines.next());
@@ -92,17 +98,21 @@ pub fn parse_timing_lines(stdout: &str) -> (u64, u64, u64) {
 }
 
 /// Wraps a failure `outcome` in a sample with zeroed timings.
-fn failed_sample(outcome: ProbeOutcome) -> SpeedSample {
+fn failed_sample(outcome: ProbeOutcome) -> SpeedSample
+{
     SpeedSample { outcome, connect_ms: 0, ttfb_ms: 0, bytes_per_sec: 0 }
 }
 
 /// Runs `curl` unprivileged against `target` and returns its classified, timed sample.
-pub fn measure(backend: &CurlProbeBackend, target: &SpeedTarget, ipv: IpFamily) -> SpeedSample {
+pub fn measure(backend: &CurlProbeBackend, target: &SpeedTarget, ipv: IpFamily) -> SpeedSample
+{
     let args = CurlProbeBackend::build_url_args(&target.url, None, ipv, target.timeout, SPEED_WRITE_OUT);
     let start = Instant::now();
-    let output = match backend.unprivileged_command().args(&args).output() {
+    let output = match backend.unprivileged_command().args(&args).output()
+    {
         Ok(out) => out,
-        Err(err) => {
+        Err(err) =>
+        {
             return failed_sample(ProbeOutcome::Failed {
                 code: -1,
                 detail: format!("failed to spawn {}: {err}", backend.curl_bin().display()),
@@ -112,14 +122,10 @@ pub fn measure(backend: &CurlProbeBackend, target: &SpeedTarget, ipv: IpFamily) 
     let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let outcome = classify_curl_output(
-        &target.host,
-        output.status.code().unwrap_or(-1),
-        &stdout,
-        &stderr,
-        elapsed_ms,
-    );
-    if !outcome.is_success() {
+    let outcome =
+        classify_curl_output(&target.host, output.status.code().unwrap_or(-1), &stdout, &stderr, elapsed_ms);
+    if !outcome.is_success()
+    {
         return failed_sample(outcome);
     }
     let (connect_ms, ttfb_ms, bytes_per_sec) = parse_timing_lines(&stdout);

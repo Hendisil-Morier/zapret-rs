@@ -3,17 +3,15 @@
 /// Packet range evaluator under test.
 use zapret_rs::config::PacketRange;
 /// Conntrack pool, position structs, timeouts, and stream reassembler under test.
-use zapret_rs::conntrack::{
-    ConnState, ConntrackPool, ConntrackTimeouts, CtrackPosition, StreamReassembler,
-};
+use zapret_rs::conntrack::{ConnState, ConntrackPool, ConntrackTimeouts, CtrackPosition, StreamReassembler};
 /// Packet constants for building synthetic TCP/UDP flows.
 use zapret_rs::packet::constants::{
     IPPROTO_TCP, IPPROTO_UDP, TCP_KIND_MSS, TCP_KIND_SCALE, TH_ACK, TH_FIN, TH_PUSH, TH_SYN,
 };
 /// Wire packet types and reconstructor for building valid synthetic IPv4 packets.
 use zapret_rs::packet::{
-    DissectedPacket, Ipv4Header, ReconstructOptions, TcpHeader, TcpOption, UdpHeader,
-    dissect_packet, reconstruct_packet,
+    DissectedPacket, Ipv4Header, ReconstructOptions, TcpHeader, TcpOption, UdpHeader, dissect_packet,
+    reconstruct_packet,
 };
 /// Monotonic boottime `timespec` value used for deterministic expiry tests.
 use zapret_rs::timer::MonotonicTime;
@@ -29,10 +27,14 @@ fn build_tcp4_pkt(
     options: Vec<TcpOption>,
     payload: &[u8],
     ttl: u8,
-) -> Vec<u8> {
-    let (src, dst, s_port, d_port) = if from_server {
+) -> Vec<u8>
+{
+    let (src, dst, s_port, d_port) = if from_server
+    {
         ([93, 184, 216, 34], [10, 0, 0, 2], 443, 41000)
-    } else {
+    }
+    else
+    {
         ([10, 0, 0, 2], [93, 184, 216, 34], 41000, 443)
     };
     let dis = DissectedPacket {
@@ -70,10 +72,14 @@ fn build_tcp4_pkt(
 }
 
 /// Builds a valid IPv4 + UDP packet between client (`10.0.0.2:50000`) and server (`8.8.8.8:53`).
-fn build_udp4_pkt(from_server: bool, payload: &[u8]) -> Vec<u8> {
-    let (src, dst, s_port, d_port) = if from_server {
+fn build_udp4_pkt(from_server: bool, payload: &[u8]) -> Vec<u8>
+{
+    let (src, dst, s_port, d_port) = if from_server
+    {
         ([8, 8, 8, 8], [10, 0, 0, 2], 53, 50000)
-    } else {
+    }
+    else
+    {
         ([10, 0, 0, 2], [8, 8, 8, 8], 50000, 53)
     };
     let dis = DissectedPacket {
@@ -91,12 +97,7 @@ fn build_udp4_pkt(from_server: bool, payload: &[u8]) -> Vec<u8> {
             dst,
             options: Vec::new(),
         }),
-        udp: Some(UdpHeader {
-            s_port,
-            d_port,
-            len: 0,
-            checksum: 0,
-        }),
+        udp: Some(UdpHeader { s_port, d_port, len: 0, checksum: 0 }),
         payload: Some(payload.to_vec()),
         ..DissectedPacket::default()
     };
@@ -105,15 +106,14 @@ fn build_udp4_pkt(from_server: bool, payload: &[u8]) -> Vec<u8> {
 
 /// Verifies TCP SYN/SYN-ACK/ESTABLISHED/FIN transitions, scale capping, wrapping sequences, and re-init.
 #[test]
-fn conntrack_tcp_lifecycle_options_wraparound_and_reinit() {
+fn conntrack_tcp_lifecycle_options_wraparound_and_reinit()
+{
     let mut pool = ConntrackPool::new(ConntrackTimeouts::default());
     let t0 = MonotonicTime { sec: 100, nsec: 500_000_000 };
 
     // Mid-stream PSH+ACK without prior SYN returns None.
-    let mid = dissect_packet(
-        &build_tcp4_pkt(false, 100, 200, TH_ACK | TH_PUSH, 1024, vec![], b"hi", 64),
-        false,
-    );
+    let mid =
+        dissect_packet(&build_tcp4_pkt(false, 100, 200, TH_ACK | TH_PUSH, 1024, vec![], b"hi", 64), false);
     assert!(pool.feed(None, &mid, t0).expect("feed ok").is_none());
 
     // Client SYN near u32::MAX with scale > 14 (clamped to 14) and MSS=1460.
@@ -122,10 +122,7 @@ fn conntrack_tcp_lifecycle_options_wraparound_and_reinit() {
         TcpOption { kind: TCP_KIND_MSS, data: Some(vec![0x05, 0xB4]) },
         TcpOption { kind: TCP_KIND_SCALE, data: Some(vec![20]) },
     ];
-    let syn = dissect_packet(
-        &build_tcp4_pkt(false, syn_seq, 0, TH_SYN, 1000, syn_opts, &[], 64),
-        false,
-    );
+    let syn = dissect_packet(&build_tcp4_pkt(false, syn_seq, 0, TH_SYN, 1000, syn_opts, &[], 64), false);
     let (entry_rc, rev) = pool.feed(None, &syn, t0).expect("feed ok").expect("tracked");
     assert!(!rev);
     {
@@ -161,7 +158,16 @@ fn conntrack_tcp_lifecycle_options_wraparound_and_reinit() {
 
     // First client data chunk (300 bytes) wraps past 32-bit zero; followed by identical retransmit.
     let data = dissect_packet(
-        &build_tcp4_pkt(false, syn_seq.wrapping_add(1), srv_seq0 + 1, TH_ACK | TH_PUSH, 100, vec![], &[0xAA; 300], 64),
+        &build_tcp4_pkt(
+            false,
+            syn_seq.wrapping_add(1),
+            srv_seq0 + 1,
+            TH_ACK | TH_PUSH,
+            100,
+            vec![],
+            &[0xAA; 300],
+            64,
+        ),
         false,
     );
     pool.feed(None, &data, t0).expect("feed ok");
@@ -175,7 +181,16 @@ fn conntrack_tcp_lifecycle_options_wraparound_and_reinit() {
 
     // Jump > 2 GiB sets sticky rseq_over_2g; FIN transitions state -> Fin; new SYN reinits.
     let far = dissect_packet(
-        &build_tcp4_pkt(false, syn_seq.wrapping_add(0x9000_0000), srv_seq0 + 1, TH_ACK | TH_FIN, 100, vec![], &[], 64),
+        &build_tcp4_pkt(
+            false,
+            syn_seq.wrapping_add(0x9000_0000),
+            srv_seq0 + 1,
+            TH_ACK | TH_FIN,
+            100,
+            vec![],
+            &[],
+            64,
+        ),
         false,
     );
     pool.feed(None, &far, t0).expect("feed ok");
@@ -195,14 +210,9 @@ fn conntrack_tcp_lifecycle_options_wraparound_and_reinit() {
 
 /// Verifies UDP bidirectional tracking, `double_search`, `drop_conn`, and rate-limited expiry sweeps.
 #[test]
-fn conntrack_udp_double_search_drop_and_purge_timeouts() {
-    let timeouts = ConntrackTimeouts {
-        syn: 10,
-        established: 20,
-        fin: 5,
-        udp: 15,
-        purge_interval: 10,
-    };
+fn conntrack_udp_double_search_drop_and_purge_timeouts()
+{
+    let timeouts = ConntrackTimeouts { syn: 10, established: 20, fin: 5, udp: 15, purge_interval: 10 };
     let mut pool = ConntrackPool::new(timeouts);
     let u0 = dissect_packet(&build_udp4_pkt(false, b"ping"), false);
     let u1 = dissect_packet(&build_udp4_pkt(true, b"pong42"), false);
@@ -232,7 +242,8 @@ fn conntrack_udp_double_search_drop_and_purge_timeouts() {
 
 /// Verifies continuous stream reassembly, overlapping retransmission overwrite, and gap/overflow errors.
 #[test]
-fn stream_reassembler_handles_chunks_overlaps_gaps_and_overflow() {
+fn stream_reassembler_handles_chunks_overlaps_gaps_and_overflow()
+{
     let mut r = StreamReassembler::default();
     assert!(r.is_empty());
     r.init(10, 1000);
@@ -251,7 +262,8 @@ fn stream_reassembler_handles_chunks_overlaps_gaps_and_overflow() {
 
 /// Verifies `PacketRange` evaluation (`n`/`d`/`b`/`s`/`p`/`a`/`x`, `-` vs `<`, overflow, and `None`).
 #[test]
-fn packet_range_evaluates_counters_seq_exclusive_and_overflow() {
+fn packet_range_evaluates_counters_seq_exclusive_and_overflow()
+{
     let pos = CtrackPosition {
         pcounter: 3,
         pdcounter: 2,

@@ -27,7 +27,8 @@ use crate::tui::types::{FinderHoverState, FinderStatus, IpMode, RunStatus};
 
 /// Tab 1 (`Strategy Finder`) form inputs, scan configuration, progress, results, and log state.
 #[derive(Debug, Clone)]
-pub struct FinderState {
+pub struct FinderState
+{
     /// Selected row index within `FinderField::ALL`.
     pub focus_idx: usize,
     /// `true` while typing into a focused text field.
@@ -82,20 +83,15 @@ pub struct FinderState {
     pub hover: FinderHoverState,
 }
 
-impl FinderState {
+impl FinderState
+{
     /// Initializes Tab 1 state from CLI config/Lua path overrides and `--no-nft`.
-    pub fn from_cli(
-        initial_config: Option<PathBuf>,
-        initial_lua_dir: Option<PathBuf>,
-        no_nft: bool,
-    ) -> Self {
+    pub fn from_cli(initial_config: Option<PathBuf>, initial_lua_dir: Option<PathBuf>, no_nft: bool) -> Self
+    {
         let lua_dir_input = initial_lua_dir
             .or_else(|| detect_lua_dir(None))
             .map_or_else(String::new, |p| p.display().to_string());
-        let output_path = initial_config
-            .unwrap_or_else(default_output_config_path)
-            .display()
-            .to_string();
+        let output_path = initial_config.unwrap_or_else(default_output_config_path).display().to_string();
         Self {
             focus_idx: 0,
             editing_text: false,
@@ -129,7 +125,8 @@ impl FinderState {
 
 /// Tab 2 (`Run`) daemon/remote-attach status, packet counters, socket path, and log lines.
 #[derive(Debug, Clone)]
-pub struct RunState {
+pub struct RunState
+{
     /// Current live `nfqws2` daemon or remote attach status on Tab 2.
     pub status: RunStatus,
     /// Active remote daemon metadata while `status == RunStatus::Attached`.
@@ -148,9 +145,11 @@ pub struct RunState {
     pub detected_socket: Option<PathBuf>,
 }
 
-impl Default for RunState {
+impl Default for RunState
+{
     /// Initializes an idle, auto-reattaching Tab 2 run session with zeroed counters.
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self {
             status: RunStatus::Stopped,
             remote_meta: None,
@@ -166,7 +165,8 @@ impl Default for RunState {
 
 /// Tab 3 (`Config`) active `nfqws2.toml` text, parse state, merge stash, and domain lists.
 #[derive(Debug, Clone, Default)]
-pub struct ConfigTabState {
+pub struct ConfigTabState
+{
     /// Active TOML text shown in Tab 3 and executed by Tab 2.
     pub active_toml: String,
     /// Parsed profile names summary for the active TOML (`empty` when invalid/empty).
@@ -187,7 +187,8 @@ pub struct ConfigTabState {
 
 /// Tab 5 operational diagnostics table state, DNS preset selector, and process privilege snapshot.
 #[derive(Debug, Clone)]
-pub struct StatusTabState {
+pub struct StatusTabState
+{
     /// Cached operational health checks displayed on Tab 5 (`Status`).
     pub checks: Vec<ComponentCheck>,
     /// Selected row index inside Tab 5's component status table.
@@ -204,9 +205,11 @@ pub struct StatusTabState {
     pub exe_path: String,
 }
 
-impl Default for StatusTabState {
+impl Default for StatusTabState
+{
     /// Captures current process UID, network capabilities, and executable path with empty checks.
-    fn default() -> Self {
+    fn default() -> Self
+    {
         let uid = current_uid_or_zero();
         let has_net_caps = has_packet_capture_privileges().unwrap_or(false);
         let exe_path = std::env::current_exe()

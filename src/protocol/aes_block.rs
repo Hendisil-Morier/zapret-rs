@@ -7,6 +7,7 @@ use crate::crypto::aes::AesKey;
 pub use crate::crypto::aes::ctr_add;
 
 /// Encrypts a single 16-byte plaintext block with AES-256 in ECB mode (FIPS-197).
-pub fn aes256_encrypt_block(key: &[u8; 32], block: &[u8; 16]) -> [u8; 16] {
+pub fn aes256_encrypt_block(key: &[u8; 32], block: &[u8; 16]) -> [u8; 16]
+{
     AesKey::new_256(key).encrypt_block(block)
 }

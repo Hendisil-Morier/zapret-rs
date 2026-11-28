@@ -8,19 +8,20 @@ use std::path::PathBuf;
 /// Timeout value passed to the argument builder.
 use std::time::Duration;
 
+/// Write-out format with the three extra timing lines.
+use zapret_rs::tools::speed_probe::SPEED_WRITE_OUT;
 /// Probe types under test.
 use zapret_rs::tools::{
     CurlProbeBackend, IpFamily, PROBE_WRITE_OUT, ProbeOutcome, SpeedSample, classify_curl_output,
     control_target, domain_target, measure, parse_timing_lines,
 };
-/// Write-out format with the three extra timing lines.
-use zapret_rs::tools::speed_probe::SPEED_WRITE_OUT;
 
 /// Numbers copied from a real run against the control download.
 const REAL_OUTPUT: &str = "200\n\n2.308858\n0.026674\n0.111902\n10827906.000\n";
 
 /// Writes an executable shell script that prints `body` and exits with `code`, returning its path.
-fn fake_curl(tag: &str, body: &str, code: i32) -> PathBuf {
+fn fake_curl(tag: &str, body: &str, code: i32) -> PathBuf
+{
     let dir = std::env::temp_dir().join(format!("zapret-speed-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let path = dir.join("curl");
@@ -30,24 +31,28 @@ fn fake_curl(tag: &str, body: &str, code: i32) -> PathBuf {
 }
 
 #[test]
-fn timing_lines_parse_connect_ttfb_and_speed() {
+fn timing_lines_parse_connect_ttfb_and_speed()
+{
     assert_eq!(parse_timing_lines(REAL_OUTPUT), (27, 112, 10_827_906));
 }
 
 #[test]
-fn timing_lines_tolerate_missing_or_garbage_fields() {
+fn timing_lines_tolerate_missing_or_garbage_fields()
+{
     assert_eq!(parse_timing_lines("200\n\n1.0\n"), (0, 0, 0));
     assert_eq!(parse_timing_lines("200\n\n1.0\nnope\n-1\nNaN\n"), (0, 0, 0));
 }
 
 #[test]
-fn speed_output_still_classifies_through_the_shared_classifier() {
+fn speed_output_still_classifies_through_the_shared_classifier()
+{
     let outcome = classify_curl_output("speed.cloudflare.com", 0, REAL_OUTPUT, "", 0);
     assert_eq!(outcome, ProbeOutcome::Available { http_code: 200, latency_ms: 2309 });
 }
 
 #[test]
-fn url_args_leave_tls_unpinned_and_keep_scan_args_unchanged() {
+fn url_args_leave_tls_unpinned_and_keep_scan_args_unchanged()
+{
     let speed = CurlProbeBackend::build_url_args(
         "https://example.com/",
         None,
@@ -66,7 +71,8 @@ fn url_args_leave_tls_unpinned_and_keep_scan_args_unchanged() {
 }
 
 #[test]
-fn targets_have_expected_urls_and_control_gets_longer_timeout() {
+fn targets_have_expected_urls_and_control_gets_longer_timeout()
+{
     let d = domain_target("example.com");
     assert_eq!((d.label.as_str(), d.url.as_str()), ("example.com", "https://example.com/"));
     let c = control_target();
@@ -74,7 +80,8 @@ fn targets_have_expected_urls_and_control_gets_longer_timeout() {
 }
 
 #[test]
-fn measure_returns_timings_for_success_and_zeroes_for_timeout() {
+fn measure_returns_timings_for_success_and_zeroes_for_timeout()
+{
     let ok = fake_curl("ok", "200\\n\\n2.3\\n0.03\\n0.11\\n10000000.0\\n", 0);
     let sample = measure(&CurlProbeBackend::new(ok), &control_target(), IpFamily::V4);
     assert_eq!(

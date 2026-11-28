@@ -2,7 +2,8 @@
 
 /// Typed error enum for raw socket setup and transmission failures.
 #[derive(Debug, thiserror::Error)]
-pub enum RawSendError {
+pub enum RawSendError
+{
     /// Underlying OS socket, `setsockopt`, or `sendto` system call failed.
     #[error("Raw socket I/O failed: {0}")]
     SocketIo(#[from] std::io::Error),

@@ -13,24 +13,23 @@ use std::time::{Duration, Instant};
 use zapret_rs::config::AppConfig;
 use zapret_rs::control::{
     CONTROL_PROTOCOL_VERSION, ControlCommand, ControlErrorCode, ControlServer, ControlServerConfig,
-    ControlServerError, DaemonStatusMeta, Request, Response, TelemetryHub, current_euid,
-    read_message, write_message,
+    ControlServerError, DaemonStatusMeta, Request, Response, TelemetryHub, current_euid, read_message,
+    write_message,
 };
 use zapret_rs::desync::{DesyncEngine, PacketOutcome, reload_engine_from_toml};
 use zapret_rs::intercepter::QueuedPacket;
 use zapret_rs::telemetry::{PacketCounters, build_packet_record};
 
-fn temp_dir_path(label: &str) -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+fn temp_dir_path(label: &str) -> std::path::PathBuf
+{
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_ctl_{label}_{}_{nanos}", std::process::id()));
     fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
 
-fn sample_meta() -> DaemonStatusMeta {
+fn sample_meta() -> DaemonStatusMeta
+{
     DaemonStatusMeta {
         version: "1.0.1".to_owned(),
         pid: std::process::id(),
@@ -42,7 +41,8 @@ fn sample_meta() -> DaemonStatusMeta {
     }
 }
 
-fn sample_record(seq: u64, outcome: PacketOutcome) -> zapret_rs::telemetry::PacketRecord {
+fn sample_record(seq: u64, outcome: PacketOutcome) -> zapret_rs::telemetry::PacketRecord
+{
     let mut raw = vec![0u8; 40];
     raw[0] = 0x45;
     raw[3] = 40;
@@ -59,7 +59,8 @@ fn sample_record(seq: u64, outcome: PacketOutcome) -> zapret_rs::telemetry::Pack
 }
 
 #[test]
-fn socket_permissions_0600_handshake_status_and_clean_unlink() {
+fn socket_permissions_0600_handshake_status_and_clean_unlink()
+{
     let dir = temp_dir_path("mode0600");
     let sock = dir.join("control.sock");
     let counters = Arc::new(PacketCounters::default());
@@ -79,15 +80,16 @@ fn socket_permissions_0600_handshake_status_and_clean_unlink() {
     let first: Response = read_message(&mut reader).expect("read").expect("reply");
     assert!(matches!(first, Response::Error { code: ControlErrorCode::HandshakeRequired, .. }));
 
-    write_message(&mut client, &Request::Hello { version: CONTROL_PROTOCOL_VERSION })
-        .expect("write hello");
+    write_message(&mut client, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("write hello");
     let hello: Response = read_message(&mut reader).expect("read").expect("reply");
     assert!(matches!(hello, Response::HelloOk { version: CONTROL_PROTOCOL_VERSION, .. }));
 
     write_message(&mut client, &Request::Status).expect("write status");
     let status: Response = read_message(&mut reader).expect("read").expect("reply");
-    match status {
-        Response::Status(st) => {
+    match status
+    {
+        Response::Status(st) =>
+        {
             assert_eq!(st.qnum, 200);
             assert_eq!(st.counters.total, 42);
             assert_eq!(st.profile_names, vec!["tls13:multisplit".to_owned()]);
@@ -103,7 +105,8 @@ fn socket_permissions_0600_handshake_status_and_clean_unlink() {
 }
 
 #[test]
-fn stale_socket_is_replaced_while_live_socket_and_symlink_fail() {
+fn stale_socket_is_replaced_while_live_socket_and_symlink_fail()
+{
     let dir = temp_dir_path("stale_live");
 
     let stale_sock = dir.join("stale.sock");
@@ -134,7 +137,8 @@ fn stale_socket_is_replaced_while_live_socket_and_symlink_fail() {
 }
 
 #[test]
-fn unauthorized_peer_uid_is_closed_before_any_reply() {
+fn unauthorized_peer_uid_is_closed_before_any_reply()
+{
     let dir = temp_dir_path("peeruid");
     let sock = dir.join("control.sock");
     let hub = TelemetryHub::new(Arc::new(PacketCounters::default()), sample_meta(), 20);
@@ -148,8 +152,10 @@ fn unauthorized_peer_uid_is_closed_before_any_reply() {
     let _ = write_message(&mut client, &Request::Hello { version: CONTROL_PROTOCOL_VERSION });
 
     let mut reader = BufReader::new(client);
-    match read_message::<_, Response>(&mut reader) {
-        Ok(None) | Err(zapret_rs::control::CodecError::Io(_)) => {}
+    match read_message::<_, Response>(&mut reader)
+    {
+        Ok(None) | Err(zapret_rs::control::CodecError::Io(_)) =>
+        {}
         other => panic!("unauthorized peer must receive zero replies, got {other:?}"),
     }
 
@@ -158,7 +164,8 @@ fn unauthorized_peer_uid_is_closed_before_any_reply() {
 }
 
 #[test]
-fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands_route() {
+fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands_route()
+{
     let dir = temp_dir_path("fanout");
     let sock = dir.join("control.sock");
     let hub = TelemetryHub::new(Arc::new(PacketCounters::default()), sample_meta(), 20);
@@ -171,7 +178,10 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
     let mut slow = UnixStream::connect(&sock).expect("connect slow");
     let mut slow_reader = BufReader::new(slow.try_clone().expect("clone slow"));
     write_message(&mut slow, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("hello slow");
-    assert!(matches!(read_message::<_, Response>(&mut slow_reader).expect("r"), Some(Response::HelloOk { .. })));
+    assert!(matches!(
+        read_message::<_, Response>(&mut slow_reader).expect("r"),
+        Some(Response::HelloOk { .. })
+    ));
     write_message(&mut slow, &Request::Subscribe { pass_sample_rate: None }).expect("sub slow");
     assert!(matches!(read_message::<_, Response>(&mut slow_reader).expect("r"), Some(Response::Ack { .. })));
     assert!(matches!(read_message::<_, Response>(&mut slow_reader).expect("r"), Some(Response::Counters(_))));
@@ -179,7 +189,10 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
     let mut fast = UnixStream::connect(&sock).expect("connect fast");
     let mut fast_reader = BufReader::new(fast.try_clone().expect("clone fast"));
     write_message(&mut fast, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("hello fast");
-    assert!(matches!(read_message::<_, Response>(&mut fast_reader).expect("r"), Some(Response::HelloOk { .. })));
+    assert!(matches!(
+        read_message::<_, Response>(&mut fast_reader).expect("r"),
+        Some(Response::HelloOk { .. })
+    ));
     write_message(&mut fast, &Request::Subscribe { pass_sample_rate: None }).expect("sub fast");
     assert!(matches!(read_message::<_, Response>(&mut fast_reader).expect("r"), Some(Response::Ack { .. })));
     assert!(matches!(read_message::<_, Response>(&mut fast_reader).expect("r"), Some(Response::Counters(_))));
@@ -187,10 +200,13 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
     fast.set_read_timeout(Some(Duration::from_secs(2))).expect("timeout");
     let fast_thread = thread::spawn(move || {
         let mut received = 0usize;
-        while let Ok(Some(resp)) = read_message::<_, Response>(&mut fast_reader) {
-            if matches!(resp, Response::Packet(_)) {
+        while let Ok(Some(resp)) = read_message::<_, Response>(&mut fast_reader)
+        {
+            if matches!(resp, Response::Packet(_))
+            {
                 received += 1;
-                if received >= 100 {
+                if received >= 100
+                {
                     break;
                 }
             }
@@ -198,9 +214,11 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
         received
     });
 
-    for seq in 1..=350u64 {
+    for seq in 1..=350u64
+    {
         hub.publish_packet(sample_record(seq, PacketOutcome::Desync(Some("p".to_owned()))));
-        if seq.is_multiple_of(8) {
+        if seq.is_multiple_of(8)
+        {
             thread::sleep(Duration::from_millis(1));
         }
     }
@@ -209,10 +227,13 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
     assert!(got >= 100, "healthy subscriber must keep receiving packets (got {got})");
     slow.set_read_timeout(Some(Duration::from_secs(2))).expect("slow timeout");
     let mut saw_disconnect = false;
-    for _ in 0..350 {
-        match read_message::<_, Response>(&mut slow_reader) {
+    for _ in 0..350
+    {
+        match read_message::<_, Response>(&mut slow_reader)
+        {
             Ok(Some(_)) => continue,
-            Ok(None) | Err(_) => {
+            Ok(None) | Err(_) =>
+            {
                 saw_disconnect = true;
                 break;
             }
@@ -224,23 +245,32 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
     let mut cmd_reader = BufReader::new(cmd_client.try_clone().expect("clone cmd client"));
     cmd_client.set_read_timeout(Some(Duration::from_secs(2))).expect("cmd timeout");
     write_message(&mut cmd_client, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("hello cmd");
-    assert!(matches!(read_message::<_, Response>(&mut cmd_reader).expect("r"), Some(Response::HelloOk { .. })));
+    assert!(matches!(
+        read_message::<_, Response>(&mut cmd_reader).expect("r"),
+        Some(Response::HelloOk { .. })
+    ));
 
     let cmd_hub = Arc::clone(&hub);
     let responder = thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < deadline {
-            if let Some(cmd) = cmd_hub.try_recv_command() {
-                match cmd {
-                    ControlCommand::ReloadLists { reply } => {
+        while Instant::now() < deadline
+        {
+            if let Some(cmd) = cmd_hub.try_recv_command()
+            {
+                match cmd
+                {
+                    ControlCommand::ReloadLists { reply } =>
+                    {
                         let _ = reply.send(Ok("reloaded 1 list".to_owned()));
                         break;
                     }
-                    ControlCommand::ReloadConfig { reply, .. } => {
+                    ControlCommand::ReloadConfig { reply, .. } =>
+                    {
                         let _ = reply.send(Ok("reloaded".to_owned()));
                         break;
                     }
-                    ControlCommand::Stop { reply } => {
+                    ControlCommand::Stop { reply } =>
+                    {
                         let _ = reply.send(Ok("stopping".to_owned()));
                         break;
                     }
@@ -251,8 +281,10 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
     });
 
     write_message(&mut cmd_client, &Request::ReloadLists).expect("reload_lists");
-    match read_message::<_, Response>(&mut cmd_reader).expect("read reply") {
-        Some(Response::Ack { op, message }) if op == "reload_lists" => {
+    match read_message::<_, Response>(&mut cmd_reader).expect("read reply")
+    {
+        Some(Response::Ack { op, message }) if op == "reload_lists" =>
+        {
             assert_eq!(message.as_deref(), Some("reloaded 1 list"));
         }
         other => panic!("unexpected response after reload_lists: {other:?}"),
@@ -267,7 +299,8 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
 }
 
 #[test]
-fn reload_config_swaps_profiles_and_rejects_invalid_toml_or_qnum_fwmark_changes() {
+fn reload_config_swaps_profiles_and_rejects_invalid_toml_or_qnum_fwmark_changes()
+{
     let dir = temp_dir_path("reload_cfg");
     let sock = dir.join("control.sock");
     let hub = TelemetryHub::new(Arc::new(PacketCounters::default()), sample_meta(), 20);
@@ -284,15 +317,20 @@ fn reload_config_swaps_profiles_and_rejects_invalid_toml_or_qnum_fwmark_changes(
         )
         .expect("base cfg");
         let mut engine = DesyncEngine::new(&base_cfg).expect("engine");
-        while !worker_stop.load(Ordering::Relaxed) {
-            if let Some(ControlCommand::ReloadConfig { toml, reply }) = cmd_hub.try_recv_command() {
-                match reload_engine_from_toml(&mut engine, 200, 0x4000_0000, None, &toml) {
-                    Ok(names) => {
+        while !worker_stop.load(Ordering::Relaxed)
+        {
+            if let Some(ControlCommand::ReloadConfig { toml, reply }) = cmd_hub.try_recv_command()
+            {
+                match reload_engine_from_toml(&mut engine, 200, 0x4000_0000, None, &toml)
+                {
+                    Ok(names) =>
+                    {
                         let count = names.len();
                         cmd_hub.set_profile_names(names);
                         let _ = reply.send(Ok(format!("reloaded {count} profile(s)")));
                     }
-                    Err(err) => {
+                    Err(err) =>
+                    {
                         let _ = reply.send(Err(err));
                     }
                 }
@@ -313,23 +351,28 @@ fn reload_config_swaps_profiles_and_rejects_invalid_toml_or_qnum_fwmark_changes(
         Some(Response::Error { code: ControlErrorCode::CommandFailed, .. })
     ));
     write_message(&mut client, &Request::Status).expect("status");
-    match read_message::<_, Response>(&mut reader).expect("r") {
+    match read_message::<_, Response>(&mut reader).expect("r")
+    {
         Some(Response::Status(st)) => assert_eq!(st.profile_names, vec!["tls13:multisplit".to_owned()]),
         other => panic!("expected status, got {other:?}"),
     }
 
     write_message(&mut client, &Request::ReloadConfig { toml: "qnum = 201\n".to_owned() })
         .expect("send qnum change");
-    match read_message::<_, Response>(&mut reader).expect("r") {
-        Some(Response::Error { code: ControlErrorCode::CommandFailed, message }) => {
+    match read_message::<_, Response>(&mut reader).expect("r")
+    {
+        Some(Response::Error { code: ControlErrorCode::CommandFailed, message }) =>
+        {
             assert!(message.contains("restart") && message.contains("qnum"), "got {message}");
         }
         other => panic!("expected qnum rejection, got {other:?}"),
     }
     write_message(&mut client, &Request::ReloadConfig { toml: "fwmark = 1234\n".to_owned() })
         .expect("send fwmark change");
-    match read_message::<_, Response>(&mut reader).expect("r") {
-        Some(Response::Error { code: ControlErrorCode::CommandFailed, message }) => {
+    match read_message::<_, Response>(&mut reader).expect("r")
+    {
+        Some(Response::Error { code: ControlErrorCode::CommandFailed, message }) =>
+        {
             assert!(message.contains("restart") && message.contains("fwmark"), "got {message}");
         }
         other => panic!("expected fwmark rejection, got {other:?}"),
@@ -343,8 +386,10 @@ fn reload_config_swaps_profiles_and_rejects_invalid_toml_or_qnum_fwmark_changes(
         Some(Response::Ack { op, message: Some(m) }) if op == "reload_config" && m.contains("2 profile")
     ));
     write_message(&mut client, &Request::Status).expect("status after swap");
-    match read_message::<_, Response>(&mut reader).expect("r") {
-        Some(Response::Status(st)) => {
+    match read_message::<_, Response>(&mut reader).expect("r")
+    {
+        Some(Response::Status(st)) =>
+        {
             assert_eq!(st.profile_names, vec!["swapped_a".to_owned(), "swapped_b".to_owned()]);
         }
         other => panic!("expected updated status, got {other:?}"),

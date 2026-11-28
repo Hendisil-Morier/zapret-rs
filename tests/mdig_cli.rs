@@ -24,14 +24,16 @@ use zapret_rs::tools::{
 };
 
 /// Returns a `zapret-rs mdig` command backed by the compiled unified binary.
-fn mdig_cmd() -> Command {
+fn mdig_cmd() -> Command
+{
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_zapret-rs"));
     cmd.arg("mdig");
     cmd
 }
 
 /// Creates a clean temporary directory scoped to the current test process and label.
-fn fresh_temp_dir(label: &str) -> PathBuf {
+fn fresh_temp_dir(label: &str) -> PathBuf
+{
     let dir = std::env::temp_dir().join(format!("zapret-rs-mdig-{}-{label}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create temp test dir");
@@ -39,7 +41,8 @@ fn fresh_temp_dir(label: &str) -> PathBuf {
 }
 
 /// Spawns `mdig` with `args`, feeds `stdin_bytes`, and returns `(code, stdout, stderr)`.
-fn exec_mdig(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, Vec<u8>, String) {
+fn exec_mdig(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, Vec<u8>, String)
+{
     let mut child = mdig_cmd()
         .args(args)
         .stdin(Stdio::piped())
@@ -47,22 +50,14 @@ fn exec_mdig(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, Vec<u8>, String
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn mdig binary");
-    child
-        .stdin
-        .take()
-        .expect("piped stdin")
-        .write_all(stdin_bytes)
-        .expect("write mdig stdin");
+    child.stdin.take().expect("piped stdin").write_all(stdin_bytes).expect("write mdig stdin");
     let output = child.wait_with_output().expect("collect mdig output");
-    (
-        output.status.code(),
-        output.stdout,
-        String::from_utf8_lossy(&output.stderr).into_owned(),
-    )
+    (output.status.code(), output.stdout, String::from_utf8_lossy(&output.stderr).into_owned())
 }
 
 /// Builds a synthetic RFC 1035 DNS reply packet for testing compressed and uncompressed answers.
-fn sample_dns_reply(compressed_answers: bool) -> Vec<u8> {
+fn sample_dns_reply(compressed_answers: bool) -> Vec<u8>
+{
     let mut pkt = vec![
         0x12, 0x34, 0x81, 0x80, // id=0x1234, QR=1, RD=1, RA=1
         0x00, 0x01, 0x00, 0x03, // qdcount=1, ancount=3
@@ -74,9 +69,12 @@ fn sample_dns_reply(compressed_answers: bool) -> Vec<u8> {
     pkt.extend_from_slice(&[0, 1, 0, 1]);
 
     // RR 1: CNAME "x" in IN class (must be ignored safely without breaking cursor)
-    if compressed_answers {
+    if compressed_answers
+    {
         pkt.extend_from_slice(&[0xC0, 0x0C]);
-    } else {
+    }
+    else
+    {
         pkt.extend_from_slice(&qname);
     }
     pkt.extend_from_slice(&[0, 5, 0, 1, 0, 0, 0, 60, 0, 3, 1, b'x', 0]);
@@ -90,14 +88,15 @@ fn sample_dns_reply(compressed_answers: bool) -> Vec<u8> {
 }
 
 #[test]
-fn dns_make_query_and_parse_reply_roundtrip_a_and_aaaa() {
+fn dns_make_query_and_parse_reply_roundtrip_a_and_aaaa()
+{
     let pkt_a = build_dns_query_with_id(0, "example.com.", DNS_CLASS_IN, DNS_TYPE_A, 0xBEEF)
         .expect("build A query with trailing dot");
     assert_eq!(
         pkt_a,
         vec![
-            0xBE, 0xEF, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 7, b'e', b'x',
-            b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0, 0x00, 0x01, 0x00, 0x01
+            0xBE, 0xEF, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 7, b'e', b'x', b'a',
+            b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0, 0x00, 0x01, 0x00, 0x01
         ]
     );
 
@@ -112,7 +111,8 @@ fn dns_make_query_and_parse_reply_roundtrip_a_and_aaaa() {
 
     // Invalid names rejected cleanly.
     let long_label = "a".repeat(64);
-    for bad in ["..", ".leading.com", "a..b", &long_label, &"a".repeat(254), "nul\0byte"] {
+    for bad in ["..", ".leading.com", "a..b", &long_label, &"a".repeat(254), "nul\0byte"]
+    {
         assert!(build_dns_query(bad, MdigFamily::Ipv4).is_none(), "expected None for {bad:?}");
     }
     assert!(build_dns_query_with_id(16, "a.com", 1, 1, 1).is_none());
@@ -135,37 +135,35 @@ fn dns_make_query_and_parse_reply_roundtrip_a_and_aaaa() {
     let mut parsed_out = Vec::new();
     let mut cursor = Cursor::new(sample_dns_reply(true));
     read_and_parse_dns_reply(&mut cursor, &mut parsed_out).expect("stream reply parse");
-    assert_eq!(
-        String::from_utf8(parsed_out).expect("utf8"),
-        "198.51.100.7\n2001:db8::42\n"
-    );
+    assert_eq!(String::from_utf8(parsed_out).expect("utf8"), "198.51.100.7\n2001:db8::42\n");
 }
 
 /// Deterministic offline DNS stub tracking attempts per domain.
-struct MockResolver {
+struct MockResolver
+{
     /// Recorded call counts per queried hostname.
     attempts: Mutex<HashMap<String, usize>>,
 }
 
-impl MockResolver {
+impl MockResolver
+{
     /// Creates a new empty mock resolver.
-    fn new() -> Self {
+    fn new() -> Self
+    {
         Self { attempts: Mutex::new(HashMap::new()) }
     }
 
     /// Returns how many times `domain` was passed to [`DnsResolver::resolve`].
-    fn count(&self, domain: &str) -> usize {
-        self.attempts
-            .lock()
-            .expect("lock mock map")
-            .get(domain)
-            .copied()
-            .unwrap_or(0)
+    fn count(&self, domain: &str) -> usize
+    {
+        self.attempts.lock().expect("lock mock map").get(domain).copied().unwrap_or(0)
     }
 }
 
-impl DnsResolver for MockResolver {
-    fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError> {
+impl DnsResolver for MockResolver
+{
+    fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError>
+    {
         let attempt = {
             let mut map = self.attempts.lock().expect("lock mock map");
             let entry = map.entry(domain.to_string()).or_insert(0);
@@ -180,17 +178,21 @@ impl DnsResolver for MockResolver {
         const EAI_NONAME: i32 = libc::EAI_NONAME;
         #[cfg(not(unix))]
         const EAI_NONAME: i32 = 11001;
-        match domain {
+        match domain
+        {
             "flaky.example" if attempt < 3 => Err(ResolveError { code: EAI_AGAIN }),
             "flaky.example" => Ok(vec![IpAddr::V4(Ipv4Addr::new(198, 51, 100, 42))]),
             "dead.example" => Err(ResolveError { code: EAI_AGAIN }),
             "missing.example" => Err(ResolveError { code: EAI_NONAME }),
-            "dual.example" => {
+            "dual.example" =>
+            {
                 let mut res = Vec::new();
-                if family.allows_v4() {
+                if family.allows_v4()
+                {
                     res.push(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1)));
                 }
-                if family.allows_v6() {
+                if family.allows_v6()
+                {
                     res.push(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)));
                 }
                 Ok(res)
@@ -205,7 +207,8 @@ fn run_in_memory(
     cfg: &MdigConfig,
     resolver: &dyn DnsResolver,
     input: &[u8],
-) -> (usize, String, String, String, String) {
+) -> (usize, String, String, String, String)
+{
     let mut reader = BufReader::new(Cursor::new(input));
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -232,7 +235,8 @@ fn run_in_memory(
 }
 
 #[test]
-fn resolver_passthrough_ip_and_cidr_family_filtering() {
+fn resolver_passthrough_ip_and_cidr_family_filtering()
+{
     let mock = MockResolver::new();
     let input = b"\
 1.2.3.4
@@ -260,7 +264,8 @@ fn resolver_passthrough_ip_and_cidr_family_filtering() {
 }
 
 #[test]
-fn resolver_multithreaded_eagain_retries_stats_and_logs() {
+fn resolver_multithreaded_eagain_retries_stats_and_logs()
+{
     let mock = MockResolver::new();
     let cfg = MdigConfig {
         family: MdigFamily::Ipv46,
@@ -293,10 +298,7 @@ bad/dom\x01
 
     let mut out_lines: Vec<&str> = stdout.lines().collect();
     out_lines.sort_unstable();
-    assert_eq!(
-        out_lines,
-        vec!["198.51.100.42", "2001:db8::1", "203.0.113.1", "203.0.113.5"]
-    );
+    assert_eq!(out_lines, vec!["198.51.100.42", "2001:db8::1", "203.0.113.1", "203.0.113.5"]);
 
     let mut res_lines: Vec<&str> = resolved.lines().collect();
     res_lines.sort_unstable();
@@ -317,30 +319,53 @@ bad/dom\x01
 }
 
 #[test]
-fn config_validation_bounds() {
+fn config_validation_bounds()
+{
     let ok = MdigConfig::from_options(Some("46"), Some("100"), Some("1000"), Some("0"), true, Some("-1"))
         .expect("boundary config");
-    assert_eq!((ok.family, ok.threads, ok.eagain, ok.eagain_delay_ms, ok.stats_every), (MdigFamily::Ipv46, 100, 1000, 0, 0));
+    assert_eq!(
+        (ok.family, ok.threads, ok.eagain, ok.eagain_delay_ms, ok.stats_every),
+        (MdigFamily::Ipv46, 100, 1000, 0, 0)
+    );
 
     let max_delay = MdigConfig::from_options(None, Some("1"), Some("1"), Some("100000"), false, Some("25"))
         .expect("max delay config");
     assert_eq!((max_delay.eagain_delay_ms, max_delay.stats_every), (100_000, 25));
 
-    assert!(matches!(MdigConfig::from_options(Some("9"), None, None, None, false, None), Err(MdigConfigError::InvalidFamily(_))));
-    for bad in ["0", "101", "x"] {
-        assert!(matches!(MdigConfig::from_options(None, Some(bad), None, None, false, None), Err(MdigConfigError::InvalidThreads(_))));
+    assert!(matches!(
+        MdigConfig::from_options(Some("9"), None, None, None, false, None),
+        Err(MdigConfigError::InvalidFamily(_))
+    ));
+    for bad in ["0", "101", "x"]
+    {
+        assert!(matches!(
+            MdigConfig::from_options(None, Some(bad), None, None, false, None),
+            Err(MdigConfigError::InvalidThreads(_))
+        ));
     }
-    for bad in ["0", "1001", "x"] {
-        assert!(matches!(MdigConfig::from_options(None, None, Some(bad), None, false, None), Err(MdigConfigError::InvalidEagain(_))));
+    for bad in ["0", "1001", "x"]
+    {
+        assert!(matches!(
+            MdigConfig::from_options(None, None, Some(bad), None, false, None),
+            Err(MdigConfigError::InvalidEagain(_))
+        ));
     }
-    for bad in ["-1", "100001", "x"] {
-        assert!(matches!(MdigConfig::from_options(None, None, None, Some(bad), false, None), Err(MdigConfigError::InvalidEagainDelay(_))));
+    for bad in ["-1", "100001", "x"]
+    {
+        assert!(matches!(
+            MdigConfig::from_options(None, None, None, Some(bad), false, None),
+            Err(MdigConfigError::InvalidEagainDelay(_))
+        ));
     }
-    assert!(matches!(MdigConfig::from_options(None, None, None, None, false, Some("bad")), Err(MdigConfigError::InvalidStats(_))));
+    assert!(matches!(
+        MdigConfig::from_options(None, None, None, None, false, Some("bad")),
+        Err(MdigConfigError::InvalidStats(_))
+    ));
 }
 
 #[test]
-fn binary_cli_dns_modes_passthrough_and_exit_codes() {
+fn binary_cli_dns_modes_passthrough_and_exit_codes()
+{
     let (code, stdout, _) = exec_mdig(&["--version"], b"");
     assert_eq!(code, Some(0));
     assert!(String::from_utf8_lossy(&stdout).starts_with("mdig "));

@@ -18,7 +18,8 @@ pub const DEFAULT_AUTOHOSTLIST_FILE: &str = "autohostlist.txt";
 
 /// Controls whether generated profiles affect only scanned domains, all domains, or use autohostlist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum DomainScope {
+pub enum DomainScope
+{
     /// Restrict generated profiles to the scanned domains via `hostlist_domains`.
     #[default]
     ScannedOnly,
@@ -28,10 +29,13 @@ pub enum DomainScope {
     AutoHostlist,
 }
 
-impl DomainScope {
+impl DomainScope
+{
     /// Cycles `ScannedOnly -> AllDomains -> AutoHostlist -> ScannedOnly`.
-    pub const fn next(self) -> Self {
-        match self {
+    pub const fn next(self) -> Self
+    {
+        match self
+        {
             Self::ScannedOnly => Self::AllDomains,
             Self::AllDomains => Self::AutoHostlist,
             Self::AutoHostlist => Self::ScannedOnly,
@@ -39,8 +43,10 @@ impl DomainScope {
     }
 
     /// Returns a compact display label for Tab 1's `Domain Scope` row.
-    pub const fn label(self) -> &'static str {
-        match self {
+    pub const fn label(self) -> &'static str
+    {
+        match self
+        {
             Self::ScannedOnly => "Scanned Only",
             Self::AllDomains => "All Domains (catch-all)",
             Self::AutoHostlist => "Auto Hostlist",
@@ -57,11 +63,15 @@ pub fn render_nfqws2_toml_scoped(
     profiles: &[CoveredProfile],
     opts: &TomlRenderOptions,
     scope: DomainScope,
-) -> String {
+) -> String
+{
     let deduped: Vec<CoveredProfile>;
-    let scoped = if scope == DomainScope::ScannedOnly {
+    let scoped = if scope == DomainScope::ScannedOnly
+    {
         profiles
-    } else {
+    }
+    else
+    {
         let mut seen_slots = HashSet::new();
         deduped = profiles
             .iter()
@@ -79,16 +89,20 @@ pub fn render_nfqws2_toml_scoped(
         &deduped
     };
     let base = render_nfqws2_toml(scoped, opts);
-    if scope == DomainScope::ScannedOnly {
+    if scope == DomainScope::ScannedOnly
+    {
         return base;
     }
     let mut out = String::with_capacity(base.len() + 64);
-    for line in base.lines() {
-        if line.starts_with("hostlist_domains = ") {
+    for line in base.lines()
+    {
+        if line.starts_with("hostlist_domains = ")
+        {
             continue;
         }
         let _ = writeln!(out, "{line}");
-        if scope == DomainScope::AutoHostlist && line.starts_with("filter_l7 = ") {
+        if scope == DomainScope::AutoHostlist && line.starts_with("filter_l7 = ")
+        {
             let _ = writeln!(out, "hostlist_auto = \"{DEFAULT_AUTOHOSTLIST_FILE}\"");
         }
     }
@@ -96,17 +110,22 @@ pub fn render_nfqws2_toml_scoped(
 }
 
 /// Extracts unique, trimmed inline `hostlist_domains` entries across every profile in `cfg`.
-pub fn extract_hostlist_domains(cfg: &AppConfig) -> Vec<String> {
+pub fn extract_hostlist_domains(cfg: &AppConfig) -> Vec<String>
+{
     let mut seen = HashSet::new();
     let mut out = Vec::new();
-    for prof in &cfg.profiles {
-        for raw in &prof.lists.hostlist_domains {
+    for prof in &cfg.profiles
+    {
+        for raw in &prof.lists.hostlist_domains
+        {
             let trimmed = raw.trim();
-            if trimmed.is_empty() {
+            if trimmed.is_empty()
+            {
                 continue;
             }
             let key = trimmed.to_ascii_lowercase();
-            if seen.insert(key) {
+            if seen.insert(key)
+            {
                 out.push(trimmed.to_owned());
             }
         }
@@ -115,7 +134,8 @@ pub fn extract_hostlist_domains(cfg: &AppConfig) -> Vec<String> {
 }
 
 /// Reads an array of strings from `table[key]`, returning empty when absent or non-array.
-fn read_str_array(table: &toml::Table, key: &str) -> Vec<String> {
+fn read_str_array(table: &toml::Table, key: &str) -> Vec<String>
+{
     table
         .get(key)
         .and_then(toml::Value::as_array)
@@ -127,7 +147,8 @@ fn read_str_array(table: &toml::Table, key: &str) -> Vec<String> {
 type FilterSignature = (Vec<String>, Vec<String>, Vec<String>, Vec<String>);
 
 /// Builds the canonical [`FilterSignature`] tuple for `prof`.
-fn filter_signature(prof: &toml::Table) -> FilterSignature {
+fn filter_signature(prof: &toml::Table) -> FilterSignature
+{
     (
         read_str_array(prof, "filter_l3"),
         read_str_array(prof, "filter_tcp"),
@@ -137,27 +158,22 @@ fn filter_signature(prof: &toml::Table) -> FilterSignature {
 }
 
 /// Returns `true` when `prof` uses non-auto external list or ipset filtering (`hostlist`, `ipset`, `ipset_ip`).
-fn has_non_auto_lists(prof: &toml::Table) -> bool {
-    prof.get("hostlist")
-        .and_then(toml::Value::as_array)
-        .is_some_and(|a| !a.is_empty())
-        || prof
-            .get("ipset")
-            .and_then(toml::Value::as_array)
-            .is_some_and(|a| !a.is_empty())
-        || prof
-            .get("ipset_ip")
-            .and_then(toml::Value::as_array)
-            .is_some_and(|a| !a.is_empty())
+fn has_non_auto_lists(prof: &toml::Table) -> bool
+{
+    prof.get("hostlist").and_then(toml::Value::as_array).is_some_and(|a| !a.is_empty())
+        || prof.get("ipset").and_then(toml::Value::as_array).is_some_and(|a| !a.is_empty())
+        || prof.get("ipset_ip").and_then(toml::Value::as_array).is_some_and(|a| !a.is_empty())
 }
 
 /// Returns `true` if `prof` references external/auto list or ipset sources besides inline domains.
-fn has_other_lists(prof: &toml::Table) -> bool {
+fn has_other_lists(prof: &toml::Table) -> bool
+{
     has_non_auto_lists(prof) || prof.contains_key("hostlist_auto")
 }
 
 /// Returns `true` when `prof` covers an entire protocol slot (`AllDomains` catch-all or plain `hostlist_auto`).
-fn is_slot_scope(prof: &toml::Table) -> bool {
+fn is_slot_scope(prof: &toml::Table) -> bool
+{
     !prof.contains_key("hostlist_domains") && !has_non_auto_lists(prof)
 }
 
@@ -166,13 +182,17 @@ fn replace_slot_scope_profile(
     merged_profiles: &mut Vec<toml::Table>,
     sig: &FilterSignature,
     new_prof: toml::Table,
-) {
+)
+{
     let mut replaced = false;
     let mut slot = Some(new_prof);
     merged_profiles.retain_mut(|old_prof| {
-        if filter_signature(old_prof) == *sig && is_slot_scope(old_prof) {
-            if !replaced {
-                if let Some(fresh) = slot.take() {
+        if filter_signature(old_prof) == *sig && is_slot_scope(old_prof)
+        {
+            if !replaced
+            {
+                if let Some(fresh) = slot.take()
+                {
                     *old_prof = fresh;
                 }
                 replaced = true;
@@ -182,21 +202,22 @@ fn replace_slot_scope_profile(
         }
         true
     });
-    if let Some(fresh) = slot {
+    if let Some(fresh) = slot
+    {
         merged_profiles.push(fresh);
     }
 }
 
 /// Appends unique string items from `extra` into `target` case-insensitively.
-fn merge_unique_strings(target: &mut Vec<toml::Value>, extra: &[String]) {
-    let mut seen: HashSet<String> = target
-        .iter()
-        .filter_map(toml::Value::as_str)
-        .map(str::to_ascii_lowercase)
-        .collect();
-    for item in extra {
+fn merge_unique_strings(target: &mut Vec<toml::Value>, extra: &[String])
+{
+    let mut seen: HashSet<String> =
+        target.iter().filter_map(toml::Value::as_str).map(str::to_ascii_lowercase).collect();
+    for item in extra
+    {
         let key = item.to_ascii_lowercase();
-        if seen.insert(key) {
+        if seen.insert(key)
+        {
             target.push(toml::Value::String(item.clone()));
         }
     }
@@ -206,18 +227,23 @@ fn merge_unique_strings(target: &mut Vec<toml::Value>, extra: &[String]) {
 ///
 /// Returns `true` when `prof` originally scoped via `hostlist_domains`, has no remaining domains,
 /// and has no other list/ipset directives keeping it meaningful.
-fn strip_domains(prof: &mut toml::Table, domains: &HashSet<String>) -> bool {
+fn strip_domains(prof: &mut toml::Table, domains: &HashSet<String>) -> bool
+{
     let became_empty = {
-        let Some(toml::Value::Array(arr)) = prof.get_mut("hostlist_domains") else {
+        let Some(toml::Value::Array(arr)) = prof.get_mut("hostlist_domains")
+        else
+        {
             return false;
         };
         arr.retain(|v| v.as_str().is_none_or(|s| !domains.contains(&s.to_ascii_lowercase())));
         arr.is_empty()
     };
-    if !became_empty {
+    if !became_empty
+    {
         return false;
     }
-    if !has_other_lists(prof) {
+    if !has_other_lists(prof)
+    {
         return true;
     }
     prof.remove("hostlist_domains");
@@ -230,11 +256,14 @@ fn strip_domains(prof: &mut toml::Table, domains: &HashSet<String>) -> bool {
 /// unions any missing `lua_init` entries, updates/deduplicates overlapping domain profiles cleanly,
 /// inserts new domain-scoped profiles before catch-all fallbacks, and validates the output with
 /// [`AppConfig::from_toml_str`].
-pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, String> {
-    if existing_toml.trim().is_empty() {
+pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, String>
+{
+    if existing_toml.trim().is_empty()
+    {
         return Ok(new_toml.to_owned());
     }
-    if new_toml.trim().is_empty() {
+    if new_toml.trim().is_empty()
+    {
         return Ok(existing_toml.to_owned());
     }
     let mut base: toml::Table =
@@ -244,18 +273,23 @@ pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, 
 
     // Union any new `lua_init` script paths required by newly scanned strategies.
     let new_lua = read_str_array(&incoming, "lua_init");
-    if !new_lua.is_empty() {
-        let arr = match base.entry("lua_init") {
-            toml::map::Entry::Occupied(e) => match e.into_mut() {
+    if !new_lua.is_empty()
+    {
+        let arr = match base.entry("lua_init")
+        {
+            toml::map::Entry::Occupied(e) => match e.into_mut()
+            {
                 toml::Value::Array(a) => Some(a),
                 _ => None,
             },
-            toml::map::Entry::Vacant(v) => match v.insert(toml::Value::Array(Vec::new())) {
+            toml::map::Entry::Vacant(v) => match v.insert(toml::Value::Array(Vec::new()))
+            {
                 toml::Value::Array(a) => Some(a),
                 _ => None,
             },
         };
-        if let Some(a) = arr {
+        if let Some(a) = arr
+        {
             merge_unique_strings(a, &new_lua);
         }
     }
@@ -272,9 +306,11 @@ pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, 
         .map(|arr| arr.iter().filter_map(|v| v.as_table().cloned()).collect())
         .unwrap_or_default();
 
-    for new_prof in incoming_profiles {
+    for new_prof in incoming_profiles
+    {
         let sig = filter_signature(&new_prof);
-        if is_slot_scope(&new_prof) {
+        if is_slot_scope(&new_prof)
+        {
             replace_slot_scope_profile(&mut merged_profiles, &sig, new_prof);
             continue;
         }
@@ -285,12 +321,14 @@ pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, 
         let new_set: HashSet<String> = new_domains.iter().map(|d| d.to_ascii_lowercase()).collect();
 
         // Remove overwritten domains from older conflicting profiles in the same protocol slot.
-        if !new_set.is_empty() {
+        if !new_set.is_empty()
+        {
             merged_profiles.retain_mut(|old_prof| {
                 let same_slot = filter_signature(old_prof) == sig;
                 let same_strat = old_prof.get("name").and_then(toml::Value::as_str) == new_name
                     && old_prof.get("actions") == new_actions;
-                if same_slot && !same_strat {
+                if same_slot && !same_strat
+                {
                     return !strip_domains(old_prof, &new_set);
                 }
                 true
@@ -303,7 +341,8 @@ pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, 
                 && !is_slot_scope(p)
                 && p.get("name").and_then(toml::Value::as_str) == new_name
                 && p.get("actions") == new_actions
-        }) {
+        })
+        {
             if !new_domains.is_empty()
                 && let Some(toml::Value::Array(arr)) = existing.get_mut("hostlist_domains")
             {
@@ -313,10 +352,7 @@ pub fn merge_nfqws2_toml(existing_toml: &str, new_toml: &str) -> Result<String, 
         }
 
         // Insert new domain-scoped profiles ahead of trailing catch-all / autolist fallbacks.
-        let insert_idx = merged_profiles
-            .iter()
-            .position(is_slot_scope)
-            .unwrap_or(merged_profiles.len());
+        let insert_idx = merged_profiles.iter().position(is_slot_scope).unwrap_or(merged_profiles.len());
         merged_profiles.insert(insert_idx, new_prof);
     }
 

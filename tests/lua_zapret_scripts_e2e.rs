@@ -25,13 +25,10 @@ use zapret_rs::intercepter::{Decision, QueuedPacket};
 /// Embedded LuaJIT runtime and configuration struct.
 use zapret_rs::lua::{LuaConfig, LuaRuntime};
 /// Wire protocol constants and TCP flags used to construct synthetic flows.
-use zapret_rs::packet::constants::{
-    IPPROTO_TCP, IPPROTO_UDP, TH_ACK, TH_PUSH, TH_RST, TH_SYN,
-};
+use zapret_rs::packet::constants::{IPPROTO_TCP, IPPROTO_UDP, TH_ACK, TH_PUSH, TH_RST, TH_SYN};
 /// Dissected L3/L4 packet model, dissector, and checksum-computing reconstructor.
 use zapret_rs::packet::{
-    DissectedPacket, Ipv4Header, ReconstructOptions, TcpHeader, UdpHeader, dissect_packet,
-    reconstruct_packet,
+    DissectedPacket, Ipv4Header, ReconstructOptions, TcpHeader, UdpHeader, dissect_packet, reconstruct_packet,
 };
 /// TLS handshake inspector and SNI host extractor used to verify `fake` + `tls_mod`.
 use zapret_rs::protocol::tls_hello_extract_host;
@@ -45,10 +42,8 @@ use zapret_rs::timer::{TimerPool, boottime_ms};
 /// Directory containing all unmodified `zapret2` Lua scripts.
 const ZAPRET2_LUA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua");
 /// Path to `zapret2`'s fake TLS ClientHello binary fixture.
-const TLS_HELLO_FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/fake/tls_clienthello_www_google_com.bin"
-);
+const TLS_HELLO_FIXTURE: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake/tls_clienthello_www_google_com.bin");
 /// Peer IP endpoints shared by synthetic client/server IPv4 test flows.
 const CLI_IP: [u8; 4] = [10, 0, 0, 2];
 /// Server IPv4 address used in synthetic flows.
@@ -59,9 +54,11 @@ static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 /// RAII temporary directory deleted cleanly when dropped.
 struct TempDir(PathBuf);
 
-impl TempDir {
+impl TempDir
+{
     /// Creates a unique directory inside `std::env::temp_dir()`.
-    fn new(prefix: &str) -> Self {
+    fn new(prefix: &str) -> Self
+    {
         let id = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!("{prefix}_{}_{}", std::process::id(), id));
         fs::create_dir_all(&path).expect("create temp dir");
@@ -69,9 +66,11 @@ impl TempDir {
     }
 }
 
-impl Drop for TempDir {
+impl Drop for TempDir
+{
     /// Recursively removes temporary test artifacts.
-    fn drop(&mut self) {
+    fn drop(&mut self)
+    {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
@@ -79,16 +78,43 @@ impl Drop for TempDir {
 /// Builds a checksum-valid IPv4/TCP packet with explicit sequence/ack numbers, flags, and payload.
 #[allow(clippy::too_many_arguments)]
 fn build_tcp4(
-    src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, seq: u32, ack: u32, flags: u8, payload: &[u8],
-) -> Vec<u8> {
+    src: [u8; 4],
+    dst: [u8; 4],
+    sport: u16,
+    dport: u16,
+    seq: u32,
+    ack: u32,
+    flags: u8,
+    payload: &[u8],
+) -> Vec<u8>
+{
     let dis = DissectedPacket {
         ip: Some(Ipv4Header {
-            version: 4, header_len: 5, tos: 0, total_len: 0, id: 0x1001, frag_off: 0,
-            ttl: 64, protocol: IPPROTO_TCP, checksum: 0, src, dst, options: Vec::new(),
+            version: 4,
+            header_len: 5,
+            tos: 0,
+            total_len: 0,
+            id: 0x1001,
+            frag_off: 0,
+            ttl: 64,
+            protocol: IPPROTO_TCP,
+            checksum: 0,
+            src,
+            dst,
+            options: Vec::new(),
         }),
         tcp: Some(TcpHeader {
-            s_port: sport, d_port: dport, seq, ack, reserved: 0, data_offset: 5,
-            flags, window: 65535, checksum: 0, urgent_ptr: 0, options: Vec::new(),
+            s_port: sport,
+            d_port: dport,
+            seq,
+            ack,
+            reserved: 0,
+            data_offset: 5,
+            flags,
+            window: 65535,
+            checksum: 0,
+            urgent_ptr: 0,
+            options: Vec::new(),
         }),
         payload: (!payload.is_empty()).then(|| payload.to_vec()),
         ..DissectedPacket::default()
@@ -97,11 +123,22 @@ fn build_tcp4(
 }
 
 /// Builds a checksum-valid IPv4/UDP datagram.
-fn build_udp4(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, payload: &[u8]) -> Vec<u8> {
+fn build_udp4(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, payload: &[u8]) -> Vec<u8>
+{
     let dis = DissectedPacket {
         ip: Some(Ipv4Header {
-            version: 4, header_len: 5, tos: 0, total_len: 0, id: 0x2002, frag_off: 0,
-            ttl: 64, protocol: IPPROTO_UDP, checksum: 0, src, dst, options: Vec::new(),
+            version: 4,
+            header_len: 5,
+            tos: 0,
+            total_len: 0,
+            id: 0x2002,
+            frag_off: 0,
+            ttl: 64,
+            protocol: IPPROTO_UDP,
+            checksum: 0,
+            src,
+            dst,
+            options: Vec::new(),
         }),
         udp: Some(UdpHeader { s_port: sport, d_port: dport, len: 0, checksum: 0 }),
         payload: (!payload.is_empty()).then(|| payload.to_vec()),
@@ -111,17 +148,20 @@ fn build_udp4(src: [u8; 4], dst: [u8; 4], sport: u16, dport: u16, payload: &[u8]
 }
 
 /// Builds an outgoing queued packet descriptor on `eth0`.
-const fn out_pkt(id: u32, payload: &[u8]) -> QueuedPacket<'_> {
+const fn out_pkt(id: u32, payload: &[u8]) -> QueuedPacket<'_>
+{
     QueuedPacket { packet_id: id, mark: 0, ifin: None, ifout: Some("eth0"), payload }
 }
 
 /// Builds an incoming queued packet descriptor on `eth0`.
-const fn in_pkt(id: u32, payload: &[u8]) -> QueuedPacket<'_> {
+const fn in_pkt(id: u32, payload: &[u8]) -> QueuedPacket<'_>
+{
     QueuedPacket { packet_id: id, mark: 0, ifin: Some("eth0"), ifout: None, payload }
 }
 
 /// Parses `toml_str` relative to `ZAPRET2_LUA_DIR` and builds a [`DesyncEngine`] with [`CapturingSender`].
-fn engine_with_capture(toml_str: &str) -> (DesyncEngine, Rc<RefCell<CapturingSender>>) {
+fn engine_with_capture(toml_str: &str) -> (DesyncEngine, Rc<RefCell<CapturingSender>>)
+{
     let cfg = AppConfig::from_toml_str(toml_str, Some(Path::new(ZAPRET2_LUA_DIR)))
         .expect("valid TOML config referencing zapret2/lua");
     let cap = Rc::new(RefCell::new(CapturingSender::default()));
@@ -131,7 +171,8 @@ fn engine_with_capture(toml_str: &str) -> (DesyncEngine, Rc<RefCell<CapturingSen
 }
 
 /// Completes a tracked SYN / SYN+ACK handshake (`seq=1000`, `server_seq=2000`) through `engine`.
-fn handshake_tcp4(engine: &DesyncEngine, sport: u16, dport: u16) {
+fn handshake_tcp4(engine: &DesyncEngine, sport: u16, dport: u16)
+{
     let syn = build_tcp4(CLI_IP, SRV_IP, sport, dport, 1000, 0, TH_SYN, &[]);
     let syn_ack = build_tcp4(SRV_IP, CLI_IP, dport, sport, 2000, 1001, TH_SYN | TH_ACK, &[]);
     assert_eq!(engine.process_packet(&out_pkt(1, &syn)), Decision::Pass);
@@ -140,17 +181,24 @@ fn handshake_tcp4(engine: &DesyncEngine, sport: u16, dport: u16) {
 
 /// Loads all 6 unmodified `zapret2/lua/*.lua` files and runs every non-live `zapret-tests.lua` suite.
 #[test]
-fn all_zapret2_lua_scripts_load_and_non_live_tests_pass() {
+fn all_zapret2_lua_scripts_load_and_non_live_tests_pass()
+{
     let cap = Rc::new(RefCell::new(CapturingSender::default()));
     let rt = LuaRuntime::with_sender(LuaConfig::default(), cap).expect("LuaRuntime initializes");
-    for (name, data) in default_blobs() {
+    for (name, data) in default_blobs()
+    {
         rt.set_blob(&name, &data).expect("set default blob");
     }
     let lua_dir = Path::new(ZAPRET2_LUA_DIR);
     for script in [
-        "zapret-lib.lua", "zapret-antidpi.lua", "zapret-auto.lua",
-        "zapret-obfs.lua", "zapret-pcap.lua", "zapret-tests.lua",
-    ] {
+        "zapret-lib.lua",
+        "zapret-antidpi.lua",
+        "zapret-auto.lua",
+        "zapret-obfs.lua",
+        "zapret-pcap.lua",
+        "zapret-tests.lua",
+    ]
+    {
         rt.exec_file(&lua_dir.join(script))
             .unwrap_or_else(|e| panic!("failed loading unmodified {script}: {e}"));
     }
@@ -168,7 +216,8 @@ fn all_zapret2_lua_scripts_load_and_non_live_tests_pass() {
     .expect("all non-live zapret-tests.lua suites must pass");
 
     let base = boottime_ms();
-    for offset in [150u64, 550, 750, 1500, 2250, 3000] {
+    for offset in [150u64, 550, 750, 1500, 2250, 3000]
+    {
         TimerPool::run_expired(rt.timer_pool(), rt.lua(), base.saturating_add(offset));
     }
     rt.exec_str("assert(#timer_enum() == 0, 'all test_timer callbacks must complete and clean up')")
@@ -177,7 +226,8 @@ fn all_zapret2_lua_scripts_load_and_non_live_tests_pass() {
 
 /// Verifies `syndata`, `fake+tls_mod`, `multisplit`, `multidisorder`, `fakedsplit`, and `hostfakesplit`.
 #[test]
-fn zapret_antidpi_tcp_strategies_work_unmodified() {
+fn zapret_antidpi_tcp_strategies_work_unmodified()
+{
     // 1) syndata
     let (eng, cap) = engine_with_capture(
         r#"
@@ -193,7 +243,9 @@ args = { blob = "fake_default_http" }
     );
     let syn = build_tcp4(CLI_IP, SRV_IP, 40001, 80, 1000, 0, TH_SYN, &[]);
     // Initial outgoing SYN DROP triggers `ct_new_postnat_fix` (TTL=1, proto=255 dummy packet).
-    let Decision::Replace(postnat_dummy) = eng.process_packet(&out_pkt(1, &syn)) else {
+    let Decision::Replace(postnat_dummy) = eng.process_packet(&out_pkt(1, &syn))
+    else
+    {
         panic!("expected postnat-fix Replace on dropped initial SYN");
     };
     assert_eq!((postnat_dummy[8], postnat_dummy[9]), (1, 255));
@@ -285,7 +337,8 @@ args = { pos = "host,endhost" }
     for (func, extra_args) in [
         ("fakedsplit", r#"pos = "midsld", ip_ttl = 2"#),
         ("hostfakesplit", r#"host = "safe.org", midhost = "midsld", ip_ttl = 2"#),
-    ] {
+    ]
+    {
         let toml = format!(
             r#"
 lua_init = ["zapret-lib.lua", "zapret-antidpi.lua"]
@@ -303,16 +356,21 @@ args = {{ {extra_args} }}
         let pkts = &cap.borrow().packets;
         let mut reals = Vec::new();
         let mut fake_found = 0usize;
-        for p in pkts {
+        for p in pkts
+        {
             let d = dissect_packet(&p.data, false);
             let ttl = d.ip.expect("ip").ttl;
             let pl = d.payload.expect("pl");
-            if ttl == 64 {
+            if ttl == 64
+            {
                 reals.extend_from_slice(&pl);
-            } else {
+            }
+            else
+            {
                 assert_eq!(ttl, 2);
                 fake_found += 1;
-                if func == "hostfakesplit" {
+                if func == "hostfakesplit"
+                {
                     assert!(pl.windows(8).any(|w| w == b"safe.org"));
                 }
             }
@@ -324,7 +382,8 @@ args = {{ {extra_args} }}
 
 /// Verifies `zapret-obfs.lua::wgobfs` encrypt/decrypt round-trip and tag-mismatch rejection.
 #[test]
-fn zapret_obfs_wgobfs_encrypt_decrypt_roundtrip() {
+fn zapret_obfs_wgobfs_encrypt_decrypt_roundtrip()
+{
     let toml = r#"
 lua_init = ["zapret-lib.lua", "zapret-obfs.lua"]
 [[profiles]]
@@ -343,14 +402,18 @@ args = { secret = "shared-pass", padmin = 4, padmax = 12 }
     assert_eq!(wg_init.len(), 148);
     let orig_wire = build_udp4(CLI_IP, SRV_IP, 51820, 51820, &wg_init);
 
-    let Decision::Replace(obf_wire) = client_eng.process_packet(&out_pkt(1, &orig_wire)) else {
+    let Decision::Replace(obf_wire) = client_eng.process_packet(&out_pkt(1, &orig_wire))
+    else
+    {
         panic!("expected Decision::Replace from wgobfs encryption");
     };
     let obf_dis = dissect_packet(&obf_wire, false);
     let obf_len = obf_dis.payload.as_ref().expect("obf payload").len();
     assert!((148 + 30 + 4..=148 + 30 + 12).contains(&obf_len));
 
-    let Decision::Replace(dec_wire) = peer_eng.process_packet(&out_pkt(2, &obf_wire)) else {
+    let Decision::Replace(dec_wire) = peer_eng.process_packet(&out_pkt(2, &obf_wire))
+    else
+    {
         panic!("expected Decision::Replace from wgobfs decryption");
     };
     let dec_dis = dissect_packet(&dec_wire, false);
@@ -365,7 +428,8 @@ args = { secret = "shared-pass", padmin = 4, padmax = 12 }
 
 /// Verifies `zapret-auto.lua::circular` rotates strategies after `fails = 2` incoming RST failures.
 #[test]
-fn zapret_auto_circular_rotates_strategy_on_failures() {
+fn zapret_auto_circular_rotates_strategy_on_failures()
+{
     let toml = r#"
 lua_init = [
     "zapret-lib.lua",
@@ -393,11 +457,13 @@ args = { strategy = "2" }
     let (eng, _) = engine_with_capture(toml);
     let http_req = b"GET / HTTP/1.1\r\nHost: blocked.example\r\n\r\n";
 
-    for sport in [41001u16, 41002] {
+    for sport in [41001u16, 41002]
+    {
         handshake_tcp4(&eng, sport, 80);
         let req = build_tcp4(CLI_IP, SRV_IP, sport, 80, 1001, 2001, TH_ACK | TH_PUSH, http_req);
         assert_eq!(eng.process_packet(&out_pkt(10, &req)), Decision::Pass);
-        let rst = build_tcp4(SRV_IP, CLI_IP, 80, sport, 2001, 1001 + http_req.len() as u32, TH_RST | TH_ACK, &[]);
+        let rst =
+            build_tcp4(SRV_IP, CLI_IP, 80, sport, 2001, 1001 + http_req.len() as u32, TH_RST | TH_ACK, &[]);
         assert_eq!(eng.process_packet(&in_pkt(11, &rst)), Decision::Pass);
     }
 
@@ -410,7 +476,8 @@ args = { strategy = "2" }
 }
 
 /// Verifies one nanosecond-PCAP packet record header and payload at byte offset `off`.
-fn assert_pcap_record(raw: &[u8], off: usize, pkt: &[u8]) -> usize {
+fn assert_pcap_record(raw: &[u8], off: usize, pkt: &[u8]) -> usize
+{
     assert_eq!(u32::from_be_bytes(raw[off + 8..off + 12].try_into().unwrap()) as usize, pkt.len());
     assert_eq!(u32::from_be_bytes(raw[off + 12..off + 16].try_into().unwrap()) as usize, pkt.len());
     assert_eq!(&raw[off + 16..off + 16 + pkt.len()], pkt);
@@ -419,7 +486,8 @@ fn assert_pcap_record(raw: &[u8], off: usize, pkt: &[u8]) -> usize {
 
 /// Verifies `zapret-pcap.lua::pcap` writes a valid big-endian nanosecond PCAP under `WRITABLE`.
 #[test]
-fn zapret_pcap_writes_valid_nanosecond_pcap_under_writable() {
+fn zapret_pcap_writes_valid_nanosecond_pcap_under_writable()
+{
     let tmp = TempDir::new("zapret_rs_pcap");
     let dir = prepare_writable_dir(&WritableDirConfig::Custom(tmp.0.join("writable")), None)
         .expect("prepare writable dir");

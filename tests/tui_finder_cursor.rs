@@ -9,18 +9,18 @@ use ratatui::{Terminal, backend::TestBackend};
 use zapret_rs::tui::{AppState, draw_app};
 
 /// Renders `state` into lines so individual form rows can be compared across cursor moves.
-fn render_lines(state: &AppState) -> Vec<String> {
+fn render_lines(state: &AppState) -> Vec<String>
+{
     let backend = TestBackend::new(120, 32);
     let mut term = Terminal::new(backend).expect("terminal");
     term.draw(|f| draw_app(f, state)).expect("draw");
     let buf = term.backend().buffer();
-    (0..32u16)
-        .map(|y| (0..120u16).map(|x| buf[(x, y)].symbol()).collect::<String>())
-        .collect()
+    (0..32u16).map(|y| (0..120u16).map(|x| buf[(x, y)].symbol()).collect::<String>()).collect()
 }
 
 /// Finds the line containing `needle` inside `lines`.
-fn line_with<'a>(lines: &'a [String], needle: &str) -> &'a str {
+fn line_with<'a>(lines: &'a [String], needle: &str) -> &'a str
+{
     lines
         .iter()
         .find(|line| line.contains(needle))
@@ -29,7 +29,8 @@ fn line_with<'a>(lines: &'a [String], needle: &str) -> &'a str {
 }
 
 #[test]
-fn editing_domains_cursor_does_not_scroll_or_mark_config_path() {
+fn editing_domains_cursor_does_not_scroll_or_mark_config_path()
+{
     let mut state = AppState::new(None, None, false);
     state.finder.domains_input = "alpha-first-domain.com,beta-second-domain.com".to_owned();
     state.finder.output_path = "/home/user/.config/zapret-rs/very-long-config-name.toml".to_owned();
@@ -44,7 +45,8 @@ fn editing_domains_cursor_does_not_scroll_or_mark_config_path() {
     assert!(line_with(&before_lines, "Domains").contains('_'));
 
     // Move left 15 chars inside Domains; Config Path must remain byte-for-byte identical.
-    for _ in 0..15 {
+    for _ in 0..15
+    {
         state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
     }
     let after_lines = render_lines(&state);
@@ -54,7 +56,8 @@ fn editing_domains_cursor_does_not_scroll_or_mark_config_path() {
 }
 
 #[test]
-fn arrow_keys_scroll_long_text_row_without_entering_edit_mode() {
+fn arrow_keys_scroll_long_text_row_without_entering_edit_mode()
+{
     let mut state = AppState::new(None, None, false);
     state.finder.domains_input = "alpha-first-domain.com,beta-second-domain.com,gamma-third.org".to_owned();
     state.finder.output_path = "/home/user/.config/zapret-rs/very-long-config-name.toml".to_owned();

@@ -29,7 +29,8 @@ use common::{CapturingSender, ZAPRET_LIB_LUA, build_ipv4_tcp};
 
 /// Verifies `raw_packet(ctx)`, re-entrant `rawsend_dissect`, `VERDICT_DROP`, and post-call `ctx` invalidation.
 #[test]
-fn reentrant_rawsend_dissect_and_stashed_ctx_invalidation() {
+fn reentrant_rawsend_dissect_and_stashed_ctx_invalidation()
+{
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let toml = r#"
         fwmark = 0x40000000
@@ -52,37 +53,18 @@ fn reentrant_rawsend_dissect_and_stashed_ctx_invalidation() {
     "#;
     let cfg = AppConfig::from_toml_str(toml, None).expect("valid TOML");
     let sender_trait: Rc<RefCell<dyn PacketSender>> = Rc::clone(&sender) as _;
-    let engine = DesyncEngine::with_sender(&cfg, sender_trait)
-        .expect("engine with mock sender should init");
+    let engine = DesyncEngine::with_sender(&cfg, sender_trait).expect("engine with mock sender should init");
 
     let raw = build_ipv4_tcp(41234, 443, b"tls_hello");
-    let lua_expected = engine
-        .runtime()
-        .lua()
-        .create_string(&raw)
-        .expect("Lua byte string");
-    engine
-        .runtime()
-        .lua()
-        .globals()
-        .set("expected_raw", lua_expected)
-        .expect("set expected_raw");
+    let lua_expected = engine.runtime().lua().create_string(&raw).expect("Lua byte string");
+    engine.runtime().lua().globals().set("expected_raw", lua_expected).expect("set expected_raw");
 
-    let pkt = QueuedPacket {
-        packet_id: 30,
-        mark: 0,
-        ifin: None,
-        ifout: Some("wlan0"),
-        payload: &raw,
-    };
+    let pkt = QueuedPacket { packet_id: 30, mark: 0, ifin: None, ifout: Some("wlan0"), payload: &raw };
     assert_eq!(engine.process_packet(&pkt), Decision::Drop);
 
     let captured = &sender.borrow().packets;
     assert_eq!(captured.len(), 1);
-    assert_eq!(
-        captured[0].dst,
-        "93.184.216.34".parse::<IpAddr>().expect("valid IPv4 dst")
-    );
+    assert_eq!(captured[0].dst, "93.184.216.34".parse::<IpAddr>().expect("valid IPv4 dst"));
     assert_eq!(captured[0].fwmark, 0x4000_0010);
     assert_eq!(captured[0].ifout.as_deref(), Some("wlan0"));
     let sent_dis = dissect_packet(&captured[0].data, false);
@@ -93,15 +75,13 @@ fn reentrant_rawsend_dissect_and_stashed_ctx_invalidation() {
         .runtime()
         .exec_str("raw_packet(_G.leaked_ctx)")
         .expect_err("leaked ctx must be invalidated after action returns");
-    assert!(
-        leaked_err.to_string().contains("ctx is invalid"),
-        "unexpected error: {leaked_err}"
-    );
+    assert!(leaked_err.to_string().contains("ctx is invalid"), "unexpected error: {leaked_err}");
 }
 
 /// Verifies `zapret2/lua/zapret-lib.lua`'s `desync_orchestrator_example` with `execution_plan` and cutoffs.
 #[test]
-fn zapret_lib_orchestrator_runs_execution_plan_once_and_allows_cutoffs() {
+fn zapret_lib_orchestrator_runs_execution_plan_once_and_allows_cutoffs()
+{
     let toml = format!(
         r#"
         lua_init = [
@@ -155,14 +135,10 @@ fn zapret_lib_orchestrator_runs_execution_plan_once_and_allows_cutoffs() {
 
     // 1) Orchestrator cancels native calls to custom_step_1/2, replays each exactly once, and modifies packet.
     let raw_80 = build_ipv4_tcp(45000, 80, b"GET / HTTP/1.1\r\n\r\n");
-    let pkt_80 = QueuedPacket {
-        packet_id: 40,
-        mark: 0,
-        ifin: None,
-        ifout: Some("eth0"),
-        payload: &raw_80,
-    };
-    let Decision::Replace(mod_80) = engine.process_packet(&pkt_80) else {
+    let pkt_80 = QueuedPacket { packet_id: 40, mark: 0, ifin: None, ifout: Some("eth0"), payload: &raw_80 };
+    let Decision::Replace(mod_80) = engine.process_packet(&pkt_80)
+    else
+    {
         panic!("expected Decision::Replace from orchestrated replay");
     };
     let dis_80 = dissect_packet(&mod_80, false);
@@ -180,28 +156,19 @@ fn zapret_lib_orchestrator_runs_execution_plan_once_and_allows_cutoffs() {
 
     // 2) Direct instance_cutoff / lua_cutoff calls work cleanly; lua_cutoff(nil) errors "missing ctx".
     let raw_8080 = build_ipv4_tcp(45001, 8080, b"hi");
-    let pkt_8080 = QueuedPacket {
-        packet_id: 41,
-        mark: 0,
-        ifin: None,
-        ifout: Some("eth0"),
-        payload: &raw_8080,
-    };
+    let pkt_8080 =
+        QueuedPacket { packet_id: 41, mark: 0, ifin: None, ifout: Some("eth0"), payload: &raw_8080 };
     assert_eq!(engine.process_packet(&pkt_8080), Decision::Pass);
 
-    let nil_err = engine
-        .runtime()
-        .exec_str("lua_cutoff(nil)")
-        .expect_err("lua_cutoff(nil) must reject missing ctx");
-    assert!(
-        nil_err.to_string().contains("missing ctx"),
-        "unexpected error: {nil_err}"
-    );
+    let nil_err =
+        engine.runtime().exec_str("lua_cutoff(nil)").expect_err("lua_cutoff(nil) must reject missing ctx");
+    assert!(nil_err.to_string().contains("missing ctx"), "unexpected error: {nil_err}");
 }
 
 /// Verifies missing desync functions fail startup and runtime/verdict errors degrade to `Decision::Pass`.
 #[test]
-fn startup_missing_function_fails_and_runtime_errors_degrade_to_pass() {
+fn startup_missing_function_fails_and_runtime_errors_degrade_to_pass()
+{
     let missing_cfg = AppConfig::from_toml_str(
         r#"
         [[profiles]]
@@ -210,7 +177,8 @@ fn startup_missing_function_fails_and_runtime_errors_degrade_to_pass() {
         None,
     )
     .expect("TOML parses cleanly");
-    let err = match DesyncEngine::new(&missing_cfg) {
+    let err = match DesyncEngine::new(&missing_cfg)
+    {
         Ok(_) => panic!("expected MissingFunction error"),
         Err(err) => err,
     };
@@ -263,7 +231,8 @@ fn startup_missing_function_fails_and_runtime_errors_degrade_to_pass() {
     let cfg = AppConfig::from_toml_str(toml, None).expect("valid TOML");
     let engine = DesyncEngine::new(&cfg).expect("all functions defined");
 
-    for port in 1001..=1007 {
+    for port in 1001..=1007
+    {
         let raw = build_ipv4_tcp(40000, port, b"payload");
         let pkt = QueuedPacket {
             packet_id: u32::from(port),

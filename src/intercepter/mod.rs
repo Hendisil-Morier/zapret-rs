@@ -25,11 +25,11 @@ pub use ifname::IfNameResolver;
 /// Re-exported queue catcher and pure packet dispatch helpers.
 #[cfg(target_os = "linux")]
 pub use nfqueue::{QueueCatcher, apply_decision, dispatch_packet, poll_timeout_ms};
+/// Re-exported NFQUEUE configuration defaults, [`PacketIntercepter`] trait, and packet/verdict types.
+pub use types::{
+    DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_MAXLEN, DEFAULT_QUEUE_NUM, DEFAULT_QUEUE_RCVBUF, Decision,
+    PacketIntercepter, QueueConfig, QueuedPacket,
+};
 /// Re-exported Windows WinDivert intercepter.
 #[cfg(windows)]
 pub use windivert::WinDivertIntercepter;
-/// Re-exported NFQUEUE configuration defaults, [`PacketIntercepter`] trait, and packet/verdict types.
-pub use types::{
-    DEFAULT_DESYNC_FWMARK, DEFAULT_QUEUE_MAXLEN, DEFAULT_QUEUE_NUM, DEFAULT_QUEUE_RCVBUF,
-    Decision, PacketIntercepter, QueueConfig, QueuedPacket,
-};

@@ -9,9 +9,11 @@ use std::io;
 use crate::config::AppConfig;
 
 /// Opaque RAII handle representing installed temporary firewall rules cleaned up on drop.
-pub trait FirewallHandle: Send {
+pub trait FirewallHandle: Send
+{
     /// Returns `true` if tearing down this guard is likely to trigger an interactive `sudo` prompt.
-    fn needs_interactive_drop(&self) -> bool {
+    fn needs_interactive_drop(&self) -> bool
+    {
         false
     }
 
@@ -20,7 +22,8 @@ pub trait FirewallHandle: Send {
 }
 
 /// Injectable firewall rule backend allowing live OS rule setup and offline mock tests.
-pub trait FirewallBackend {
+pub trait FirewallBackend
+{
     /// Installs temporary packet-interception rules for `qnum`, `fwmark`, and target TCP/UDP ports.
     fn install(
         &self,
@@ -31,18 +34,14 @@ pub trait FirewallBackend {
     ) -> io::Result<Box<dyn FirewallHandle>>;
 
     /// Returns the TUI panel border title describing filters produced by this backend.
-    fn preview_title(&self) -> &'static str {
+    fn preview_title(&self) -> &'static str
+    {
         " Packet Filter Preview "
     }
 
     /// Renders a human-readable preview of the filter rules or expressions this backend applies.
-    fn preview_filter(
-        &self,
-        _qnum: u16,
-        _fwmark: u32,
-        _tcp_ports: &[u16],
-        _udp_ports: &[u16],
-    ) -> String {
+    fn preview_filter(&self, _qnum: u16, _fwmark: u32, _tcp_ports: &[u16], _udp_ports: &[u16]) -> String
+    {
         String::new()
     }
 }
@@ -51,7 +50,8 @@ pub trait FirewallBackend {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct UnsupportedFirewallBackend;
 
-impl FirewallBackend for UnsupportedFirewallBackend {
+impl FirewallBackend for UnsupportedFirewallBackend
+{
     /// Returns [`io::ErrorKind::Unsupported`] explaining that this OS lacks packet-interception support.
     fn install(
         &self,
@@ -59,7 +59,8 @@ impl FirewallBackend for UnsupportedFirewallBackend {
         _fwmark: u32,
         _tcp_ports: &[u16],
         _udp_ports: &[u16],
-    ) -> io::Result<Box<dyn FirewallHandle>> {
+    ) -> io::Result<Box<dyn FirewallHandle>>
+    {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             format!("packet interception is not implemented for OS '{}'", std::env::consts::OS),
@@ -67,27 +68,21 @@ impl FirewallBackend for UnsupportedFirewallBackend {
     }
 
     /// Returns the panel title shown on unsupported operating systems.
-    fn preview_title(&self) -> &'static str {
+    fn preview_title(&self) -> &'static str
+    {
         " Packet Filter Preview "
     }
 
     /// Returns an explanatory notice instead of Linux `nftables` or Windows `WinDivert` rules.
-    fn preview_filter(
-        &self,
-        _qnum: u16,
-        _fwmark: u32,
-        _tcp_ports: &[u16],
-        _udp_ports: &[u16],
-    ) -> String {
-        format!(
-            "# Packet interception is not implemented for OS '{}' yet.\n",
-            std::env::consts::OS
-        )
+    fn preview_filter(&self, _qnum: u16, _fwmark: u32, _tcp_ports: &[u16], _udp_ports: &[u16]) -> String
+    {
+        format!("# Packet interception is not implemented for OS '{}' yet.\n", std::env::consts::OS)
     }
 }
 
 /// Returns the active compile-time OS [`FirewallBackend`] for installing and previewing filters.
-pub fn active_firewall_backend() -> Box<dyn FirewallBackend> {
+pub fn active_firewall_backend() -> Box<dyn FirewallBackend>
+{
     #[cfg(windows)]
     {
         Box::new(crate::tools::strat::WinDivertFirewallBackend)
@@ -111,26 +106,33 @@ pub type PortRangePair = (Vec<PortInterval>, Vec<PortInterval>);
 const MAX_EXPANDED_PORT_SPAN: u16 = 256;
 
 /// Inserts one non-negative, non-wildcard `(from, to)` port filter interval into `out`.
-fn push_port_interval(out: &mut BTreeSet<(u16, u16)>, pf: &crate::config::PortFilter) {
-    if pf.neg || pf.to == 0 {
+fn push_port_interval(out: &mut BTreeSet<(u16, u16)>, pf: &crate::config::PortFilter)
+{
+    if pf.neg || pf.to == 0
+    {
         return;
     }
     let from = pf.from.max(1);
-    if from > pf.to || (from == 1 && pf.to == u16::MAX) {
+    if from > pf.to || (from == 1 && pf.to == u16::MAX)
+    {
         return;
     }
     out.insert((from, pf.to));
 }
 
 /// Merges overlapping or adjacent inclusive `(from, to)` port intervals into canonical ascending form.
-fn merge_port_intervals(intervals: BTreeSet<(u16, u16)>) -> Vec<(u16, u16)> {
+fn merge_port_intervals(intervals: BTreeSet<(u16, u16)>) -> Vec<(u16, u16)>
+{
     let mut merged: Vec<(u16, u16)> = Vec::with_capacity(intervals.len());
-    for (from, to) in intervals {
+    for (from, to) in intervals
+    {
         if let Some(last) = merged.last_mut()
             && from <= last.1.saturating_add(1)
         {
             last.1 = last.1.max(to);
-        } else {
+        }
+        else
+        {
             merged.push((from, to));
         }
     }
@@ -139,18 +141,23 @@ fn merge_port_intervals(intervals: BTreeSet<(u16, u16)>) -> Vec<(u16, u16)> {
 
 /// Collects merged inclusive TCP and UDP port intervals `(from, to)` referenced by `cfg.profiles`
 /// (defaults to `(80, 80)`/`(443, 443)` and UDP `(443, 443)` when empty).
-pub fn collect_config_port_ranges(cfg: &AppConfig) -> PortRangePair {
+pub fn collect_config_port_ranges(cfg: &AppConfig) -> PortRangePair
+{
     let mut tcp = BTreeSet::new();
     let mut udp = BTreeSet::new();
-    for p in &cfg.profiles {
-        for pf in &p.filter_tcp {
+    for p in &cfg.profiles
+    {
+        for pf in &p.filter_tcp
+        {
             push_port_interval(&mut tcp, pf);
         }
-        for pf in &p.filter_udp {
+        for pf in &p.filter_udp
+        {
             push_port_interval(&mut udp, pf);
         }
     }
-    if tcp.is_empty() && udp.is_empty() {
+    if tcp.is_empty() && udp.is_empty()
+    {
         tcp.insert((80, 80));
         tcp.insert((443, 443));
         udp.insert((443, 443));
@@ -159,12 +166,16 @@ pub fn collect_config_port_ranges(cfg: &AppConfig) -> PortRangePair {
 }
 
 /// Expands bounded port intervals into a sorted, deduplicated `Vec<u16>`.
-fn expand_intervals(intervals: Vec<(u16, u16)>) -> Vec<u16> {
+fn expand_intervals(intervals: Vec<(u16, u16)>) -> Vec<u16>
+{
     let mut ports = BTreeSet::new();
-    for (from, to) in intervals {
+    for (from, to) in intervals
+    {
         let span = to.saturating_sub(from);
-        if span <= MAX_EXPANDED_PORT_SPAN {
-            for port in from..=to {
+        if span <= MAX_EXPANDED_PORT_SPAN
+        {
+            for port in from..=to
+            {
                 ports.insert(port);
             }
         }
@@ -173,11 +184,13 @@ fn expand_intervals(intervals: Vec<(u16, u16)>) -> Vec<u16> {
 }
 
 /// Collects deduplicated TCP and UDP ports referenced by `cfg.profiles` (defaults to `80`/`443`).
-pub fn collect_config_ports(cfg: &AppConfig) -> (Vec<u16>, Vec<u16>) {
+pub fn collect_config_ports(cfg: &AppConfig) -> (Vec<u16>, Vec<u16>)
+{
     let (tcp_ranges, udp_ranges) = collect_config_port_ranges(cfg);
     let mut tcp = expand_intervals(tcp_ranges);
     let mut udp = expand_intervals(udp_ranges);
-    if tcp.is_empty() && udp.is_empty() {
+    if tcp.is_empty() && udp.is_empty()
+    {
         tcp = vec![80, 443];
         udp = vec![443];
     }

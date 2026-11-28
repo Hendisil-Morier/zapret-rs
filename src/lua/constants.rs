@@ -9,36 +9,34 @@ use crate::config::{AppConfig, DEFAULT_LUA_GC_INTERVAL};
 use crate::conntrack::ConntrackTimeouts;
 /// Protocol, queue/fwmark defaults, verdict, flag, and compatibility constants.
 use crate::packet::constants::{
-    DEFAULT_DESYNC_FWMARK, DEFAULT_MSS, DEFAULT_QUEUE_NUM, ICMP_BASE_LEN, ICMP_DEST_UNREACH, ICMP_ECHO, ICMP_ECHOREPLY, ICMP_INFO_REPLY,
-    ICMP_INFO_REQUEST, ICMP_PARAMETERPROB, ICMP_REDIRECT, ICMP_REDIRECT_HOST, ICMP_REDIRECT_NET,
-    ICMP_REDIRECT_TOSHOST, ICMP_REDIRECT_TOSNET, ICMP_TIME_EXCEEDED, ICMP_TIMESTAMP,
-    ICMP_TIMESTAMPREPLY, ICMP_TIMXCEED_INTRANS, ICMP_TIMXCEED_REASS, ICMP_UNREACH_FILTER_PROHIB,
-    ICMP_UNREACH_HOST, ICMP_UNREACH_HOST_PRECEDENCE, ICMP_UNREACH_HOST_PROHIB,
+    DEFAULT_DESYNC_FWMARK, DEFAULT_MSS, DEFAULT_QUEUE_NUM, ICMP_BASE_LEN, ICMP_DEST_UNREACH, ICMP_ECHO,
+    ICMP_ECHOREPLY, ICMP_INFO_REPLY, ICMP_INFO_REQUEST, ICMP_PARAMETERPROB, ICMP_REDIRECT,
+    ICMP_REDIRECT_HOST, ICMP_REDIRECT_NET, ICMP_REDIRECT_TOSHOST, ICMP_REDIRECT_TOSNET, ICMP_TIME_EXCEEDED,
+    ICMP_TIMESTAMP, ICMP_TIMESTAMPREPLY, ICMP_TIMXCEED_INTRANS, ICMP_TIMXCEED_REASS,
+    ICMP_UNREACH_FILTER_PROHIB, ICMP_UNREACH_HOST, ICMP_UNREACH_HOST_PRECEDENCE, ICMP_UNREACH_HOST_PROHIB,
     ICMP_UNREACH_HOST_UNKNOWN, ICMP_UNREACH_NEEDFRAG, ICMP_UNREACH_NET, ICMP_UNREACH_NET_PROHIB,
-    ICMP_UNREACH_NET_UNKNOWN, ICMP_UNREACH_PRECEDENCE_CUTOFF, ICMP_UNREACH_PROTOCOL,
-    ICMP_UNREACH_PORT, ICMP_UNREACH_SRCFAIL, ICMP_UNREACH_TOSHOST, ICMP_UNREACH_TOSNET,
-    ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_ADDR, ICMP6_DST_UNREACH_ADMIN,
-    ICMP6_DST_UNREACH_BEYONDSCOPE, ICMP6_DST_UNREACH_NOPORT, ICMP6_DST_UNREACH_NOROUTE,
-    ICMP6_ECHO_REPLY, ICMP6_ECHO_REQUEST, ICMP6_PACKET_TOO_BIG, ICMP6_PARAM_PROB,
-    ICMP6_PARAMPROB_HEADER, ICMP6_PARAMPROB_NEXTHEADER, ICMP6_PARAMPROB_OPTION,
-    ICMP6_TIME_EXCEED_REASSEMBLY, ICMP6_TIME_EXCEED_TRANSIT, ICMP6_TIME_EXCEEDED, IP6_BASE_LEN,
-    IP6F_MORE_FRAG, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_HIP,
-    IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPIP, IPPROTO_IPV6,
-    IPPROTO_MH, IPPROTO_NONE, IPPROTO_ROUTING, IPPROTO_SCTP, IPPROTO_SHIM6, IPPROTO_TCP,
-    IPPROTO_UDP, IP_BASE_LEN, IP_DF, IP_FLAGMASK, IP_MF, IP_OFFMASK, IP_RF, IPTOS_DSCP_MASK,
-    IPTOS_ECN_CE, IPTOS_ECN_ECT0, IPTOS_ECN_ECT1, IPTOS_ECN_MASK, IPTOS_ECN_NOT_ECT,
-    IPV6_FLOWINFO_MASK, IPV6_FLOWLABEL_MASK, LUA_COMPAT_VER, MLD_LISTENER_QUERY,
-    MLD_LISTENER_REDUCTION, MLD_LISTENER_REPORT, ND_NEIGHBOR_ADVERT, ND_NEIGHBOR_SOLICIT,
-    ND_REDIRECT, ND_ROUTER_ADVERT, ND_ROUTER_SOLICIT, TCP_BASE_LEN, TCP_KIND_AO, TCP_KIND_END,
-    TCP_KIND_FASTOPEN, TCP_KIND_MD5, TCP_KIND_MSS, TCP_KIND_NOOP, TCP_KIND_SACK,
-    TCP_KIND_SACK_PERM, TCP_KIND_SCALE, TCP_KIND_TS, TH_ACK, TH_CWR, TH_ECE, TH_FIN, TH_PUSH,
-    TH_RST, TH_SYN, TH_URG, UDP_BASE_LEN, VERDICT_DROP, VERDICT_MASK, VERDICT_MODIFY, VERDICT_PASS,
-    VERDICT_PRESERVE_NEXT,
+    ICMP_UNREACH_NET_UNKNOWN, ICMP_UNREACH_PORT, ICMP_UNREACH_PRECEDENCE_CUTOFF, ICMP_UNREACH_PROTOCOL,
+    ICMP_UNREACH_SRCFAIL, ICMP_UNREACH_TOSHOST, ICMP_UNREACH_TOSNET, ICMP6_DST_UNREACH,
+    ICMP6_DST_UNREACH_ADDR, ICMP6_DST_UNREACH_ADMIN, ICMP6_DST_UNREACH_BEYONDSCOPE, ICMP6_DST_UNREACH_NOPORT,
+    ICMP6_DST_UNREACH_NOROUTE, ICMP6_ECHO_REPLY, ICMP6_ECHO_REQUEST, ICMP6_PACKET_TOO_BIG, ICMP6_PARAM_PROB,
+    ICMP6_PARAMPROB_HEADER, ICMP6_PARAMPROB_NEXTHEADER, ICMP6_PARAMPROB_OPTION, ICMP6_TIME_EXCEED_REASSEMBLY,
+    ICMP6_TIME_EXCEED_TRANSIT, ICMP6_TIME_EXCEEDED, IP_BASE_LEN, IP_DF, IP_FLAGMASK, IP_MF, IP_OFFMASK,
+    IP_RF, IP6_BASE_LEN, IP6F_MORE_FRAG, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_ESP, IPPROTO_FRAGMENT,
+    IPPROTO_HIP, IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPIP, IPPROTO_IPV6,
+    IPPROTO_MH, IPPROTO_NONE, IPPROTO_ROUTING, IPPROTO_SCTP, IPPROTO_SHIM6, IPPROTO_TCP, IPPROTO_UDP,
+    IPTOS_DSCP_MASK, IPTOS_ECN_CE, IPTOS_ECN_ECT0, IPTOS_ECN_ECT1, IPTOS_ECN_MASK, IPTOS_ECN_NOT_ECT,
+    IPV6_FLOWINFO_MASK, IPV6_FLOWLABEL_MASK, LUA_COMPAT_VER, MLD_LISTENER_QUERY, MLD_LISTENER_REDUCTION,
+    MLD_LISTENER_REPORT, ND_NEIGHBOR_ADVERT, ND_NEIGHBOR_SOLICIT, ND_REDIRECT, ND_ROUTER_ADVERT,
+    ND_ROUTER_SOLICIT, TCP_BASE_LEN, TCP_KIND_AO, TCP_KIND_END, TCP_KIND_FASTOPEN, TCP_KIND_MD5,
+    TCP_KIND_MSS, TCP_KIND_NOOP, TCP_KIND_SACK, TCP_KIND_SACK_PERM, TCP_KIND_SCALE, TCP_KIND_TS, TH_ACK,
+    TH_CWR, TH_ECE, TH_FIN, TH_PUSH, TH_RST, TH_SYN, TH_URG, UDP_BASE_LEN, VERDICT_DROP, VERDICT_MASK,
+    VERDICT_MODIFY, VERDICT_PASS, VERDICT_PRESERVE_NEXT,
 };
 
 /// Runtime boolean and queue parameters exposed as Lua globals.
 #[derive(Debug, Clone)]
-pub struct LuaConfig {
+pub struct LuaConfig
+{
     /// Version string bound to `NFQWS2_VER`.
     pub verstr: String,
     /// Netfilter queue number bound to `qnum`.
@@ -65,9 +63,11 @@ pub struct LuaConfig {
     pub lua_gc_sec: u64,
 }
 
-impl Default for LuaConfig {
+impl Default for LuaConfig
+{
     /// Returns sensible Linux runtime defaults matching `zapret2`'s default `params_s`.
-    fn default() -> Self {
+    fn default() -> Self
+    {
         Self {
             verstr: env!("CARGO_PKG_VERSION").to_owned(),
             qnum: u32::from(DEFAULT_QUEUE_NUM),
@@ -85,9 +85,11 @@ impl Default for LuaConfig {
     }
 }
 
-impl From<&AppConfig> for LuaConfig {
+impl From<&AppConfig> for LuaConfig
+{
     /// Derives [`LuaConfig`] settings for `LuaRuntime::new` from resolved [`AppConfig`].
-    fn from(config: &AppConfig) -> Self {
+    fn from(config: &AppConfig) -> Self
+    {
         Self {
             qnum: u32::from(config.qnum),
             desync_fwmark: config.fwmark,
@@ -107,18 +109,23 @@ impl From<&AppConfig> for LuaConfig {
 
 /// Removes dangerous OS command/FFI/debug primitives (`os.execute`, `io.popen`, `package.loadlib`, `debug`)
 /// matching `lua_sec_harden` in `zapret2/nfq2/lua.c`.
-pub fn harden_lua(lua: &Lua) -> mlua::Result<()> {
+pub fn harden_lua(lua: &Lua) -> mlua::Result<()>
+{
     let globals = lua.globals();
 
-    if let Some(os_tbl) = globals.get::<Option<Table>>("os")? {
+    if let Some(os_tbl) = globals.get::<Option<Table>>("os")?
+    {
         os_tbl.set("execute", Value::Nil)?;
     }
-    if let Some(io_tbl) = globals.get::<Option<Table>>("io")? {
+    if let Some(io_tbl) = globals.get::<Option<Table>>("io")?
+    {
         io_tbl.set("popen", Value::Nil)?;
     }
-    if let Some(pkg_tbl) = globals.get::<Option<Table>>("package")? {
+    if let Some(pkg_tbl) = globals.get::<Option<Table>>("package")?
+    {
         pkg_tbl.set("loadlib", Value::Nil)?;
-        if let Some(loaded) = pkg_tbl.get::<Option<Table>>("loaded")? {
+        if let Some(loaded) = pkg_tbl.get::<Option<Table>>("loaded")?
+        {
             loaded.set("debug", Value::Nil)?;
         }
     }
@@ -128,7 +135,8 @@ pub fn harden_lua(lua: &Lua) -> mlua::Result<()> {
 }
 
 /// Populates all numeric, string, and boolean global constants expected by `zapret-lib.lua` and user scripts.
-pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()> {
+pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()>
+{
     let globals = lua.globals();
 
     globals.set("NFQWS2_VER", config.verstr.as_str())?;
@@ -255,7 +263,8 @@ pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()> {
         ("ICMP6_PARAMPROB_OPTION", i64::from(ICMP6_PARAMPROB_OPTION)),
     ];
 
-    for &(name, value) in uint_constants {
+    for &(name, value) in uint_constants
+    {
         globals.set(name, value)?;
     }
 
@@ -267,7 +276,8 @@ pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()> {
         ("b_ctrack_disable", config.ctrack_disable),
     ];
 
-    for &(name, value) in bool_constants {
+    for &(name, value) in bool_constants
+    {
         globals.set(name, value)?;
     }
 

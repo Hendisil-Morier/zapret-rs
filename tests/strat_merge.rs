@@ -5,12 +5,13 @@ use zapret_rs::config::AppConfig;
 /// Catalog and rendering primitives used to build realistic strategy TOML fixtures.
 use zapret_rs::tools::{
     CoveredProfile, DEFAULT_AUTOHOSTLIST_FILE, DomainScope, IpFamily, ProbeProtocol, ScanLevel,
-    TomlRenderOptions, build_catalog, extract_hostlist_domains, merge_nfqws2_toml,
-    render_nfqws2_toml, render_nfqws2_toml_scoped,
+    TomlRenderOptions, build_catalog, extract_hostlist_domains, merge_nfqws2_toml, render_nfqws2_toml,
+    render_nfqws2_toml_scoped,
 };
 
 #[test]
-fn merge_preserves_existing_profiles_deduplicates_matching_and_replaces_conflicts() {
+fn merge_preserves_existing_profiles_deduplicates_matching_and_replaces_conflicts()
+{
     let tls_strats = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
     let http_strats = build_catalog(ProbeProtocol::Http, ScanLevel::Quick, IpFamily::V4);
     let strat_a = tls_strats[0].clone();
@@ -66,20 +67,15 @@ fn merge_preserves_existing_profiles_deduplicates_matching_and_replaces_conflict
 
     // Domain extraction returns unique domains across all profiles in order.
     let extracted = extract_hostlist_domains(&cfg);
-    assert_eq!(
-        extracted,
-        vec!["youtube.com", "store.steampowered.com", "legacy.example", "discord.com"]
-    );
+    assert_eq!(extracted, vec!["youtube.com", "store.steampowered.com", "legacy.example", "discord.com"]);
 }
 
 #[test]
-fn domain_scope_renders_catch_all_and_autohostlist_profiles_cleanly() {
+fn domain_scope_renders_catch_all_and_autohostlist_profiles_cleanly()
+{
     let strat = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4)[0].clone();
-    let cover = vec![CoveredProfile {
-        strategy: strat,
-        domains: vec!["youtube.com".to_owned()],
-        avg_latency_ms: 40,
-    }];
+    let cover =
+        vec![CoveredProfile { strategy: strat, domains: vec!["youtube.com".to_owned()], avg_latency_ms: 40 }];
     let opts = TomlRenderOptions::default();
 
     let all_toml = render_nfqws2_toml_scoped(&cover, &opts, DomainScope::AllDomains);
@@ -97,7 +93,8 @@ fn domain_scope_renders_catch_all_and_autohostlist_profiles_cleanly() {
 }
 
 #[test]
-fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot() {
+fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot()
+{
     let tls_strats = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
     let http_strats = build_catalog(ProbeProtocol::Http, ScanLevel::Quick, IpFamily::V4);
     let tls_a = tls_strats[0].clone();
@@ -111,7 +108,8 @@ fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot() {
         CoveredProfile { strategy: tls_a.clone(), domains: vec!["a.com".to_owned()], avg_latency_ms: 25 },
         CoveredProfile { strategy: tls_b.clone(), domains: vec!["b.com".to_owned()], avg_latency_ms: 30 },
     ];
-    for scope in [DomainScope::AllDomains, DomainScope::AutoHostlist] {
+    for scope in [DomainScope::AllDomains, DomainScope::AutoHostlist]
+    {
         let rendered = render_nfqws2_toml_scoped(&multi_cover, &opts, scope);
         let cfg = AppConfig::from_toml_str(&rendered, None).expect("valid deduplicated TOML");
         assert_eq!(cfg.profiles.len(), 2);
@@ -146,7 +144,8 @@ fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot() {
 }
 
 #[test]
-fn merge_preserves_ipset_ip_profiles_across_slot_wide_updates() {
+fn merge_preserves_ipset_ip_profiles_across_slot_wide_updates()
+{
     let tls_strats = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
     let existing = r#"
 qnum = 200

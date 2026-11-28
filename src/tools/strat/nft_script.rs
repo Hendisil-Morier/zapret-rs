@@ -7,17 +7,17 @@ use std::fmt::Write as _;
 pub const STRAT_FINDER_NFT_TABLE: &str = "zapret_strat_finder";
 
 /// Formats singleton ports as `{ p1, p2, ... }` and non-singleton intervals as `from-to` clauses.
-fn fmt_port_exprs(ranges: &[(u16, u16)]) -> Vec<String> {
+fn fmt_port_exprs(ranges: &[(u16, u16)]) -> Vec<String>
+{
     let mut exprs = Vec::new();
-    let singles: Vec<String> = ranges
-        .iter()
-        .filter(|(from, to)| from == to)
-        .map(|(from, _)| from.to_string())
-        .collect();
-    if !singles.is_empty() {
+    let singles: Vec<String> =
+        ranges.iter().filter(|(from, to)| from == to).map(|(from, _)| from.to_string()).collect();
+    if !singles.is_empty()
+    {
         exprs.push(format!("{{ {} }}", singles.join(", ")));
     }
-    for (from, to) in ranges.iter().copied().filter(|(from, to)| from < to) {
+    for (from, to) in ranges.iter().copied().filter(|(from, to)| from < to)
+    {
         exprs.push(format!("{from}-{to}"));
     }
     exprs
@@ -30,27 +30,25 @@ fn write_dport_queue_rules(
     qnum: u16,
     tcp_ranges: &[(u16, u16)],
     udp_ranges: &[(u16, u16)],
-) {
-    for expr in fmt_port_exprs(tcp_ranges) {
+)
+{
+    for expr in fmt_port_exprs(tcp_ranges)
+    {
         let _ = writeln!(script, "    {prefix}tcp dport {expr} queue num {qnum} bypass");
     }
-    for expr in fmt_port_exprs(udp_ranges) {
+    for expr in fmt_port_exprs(udp_ranges)
+    {
         let _ = writeln!(script, "    {prefix}udp dport {expr} queue num {qnum} bypass");
     }
 }
 
 /// Appends an early server-reply conntrack queue rule (`ct original packets 1-6`) to `script`.
-fn write_sport_reply_rule(
-    script: &mut String,
-    prefix: &str,
-    qnum: u16,
-    tcp_ranges: &[(u16, u16)],
-) {
-    for expr in fmt_port_exprs(tcp_ranges) {
-        let _ = writeln!(
-            script,
-            "    {prefix}tcp sport {expr} ct original packets 1-6 queue num {qnum} bypass"
-        );
+fn write_sport_reply_rule(script: &mut String, prefix: &str, qnum: u16, tcp_ranges: &[(u16, u16)])
+{
+    for expr in fmt_port_exprs(tcp_ranges)
+    {
+        let _ =
+            writeln!(script, "    {prefix}tcp sport {expr} ct original packets 1-6 queue num {qnum} bypass");
     }
 }
 
@@ -60,7 +58,8 @@ pub(crate) fn render_nft_script_ranges(
     fwmark: u32,
     tcp_ranges: &[(u16, u16)],
     udp_ranges: &[(u16, u16)],
-) -> String {
+) -> String
+{
     let mut script = String::new();
     let _ = writeln!(script, "table inet {STRAT_FINDER_NFT_TABLE} {{");
 
@@ -76,13 +75,7 @@ pub(crate) fn render_nft_script_ranges(
     script.push_str("  chain forward {\n");
     script.push_str("    type filter hook forward priority mangle; policy accept;\n");
     let _ = writeln!(script, "    meta mark & 0x{fwmark:x} != 0 accept");
-    write_dport_queue_rules(
-        &mut script,
-        "oifname != \"tailscale0\" ",
-        qnum,
-        tcp_ranges,
-        udp_ranges,
-    );
+    write_dport_queue_rules(&mut script, "oifname != \"tailscale0\" ", qnum, tcp_ranges, udp_ranges);
     write_sport_reply_rule(&mut script, "iifname != \"tailscale0\" ", qnum, tcp_ranges);
     script.push_str("  }\n");
 
