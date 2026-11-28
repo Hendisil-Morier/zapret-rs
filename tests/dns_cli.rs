@@ -3,6 +3,7 @@
 /// DNS preset, parser helpers, and multicall router under test.
 use zapret_rs::tools::dns::{
     DnsPreset, parse_linux_default_iface, parse_resolv_conf_servers, parse_windows_connected_interfaces,
+    parse_windows_doh_servers,
 };
 use zapret_rs::tools::{MulticallApplet, resolve_multicall};
 
@@ -78,6 +79,33 @@ Enabled        Connected      Dedicated        Wi-Fi
 Enabled        Connected      Dedicated        Ethernet 2
 ";
     assert_eq!(parse_windows_connected_interfaces(netsh), vec!["Wi-Fi", "Ethernet 2"]);
+
+    let netsh_doh = "\
+Encryption settings for 9.9.9.9
+----------------------------------------------------------------------
+DNS-over-HTTPS template     : https://dns.quad9.net/dns-query
+Auto-upgrade                : no
+UDP-fallback                : no
+
+Encryption settings for 2606:4700:4700::1111
+----------------------------------------------------------------------
+DNS-over-HTTPS template     : https://cloudflare-dns.com/dns-query
+Auto-upgrade                : yes
+UDP-fallback                : no
+
+Encryption settings for 1.1.1.1
+----------------------------------------------------------------------
+DNS-over-HTTPS template     : https://cloudflare-dns.com/dns-query
+Auto-upgrade                : yes
+UDP-fallback                : no
+";
+    assert_eq!(parse_windows_doh_servers(netsh_doh, &["1.1.1.1".to_owned()]).as_deref(), Some("DoH"));
+    assert_eq!(
+        parse_windows_doh_servers(netsh_doh, &["2606:4700:4700::1111".to_owned()]).as_deref(),
+        Some("DoH")
+    );
+    assert_eq!(parse_windows_doh_servers(netsh_doh, &["9.9.9.9".to_owned()]), None);
+    assert_eq!(parse_windows_doh_servers(netsh_doh, &["8.8.8.8".to_owned()]), None);
 }
 
 #[test]

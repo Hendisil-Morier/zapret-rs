@@ -205,9 +205,47 @@ fn symlink_points_to_zapret(link_path: &Path, dst_bin: &Path) -> bool
     })
 }
 
+/// Copies companion WinDivert driver artifacts when installing next to a Windows executable.
+#[cfg(windows)]
+fn copy_windows_driver_artifacts(src_bin: &Path, bin_dir: &Path) -> Result<(), String>
+{
+    let Some(src_dir) = src_bin.parent()
+    else
+    {
+        return Ok(());
+    };
+    for artifact in ["WinDivert.dll", "WinDivert64.sys"]
+    {
+        let src = src_dir.join(artifact);
+        if src.is_file()
+        {
+            let dst = bin_dir.join(artifact);
+            if fs::canonicalize(&src).ok() != fs::canonicalize(&dst).ok()
+            {
+                atomic_copy_executable(&src, &dst)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Installs `zapret-rs`, bundled Lua scripts, optional symlinks, capabilities, and systemd unit.
 fn perform_install(cli: &InstallCli) -> Result<(), String>
 {
+    #[cfg(windows)]
+    {
+        if cli.systemd
+        {
+            return Err("--systemd is only supported on Linux".to_owned());
+        }
+        if cli.symlinks
+        {
+            return Err(
+                "--symlinks requires Unix symlinks; run subcommands via 'zapret-rs <cmd>' on Windows"
+                    .to_owned(),
+            );
+        }
+    }
     let prefix = cli
         .prefix
         .clone()
@@ -218,7 +256,8 @@ fn perform_install(cli: &InstallCli) -> Result<(), String>
         None => std::env::current_exe().map_err(|err| format!("cannot locate running executable: {err}"))?,
     };
     let bin_dir = prefix.join("bin");
-    let dst_bin = bin_dir.join("zapret-rs");
+    let main_name = if cfg!(windows) { "zapret-rs.exe" } else { "zapret-rs" };
+    let dst_bin = bin_dir.join(main_name);
     let dst_is_symlink = fs::symlink_metadata(&dst_bin).is_ok_and(|meta| {
         meta.file_type()
             .is_symlink()
@@ -227,6 +266,9 @@ fn perform_install(cli: &InstallCli) -> Result<(), String>
     {
         atomic_copy_executable(&src_bin, &dst_bin)?;
     }
+
+    #[cfg(windows)]
+    copy_windows_driver_artifacts(&src_bin, &bin_dir)?;
 
     let lua_dir = prefix
         .join("share")
@@ -281,6 +323,12 @@ fn perform_install(cli: &InstallCli) -> Result<(), String>
 /// Removes installed files from `prefix` (preserving `~/.config/zapret-rs` and unrelated binaries).
 fn perform_uninstall(cli: &UninstallCli) -> Result<(), String>
 {
+    #[cfg(windows)]
+    if cli.systemd
+    {
+        return Err("--systemd is only supported on Linux".to_owned());
+    }
+    let main_name = if cfg!(windows) { "zapret-rs.exe" } else { "zapret-rs" };
     let prefix = cli
         .prefix
         .clone()
@@ -288,7 +336,7 @@ fn perform_uninstall(cli: &UninstallCli) -> Result<(), String>
             let user_prefix = default_install_prefix(false);
             if user_prefix
                 .join("bin")
-                .join("zapret-rs")
+                .join(main_name)
                 .exists()
                 && current_euid() != 0
             {
@@ -300,7 +348,7 @@ fn perform_uninstall(cli: &UninstallCli) -> Result<(), String>
             }
         });
     let bin_dir = prefix.join("bin");
-    let main_bin = bin_dir.join("zapret-rs");
+    let main_bin = bin_dir.join(main_name);
     if let Ok(meta) = fs::symlink_metadata(&main_bin)
         && (meta
             .file_type()

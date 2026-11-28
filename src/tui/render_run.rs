@@ -20,6 +20,9 @@ use crate::tui::theme_config::Theme;
 /// Tab 2 focus selector and daemon lifecycle status enum.
 use crate::tui::types::{RunFocus, RunStatus};
 
+/// Platform-appropriate filter mode label in Tab 2's controller summary card.
+const FILTER_MODE_LABEL: &str = if cfg!(windows) { "WinDivert     : " } else { "nftables Mode : " };
+
 /// Builds styled spans for comma-separated profile names or a muted fallback label.
 fn profile_spans(profiles: &[String], empty_hint: &'static str, t: &Theme) -> Vec<Span<'static>>
 {
@@ -154,7 +157,7 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>>
             Line::from(vec![Span::styled("Config Path   : ", key_style), cfg_span]),
             Line::from(prof_line),
             Line::from(vec![
-                Span::styled("nftables Mode : ", key_style),
+                Span::styled(FILTER_MODE_LABEL, key_style),
                 Span::styled("daemon-managed ", Style::default().fg(t.ok_bright)),
                 Span::styled(format!("(fwmark 0x{:08x})", meta.fwmark), Style::default().fg(t.warn_bright)),
             ]),
@@ -229,7 +232,7 @@ fn run_controller_lines(state: &AppState) -> Vec<Line<'static>>
             ]),
             Line::from(prof_line),
             Line::from(vec![
-                Span::styled("nftables Mode : ", key_style),
+                Span::styled(FILTER_MODE_LABEL, key_style),
                 Span::styled(nft_text, Style::default().fg(nft_col)),
             ]),
         ]

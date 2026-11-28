@@ -85,6 +85,19 @@ impl DnsPreset
         }
     }
 
+    /// Returns `(primary, secondary)` IPv6 DNS servers, or `None` for [`DnsPreset::Auto`].
+    pub const fn ipv6_servers(self) -> Option<(&'static str, &'static str)>
+    {
+        match self
+        {
+            Self::Cloudflare => Some(("2606:4700:4700::1111", "2606:4700:4700::1001")),
+            Self::Google => Some(("2001:4860:4860::8888", "2001:4860:4860::8844")),
+            Self::Quad9 => Some(("2620:fe::fe", "2620:fe::9")),
+            Self::AdGuard => Some(("2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff")),
+            Self::Auto => None,
+        }
+    }
+
     /// Returns the DNS-over-HTTPS URI template used on Windows 11, or `None` for [`DnsPreset::Auto`].
     pub const fn doh_template(self) -> Option<&'static str>
     {
@@ -288,6 +301,80 @@ fn detect_linux_dns_status() -> DnsStatus
     DnsStatus { interface: iface, servers, encryption: None }
 }
 
+/// Extracts the DNS server IP from a Windows `netsh dns show encryption` block header.
+fn parse_windows_doh_header(trimmed: &str) -> Option<&str>
+{
+    let rest = trimmed.strip_prefix("Encryption settings for ")?;
+    let rest = rest
+        .trim_start()
+        .strip_prefix("server ")
+        .unwrap_or(rest)
+        .trim();
+    (!rest.is_empty()).then_some(rest)
+}
+
+/// Parses `netsh dns show encryption` output to check whether any active DNS server uses DoH with auto-upgrade.
+pub fn parse_windows_doh_servers(stdout: &str, servers: &[String]) -> Option<String>
+{
+    let mut matching = false;
+    let mut has_template = false;
+    let mut auto_upgrade = false;
+    for line in stdout.lines()
+    {
+        let trimmed = line.trim();
+        if let Some(ip) = parse_windows_doh_header(trimmed)
+        {
+            if matching && has_template && auto_upgrade
+            {
+                return Some("DoH".to_owned());
+            }
+            matching = servers
+                .iter()
+                .any(|s| s == ip);
+            has_template = false;
+            auto_upgrade = false;
+            continue;
+        }
+        if !matching
+        {
+            continue;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.contains("https://")
+        {
+            has_template = true;
+        }
+        else if lower.starts_with("auto-upgrade") && lower.contains("yes")
+        {
+            auto_upgrade = true;
+        }
+    }
+    (matching && has_template && auto_upgrade).then(|| "DoH".to_owned())
+}
+
+/// Collects parsed IPv4 or IPv6 DNS server addresses for `iface` via `netsh interface <family> show dnsservers`.
+#[cfg(windows)]
+fn collect_windows_dns_family(family: &str, iface: &str, servers: &mut Vec<String>)
+{
+    let Ok(out) = run_cmd_capture("netsh", &["interface", family, "show", "dnsservers", iface])
+    else
+    {
+        return;
+    };
+    for tok in out.split_whitespace()
+    {
+        if tok
+            .parse::<std::net::IpAddr>()
+            .is_ok()
+            && !servers
+                .iter()
+                .any(|s| s == tok)
+        {
+            servers.push(tok.to_owned());
+        }
+    }
+}
+
 /// Windows DNS detection via `netsh interface show interface` and `show dnsservers`.
 #[cfg(windows)]
 fn detect_windows_dns_status() -> DnsStatus
@@ -303,22 +390,12 @@ fn detect_windows_dns_status() -> DnsStatus
         return DnsStatus { interface: "none".to_owned(), servers: Vec::new(), encryption: None };
     };
     let mut servers = Vec::new();
-    if let Ok(out) = run_cmd_capture("netsh", &["interface", "ipv4", "show", "dnsservers", &iface])
-    {
-        for line in out.lines()
-        {
-            for tok in line.split_whitespace()
-            {
-                if tok
-                    .parse::<std::net::Ipv4Addr>()
-                    .is_ok()
-                {
-                    servers.push(tok.to_owned());
-                }
-            }
-        }
-    }
-    DnsStatus { interface: iface, servers, encryption: None }
+    collect_windows_dns_family("ipv4", &iface, &mut servers);
+    collect_windows_dns_family("ipv6", &iface, &mut servers);
+    let encryption = run_cmd_capture("netsh", &["dns", "show", "encryption"])
+        .ok()
+        .and_then(|out| parse_windows_doh_servers(&out, &servers));
+    DnsStatus { interface: iface, servers, encryption }
 }
 
 /// Applies `preset` to the active OS network interface(s).
@@ -339,7 +416,62 @@ pub fn apply_dns_preset(preset: DnsPreset) -> Result<String, String>
     }
 }
 
-/// Applies `preset` on all `Connected` Windows adapters via `netsh` + `ipconfig /flushdns`.
+/// Registers or updates DoH auto-upgrade settings for `srv` in Windows `netsh dns`.
+#[cfg(windows)]
+fn register_windows_doh(srv: &str, tpl: &str)
+{
+    let srv_arg = format!("server={srv}");
+    let tpl_arg = format!("dohtemplate={tpl}");
+    if run_cmd_capture(
+        "netsh",
+        &["dns", "add", "encryption", &srv_arg, &tpl_arg, "autoupgrade=yes", "udpfallback=no"],
+    )
+    .is_err()
+    {
+        let _ = run_cmd_capture(
+            "netsh",
+            &["dns", "set", "encryption", &srv_arg, &tpl_arg, "autoupgrade=yes", "udpfallback=no"],
+        );
+    }
+}
+
+/// Configures static primary/secondary or DHCP DNS servers on one Windows `netsh interface <family>`.
+#[cfg(windows)]
+fn apply_windows_iface_dns(family: &str, name_arg: &str, servers: Option<(&str, &str)>)
+-> Result<(), String>
+{
+    match servers
+    {
+        Some((primary, secondary)) =>
+        {
+            run_cmd_capture(
+                "netsh",
+                &[
+                    "interface",
+                    family,
+                    "set",
+                    "dnsservers",
+                    name_arg,
+                    "static",
+                    primary,
+                    "primary",
+                    "validate=no",
+                ],
+            )?;
+            let _ = run_cmd_capture(
+                "netsh",
+                &["interface", family, "add", "dnsservers", name_arg, secondary, "index=2", "validate=no"],
+            );
+        }
+        None =>
+        {
+            run_cmd_capture("netsh", &["interface", family, "set", "dnsservers", name_arg, "source=dhcp"])?;
+        }
+    }
+    Ok(())
+}
+
+/// Applies `preset` on all `Connected` Windows adapters (IPv4 + IPv6) via `netsh` + `ipconfig /flushdns`.
 #[cfg(windows)]
 fn apply_windows_dns(preset: DnsPreset) -> Result<String, String>
 {
@@ -349,61 +481,21 @@ fn apply_windows_dns(preset: DnsPreset) -> Result<String, String>
     {
         return Err("no connected Windows network adapter found".to_owned());
     }
-    if let (Some((primary, secondary)), Some(tpl)) = (preset.ipv4_servers(), preset.doh_template())
+    if let Some(tpl) = preset.doh_template()
     {
-        for srv in [primary, secondary]
+        for (p, s) in [preset.ipv4_servers(), preset.ipv6_servers()]
+            .into_iter()
+            .flatten()
         {
-            let srv_arg = format!("server={srv}");
-            let tpl_arg = format!("dohtemplate={tpl}");
-            let _ = run_cmd_capture(
-                "netsh",
-                &["dns", "add", "encryption", &srv_arg, &tpl_arg, "autoupgrade=yes", "udpfallback=no"],
-            );
+            register_windows_doh(p, tpl);
+            register_windows_doh(s, tpl);
         }
     }
     for iface in &ifaces
     {
         let name_arg = format!("name={iface}");
-        match preset.ipv4_servers()
-        {
-            Some((primary, secondary)) =>
-            {
-                run_cmd_capture(
-                    "netsh",
-                    &[
-                        "interface",
-                        "ipv4",
-                        "set",
-                        "dnsservers",
-                        &name_arg,
-                        "static",
-                        primary,
-                        "primary",
-                        "validate=no",
-                    ],
-                )?;
-                let _ = run_cmd_capture(
-                    "netsh",
-                    &[
-                        "interface",
-                        "ipv4",
-                        "add",
-                        "dnsservers",
-                        &name_arg,
-                        secondary,
-                        "index=2",
-                        "validate=no",
-                    ],
-                );
-            }
-            None =>
-            {
-                run_cmd_capture(
-                    "netsh",
-                    &["interface", "ipv4", "set", "dnsservers", &name_arg, "source=dhcp"],
-                )?;
-            }
-        }
+        apply_windows_iface_dns("ipv4", &name_arg, preset.ipv4_servers())?;
+        let _ = apply_windows_iface_dns("ipv6", &name_arg, preset.ipv6_servers());
     }
     let _ = run_cmd_capture("ipconfig", &["/flushdns"]);
     Ok(format!("Applied {} on {}", preset.label(), ifaces.join(", ")))
