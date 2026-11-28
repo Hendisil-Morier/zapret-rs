@@ -189,12 +189,6 @@ pub fn adjust_log_scroll_key(scroll: &mut u16, total_len: usize, key: KeyEvent, 
     true
 }
 
-/// Adjusts a bottom-anchored log scroll offset (`0` = live tail) for default vertical navigation keys.
-pub fn adjust_log_scroll(scroll: &mut u16, total_len: usize, code: KeyCode) -> bool
-{
-    adjust_log_scroll_key(scroll, total_len, KeyEvent::from(code), &NavKeybinds::default())
-}
-
 /// Adjusts a top-anchored preview scroll offset (`0` = top) using configurable [`NavKeybinds`].
 pub fn adjust_pane_scroll_key(scroll: &mut u16, key: KeyEvent, nav: &NavKeybinds) -> bool
 {
@@ -223,12 +217,6 @@ pub fn adjust_pane_scroll_key(scroll: &mut u16, key: KeyEvent, nav: &NavKeybinds
         return false;
     }
     true
-}
-
-/// Adjusts a top-anchored preview scroll offset (`0` = top) for default vertical navigation keys.
-pub fn adjust_pane_scroll(scroll: &mut u16, code: KeyCode) -> bool
-{
-    adjust_pane_scroll_key(scroll, KeyEvent::from(code), &NavKeybinds::default())
 }
 
 /// Computes the inclusive-start/exclusive-end visible slice keeping `selected` inside `capacity` rows.

@@ -1,7 +1,7 @@
 //! Mouse click and scroll wheel hit-testing aligned to the `ratatui` panel layouts.
 
 /// Mouse event primitives from `crossterm`.
-use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 /// Exact same `Layout` engine used by renderers so click targets stay synchronized with visuals.
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 
@@ -13,10 +13,9 @@ use crate::tui::render::run_controller_height;
 use crate::tui::settings_actions::handle_settings_mouse;
 /// Application state mutated on click or wheel scroll.
 use crate::tui::state::AppState;
-/// Navigation, action, focus, and scroll helpers reused by mouse handlers.
+/// Navigation, action, focus, selection, and window helpers reused by mouse handlers.
 use crate::tui::types::{
-    ActiveTab, AppAction, ConfigFocus, FinderField, FinderFocus, RunFocus, adjust_log_scroll,
-    adjust_pane_scroll, step_selection, visible_window,
+    ActiveTab, AppAction, ConfigFocus, FinderField, FinderFocus, RunFocus, step_selection, visible_window,
 };
 
 /// Maps a left click or wheel scroll event at `(mouse.column, mouse.row)` onto `state`.
@@ -192,24 +191,17 @@ fn handle_footer_click(state: &mut AppState, col: u16, footer_area: Rect) -> App
     AppAction::None
 }
 
-/// Maps `ScrollUp`/`ScrollDown` into `n` repeated `Up`/`Down` key equivalents on a scroll offset.
-fn scroll_pane_n(scroll: &mut u16, dir: isize, steps: usize)
+/// Applies `steps` vertical wheel steps to a top-anchored scroll offset.
+fn scroll_pane_n(scroll: &mut u16, dir: isize, steps: u16)
 {
-    let key = if dir < 0 { KeyCode::Up } else { KeyCode::Down };
-    for _ in 0..steps
-    {
-        adjust_pane_scroll(scroll, key);
-    }
+    *scroll = if dir < 0 { scroll.saturating_sub(steps) } else { scroll.saturating_add(steps) };
 }
 
-/// Maps `ScrollUp`/`ScrollDown` into `n` repeated `Up`/`Down` steps on a bottom-anchored log.
-fn scroll_log_n(scroll: &mut u16, len: usize, dir: isize, steps: usize)
+/// Applies `steps` vertical wheel steps to a bottom-anchored log scroll offset (`0` = live tail).
+fn scroll_log_n(scroll: &mut u16, len: usize, dir: isize, steps: u16)
 {
-    let key = if dir < 0 { KeyCode::Up } else { KeyCode::Down };
-    for _ in 0..steps
-    {
-        adjust_log_scroll(scroll, len, key);
-    }
+    let cap = u16::try_from(len.saturating_sub(1)).unwrap_or(u16::MAX);
+    *scroll = if dir < 0 { scroll.saturating_add(steps).min(cap) } else { scroll.saturating_sub(steps) };
 }
 
 /// Handles left clicks and wheel scrolling across Tab 1 (`Setup`, `Results`, and `Live Scan Log`).

@@ -10,9 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::tools::{IpFamily, ProbeProtocol, ScanReport};
 
 /// Top-level navigation tabs and shared scroll helpers, re-exported for existing paths.
-pub use crate::tui::tabs::{
-    ActiveTab, adjust_log_scroll, adjust_log_scroll_key, adjust_pane_scroll, adjust_pane_scroll_key,
-};
+pub use crate::tui::tabs::{ActiveTab, adjust_log_scroll_key, adjust_pane_scroll_key};
 /// Shared inline text buffer outcome, editor, list windowing, and cursor stepping helpers.
 pub(crate) use crate::tui::tabs::{TextInputOutcome, handle_inline_text_key, step_selection, visible_window};
 
