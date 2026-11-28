@@ -4,6 +4,19 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-29
+
+### Added
+
+- **Cross-Platform TUI Copy & Paste (`src/tui/clipboard.rs`, `src/tui/clipboard_context.rs`):** Added bracketed paste (`Event::Paste`), `Ctrl+v` OS clipboard paste (`powershell` on Windows, `pbpaste` on macOS, `wl-paste`/`xclip`/`xsel` on Linux) into focused Finder inputs, modals, inline filters, and Settings editors, plus contextual `y` / `Ctrl+y` copying across all tabs via native clipboard tools and OSC 52.
+- **Persistent `[finder]` Preferences (`src/tui/app_config.rs`, `src/tui/app_config_save.rs`):** Persisted Strategy Finder protocol toggles, IP mode, scan level, stop-on-first, and domain scope surgically under `[finder]` in `~/.config/zapret-rs/config.toml` across exits, Tab 7 saves, and reloads.
+
+### Fixed
+
+- **Windows IPv6 DNS/DoH, Installer Paths & Mode Labels (`src/tools/dns.rs`, `src/tools/installer.rs`, `src/tui/render_run.rs`):** Configured both IPv4 and IPv6 DNS servers with `autoupgrade=yes` DoH registration on Windows adapters, updated `"Encryption settings for <ip>"` header parsing, switched Tab 2 mode label to `WinDivert`, and updated `installer.rs` Windows artifact paths.
+- **Loopback DNS Sinkhole Diagnostics (`src/tools/strat/probe.rs`, `src/tools/strat/runner.rs`):** Surfaced explicit loopback/blocked DNS failures when `curl` exits with connect failure (`code 7`) against `127.0.0.1`/local IPs and skipped futile strategy sweeps for DNS-blocked targets.
+- **Consistent TUI Mouse Selection & 1-Row Scrolling (`src/tui/mouse.rs`, `src/tui/mouse_tabs.rs`, `src/tui/render_speed.rs`):** Added Tab 5 (`Status`) left-click row selection, aligned Tab 1 (`Results`) and Tab 4 (`Speed`) visible window offsets with mouse hit-testing, and standardized table/list wheel scrolling to 1 row.
+
 ## [2.1.0] - 2026-11-28
 
 ### Changed
