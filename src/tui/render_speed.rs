@@ -21,6 +21,8 @@ use crate::tui::state::AppState;
 use crate::tui::theme::{panel_block, styled_key_hints_owned};
 /// Active configurable color palette.
 use crate::tui::theme_config::Theme;
+/// Visible slice window helper matching Tab 4 mouse hit-testing.
+use crate::tui::types::visible_window;
 
 /// Maps an optional [`SpeedSample`] to styled display text and color.
 fn sample_cell(sample: &Option<SpeedSample>, t: &Theme) -> (String, Color)
@@ -160,13 +162,29 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState)
                 .bg(t.highlight_bg)
                 .add_modifier(Modifier::BOLD),
         );
+        let capacity = usize::from(
+            rows[1]
+                .height
+                .saturating_sub(3),
+        )
+        .max(1);
+        let (start, end) = visible_window(
+            state
+                .speed
+                .rows
+                .len(),
+            state
+                .speed
+                .selected,
+            capacity,
+        );
         let table_rows: Vec<Row> = state
             .speed
-            .rows
+            .rows[start..end]
             .iter()
             .enumerate()
             .map(|(idx, row)| {
-                let selected = idx
+                let selected = start + idx
                     == state
                         .speed
                         .selected;

@@ -14,6 +14,26 @@ use crate::tui::types::{
     AppAction, ConfigFocus, FinderField, FinderFocus, RunFocus, step_selection, visible_window,
 };
 
+/// Maps a table body click at `pos_y` through `visible_window` to update `*selected`.
+fn click_windowed_row(pos_y: u16, rect: Rect, len: usize, selected: &mut usize)
+{
+    if len == 0 || pos_y < rect.y + 2 || pos_y + 1 >= rect.bottom()
+    {
+        return;
+    }
+    let capacity = usize::from(
+        rect.height
+            .saturating_sub(3),
+    )
+    .max(1);
+    let (start, end) = visible_window(len, *selected, capacity);
+    let idx = start + usize::from(pos_y - (rect.y + 2));
+    if idx < end
+    {
+        *selected = idx;
+    }
+}
+
 /// Handles left clicks and wheel scrolling across Tab 1 (`Setup`, `Results`, and `Live Scan Log`).
 pub(super) fn handle_finder_mouse(
     state: &mut AppState,
@@ -112,36 +132,19 @@ pub(super) fn handle_finder_mouse(
             );
         }
         else if is_left
-            && !state
+        {
+            let len = state
                 .finder
                 .targets
-                .is_empty()
-            && pos.y >= right[1].y + 2
-            && pos.y + 1 < right[1].bottom()
-        {
-            let capacity = usize::from(
-                right[1]
-                    .height
-                    .saturating_sub(3),
-            )
-            .max(1);
-            let (start, end) = visible_window(
-                state
-                    .finder
-                    .targets
-                    .len(),
-                state
+                .len();
+            click_windowed_row(
+                pos.y,
+                right[1],
+                len,
+                &mut state
                     .focus
                     .finder_results_sel,
-                capacity,
             );
-            let row = start + usize::from(pos.y - (right[1].y + 2));
-            if row < end
-            {
-                state
-                    .focus
-                    .finder_results_sel = row;
-            }
         }
     }
     else if right[2].contains(pos)
@@ -253,7 +256,7 @@ pub(super) fn handle_run_mouse(
                     .inspector
                     .selected,
                 visible_len,
-                dir * 3,
+                dir,
             );
             return AppAction::None;
         }
@@ -387,18 +390,19 @@ pub(super) fn handle_speed_mouse(
             .speed
             .move_selection(dir);
     }
-    else if is_left && pos.y >= rows[1].y + 2 && pos.y + 1 < rows[1].bottom()
+    else if is_left
     {
-        let idx = usize::from(pos.y - (rows[1].y + 2));
-        if idx
-            < state
+        let len = state
+            .speed
+            .rows
+            .len();
+        click_windowed_row(
+            pos.y,
+            rows[1],
+            len,
+            &mut state
                 .speed
-                .rows
-                .len()
-        {
-            state
-                .speed
-                .selected = idx;
-        }
+                .selected,
+        );
     }
 }

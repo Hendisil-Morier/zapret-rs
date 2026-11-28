@@ -96,28 +96,63 @@ pub fn handle_mouse_event(state: &mut AppState, mouse: MouseEvent, area: Rect) -
         ActiveTab::Run => return handle_run_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Config => handle_config_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Speed => handle_speed_mouse(state, pos, is_left, scroll_dir, chunks[1]),
-        ActiveTab::Status =>
-        {
-            if let Some(dir) = scroll_dir
-            {
-                state
-                    .status
-                    .selected = step_selection(
-                    state
-                        .status
-                        .selected,
-                    state
-                        .status
-                        .checks
-                        .len(),
-                    dir,
-                );
-            }
-        }
+        ActiveTab::Status => handle_status_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Hostlist => handle_hostlist_mouse(state, pos, is_left, scroll_dir, chunks[1]),
         ActiveTab::Settings => handle_settings_mouse(state, pos, is_left, scroll_dir, chunks[1]),
     }
     AppAction::None
+}
+
+/// Selects rows by click or scroll wheel inside Tab 5's Component Status table.
+fn handle_status_mouse(
+    state: &mut AppState,
+    pos: Position,
+    is_left: bool,
+    scroll_dir: Option<isize>,
+    body: Rect,
+)
+{
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(8), Constraint::Length(5)])
+        .split(body);
+    if !rows[0].contains(pos)
+        || state
+            .status
+            .checks
+            .is_empty()
+    {
+        return;
+    }
+    if let Some(dir) = scroll_dir
+    {
+        state
+            .status
+            .selected = step_selection(
+            state
+                .status
+                .selected,
+            state
+                .status
+                .checks
+                .len(),
+            dir,
+        );
+    }
+    else if is_left && pos.y >= rows[0].y + 2 && pos.y + 1 < rows[0].bottom()
+    {
+        let idx = usize::from(pos.y - (rows[0].y + 2));
+        if idx
+            < state
+                .status
+                .checks
+                .len()
+        {
+            state
+                .status
+                .selected = idx;
+        }
+    }
 }
 
 /// Switches tabs when clicking inside the top-left `Tabs` bar.

@@ -239,3 +239,54 @@ fn mouse_interacts_with_finder_run_config_and_speed_panels()
         0
     );
 }
+
+/// Verifies Tab 5 (`Status`) click selection and unified `1`-row wheel steps across Tab 2/Tab 7 tables.
+#[test]
+fn mouse_selects_status_rows_and_scrolls_cursor_tables_by_one()
+{
+    let mut state = AppState::new(None, None, false);
+
+    // Tab 5 Status: table rows start at y = 3(body) + 2(border + header) = 5 -> row 2 is y = 7.
+    state.tab = ActiveTab::Status;
+    state.refresh_status_checks();
+    assert!(
+        state
+            .status
+            .checks
+            .len()
+            >= 4
+    );
+    handle_mouse_event(&mut state, click(15, 7), AREA);
+    assert_eq!(
+        state
+            .status
+            .selected,
+        2
+    );
+
+    // Tab 2 Run Inspector scrolls by 1 row per wheel tick.
+    state.tab = ActiveTab::Run;
+    for seq in 1..=5
+    {
+        state
+            .inspector
+            .push(dummy_pkt(seq));
+    }
+    handle_mouse_event(&mut state, scroll(20, 16, true), AREA);
+    assert_eq!(
+        state
+            .inspector
+            .selected,
+        1
+    );
+
+    // Tab 7 Settings Keybinds scrolls by 1 row per wheel tick.
+    state.tab = ActiveTab::Settings;
+    handle_mouse_event(&mut state, scroll(80, 10, true), AREA);
+    assert_eq!(
+        state
+            .settings
+            .keybind_sel,
+        1
+    );
+}
