@@ -8,18 +8,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- **Centralized `config.toml` & Modular `import` Support (`src/tui/app_config.rs`, `src/tui/app_config_import.rs`):** Added `~/.config/zapret-rs/config.toml` to centralize `nfqws2_config`, `lua_dir`, `no_nft`, `control_socket`, `[theme]`, and `[keybinds.*]`, with recursive `import` / `imports` resolution for standalone `theme.toml` and `keybinds.toml` fragments (plus circular import rejection). Added `--config` auto-detection between `config.toml` and `nfqws2.toml`, `--nfqws2-config` override, legacy `theme.toml` fallback, `T` persistence, and `setcap` re-exec preservation.
+- **Centralized `config.toml`, Modular `import`, & Tab 7 (`Settings`):** Added `~/.config/zapret-rs/config.toml` to centralize `nfqws2_config`, `lua_dir`, `no_nft`, `control_socket`, `[theme]`, and `[keybinds.*]`, with recursive `import` / `imports` resolution for standalone `theme.toml` and `keybinds.toml` fragments (plus circular import rejection). Added Tab 7 (`7: Settings`) for interactive preset cycling, path/option editing, live keybind capture, and comment-preserving sparse saves (`s`), alongside `--config` auto-detection (`config.toml` vs. `nfqws2.toml`), `--nfqws2-config` override, and `setcap` re-exec preservation.
 - **Fully Remappable TUI Keybindings (`src/tui/keybind_spec.rs`, `src/tui/keybind_schema.rs`):** Made all global, directional (`[keybinds.nav]`), Packet Inspector, and per-tab bindings remappable via single key strings or arrays (including `Ctrl+`/`Alt+`/`Shift+` chords), with dynamic keycap updates across the footer, `?` help popup, tab hint bars, Web UI banners, and mouse click offsets.
-- **Cyclic `H` / `L` Tab Navigation & Bidirectional Tab 6 Moves:** Bound `H` and `L` globally to cycle backward and forward across all six top-level tabs, and extended `m`/`x` on Tab 6 to move selected entries in both directions between **Auto Hostlist** and **Blacklist**.
+- **Cyclic `H` / `L` Tab Navigation & Bidirectional Tab 6 Moves:** Bound `H` and `L` globally to cycle backward and forward across all seven top-level tabs, and extended `m`/`x` on Tab 6 to move selected entries in both directions between **Auto Hostlist** and **Blacklist**.
 
 ### Fixed
 
 - **Bare IP Hostlist Management (`src/tools/strat/exclude.rs`):** Separated `parse_hostlist_entry` from `parse_clean_domain` so Tab 6 and Web UI Auto Hostlist / Blacklist operations accept bare IPv4/IPv6 entries while probe and Web UI URL validation continues blocking raw IPs and `localhost`.
-- **Tab 6 Empty-State Wrapping & Help Ranges:** Wrapped empty-column instructions cleanly in `src/tui/render_hostlist.rs`, kept narrow header titles unclipped, and updated the `?` global keybindings summary from `[1..5]` to `[1..6/H/L]`.
+- **Tab 6 Empty-State Wrapping & Help Ranges:** Wrapped empty-column instructions cleanly in `src/tui/render_hostlist.rs`, kept narrow header titles unclipped, and updated the `?` global keybindings summary from `[1..5]` to `[1..7/H/L]`.
+
+### Removed
+
+- **Global `t` Theme Shortcut & Legacy Compatibility Shims:** Removed `[keybinds.global].cycle_theme` (`t`), `[t] <theme>` footer chip/click handling (moved exclusively to Tab 7 `Settings`), implicit `~/.config/zapret-rs/theme.toml` fallback reads/writes (`resolve_theme(None)`, `save_theme_to_default_path`, `Theme::to_toml`; use `import = "./theme.toml"` or `--theme`), and unused compatibility wrappers (`AppState::nft_preview_script`, `PacketInspectorState::handle_key`, `adjust_log_scroll`, and `adjust_pane_scroll`).
 
 ### Docs
 
-- Updated [README.md](README.md) to reference `releases/latest` instead of hardcoded `v1.4.2` tags and expanded the TUI overview to all six tabs.
+- Updated [README.md](README.md) to reference `releases/latest` instead of hardcoded `v1.4.2` tags, expanded the TUI overview to all seven tabs, and added architecture guides and ADRs under `docs/`.
 
 ## [1.4.4] - 2026-11-27
 
