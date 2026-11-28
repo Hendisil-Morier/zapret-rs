@@ -28,8 +28,8 @@ use crate::tui::settings_tab::SettingsTabState;
 use crate::tui::speed::SpeedState;
 /// Tab 1, Tab 2, Tab 3, and Tab 5 state sub-structs extracted from [`AppState`].
 use crate::tui::tab_states::{ConfigTabState, FinderState, RunState, StatusTabState};
-/// Configurable color theme palette and `theme.toml` load/save helpers.
-use crate::tui::theme_config::{Theme, resolve_theme};
+/// Configurable color theme palette.
+use crate::tui::theme_config::Theme;
 /// Shared TUI enums and worker event types.
 use crate::tui::types::{ActiveTab, AppAction, FinderField, PanelFocusState, PostCapsAction};
 
@@ -84,17 +84,16 @@ impl AppState
     /// Initializes TUI state with auto-detected Lua directory, capability snapshot, and optional config.
     pub fn new(initial_config: Option<PathBuf>, initial_lua_dir: Option<PathBuf>, no_nft: bool) -> Self
     {
-        let (theme, theme_warn) = resolve_theme(None);
         let resolved = ResolvedAppConfig {
             app_config_path: default_app_config_path(),
             nfqws2_config: initial_config,
             lua_dir: initial_lua_dir,
             no_nft,
             control_socket: None,
-            theme,
+            theme: Theme::neon(),
             keybinds: Keybinds::default(),
         };
-        Self::from_startup_config(resolved, theme_warn)
+        Self::from_startup_config(resolved, None)
     }
 
     /// Builds TUI state from pre-resolved centralized `config.toml`, CLI overrides, and warnings.

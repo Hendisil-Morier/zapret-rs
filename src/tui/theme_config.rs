@@ -1,15 +1,12 @@
-//! Configurable `zapret-rs` TUI color themes: hex/named parsing and `theme.toml` I/O.
-
-/// Filesystem loading and `PathBuf` handling for `~/.config/zapret-rs/theme.toml`.
-use std::path::PathBuf;
+//! Configurable `zapret-rs` TUI color themes: hex/named parsing and `--theme` resolution.
 
 /// `ratatui` 24-bit RGB and standard 16-color terminal palette types.
 use ratatui::style::Color;
-/// Deserialization for user theme override TOML files (`theme.toml` and `[theme]` sections).
+/// Deserialization for user theme override TOML files (`theme.toml` fragments and `[theme]`).
 use serde::Deserialize;
 
-/// Config path helper, `~/` expansion, and symlink-safe TOML writer shared across the app.
-use crate::tools::{default_output_config_path, expand_tilde, write_config_nofollow};
+/// `~/` path expansion helper for explicit `--theme <path>` files.
+use crate::tools::expand_tilde;
 
 /// Re-exported palette struct and preset catalog so existing `theme_config` callers stay intact.
 pub use crate::tui::theme_presets::{PRESET_NAMES, Theme};
@@ -65,53 +62,9 @@ impl Theme
         }
         Ok(theme)
     }
-
-    /// Serializes all active palette slots into a commented `theme.toml` template.
-    pub fn to_toml(&self) -> String
-    {
-        let base = if self.name == "custom" { "neon" } else { self.name };
-        format!(
-            "# zapret-rs TUI color theme (~/.config/zapret-rs/theme.toml)\n\
-             # Presets: neon, tokyo, dracula, gruvbox, ansi\n\
-             # Any key below overrides the preset using #RRGGBB hex or named terminal colors.\n\
-             preset = \"{base}\"\n\
-             accent = \"{}\"\n\
-             accent_bright = \"{}\"\n\
-             frame = \"{}\"\n\
-             info = \"{}\"\n\
-             ok = \"{}\"\n\
-             ok_bright = \"{}\"\n\
-             warn = \"{}\"\n\
-             warn_bright = \"{}\"\n\
-             err = \"{}\"\n\
-             err_bright = \"{}\"\n\
-             special = \"{}\"\n\
-             special_bright = \"{}\"\n\
-             text = \"{}\"\n\
-             subtle = \"{}\"\n\
-             muted = \"{}\"\n\
-             highlight_bg = \"{}\"\n",
-            format_color(self.accent),
-            format_color(self.accent_bright),
-            format_color(self.frame),
-            format_color(self.info),
-            format_color(self.ok),
-            format_color(self.ok_bright),
-            format_color(self.warn),
-            format_color(self.warn_bright),
-            format_color(self.err),
-            format_color(self.err_bright),
-            format_color(self.special),
-            format_color(self.special_bright),
-            format_color(self.text),
-            format_color(self.subtle),
-            format_color(self.muted),
-            format_color(self.highlight_bg),
-        )
-    }
 }
 
-/// Raw TOML schema accepted from `~/.config/zapret-rs/theme.toml`, `[theme]` in `config.toml`, or `--theme`.
+/// Raw TOML schema accepted from imported `theme.toml` fragments, `[theme]` in `config.toml`, or `--theme`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawThemeFile
@@ -210,54 +163,31 @@ pub fn format_color(color: Color) -> String
         .unwrap_or_else(|| "#ffffff".to_owned())
 }
 
-/// Returns the default user theme config path (`~/.config/zapret-rs/theme.toml`).
-pub fn default_theme_config_path() -> PathBuf
-{
-    default_output_config_path().with_file_name("theme.toml")
-}
-
-/// Resolves startup [`Theme`] from `--theme <preset|path>` or `~/.config/zapret-rs/theme.toml`.
+/// Resolves a CLI `--theme <preset|path>` override into a [`Theme`].
 ///
 /// Returns `(theme, optional_warning)` without aborting startup on malformed custom files.
-pub fn resolve_theme(cli_spec: Option<&str>) -> (Theme, Option<String>)
+pub fn resolve_theme(cli_spec: &str) -> (Theme, Option<String>)
 {
-    if let Some(spec) = cli_spec.map(str::trim).filter(|s| !s.is_empty())
-    {
-        if let Some(preset) = Theme::from_preset(spec)
-        {
-            return (preset, None);
-        }
-        let path = expand_tilde(spec);
-        return match std::fs::read_to_string(&path)
-        {
-            Ok(text) => match Theme::from_toml_str(&text)
-            {
-                Ok(t) => (t, None),
-                Err(err) => (Theme::neon(), Some(format!("Theme {} error: {err}", path.display()))),
-            },
-            Err(err) =>
-            {
-                (Theme::neon(), Some(format!("Unknown theme or unreadable file {}: {err}", path.display())))
-            }
-        };
-    }
-    let path = default_theme_config_path();
-    let Ok(text) = std::fs::read_to_string(&path)
-    else
+    let spec = cli_spec.trim();
+    if spec.is_empty()
     {
         return (Theme::neon(), None);
-    };
-    match Theme::from_toml_str(&text)
-    {
-        Ok(t) => (t, None),
-        Err(err) => (Theme::neon(), Some(format!("Theme {} error: {err}", path.display()))),
     }
-}
-
-/// Saves `theme` to `~/.config/zapret-rs/theme.toml` without following symlinks.
-pub fn save_theme_to_default_path(theme: &Theme) -> Result<PathBuf, String>
-{
-    let path = default_theme_config_path();
-    write_config_nofollow(&path, &theme.to_toml()).map_err(|err| err.to_string())?;
-    Ok(path)
+    if let Some(preset) = Theme::from_preset(spec)
+    {
+        return (preset, None);
+    }
+    let path = expand_tilde(spec);
+    match std::fs::read_to_string(&path)
+    {
+        Ok(text) => match Theme::from_toml_str(&text)
+        {
+            Ok(t) => (t, None),
+            Err(err) => (Theme::neon(), Some(format!("Theme {} error: {err}", path.display()))),
+        },
+        Err(err) =>
+        {
+            (Theme::neon(), Some(format!("Unknown theme or unreadable file {}: {err}", path.display())))
+        }
+    }
 }

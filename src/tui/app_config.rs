@@ -49,11 +49,11 @@ const NFQWS2_ONLY_KEYS: &[&str] = &[
 const APP_CONFIG_ONLY_KEYS: &[&str] =
     &["import", "imports", "nfqws2_config", "lua_dir", "no_nft", "theme", "keybinds"];
 
-/// Combined startup settings loaded from `config.toml`, legacy `theme.toml`, and CLI overrides.
+/// Combined startup settings loaded from `config.toml` and CLI overrides.
 #[derive(Debug, Clone)]
 pub struct ResolvedAppConfig
 {
-    /// Centralized app config path where `save_config` (`T`) persists changes.
+    /// Centralized app config path where Tab 7 Settings persists changes.
     pub app_config_path: PathBuf,
     /// Explicit or configured `nfqws2.toml` path to load into Finder/Config/Run tabs.
     pub nfqws2_config: Option<PathBuf>,
@@ -63,7 +63,7 @@ pub struct ResolvedAppConfig
     pub no_nft: bool,
     /// Optional configured daemon Unix control socket override.
     pub control_socket: Option<PathBuf>,
-    /// Active TUI color theme resolved from `--theme`, `[theme]`, or legacy `theme.toml`.
+    /// Active TUI color theme resolved from `--theme` or `[theme]`.
     pub theme: Theme,
     /// Active remappable keymap loaded from `[keybinds.*]` or defaults.
     pub keybinds: Keybinds,
@@ -202,7 +202,7 @@ pub struct StartupConfigRequest<'a>
     pub cli_theme: Option<&'a str>,
 }
 
-/// Resolves centralized `config.toml`, legacy `theme.toml`, `nfqws2.toml`, and CLI flags together.
+/// Resolves centralized `config.toml`, `nfqws2.toml`, and CLI flags together.
 pub fn resolve_startup_app_config(req: StartupConfigRequest<'_>) -> (ResolvedAppConfig, Option<String>)
 {
     let default_cfg_path = default_app_config_path();
@@ -233,7 +233,7 @@ pub fn resolve_startup_app_config(req: StartupConfigRequest<'_>) -> (ResolvedApp
         }
     }
 
-    let (mut resolved, has_theme) = match std::fs::read_to_string(&app_cfg_path)
+    let (mut resolved, _) = match std::fs::read_to_string(&app_cfg_path)
     {
         Ok(text) => match parse_app_config_str(&text, app_cfg_path.clone(), app_cfg_path.parent())
         {
@@ -249,20 +249,11 @@ pub fn resolve_startup_app_config(req: StartupConfigRequest<'_>) -> (ResolvedApp
 
     if let Some(theme_spec) = req.cli_theme
     {
-        let (theme, theme_warn) = resolve_theme(Some(theme_spec));
+        let (theme, theme_warn) = resolve_theme(theme_spec);
         resolved.theme = theme;
         if theme_warn.is_some()
         {
             warning = theme_warn;
-        }
-    }
-    else if !has_theme
-    {
-        let (legacy_theme, legacy_warn) = resolve_theme(None);
-        resolved.theme = legacy_theme;
-        if warning.is_none()
-        {
-            warning = legacy_warn;
         }
     }
 

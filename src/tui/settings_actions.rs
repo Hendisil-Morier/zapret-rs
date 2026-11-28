@@ -56,10 +56,9 @@ pub(crate) fn reload_app_config_from_disk(state: &mut AppState)
     };
     match parse_app_config_str(&text, path.clone(), path.parent())
     {
-        Ok((resolved, has_theme)) =>
+        Ok((resolved, _)) =>
         {
-            state.theme =
-                if has_theme { resolved.theme } else { crate::tui::theme_config::resolve_theme(None).0 };
+            state.theme = resolved.theme;
             state.keybinds = resolved.keybinds;
             if let Some(p) = resolved.nfqws2_config
             {

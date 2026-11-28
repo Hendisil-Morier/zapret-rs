@@ -87,12 +87,6 @@ impl AppState
         (backend.preview_title(), backend.preview_filter(self.finder.qnum, self.finder.fwmark, &tcp, &udp))
     }
 
-    /// Renders the preview script/filter text from [`Self::filter_preview`] for compatibility.
-    pub fn nft_preview_script(&self) -> String
-    {
-        self.filter_preview().1
-    }
-
     /// Applies one background [`ScanUiEvent`] to live progress, results table, logs, and TOML.
     pub fn apply_scan_event(&mut self, event: ScanUiEvent)
     {
