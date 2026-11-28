@@ -30,13 +30,17 @@ pub fn lua_to_ipv4(lua: &Lua, tbl: &Table) -> mlua::Result<Ipv4Header>
 
     let src_val = tbl.raw_get::<Value>("ip_src")?;
     let src_bytes = require_strict_bytes(&src_val)?.as_bytes();
-    let src: [u8; 4] =
-        src_bytes.as_ref().try_into().map_err(|_| mlua::Error::external("ip_src must be 4 bytes"))?;
+    let src: [u8; 4] = src_bytes
+        .as_ref()
+        .try_into()
+        .map_err(|_| mlua::Error::external("ip_src must be 4 bytes"))?;
 
     let dst_val = tbl.raw_get::<Value>("ip_dst")?;
     let dst_bytes = require_strict_bytes(&dst_val)?.as_bytes();
-    let dst: [u8; 4] =
-        dst_bytes.as_ref().try_into().map_err(|_| mlua::Error::external("ip_dst must be 4 bytes"))?;
+    let dst: [u8; 4] = dst_bytes
+        .as_ref()
+        .try_into()
+        .map_err(|_| mlua::Error::external("ip_dst must be 4 bytes"))?;
 
     let options = match tbl.raw_get::<Value>("options")?
     {
@@ -86,13 +90,17 @@ pub fn lua_to_ipv6(lua: &Lua, tbl: &Table) -> mlua::Result<Ipv6Header>
 
     let src_val = tbl.raw_get::<Value>("ip6_src")?;
     let src_bytes = require_strict_bytes(&src_val)?.as_bytes();
-    let src: [u8; 16] =
-        src_bytes.as_ref().try_into().map_err(|_| mlua::Error::external("ip6_src must be 16 bytes"))?;
+    let src: [u8; 16] = src_bytes
+        .as_ref()
+        .try_into()
+        .map_err(|_| mlua::Error::external("ip6_src must be 16 bytes"))?;
 
     let dst_val = tbl.raw_get::<Value>("ip6_dst")?;
     let dst_bytes = require_strict_bytes(&dst_val)?.as_bytes();
-    let dst: [u8; 16] =
-        dst_bytes.as_ref().try_into().map_err(|_| mlua::Error::external("ip6_dst must be 16 bytes"))?;
+    let dst: [u8; 16] = dst_bytes
+        .as_ref()
+        .try_into()
+        .map_err(|_| mlua::Error::external("ip6_dst must be 16 bytes"))?;
 
     let plen_val = tbl.raw_get::<Value>("ip6_plen")?;
     let payload_len = match &plen_val
@@ -129,7 +137,9 @@ pub fn lua_to_ipv6(lua: &Lua, tbl: &Table) -> mlua::Result<Ipv6Header>
                 _ => IPPROTO_NONE,
             };
             let data_val = ext_tbl.raw_get::<Value>("data")?;
-            let data = require_strict_bytes(&data_val)?.as_bytes().to_vec();
+            let data = require_strict_bytes(&data_val)?
+                .as_bytes()
+                .to_vec();
             exthdr.push(Ipv6ExtHeader { header_type, next_header: ext_next, data });
             idx += 1;
         }
@@ -176,7 +186,10 @@ pub fn lua_to_tcp(lua: &Lua, tbl: &Table) -> mlua::Result<TcpHeader>
             {
                 let data = match opt_tbl.raw_get::<Value>("data")?
                 {
-                    Value::String(s) => Some(s.as_bytes().to_vec()),
+                    Value::String(s) => Some(
+                        s.as_bytes()
+                            .to_vec(),
+                    ),
                     _ => None,
                 };
                 options.push(TcpOption { kind, data });
@@ -260,10 +273,19 @@ pub fn lua_to_dissect(lua: &Lua, tbl: &Table) -> mlua::Result<DissectedPacket>
 
     let payload = match tbl.raw_get::<Value>("payload")?
     {
-        Value::String(s) => Some(s.as_bytes().to_vec()),
+        Value::String(s) => Some(
+            s.as_bytes()
+                .to_vec(),
+        ),
         Value::Nil => None,
-        Value::Integer(i) => Some(i.to_string().into_bytes()),
-        Value::Number(n) => Some(n.to_string().into_bytes()),
+        Value::Integer(i) => Some(
+            i.to_string()
+                .into_bytes(),
+        ),
+        Value::Number(n) => Some(
+            n.to_string()
+                .into_bytes(),
+        ),
         _ => None,
     };
 

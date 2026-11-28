@@ -125,36 +125,54 @@ impl PacketInspectorState
         {
             PacketVerdict::Modify | PacketVerdict::Desync =>
             {
-                if self.desync_packets.len() >= MAX_INSPECT_PACKETS
+                if self
+                    .desync_packets
+                    .len()
+                    >= MAX_INSPECT_PACKETS
                 {
-                    self.desync_packets.pop_front();
+                    self.desync_packets
+                        .pop_front();
                 }
-                self.desync_packets.push_back(record.clone());
+                self.desync_packets
+                    .push_back(record.clone());
             }
             PacketVerdict::Reasm =>
             {
-                if self.reasm_packets.len() >= MAX_INSPECT_PACKETS
+                if self
+                    .reasm_packets
+                    .len()
+                    >= MAX_INSPECT_PACKETS
                 {
-                    self.reasm_packets.pop_front();
+                    self.reasm_packets
+                        .pop_front();
                 }
-                self.reasm_packets.push_back(record.clone());
+                self.reasm_packets
+                    .push_back(record.clone());
             }
             PacketVerdict::Pass =>
             {}
         }
-        if self.packets.len() >= MAX_INSPECT_PACKETS
+        if self
+            .packets
+            .len()
+            >= MAX_INSPECT_PACKETS
         {
-            self.packets.pop_front();
+            self.packets
+                .pop_front();
         }
-        self.packets.push_back(record);
+        self.packets
+            .push_back(record);
     }
 
     /// Clears captured packets and resets selection/detail/filter-edit state.
     pub fn clear(&mut self)
     {
-        self.packets.clear();
-        self.desync_packets.clear();
-        self.reasm_packets.clear();
+        self.packets
+            .clear();
+        self.desync_packets
+            .clear();
+        self.reasm_packets
+            .clear();
         self.selected = 0;
         self.detail_open = false;
         self.filter_editing = false;
@@ -180,8 +198,12 @@ impl PacketInspectorState
         {
             return None;
         }
-        let idx = self.selected.min(visible.len() - 1);
-        visible.get(idx).copied()
+        let idx = self
+            .selected
+            .min(visible.len() - 1);
+        visible
+            .get(idx)
+            .copied()
     }
 
     /// Handles inspector navigation/filter/pause/detail keys using configurable [`Keybinds`].
@@ -191,7 +213,9 @@ impl PacketInspectorState
         let nav = &keybinds.nav;
         if self.detail_open
         {
-            if insp.close_detail.contains(key)
+            if insp
+                .close_detail
+                .contains(key)
             {
                 self.detail_open = false;
                 return Some("Closed packet detail.".to_owned());
@@ -211,7 +235,9 @@ impl PacketInspectorState
                 TextInputOutcome::Submitted =>
                 {
                     self.filter_editing = false;
-                    let trimmed = self.filter_query.trim();
+                    let trimmed = self
+                        .filter_query
+                        .trim();
                     if trimmed.is_empty()
                     {
                         "Packet filter cleared.".to_owned()
@@ -230,43 +256,67 @@ impl PacketInspectorState
             };
             return Some(msg);
         }
-        let count = self.visible_packets().len();
-        if nav.up.contains(key)
+        let count = self
+            .visible_packets()
+            .len();
+        if nav
+            .up
+            .contains(key)
         {
             self.selected = step_selection(self.selected, count, -1);
             return Some(String::new());
         }
-        if nav.down.contains(key)
+        if nav
+            .down
+            .contains(key)
         {
             self.selected = step_selection(self.selected, count, 1);
             return Some(String::new());
         }
-        if insp.filter_cycle.contains(key)
+        if insp
+            .filter_cycle
+            .contains(key)
         {
-            self.filter = self.filter.next();
+            self.filter = self
+                .filter
+                .next();
             self.selected = 0;
-            return Some(format!("Packet filter: {}", self.filter.label()));
+            return Some(format!(
+                "Packet filter: {}",
+                self.filter
+                    .label()
+            ));
         }
-        if insp.filter_edit.contains(key)
+        if insp
+            .filter_edit
+            .contains(key)
         {
             self.filter_editing = true;
             return Some(
                 "Filter (proto: dir: port: verdict: profile: host: !neg): Enter apply, Esc clear".to_owned(),
             );
         }
-        if insp.pause.contains(key)
+        if insp
+            .pause
+            .contains(key)
         {
             self.paused = !self.paused;
             return Some(
                 if self.paused { "Packet inspector paused." } else { "Packet inspector resumed." }.to_owned(),
             );
         }
-        if insp.detail.contains(key)
+        if insp
+            .detail
+            .contains(key)
         {
-            if self.selected_record().is_some()
+            if self
+                .selected_record()
+                .is_some()
             {
                 self.detail_open = true;
-                let close_lbl = insp.close_detail.joined_label();
+                let close_lbl = insp
+                    .close_detail
+                    .joined_label();
                 return Some(format!("Viewing packet detail (press {close_lbl} to close)."));
             }
             return Some("No packet selected to inspect.".to_owned());
@@ -278,20 +328,48 @@ impl PacketInspectorState
 /// Returns `true` when `endpoint` (`ip:port` or `[ipv6]:port`) ends with `:port`.
 fn endpoint_has_port(endpoint: &str, port: &str) -> bool
 {
-    !port.is_empty() && endpoint.rsplit_once(':').is_some_and(|(_, p)| p == port)
+    !port.is_empty()
+        && endpoint
+            .rsplit_once(':')
+            .is_some_and(|(_, p)| p == port)
 }
 
 /// Evaluates one lowercased filter term (without leading `!`) against `record`.
 fn matches_term(record: &PacketRecord, term: &str) -> bool
 {
     let any_field = |needle: &str| {
-        record.src.to_ascii_lowercase().contains(needle)
-            || record.dst.to_ascii_lowercase().contains(needle)
-            || record.proto.to_ascii_lowercase().contains(needle)
-            || record.direction.to_ascii_lowercase().contains(needle)
-            || record.info.to_ascii_lowercase().contains(needle)
-            || record.verdict.label().to_ascii_lowercase().contains(needle)
-            || record.profile.as_deref().is_some_and(|p| p.to_ascii_lowercase().contains(needle))
+        record
+            .src
+            .to_ascii_lowercase()
+            .contains(needle)
+            || record
+                .dst
+                .to_ascii_lowercase()
+                .contains(needle)
+            || record
+                .proto
+                .to_ascii_lowercase()
+                .contains(needle)
+            || record
+                .direction
+                .to_ascii_lowercase()
+                .contains(needle)
+            || record
+                .info
+                .to_ascii_lowercase()
+                .contains(needle)
+            || record
+                .verdict
+                .label()
+                .to_ascii_lowercase()
+                .contains(needle)
+            || record
+                .profile
+                .as_deref()
+                .is_some_and(|p| {
+                    p.to_ascii_lowercase()
+                        .contains(needle)
+                })
     };
     if let Some((key, val)) = term.split_once(':')
     {
@@ -301,16 +379,41 @@ fn matches_term(record: &PacketRecord, term: &str) -> bool
         }
         return match key
         {
-            "proto" | "p" => record.proto.to_ascii_lowercase().contains(val),
-            "dir" | "d" => record.direction.to_ascii_lowercase().contains(val),
+            "proto" | "p" => record
+                .proto
+                .to_ascii_lowercase()
+                .contains(val),
+            "dir" | "d" => record
+                .direction
+                .to_ascii_lowercase()
+                .contains(val),
             "port" => endpoint_has_port(&record.src, val) || endpoint_has_port(&record.dst, val),
-            "verdict" | "v" => record.verdict.label().to_ascii_lowercase().contains(val),
-            "profile" => record.profile.as_deref().is_some_and(|p| p.to_ascii_lowercase().contains(val)),
+            "verdict" | "v" => record
+                .verdict
+                .label()
+                .to_ascii_lowercase()
+                .contains(val),
+            "profile" => record
+                .profile
+                .as_deref()
+                .is_some_and(|p| {
+                    p.to_ascii_lowercase()
+                        .contains(val)
+                }),
             "host" | "ip" =>
             {
-                record.src.to_ascii_lowercase().contains(val)
-                    || record.dst.to_ascii_lowercase().contains(val)
-                    || record.info.to_ascii_lowercase().contains(val)
+                record
+                    .src
+                    .to_ascii_lowercase()
+                    .contains(val)
+                    || record
+                        .dst
+                        .to_ascii_lowercase()
+                        .contains(val)
+                    || record
+                        .info
+                        .to_ascii_lowercase()
+                        .contains(val)
             }
             _ => any_field(term),
         };
@@ -323,15 +426,17 @@ fn matches_term(record: &PacketRecord, term: &str) -> bool
 /// Prefixing a term with `!` negates it; `key:value` targets specific fields.
 pub fn matches_query(record: &PacketRecord, query: &str) -> bool
 {
-    query.split_whitespace().all(|raw| {
-        let (negated, term) = match raw.strip_prefix('!')
-        {
-            Some(rest) if !rest.is_empty() => (true, rest),
-            _ => (false, raw),
-        };
-        let hit = matches_term(record, &term.to_ascii_lowercase());
-        if negated { !hit } else { hit }
-    })
+    query
+        .split_whitespace()
+        .all(|raw| {
+            let (negated, term) = match raw.strip_prefix('!')
+            {
+                Some(rest) if !rest.is_empty() => (true, rest),
+                _ => (false, raw),
+            };
+            let hit = matches_term(record, &term.to_ascii_lowercase());
+            if negated { !hit } else { hit }
+        })
 }
 
 /// Returns filtered packet references in newest-first display order.
@@ -347,5 +452,9 @@ pub fn filtered_packets_query<'a>(
     query: &str,
 ) -> Vec<&'a PacketRecord>
 {
-    packets.iter().rev().filter(|p| filter.matches(p.verdict) && matches_query(p, query)).collect()
+    packets
+        .iter()
+        .rev()
+        .filter(|p| filter.matches(p.verdict) && matches_query(p, query))
+        .collect()
 }

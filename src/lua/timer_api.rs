@@ -34,9 +34,12 @@ pub fn register_timer_functions(lua: &Lua, pool: Rc<RefCell<TimerPool>>) -> Resu
         {
             Value::String(s) =>
             {
-                let func_name =
-                    s.to_str().map_err(|_| mlua::Error::external("invalid UTF-8 function name"))?;
-                let global_val = lua.globals().get::<Value>(&*func_name)?;
+                let func_name = s
+                    .to_str()
+                    .map_err(|_| mlua::Error::external("invalid UTF-8 function name"))?;
+                let global_val = lua
+                    .globals()
+                    .get::<Value>(&*func_name)?;
                 match global_val
                 {
                     Value::Function(f) => lua.create_registry_value(f)?,
@@ -59,7 +62,9 @@ pub fn register_timer_functions(lua: &Lua, pool: Rc<RefCell<TimerPool>>) -> Resu
         }
         let period_ms = period as u64;
 
-        let oneshot = args.get(3).is_some_and(is_truthy);
+        let oneshot = args
+            .get(3)
+            .is_some_and(is_truthy);
 
         let data_key = match args.get(4)
         {
@@ -83,7 +88,9 @@ pub fn register_timer_functions(lua: &Lua, pool: Rc<RefCell<TimerPool>>) -> Resu
     let timer_del = lua.create_function(move |lua, args: Variadic<Value>| {
         check_argc("timer_del", &args, 1)?;
         let name = require_strict_str(&args[0])?;
-        let deleted = pool_del.borrow_mut().del(&name);
+        let deleted = pool_del
+            .borrow_mut()
+            .del(&name);
         if deleted
         {
             lua.expire_registry_values();
@@ -97,18 +104,27 @@ pub fn register_timer_functions(lua: &Lua, pool: Rc<RefCell<TimerPool>>) -> Resu
     let timer_info = lua.create_function(move |lua, args: Variadic<Value>| {
         check_argc("timer_info", &args, 1)?;
         let name = require_strict_str(&args[0])?;
-        let info_opt = pool_info.borrow().info(&name);
+        let info_opt = pool_info
+            .borrow()
+            .info(&name);
 
         match info_opt
         {
             Some(info) =>
             {
                 let tbl = lua.create_table()?;
-                tbl.set("name", info.name.as_str())?;
+                tbl.set(
+                    "name",
+                    info.name
+                        .as_str(),
+                )?;
                 if let Some(func) = pool_info
                     .borrow()
                     .get_func_key(&name)
-                    .and_then(|k| lua.registry_value::<Function>(k).ok())
+                    .and_then(|k| {
+                        lua.registry_value::<Function>(k)
+                            .ok()
+                    })
                 {
                     tbl.set("func", func)?;
                 }
@@ -126,9 +142,13 @@ pub fn register_timer_functions(lua: &Lua, pool: Rc<RefCell<TimerPool>>) -> Resu
     let pool_enum = Rc::clone(&pool);
     let timer_enum = lua.create_function(move |lua, args: Variadic<Value>| {
         check_argc("timer_enum", &args, 0)?;
-        let names = pool_enum.borrow().enum_names();
+        let names = pool_enum
+            .borrow()
+            .enum_names();
         let tbl = lua.create_table()?;
-        for (idx, name) in names.into_iter().enumerate()
+        for (idx, name) in names
+            .into_iter()
+            .enumerate()
         {
             tbl.set(idx + 1, name)?;
         }
@@ -159,8 +179,16 @@ pub fn run_no_intercept_with_tick(
     run_no_intercept_callbacks(
         stop,
         on_tick,
-        || pool_rc.borrow().is_empty(),
-        || pool_rc.borrow_mut().next_deadline_ms(),
+        || {
+            pool_rc
+                .borrow()
+                .is_empty()
+        },
+        || {
+            pool_rc
+                .borrow_mut()
+                .next_deadline_ms()
+        },
         || {
             let current_now = boottime_ms();
             runtime.do_gc(current_now);

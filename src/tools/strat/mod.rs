@@ -2,6 +2,8 @@
 
 /// Strategy candidate catalog ported from `zapret2/blockcheck2.d/standard/*.sh`.
 pub mod catalog;
+/// Strategy candidate expansion rules and fooling matrix helpers.
+pub(crate) mod catalog_rules;
 /// Shared CLI runner powering both `nfqws2 --strat-finder` and the standalone `strat_finder` binary.
 pub mod cli;
 /// Strategy CLI summary and JSON report formatters.

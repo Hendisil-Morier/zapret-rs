@@ -30,7 +30,10 @@ fn packet_pos_to_lua(lua: &Lua, pos: PacketPos) -> mlua::Result<Table>
 {
     let tbl = lua.create_table_with_capacity(0, 2)?;
     let mut mode_buf = [0u8; 4];
-    let mode_str: &str = pos.mode.as_char().encode_utf8(&mut mode_buf);
+    let mode_str: &str = pos
+        .mode
+        .as_char()
+        .encode_utf8(&mut mode_buf);
     tbl.raw_set("mode", mode_str)?;
     tbl.raw_set("pos", i64::from(pos.pos))?;
     Ok(tbl)
@@ -69,7 +72,8 @@ fn lookup_blob_value(lua: &Lua, desync_tbl: Option<&Table>, name: &str) -> mlua:
             return Ok(val);
         }
     }
-    lua.globals().get::<Value>(name)
+    lua.globals()
+        .get::<Value>(name)
 }
 
 /// Computes raw byte length of a Lua value for `#blob` substitution (`lua_rawlen` semantics).
@@ -77,9 +81,15 @@ fn blob_byte_len(val: &Value) -> usize
 {
     match val
     {
-        Value::String(s) => s.as_bytes().len(),
-        Value::Integer(i) => i.to_string().len(),
-        Value::Number(n) => n.to_string().len(),
+        Value::String(s) => s
+            .as_bytes()
+            .len(),
+        Value::Integer(i) => i
+            .to_string()
+            .len(),
+        Value::Number(n) => n
+            .to_string()
+            .len(),
         Value::Table(t) => t.raw_len(),
         _ => 0,
     }
@@ -201,21 +211,36 @@ pub fn build_desync_table(lua: &Lua, input: &DesyncTableInput<'_>) -> mlua::Resu
         }
         None => tbl.raw_set("track", Value::Nil)?,
     }
-    tbl.raw_set("profile_n", i64::from(input.profile.index))?;
-    if let Some(name) = &input.profile.name
+    tbl.raw_set(
+        "profile_n",
+        i64::from(
+            input
+                .profile
+                .index,
+        ),
+    )?;
+    if let Some(name) = &input
+        .profile
+        .name
     {
         tbl.raw_set("profile_name", name.as_str())?;
     }
-    if let Some(cookie) = &input.profile.cookie
+    if let Some(cookie) = &input
+        .profile
+        .cookie
     {
         tbl.raw_set("cookie", cookie.as_str())?;
     }
     tbl.raw_set("outgoing", !input.incoming)?;
-    if let Some(ifin) = input.ifin.filter(|s| !s.is_empty())
+    if let Some(ifin) = input
+        .ifin
+        .filter(|s| !s.is_empty())
     {
         tbl.raw_set("ifin", ifin)?;
     }
-    if let Some(ifout) = input.ifout.filter(|s| !s.is_empty())
+    if let Some(ifout) = input
+        .ifout
+        .filter(|s| !s.is_empty())
     {
         tbl.raw_set("ifout", ifout)?;
     }
@@ -240,13 +265,25 @@ pub fn build_desync_table(lua: &Lua, input: &DesyncTableInput<'_>) -> mlua::Resu
     tbl.raw_set("replay", is_replay)?;
     if is_replay
     {
-        let piece_one_based = input.replay_piece.saturating_add(1);
+        let piece_one_based = input
+            .replay_piece
+            .saturating_add(1);
         tbl.raw_set("replay_piece", i64::try_from(piece_one_based).unwrap_or(i64::MAX))?;
         tbl.raw_set("replay_piece_count", i64::try_from(input.replay_piece_count).unwrap_or(i64::MAX))?;
         tbl.raw_set("replay_piece_last", piece_one_based >= input.replay_piece_count)?;
     }
-    tbl.raw_set("l7payload", input.l7payload.as_str())?;
-    tbl.raw_set("l7proto", input.l7proto.as_str())?;
+    tbl.raw_set(
+        "l7payload",
+        input
+            .l7payload
+            .as_str(),
+    )?;
+    tbl.raw_set(
+        "l7proto",
+        input
+            .l7proto
+            .as_str(),
+    )?;
     tbl.raw_set("reasm_offset", i64::try_from(input.reasm_offset).unwrap_or(i64::MAX))?;
     if let Some(bytes) = input.reasm_data
     {
@@ -256,14 +293,38 @@ pub fn build_desync_table(lua: &Lua, input: &DesyncTableInput<'_>) -> mlua::Resu
     {
         tbl.raw_set("decrypt_data", lua.create_string(bytes)?)?;
     }
-    if input.dis.tcp.is_some()
+    if input
+        .dis
+        .tcp
+        .is_some()
     {
-        let positions = input.tpos.or_else(|| input.track.map(|e| &e.pos));
+        let positions = input
+            .tpos
+            .or_else(|| {
+                input
+                    .track
+                    .map(|e| &e.pos)
+            });
         let mss = match positions
         {
-            Some(tp) if tp.client.mss != 0 && tp.server.mss != 0 =>
+            Some(tp)
+                if tp
+                    .client
+                    .mss
+                    != 0
+                    && tp
+                        .server
+                        .mss
+                        != 0 =>
             {
-                i64::from(tp.client.mss.min(tp.server.mss))
+                i64::from(
+                    tp.client
+                        .mss
+                        .min(
+                            tp.server
+                                .mss,
+                        ),
+                )
             }
             _ => i64::from(DEFAULT_MSS),
         };

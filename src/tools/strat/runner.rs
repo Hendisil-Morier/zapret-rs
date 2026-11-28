@@ -58,7 +58,12 @@ impl ScanConfig
                 tcp.insert(proto.default_port());
             }
         }
-        (tcp.into_iter().collect(), udp.into_iter().collect())
+        (
+            tcp.into_iter()
+                .collect(),
+            udp.into_iter()
+                .collect(),
+        )
     }
 }
 
@@ -131,7 +136,9 @@ pub enum ProgressEvent<'a>
 /// Extracts the strategy suffix after `<proto>:<ipv>:` (e.g. `"tls13:ipv4:multisplit:1"` -> `"multisplit:1"`).
 fn strategy_suffix(id: &str) -> &str
 {
-    id.split_once(':').and_then(|(_, rest)| rest.split_once(':')).map_or(id, |(_, suffix)| suffix)
+    id.split_once(':')
+        .and_then(|(_, rest)| rest.split_once(':'))
+        .map_or(id, |(_, suffix)| suffix)
 }
 
 /// Promotes strategies that already worked on earlier targets to the front of `catalog`.
@@ -148,11 +155,15 @@ pub fn prioritize_sticky(catalog: Vec<StrategySpec>, sticky: &[(IpFamily, String
     for spec in catalog
     {
         let suffix = strategy_suffix(&spec.id);
-        if sticky.iter().any(|(ipv, s)| *ipv == spec.ipv && s == suffix)
+        if sticky
+            .iter()
+            .any(|(ipv, s)| *ipv == spec.ipv && s == suffix)
         {
             same_family.push(spec);
         }
-        else if sticky.iter().any(|(_, s)| s == suffix)
+        else if sticky
+            .iter()
+            .any(|(_, s)| s == suffix)
         {
             cross_family.push(spec);
         }
@@ -213,7 +224,9 @@ where
             });
             let skipped_unblocked = baseline.is_success() && !cfg.force_blocked;
             TargetScanResult {
-                domain: req.domain.clone(),
+                domain: req
+                    .domain
+                    .clone(),
                 proto: req.proto,
                 ipv: req.ipv,
                 baseline,
@@ -233,13 +246,19 @@ fn finalize_scan_report(mut targets: Vec<TargetScanResult>, interrupted: bool) -
     for t in &mut targets
     {
         rank_matches(&mut t.matches);
-        if !t.matches.is_empty()
+        if !t
+            .matches
+            .is_empty()
         {
             domain_strategies.push(DomainStrategies {
-                domain: t.domain.clone(),
+                domain: t
+                    .domain
+                    .clone(),
                 proto: t.proto,
                 ipv: t.ipv,
-                matches: t.matches.clone(),
+                matches: t
+                    .matches
+                    .clone(),
             });
         }
     }
@@ -260,7 +279,9 @@ where
     A: StrategyApplier,
     F: FnMut(ProgressEvent<'_>),
 {
-    let http3_ok = if cfg.protos.contains(&ProbeProtocol::Http3)
+    let http3_ok = if cfg
+        .protos
+        .contains(&ProbeProtocol::Http3)
     {
         let supported = probe.supports_http3();
         if !supported
@@ -306,7 +327,9 @@ where
             let catalog = prioritize_sticky(build_catalog(proto, cfg.level, ipv), &sticky);
             let total = catalog.len();
 
-            for (idx, spec) in catalog.iter().enumerate()
+            for (idx, spec) in catalog
+                .iter()
+                .enumerate()
             {
                 if active.is_empty()
                 {
@@ -318,12 +341,16 @@ where
                     break 'groups;
                 }
                 applier.apply_profiles(vec![spec.to_profile(1, &[])])?;
-                let batch_reqs: Vec<ProbeRequest> =
-                    active.iter().map(|&si| target_reqs[si].clone()).collect();
+                let batch_reqs: Vec<ProbeRequest> = active
+                    .iter()
+                    .map(|&si| target_reqs[si].clone())
+                    .collect();
                 let outcomes = probe.probe_batch(&batch_reqs);
                 let mut next_active = Vec::with_capacity(active.len());
 
-                for (slot_idx, outcome) in active.into_iter().zip(outcomes)
+                for (slot_idx, outcome) in active
+                    .into_iter()
+                    .zip(outcomes)
                 {
                     let t = &mut targets[slot_idx];
                     t.tested_count += 1;
@@ -341,7 +368,8 @@ where
                         {
                             sticky.push(entry);
                         }
-                        t.matches.push(StrategyMatch { strategy: spec.clone(), latency_ms });
+                        t.matches
+                            .push(StrategyMatch { strategy: spec.clone(), latency_ms });
                         if cfg.stop_on_first
                         {
                             continue;

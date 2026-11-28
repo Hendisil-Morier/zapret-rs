@@ -13,7 +13,9 @@ fn is_valid_hostname_body(raw: &str) -> bool
     {
         return false;
     }
-    if raw.parse::<IpAddr>().is_ok()
+    if raw
+        .parse::<IpAddr>()
+        .is_ok()
     {
         return true;
     }
@@ -22,7 +24,9 @@ fn is_valid_hostname_body(raw: &str) -> bool
     {
         return false;
     }
-    if bytes.windows(2).any(|w| w == b"..")
+    if bytes
+        .windows(2)
+        .any(|w| w == b"..")
     {
         return false;
     }
@@ -63,16 +67,22 @@ pub fn sanitize_http_host(raw: &str) -> Option<String>
     if let Some(after_open) = raw.strip_prefix('[')
     {
         let close_idx = after_open.find(']')?;
-        after_open[..close_idx].parse::<Ipv6Addr>().ok()?;
+        after_open[..close_idx]
+            .parse::<Ipv6Addr>()
+            .ok()?;
         let suffix = &after_open[close_idx + 1..];
         if !suffix.is_empty()
         {
             let port_str = suffix.strip_prefix(':')?;
-            port_str.parse::<u16>().ok()?;
+            port_str
+                .parse::<u16>()
+                .ok()?;
         }
         return Some(raw.to_ascii_lowercase());
     }
-    if raw.parse::<Ipv6Addr>().is_ok()
+    if raw
+        .parse::<Ipv6Addr>()
+        .is_ok()
     {
         return Some(raw.to_ascii_lowercase());
     }
@@ -80,7 +90,10 @@ pub fn sanitize_http_host(raw: &str) -> Option<String>
     {
         let host_part = &raw[..colon_idx];
         let port_part = &raw[colon_idx + 1..];
-        if !is_valid_hostname_body(host_part) || port_part.parse::<u16>().is_err()
+        if !is_valid_hostname_body(host_part)
+            || port_part
+                .parse::<u16>()
+                .is_err()
         {
             return None;
         }

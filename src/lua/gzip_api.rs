@@ -60,7 +60,10 @@ fn extract_zstream(val: &Value, expect_inflate: bool) -> mlua::Result<UserDataRe
             )));
         }
     };
-    if ud.state.borrow().is_none()
+    if ud
+        .state
+        .borrow()
+        .is_none()
     {
         return Err(mlua::Error::external("gzip stream is not valid"));
     }
@@ -91,7 +94,9 @@ fn clamp_capacity_hint(lua: &Lua, args: &Variadic<Value>, idx: usize, default: u
         {
             return Ok(0);
         }
-        return Ok(usize::try_from(requested).unwrap_or(MAX_CAPACITY_HINT).min(MAX_CAPACITY_HINT));
+        return Ok(usize::try_from(requested)
+            .unwrap_or(MAX_CAPACITY_HINT)
+            .min(MAX_CAPACITY_HINT));
     }
     Ok(default.min(MAX_CAPACITY_HINT))
 }
@@ -122,7 +127,8 @@ fn register_gunzip_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Result<(
         lua.create_function(|_, args: Variadic<Value>| {
             check_argc("gunzip_end", &args, 1)?;
             let zs = extract_zstream(&args[0], true)?;
-            *zs.state.borrow_mut() = None;
+            *zs.state
+                .borrow_mut() = None;
             Ok(())
         })?,
     )?;
@@ -133,8 +139,17 @@ fn register_gunzip_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Result<(
             check_argc_range("gunzip_inflate", &args, 2, 3)?;
             let zs = extract_zstream(&args[0], true)?;
             let input = coerce_bytes(lua, &args[1])?;
-            let hint = clamp_capacity_hint(lua, &args, 2, input.len().saturating_mul(4))?;
-            let mut state_ref = zs.state.borrow_mut();
+            let hint = clamp_capacity_hint(
+                lua,
+                &args,
+                2,
+                input
+                    .len()
+                    .saturating_mul(4),
+            )?;
+            let mut state_ref = zs
+                .state
+                .borrow_mut();
             let Some(ZStreamKind::Inflate(stream)) = state_ref.as_mut()
             else
             {
@@ -184,7 +199,8 @@ fn register_gzip_deflate_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Re
         lua.create_function(|_, args: Variadic<Value>| {
             check_argc("gzip_end", &args, 1)?;
             let zs = extract_zstream(&args[0], false)?;
-            *zs.state.borrow_mut() = None;
+            *zs.state
+                .borrow_mut() = None;
             Ok(())
         })?,
     )?;
@@ -200,7 +216,9 @@ fn register_gzip_deflate_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Re
                 _ => Vec::new(),
             };
             let hint = clamp_capacity_hint(lua, &args, 2, input.len() / 2)?;
-            let mut state_ref = zs.state.borrow_mut();
+            let mut state_ref = zs
+                .state
+                .borrow_mut();
             let Some(ZStreamKind::Deflate(stream)) = state_ref.as_mut()
             else
             {

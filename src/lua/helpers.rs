@@ -91,7 +91,9 @@ pub fn require_strict_bytes(val: &Value) -> mlua::Result<&LuaString>
 pub fn require_strict_str(val: &Value) -> mlua::Result<String>
 {
     let s = require_strict_bytes(val)?;
-    s.to_str().map(|borrowed| borrowed.to_owned()).map_err(|_| mlua::Error::external("invalid UTF-8 string"))
+    s.to_str()
+        .map(|borrowed| borrowed.to_owned())
+        .map_err(|_| mlua::Error::external("invalid UTF-8 string"))
 }
 
 /// Extracts raw bytes from a Lua string or coerces numeric values into ASCII decimal bytes (`luaL_checklstring`).
@@ -99,10 +101,15 @@ pub fn coerce_bytes(lua: &Lua, val: &Value) -> mlua::Result<Vec<u8>>
 {
     match val
     {
-        Value::String(s) => Ok(s.as_bytes().to_vec()),
+        Value::String(s) => Ok(s
+            .as_bytes()
+            .to_vec()),
         Value::Integer(_) | Value::Number(_) => lua
             .coerce_string(val.clone())?
-            .map(|s| s.as_bytes().to_vec())
+            .map(|s| {
+                s.as_bytes()
+                    .to_vec()
+            })
             .ok_or_else(|| mlua::Error::external("string expected")),
         other => Err(mlua::Error::external(format!("string expected, got {}", other.type_name()))),
     }

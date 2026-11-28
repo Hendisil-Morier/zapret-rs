@@ -58,10 +58,21 @@ pub fn normalize_domain(raw: &str) -> Option<String>
     {
         return None;
     }
-    let no_scheme =
-        trimmed.strip_prefix("https://").or_else(|| trimmed.strip_prefix("http://")).unwrap_or(trimmed);
-    let host = no_scheme.split(['/', '?', '#']).next().unwrap_or("").trim();
-    let host = host.split(':').next().unwrap_or("").trim().trim_end_matches('.');
+    let no_scheme = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .unwrap_or(trimmed);
+    let host = no_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .trim();
+    let host = host
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches('.');
     if host.is_empty() { None } else { Some(host.to_ascii_lowercase()) }
 }
 
@@ -71,7 +82,12 @@ pub(crate) fn resolve_user_home() -> Option<PathBuf>
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty())
     {
         // When invoked via `sudo`, prefer the dropped UID's passwd home over `/root`.
-        let sudo_uid = std::env::var("SUDO_UID").ok().and_then(|s| s.parse::<u32>().ok());
+        let sudo_uid = std::env::var("SUDO_UID")
+            .ok()
+            .and_then(|s| {
+                s.parse::<u32>()
+                    .ok()
+            });
         if sudo_uid.is_none() || Path::new(&home) != Path::new("/root")
         {
             return Some(PathBuf::from(home));
@@ -87,16 +103,31 @@ pub(crate) fn resolve_user_home() -> Option<PathBuf>
         // SAFETY: `geteuid` takes no arguments and cannot fail.
         let uid = std::env::var("SUDO_UID")
             .ok()
-            .and_then(|s| s.parse::<u32>().ok())
+            .and_then(|s| {
+                s.parse::<u32>()
+                    .ok()
+            })
             .unwrap_or_else(|| unsafe { libc::geteuid() });
         // SAFETY: `libc::passwd` is C plain-old-data zeroed cleanly before `getpwuid_r` writes into it.
         let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
         let mut buf = vec![0u8; 4096];
         let mut res: *mut libc::passwd = std::ptr::null_mut();
         // SAFETY: `pwd`, `buf`, and `res` are valid writable buffers matching `getpwuid_r` ABI.
-        let rc =
-            unsafe { libc::getpwuid_r(uid, &raw mut pwd, buf.as_mut_ptr().cast(), buf.len(), &raw mut res) };
-        if rc == 0 && !res.is_null() && !pwd.pw_dir.is_null()
+        let rc = unsafe {
+            libc::getpwuid_r(
+                uid,
+                &raw mut pwd,
+                buf.as_mut_ptr()
+                    .cast(),
+                buf.len(),
+                &raw mut res,
+            )
+        };
+        if rc == 0
+            && !res.is_null()
+            && !pwd
+                .pw_dir
+                .is_null()
         {
             // SAFETY: `pw_dir` points to a NUL-terminated string inside `buf`.
             let cstr = unsafe { std::ffi::CStr::from_ptr(pwd.pw_dir) };
@@ -107,7 +138,9 @@ pub(crate) fn resolve_user_home() -> Option<PathBuf>
             }
         }
     }
-    std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
 }
 
 /// Expands a leading `~` or `~/` path prefix using the invoking user's home directory.
@@ -142,14 +175,20 @@ fn read_prompt_line<R: BufRead, W: Write>(
 ) -> Result<String, String>
 {
     write!(writer, "{prompt}").map_err(|err| format!("failed to write prompt: {err}"))?;
-    writer.flush().map_err(|err| format!("failed to flush prompt: {err}"))?;
+    writer
+        .flush()
+        .map_err(|err| format!("failed to flush prompt: {err}"))?;
     let mut line = String::new();
-    let n = reader.read_line(&mut line).map_err(|err| format!("failed to read input: {err}"))?;
+    let n = reader
+        .read_line(&mut line)
+        .map_err(|err| format!("failed to read input: {err}"))?;
     if n == 0
     {
         return Err("interactive input ended unexpectedly (EOF)".to_owned());
     }
-    Ok(line.trim().to_owned())
+    Ok(line
+        .trim()
+        .to_owned())
 }
 
 /// Parses comma- or space-separated protocol tokens into a deduplicated list.
@@ -178,7 +217,10 @@ fn parse_proto_list(raw: &str) -> Result<Vec<ProbeProtocol>, String>
 /// Parses an IP version answer (`4`, `6`, `46`, `ipv4`, `ipv6`, `both`).
 fn parse_ip_families(raw: &str) -> Result<Vec<IpFamily>, String>
 {
-    match raw.trim().to_ascii_lowercase().as_str()
+    match raw
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
     {
         "4" | "v4" | "ipv4" => Ok(vec![IpFamily::V4]),
         "6" | "v6" | "ipv6" => Ok(vec![IpFamily::V6]),
@@ -190,7 +232,10 @@ fn parse_ip_families(raw: &str) -> Result<Vec<IpFamily>, String>
 /// Parses a yes/no response, returning `default` when `raw` is empty.
 fn parse_yes_no(raw: &str, default: bool) -> Result<bool, String>
 {
-    match raw.trim().to_ascii_lowercase().as_str()
+    match raw
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
     {
         "" => Ok(default),
         "y" | "yes" | "1" | "true" => Ok(true),
@@ -229,8 +274,10 @@ fn prompt_domains<R: BufRead, W: Write>(
         {
             return Ok(default_domains.to_vec());
         }
-        let parsed: Vec<String> =
-            line.split(|c: char| c.is_whitespace() || c == ',').filter_map(normalize_domain).collect();
+        let parsed: Vec<String> = line
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter_map(normalize_domain)
+            .collect();
         if !parsed.is_empty()
         {
             return Ok(parsed);
@@ -279,12 +326,19 @@ pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
 
     let domains = prompt_domains(reader, writer, &defaults.domains)?;
 
-    let proto_default: String = defaults.protos.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(",");
+    let proto_default: String = defaults
+        .protos
+        .iter()
+        .map(|p| p.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
     let protos = prompt_until_valid(
         reader,
         writer,
         &format!("Protocols (http,tls12,tls13,http3) [{proto_default}]: "),
-        defaults.protos.clone(),
+        defaults
+            .protos
+            .clone(),
         parse_proto_list,
     )?;
 
@@ -293,7 +347,9 @@ pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
         reader,
         writer,
         &format!("IP version (4, 6, or 46) [{fam_default}]: "),
-        defaults.families.clone(),
+        defaults
+            .families
+            .clone(),
         parse_ip_families,
     )?;
 
@@ -323,12 +379,27 @@ pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
         }
     };
 
-    let lua_hint =
-        defaults.lua_dir.as_deref().map(Path::display).map_or_else(|| "auto".to_owned(), |d| d.to_string());
+    let lua_hint = defaults
+        .lua_dir
+        .as_deref()
+        .map(Path::display)
+        .map_or_else(|| "auto".to_owned(), |d| d.to_string());
     let lua_line = read_prompt_line(reader, writer, &format!("Lua scripts directory [{lua_hint}]: "))?;
-    let lua_dir = if lua_line.is_empty() { defaults.lua_dir.clone() } else { Some(expand_tilde(&lua_line)) };
+    let lua_dir = if lua_line.is_empty()
+    {
+        defaults
+            .lua_dir
+            .clone()
+    }
+    else
+    {
+        Some(expand_tilde(&lua_line))
+    };
 
-    let default_cfg = defaults.write_config.clone().unwrap_or_else(default_output_config_path);
+    let default_cfg = defaults
+        .write_config
+        .clone()
+        .unwrap_or_else(default_output_config_path);
     let cfg_line = read_prompt_line(
         reader,
         writer,
@@ -338,7 +409,12 @@ pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
     {
         Some(default_cfg)
     }
-    else if matches!(cfg_line.to_ascii_lowercase().as_str(), "none" | "-" | "skip")
+    else if matches!(
+        cfg_line
+            .to_ascii_lowercase()
+            .as_str(),
+        "none" | "-" | "skip"
+    )
     {
         None
     }
@@ -351,11 +427,22 @@ pub fn prompt_interactive_wizard<R: BufRead, W: Write>(
         writer,
         "\nStarting scan: domains=[{}], protos=[{}], ip={}, level={}, stop_on_first={}, output={}\n",
         domains.join(", "),
-        protos.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(","),
+        protos
+            .iter()
+            .map(|p| p.as_str())
+            .collect::<Vec<_>>()
+            .join(","),
         format_families(&families),
         level,
         stop_on_first,
-        write_config.as_deref().map_or_else(|| "none".to_owned(), |p| p.display().to_string()),
+        write_config
+            .as_deref()
+            .map_or_else(
+                || "none".to_owned(),
+                |p| p
+                    .display()
+                    .to_string()
+            ),
     );
 
     Ok(InteractiveSelections { domains, protos, families, level, stop_on_first, lua_dir, write_config })

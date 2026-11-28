@@ -1,9 +1,7 @@
-//! Headless `ratatui` `TestBackend` rendering, state-machine, and `zapret-rs` binary CLI tests.
+//! Headless `ratatui` `TestBackend` rendering and state-machine tests.
 
 #![cfg(feature = "tui")]
 
-/// Subprocess checks for the compiled `zapret-rs` TUI binary (`--version`, `--help`).
-use std::process::Command;
 /// Atomic store helpers for testing live packet counter display on Tab 2.
 use std::sync::atomic::Ordering;
 
@@ -12,24 +10,15 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 /// Headless in-memory `ratatui` terminal backend for deterministic UI rendering tests.
 use ratatui::{Terminal, backend::TestBackend};
 
-/// Packet outcome classification used to test `REASM` vs `DESYNC` inspector badges.
-use zapret_rs::desync::PacketOutcome;
-/// Packet interception types used to test live packet inspector decoding.
-use zapret_rs::intercepter::QueuedPacket;
-/// Wire packet builders used to construct realistic IPv4+TCP HTTP packets.
-use zapret_rs::packet::{
-    DissectedPacket, IPPROTO_TCP, Ipv4Header, ReconstructOptions, TH_ACK, TH_PUSH, TcpHeader,
-    reconstruct_packet,
-};
 /// Strategy catalog and report types fed into [`ScanUiEvent::Completed`].
 use zapret_rs::tools::{
     CoveredProfile, IpFamily, ProbeOutcome, ProbeProtocol, ScanLevel, ScanReport, StrategyMatch,
     TargetScanResult, TomlRenderOptions, build_catalog, render_nfqws2_toml,
 };
-/// TUI state, packet inspector, floating modal, frame renderer, and action/event enums under test.
+/// TUI state, floating modal, frame renderer, and action/event enums under test.
 use zapret_rs::tui::{
-    ActiveTab, AppAction, AppState, AuthModal, FinderField, FinderStatus, IpMode, ModalPurpose,
-    PacketVerdict, RunStatus, ScanUiEvent, VerdictFilter, build_packet_record, draw_app, format_hex_dump,
+    ActiveTab, AppAction, AppState, AuthModal, FinderField, FinderStatus, IpMode, ModalPurpose, RunStatus,
+    ScanUiEvent, draw_app,
 };
 
 /// Creates a plain unmodified [`KeyEvent`] for `code`.
@@ -43,8 +32,12 @@ fn render_to_string(state: &AppState, width: u16, height: u16) -> String
 {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test terminal");
-    terminal.draw(|f| draw_app(f, state)).expect("draw frame");
-    let buf = terminal.backend().buffer();
+    terminal
+        .draw(|f| draw_app(f, state))
+        .expect("draw frame");
+    let buf = terminal
+        .backend()
+        .buffer();
     let mut out = String::new();
     for y in 0..height
     {
@@ -57,44 +50,86 @@ fn render_to_string(state: &AppState, width: u16, height: u16) -> String
     out
 }
 
-/// Drives Strategy Finder form editing and scan completion events against `state`.
-fn verify_finder_form_and_scan_events(state: &mut AppState)
+/// Drives Strategy Finder form editing and scan trigger controls against `state`.
+fn verify_finder_form_editing(state: &mut AppState)
 {
     assert_eq!(state.tab, ActiveTab::Finder);
     assert_eq!(state.focused_field(), FinderField::Domains);
 
     // Enter text edit mode on Domains; typing 'q' and '1' must insert characters, not quit or switch tabs.
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
-    assert!(state.finder.editing_text);
+    assert!(
+        state
+            .finder
+            .editing_text
+    );
     for ch in "q1.example.com".chars()
     {
         assert_eq!(state.handle_key(key(KeyCode::Char(ch))), AppAction::None);
     }
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
-    assert!(!state.finder.editing_text);
-    assert_eq!(state.finder.domains_input, "q1.example.com");
+    assert!(
+        !state
+            .finder
+            .editing_text
+    );
+    assert_eq!(
+        state
+            .finder
+            .domains_input,
+        "q1.example.com"
+    );
 
     state.handle_key(key(KeyCode::Down)); // ProtoHttp
     assert_eq!(state.focused_field(), FinderField::ProtoHttp);
     state.handle_key(key(KeyCode::Char(' ')));
-    assert!(!state.finder.proto_http);
+    assert!(
+        !state
+            .finder
+            .proto_http
+    );
 
-    state.finder.focus_idx = 5; // IpMode
+    state
+        .finder
+        .focus_idx = 5; // IpMode
     state.handle_key(key(KeyCode::Enter));
-    assert_eq!(state.finder.ip_mode, IpMode::V6);
+    assert_eq!(
+        state
+            .finder
+            .ip_mode,
+        IpMode::V6
+    );
 
-    state.finder.focus_idx = 6; // Level
+    state
+        .finder
+        .focus_idx = 6; // Level
     state.handle_key(key(KeyCode::Enter));
-    assert_eq!(state.finder.level, ScanLevel::Standard);
+    assert_eq!(
+        state
+            .finder
+            .level,
+        ScanLevel::Standard
+    );
+}
 
-    let cfg = state.build_scan_config().expect("valid scan config");
+/// Verifies scan config construction, Start/Stop actions, and completion events against `state`.
+fn verify_finder_scan_events(state: &mut AppState)
+{
+    let cfg = state
+        .build_scan_config()
+        .expect("valid scan config");
     assert_eq!(cfg.domains, vec!["q1.example.com".to_owned()]);
-    assert!(!cfg.protos.contains(&ProbeProtocol::Http));
+    assert!(
+        !cfg.protos
+            .contains(&ProbeProtocol::Http)
+    );
     assert_eq!(cfg.families, vec![IpFamily::V6]);
     assert_eq!(cfg.level, ScanLevel::Standard);
 
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StartScan);
-    state.finder.status = FinderStatus::Scanning;
+    state
+        .finder
+        .status = FinderStatus::Scanning;
     assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::StopScan);
 
     let spec = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V6)
@@ -119,7 +154,9 @@ fn verify_finder_form_and_scan_events(state: &mut AppState)
         domain: "q1.example.com".to_owned(),
         index: 1,
         total: 5,
-        strategy_id: spec.id.clone(),
+        strategy_id: spec
+            .id
+            .clone(),
         passed: true,
         summary: "OK (HTTP 200, 42 ms)".to_owned(),
     });
@@ -140,8 +177,18 @@ fn verify_finder_form_and_scan_events(state: &mut AppState)
         rendered_toml: rendered,
     });
 
-    assert_eq!(state.finder.status, FinderStatus::Done);
-    assert_eq!(state.config.parsed_profiles, vec![spec.id]);
+    assert_eq!(
+        state
+            .finder
+            .status,
+        FinderStatus::Done
+    );
+    assert_eq!(
+        state
+            .config
+            .parsed_profiles,
+        vec![spec.id]
+    );
 }
 
 /// Verifies form editing, text-input key isolation (`q`/`1`), toggles, scan event handling,
@@ -150,23 +197,49 @@ fn verify_finder_form_and_scan_events(state: &mut AppState)
 fn tui_state_machine_handles_form_editing_scan_events_and_navigation()
 {
     let mut state = AppState::new(None, None, false);
-    verify_finder_form_and_scan_events(&mut state);
+    verify_finder_form_editing(&mut state);
+    verify_finder_scan_events(&mut state);
 
     // Press 'a' to switch to Run tab, start daemon, reset counters, and quit.
     assert_eq!(state.handle_key(key(KeyCode::Char('a'))), AppAction::None);
     assert_eq!(state.tab, ActiveTab::Run);
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StartDaemon);
 
-    state.run.status = RunStatus::Running;
-    state.run.counters.total.store(12, Ordering::Relaxed);
+    state
+        .run
+        .status = RunStatus::Running;
+    state
+        .run
+        .counters
+        .total
+        .store(12, Ordering::Relaxed);
     assert_eq!(state.handle_key(key(KeyCode::Char('c'))), AppAction::None);
-    assert_eq!(state.run.counters.snapshot().0, 0);
+    assert_eq!(
+        state
+            .run
+            .counters
+            .snapshot()
+            .0,
+        0
+    );
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StopDaemon);
-    state.status.has_net_caps = false;
+    state
+        .status
+        .has_net_caps = false;
     assert_eq!(state.handle_key(key(KeyCode::Char('g'))), AppAction::None);
-    assert!(state.modal.is_some(), "'g' must open the floating capability modal");
+    assert!(
+        state
+            .modal
+            .is_some(),
+        "'g' must open the floating capability modal"
+    );
     assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
-    assert!(state.modal.is_none(), "Esc must dismiss the floating modal");
+    assert!(
+        state
+            .modal
+            .is_none(),
+        "Esc must dismiss the floating modal"
+    );
     assert_eq!(state.handle_key(key(KeyCode::Char('q'))), AppAction::Quit);
 }
 
@@ -192,7 +265,10 @@ fn tui_floating_auth_modal_masks_password_renders_and_submits()
     assert!(!screen.contains("s3cr3t"), "plaintext password must never be rendered");
 
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitModal);
-    let modal = state.modal.as_mut().expect("modal still open until runner submits");
+    let modal = state
+        .modal
+        .as_mut()
+        .expect("modal still open until runner submits");
     assert_eq!(modal.take_password(), "s3cr3t");
     assert_eq!(modal.password_len(), 0, "take_password must clear internal buffer");
 }
@@ -202,12 +278,34 @@ fn tui_floating_auth_modal_masks_password_renders_and_submits()
 fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend()
 {
     let mut state = AppState::new(None, None, false);
-    state.finder.domains_input = "example.com".to_owned();
-    state.run.counters.total.store(99, Ordering::Relaxed);
-    state.run.counters.passed.store(86, Ordering::Relaxed);
-    state.run.counters.reassembled.store(4, Ordering::Relaxed);
-    state.run.counters.modified.store(7, Ordering::Relaxed);
-    state.run.counters.desynced.store(2, Ordering::Relaxed);
+    state
+        .finder
+        .domains_input = "example.com".to_owned();
+    state
+        .run
+        .counters
+        .total
+        .store(99, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .passed
+        .store(86, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .reassembled
+        .store(4, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .modified
+        .store(7, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .desynced
+        .store(2, Ordering::Relaxed);
 
     for &(w, h) in &[(120u16, 36u16), (80, 24)]
     {
@@ -224,7 +322,10 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend()
 
         state.tab = ActiveTab::Config;
         let cfg_screen = render_to_string(&state, w, h);
-        let expected_filter_title = state.filter_preview().0.trim();
+        let expected_filter_title = state
+            .filter_preview()
+            .0
+            .trim();
         assert!(cfg_screen.contains(expected_filter_title));
         assert!(cfg_screen.contains("table inet zapret_strat_finder {"));
 
@@ -232,233 +333,6 @@ fn tui_renders_all_three_tabs_cleanly_in_headless_test_backend()
         let host_screen = render_to_string(&state, w, h);
         assert!(host_screen.contains("Auto Hostlist") && host_screen.contains("Blacklist"));
     }
-}
-
-/// Verifies the compiled `zapret-rs` binary handles `--version` and `--help` cleanly without a TTY.
-#[test]
-fn zapret_rs_tui_binary_cli_version_and_help()
-{
-    let bin = env!("CARGO_BIN_EXE_zapret-rs");
-
-    let ver = Command::new(bin).arg("--version").output().expect("run zapret-rs --version");
-    assert!(ver.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&ver.stdout).trim(),
-        format!("zapret-rs {}", env!("CARGO_PKG_VERSION"))
-    );
-
-    let help = Command::new(bin).arg("--help").output().expect("run zapret-rs --help");
-    assert!(help.status.success());
-    let help_text = String::from_utf8_lossy(&help.stdout);
-    assert!(help_text.contains("--config"));
-    assert!(help_text.contains("--lua-dir"));
-    assert!(help_text.contains("--no-nft"));
-}
-
-/// Verifies live packet inspector decoding (HTTP Host, TCP flags, verdicts, hex dump),
-/// Builds a synthetic outbound HTTP packet and checks decoded inspector record + hex dump fields.
-fn build_and_verify_sample_http_packet() -> (Vec<u8>, zapret_rs::telemetry::PacketRecord)
-{
-    let http_payload = b"GET / HTTP/1.1\r\nHost: store.steampowered.com\r\n\r\n".to_vec();
-    let dis = DissectedPacket {
-        ip: Some(Ipv4Header {
-            version: 4,
-            header_len: 5,
-            tos: 0,
-            total_len: 0,
-            id: 1,
-            frag_off: 0,
-            ttl: 64,
-            protocol: IPPROTO_TCP,
-            checksum: 0,
-            src: [192, 168, 1, 10],
-            dst: [104, 18, 2, 3],
-            options: Vec::new(),
-        }),
-        ip6: None,
-        tcp: Some(TcpHeader {
-            s_port: 51234,
-            d_port: 80,
-            seq: 1000,
-            ack: 2000,
-            reserved: 0,
-            data_offset: 5,
-            flags: TH_PUSH | TH_ACK,
-            window: 64240,
-            checksum: 0,
-            urgent_ptr: 0,
-            options: Vec::new(),
-        }),
-        udp: None,
-        icmp: None,
-        payload: Some(http_payload),
-        ..DissectedPacket::default()
-    };
-    let wire = reconstruct_packet(&dis, &ReconstructOptions::default()).expect("wire packet");
-    let qpkt = QueuedPacket { packet_id: 1, mark: 0, ifin: None, ifout: Some("eth0"), payload: &wire };
-
-    let desync_outcome = PacketOutcome::Desync(Some("tls13:ipv4:multisplit:2".to_owned()));
-    let rec_desync = build_packet_record(1, &qpkt, &desync_outcome);
-    assert_eq!(rec_desync.direction, "OUT");
-    assert_eq!(rec_desync.proto, "TCP");
-    assert_eq!(rec_desync.src, "192.168.1.10:51234");
-    assert_eq!(rec_desync.dst, "104.18.2.3:80");
-    assert_eq!(rec_desync.verdict, PacketVerdict::Desync);
-    assert_eq!(rec_desync.profile.as_deref(), Some("tls13:ipv4:multisplit:2"));
-    assert!(rec_desync.info.contains("HTTP Host=store.steampowered.com"));
-    assert!(rec_desync.info.contains("(tls13:ipv4:multisplit:2)"));
-
-    let dump = format_hex_dump(&rec_desync.payload_preview);
-    assert!(dump[0].starts_with("0000: 47 45 54 20"));
-    assert!(dump[0].contains("|GET / HTTP/1.1"));
-    (wire, rec_desync)
-}
-
-/// filtering (`f`), pausing (`p`), and floating packet detail rendering (`d` / `Esc`).
-#[test]
-fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal()
-{
-    let (wire, rec_desync) = build_and_verify_sample_http_packet();
-    let qpkt = QueuedPacket { packet_id: 1, mark: 0, ifin: None, ifout: Some("eth0"), payload: &wire };
-    let desync_outcome = PacketOutcome::Desync(Some("tls13:ipv4:multisplit:2".to_owned()));
-
-    let mut state = AppState::new(None, None, false);
-    state.tab = ActiveTab::Run;
-    state.inspector.push(rec_desync);
-    // Push a `REASM` pass-through packet and 400 `PASS` packets to verify neither evicts `DESYNC`.
-    state.inspector.push(build_packet_record(2, &qpkt, &PacketOutcome::Reasm));
-    for seq in 3..=402
-    {
-        state.inspector.push(build_packet_record(seq, &qpkt, &PacketOutcome::Pass));
-    }
-    assert_eq!(state.inspector.packets.len(), 300);
-    assert_eq!(state.inspector.desync_packets.len(), 1);
-    assert_eq!(state.inspector.reasm_packets.len(), 1);
-
-    // Filter to DESYNC+MOD -> packet #1 is isolated from both `REASM` and `PASS`.
-    assert_eq!(state.handle_key(key(KeyCode::Char('f'))), AppAction::None);
-    assert_eq!(state.inspector.filter, VerdictFilter::DesyncOnly);
-    assert_eq!(state.inspector.selected_record().map(|r| r.seq), Some(1));
-
-    // Pause capture -> subsequent pushed packets are ignored until resumed.
-    assert_eq!(state.handle_key(key(KeyCode::Char('p'))), AppAction::None);
-    assert!(state.inspector.paused);
-    state.inspector.push(build_packet_record(500, &qpkt, &desync_outcome));
-    assert_eq!(state.inspector.desync_packets.len(), 1);
-
-    // Open detail popup with 'd', verify it renders profile + headers + hex dump, then close with Esc.
-    assert_eq!(state.handle_key(key(KeyCode::Char('d'))), AppAction::None);
-    assert!(state.inspector.detail_open);
-    let screen = render_to_string(&state, 110, 32);
-    assert!(screen.contains("Packet #1 Detail [DESYNC]"));
-    assert!(screen.contains("Profile : tls13:ipv4:multisplit:2"));
-    assert!(screen.contains("store.steampowered.com"));
-    assert!(screen.contains("0000: 47 45 54 20"));
-
-    assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
-    assert!(!state.inspector.detail_open);
-
-    // Next filter cycle shows only `REASM` pass-throughs (packet #2).
-    assert_eq!(state.handle_key(key(KeyCode::Char('f'))), AppAction::None);
-    assert_eq!(state.inspector.filter, VerdictFilter::ReasmOnly);
-    assert_eq!(state.inspector.selected_record().map(|r| r.seq), Some(2));
-}
-
-/// Verifies Tab 3 `e`/`Enter` triggers `AppAction::EditConfig`, starter TOML parses cleanly,
-/// and invalid vs valid TOML updates the Config tab validation badge.
-#[test]
-fn config_tab_edit_action_and_toml_validation_badge()
-{
-    let mut state = AppState::new(None, None, false);
-    state.status.has_net_caps = true;
-    state.tab = ActiveTab::Config;
-    assert_eq!(state.handle_key(key(KeyCode::Char('e'))), AppAction::EditConfig);
-    assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::EditConfig);
-
-    // Invalid TOML populates `toml_error` and displays `[INVALID:` on Tab 3.
-    state.set_active_toml("qnum = [broken".to_owned());
-    assert!(state.config.toml_error.is_some());
-    assert!(state.config.parsed_profiles.is_empty());
-    let bad_screen = render_to_string(&state, 120, 32);
-    assert!(bad_screen.contains("[INVALID:"));
-
-    // Valid starter TOML clears `toml_error` and renders `[VALID:`.
-    let starter = zapret_rs::tui::editor::build_starter_toml(200, 0x4000_0000, "");
-    state.set_active_toml(starter);
-    assert!(state.config.toml_error.is_none());
-    let ok_screen = render_to_string(&state, 120, 32);
-    assert!(ok_screen.contains("[VALID:") && ok_screen.contains("[?] Keys"));
-    state.handle_key(key(KeyCode::Char('?')));
-    let help_screen = render_to_string(&state, 120, 32);
-    assert!(
-        help_screen.contains("Keybindings")
-            && help_screen.contains("[?]")
-            && help_screen.contains("[e/Enter] Edit ($EDITOR)")
-    );
-    state.handle_key(key(KeyCode::Esc));
-    assert!(!state.help_open);
-}
-
-/// Verifies `zapret-rs` routes both explicit subcommands and `argv[0]` symlinks to each applet.
-#[test]
-fn zapret_rs_multicall_subcommands_and_symlink_dispatch()
-{
-    let bin = env!("CARGO_BIN_EXE_zapret-rs");
-
-    for (sub, expected_ver) in
-        [("daemon", "nfqws2"), ("scan", "strat_finder"), ("ip2net", "ip2net"), ("mdig", "mdig")]
-    {
-        let out = Command::new(bin).args([sub, "--version"]).output().expect("subcommand --version");
-        assert!(out.status.success(), "{sub} --version failed: {out:?}");
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains(expected_ver), "{sub} version output mismatch: {stdout}");
-    }
-
-    #[cfg(unix)]
-    {
-        let dir = std::env::temp_dir().join(format!("zapret-rs-sym-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("create symlink temp dir");
-        for name in ["nfqws2", "ip2net", "mdig", "strat_finder"]
-        {
-            let link = dir.join(name);
-            std::os::unix::fs::symlink(bin, &link).expect("symlink applet");
-            let out = Command::new(&link).arg("--version").output().expect("run symlinked applet");
-            assert!(out.status.success(), "{name} symlink --version failed: {out:?}");
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            assert!(stdout.contains(name), "{name} symlink stdout mismatch: {stdout}");
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-/// Verifies OS firewall backends own their Tab 3 panel titles, filter previews, and unsupported fallback.
-#[test]
-fn firewall_backends_supply_distinct_preview_titles_and_unsupported_error()
-{
-    use zapret_rs::tools::{
-        FirewallBackend, NftFirewallBackend, UnsupportedFirewallBackend, active_firewall_backend,
-    };
-
-    let nft = NftFirewallBackend::default();
-    assert_eq!(nft.preview_title(), " Temporary nftables Script ");
-    assert!(nft.preview_filter(200, 0x4000_0000, &[443], &[]).contains("queue num 200"));
-
-    let unsupported = UnsupportedFirewallBackend;
-    assert_eq!(unsupported.preview_title(), " Packet Filter Preview ");
-    assert!(unsupported.preview_filter(200, 0x4000_0000, &[443], &[]).contains("not implemented"));
-    let Err(err) = unsupported.install(200, 0x4000_0000, &[443], &[])
-    else
-    {
-        panic!("unsupported backend should not install firewall rules");
-    };
-    assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
-
-    let active = active_firewall_backend();
-    #[cfg(target_os = "linux")]
-    assert_eq!(active.preview_title(), " Temporary nftables Script ");
-    #[cfg(windows)]
-    assert_eq!(active.preview_title(), " WinDivert Filter ");
 }
 
 /// Verifies `H` and `L` cycle across all seven top-level tabs with cyclic wrap-around.

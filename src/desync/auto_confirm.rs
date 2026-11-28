@@ -209,7 +209,14 @@ impl AutoConfirmWorker
     {
         profiles
             .iter()
-            .any(|p| p.lists.hostlist_auto.is_some() && p.lists.hostlist_auto_settings.confirm_block)
+            .any(|p| {
+                p.lists
+                    .hostlist_auto
+                    .is_some()
+                    && p.lists
+                        .hostlist_auto_settings
+                        .confirm_block
+            })
             .then(|| Self::spawn(desync_fwmark))
     }
 
@@ -273,18 +280,27 @@ impl AutoConfirmWorker
             return;
         }
         {
-            let Ok(mut guard) = self.in_flight.lock()
+            let Ok(mut guard) = self
+                .in_flight
+                .lock()
             else
             {
                 return;
             };
-            if !guard.insert(req.host.clone())
+            if !guard.insert(
+                req.host
+                    .clone(),
+            )
             {
                 return;
             }
         }
-        if tx.try_send(req.clone()).is_err()
-            && let Ok(mut guard) = self.in_flight.lock()
+        if tx
+            .try_send(req.clone())
+            .is_err()
+            && let Ok(mut guard) = self
+                .in_flight
+                .lock()
         {
             guard.remove(&req.host);
         }
@@ -298,7 +314,9 @@ impl AutoConfirmWorker
         debug_log: Option<&std::path::Path>,
     )
     {
-        while let Ok(res) = self.rx.try_recv()
+        while let Ok(res) = self
+            .rx
+            .try_recv()
         {
             let Some(profile) = profiles.get(res.profile_slot)
             else
@@ -317,15 +335,22 @@ impl AutoConfirmWorker
                 {
                     continue;
                 };
-                let mut pool = rt.fail_pool.borrow_mut();
+                let mut pool = rt
+                    .fail_pool
+                    .borrow_mut();
                 let ctx = AutoHostlistRecordCtx {
-                    settings: &profile.lists.hostlist_auto_settings,
+                    settings: &profile
+                        .lists
+                        .hostlist_auto_settings,
                     fail_pool: &mut pool,
                     hostlists: &rt.hostlists,
                     autolist_file,
                     debug_log,
                     profile_n: profile.index,
-                    profile_name: profile.name.as_deref().unwrap_or("noname"),
+                    profile_name: profile
+                        .name
+                        .as_deref()
+                        .unwrap_or("noname"),
                     client_label: "auto-confirm",
                     l7proto: res.l7proto,
                     now_sec: boottime_secs(),
@@ -337,13 +362,18 @@ impl AutoConfirmWorker
             }
             else
             {
-                let mut pool = rt.fail_pool.borrow_mut();
+                let mut pool = rt
+                    .fail_pool
+                    .borrow_mut();
                 let _ = reset_autohost_failure(
                     &mut pool,
                     &res.host,
                     debug_log,
                     profile.index,
-                    profile.name.as_deref().unwrap_or("noname"),
+                    profile
+                        .name
+                        .as_deref()
+                        .unwrap_or("noname"),
                     "auto-confirm",
                     res.l7proto,
                 );
@@ -356,8 +386,11 @@ impl Drop for AutoConfirmWorker
 {
     fn drop(&mut self)
     {
-        self.tx.take();
-        if let Some(handle) = self.join.take()
+        self.tx
+            .take();
+        if let Some(handle) = self
+            .join
+            .take()
         {
             let _ = handle.join();
         }

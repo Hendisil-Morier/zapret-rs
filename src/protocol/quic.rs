@@ -138,7 +138,9 @@ pub(crate) fn parse_initial_scid_token_payload(
     {
         return None;
     }
-    let token_offset = scid_offset.checked_add(1)?.checked_add(scid_len)?;
+    let token_offset = scid_offset
+        .checked_add(1)?
+        .checked_add(scid_len)?;
     if token_offset >= data.len()
     {
         return None;
@@ -146,7 +148,9 @@ pub(crate) fn parse_initial_scid_token_payload(
 
     let (token_len, token_sz) = tvb_get_varint(&data[token_offset..])?;
     let token_len_us = usize::try_from(token_len).ok()?;
-    let pay_len_offset = token_offset.checked_add(token_sz)?.checked_add(token_len_us)?;
+    let pay_len_offset = token_offset
+        .checked_add(token_sz)?
+        .checked_add(token_len_us)?;
     if pay_len_offset >= data.len()
     {
         return None;
@@ -236,7 +240,9 @@ pub fn quic_defrag_crypto(clean: &[u8], max_defrag_len: usize) -> Option<(Vec<u8
             return None;
         }
 
-        if !ranges.iter().any(|&(r_off, r_len)| r_off == offset && r_len == sz)
+        if !ranges
+            .iter()
+            .any(|&(r_off, r_len)| r_off == offset && r_len == sz)
         {
             if frame_end > defrag_payload.len()
             {

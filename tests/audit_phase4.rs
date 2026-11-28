@@ -71,15 +71,19 @@ fn build_dns_a_response_with_qname(labels: &[&[u8]]) -> Vec<u8>
     pkt
 }
 
-/// Verifies wire hostnames with directive/control chars are rejected across TLS, HTTP, DNS, and autohostlist.
-#[test]
-fn wire_hostnames_reject_directive_injection_and_bound_fail_pool()
+/// Verifies injected/malformed hostnames fail sanitization and L7 extraction across TLS/HTTP.
+fn assert_wire_hostname_sanitization()
 {
-    assert_eq!(sanitize_wire_hostname("!exempt.example"), None);
-    assert_eq!(sanitize_wire_hostname("^strict.example"), None);
-    assert_eq!(sanitize_wire_hostname("#comment.example"), None);
-    assert_eq!(sanitize_wire_hostname(";comment.example"), None);
-    assert_eq!(sanitize_wire_hostname("evil\n!exempt.example"), None);
+    for bad in [
+        "!exempt.example",
+        "^strict.example",
+        "#comment.example",
+        ";comment.example",
+        "evil\n!exempt.example",
+    ]
+    {
+        assert_eq!(sanitize_wire_hostname(bad), None);
+    }
     assert_eq!(sanitize_http_host("[2001:DB8::1]:8443").as_deref(), Some("[2001:db8::1]:8443"));
     assert_eq!(sanitize_http_host("evil.com/path"), None);
 
@@ -98,11 +102,22 @@ fn wire_hostnames_reject_directive_injection_and_bound_fail_pool()
     assert_eq!(http_extract_host(bad_http), None);
     let ok_http = b"GET / HTTP/1.1\r\nHost: Example.ORG:8080\r\n\r\n";
     assert_eq!(http_extract_host(ok_http).as_deref(), Some("example.org:8080"));
+}
+
+/// Verifies wire hostnames with directive/control chars are rejected across TLS, HTTP, DNS, and autohostlist.
+#[test]
+fn wire_hostnames_reject_directive_injection_and_bound_fail_pool()
+{
+    assert_wire_hostname_sanitization();
 
     let ipcache = RefCell::new(IpCache::new(60, true));
     let injected_dns = build_dns_a_response_with_qname(&[b"!exempt", b"com"]);
     assert!(!feed_dns_response(&injected_dns, &ipcache, 10));
-    assert!(ipcache.borrow().is_empty());
+    assert!(
+        ipcache
+            .borrow()
+            .is_empty()
+    );
 
     let mut fail_pool = HostFailPool::with_max_entries(2);
     assert_eq!(fail_pool.record_failure("!injected.com", 60, 100), 0);
@@ -110,7 +125,11 @@ fn wire_hostnames_reject_directive_injection_and_bound_fail_pool()
     assert_eq!(fail_pool.record_failure("b.example", 60, 101), 1);
     assert_eq!(fail_pool.record_failure("c.example", 60, 102), 1);
     assert_eq!(fail_pool.len(), 2, "HostFailPool must evict oldest entry at cap");
-    assert!(fail_pool.get("a.example").is_none());
+    assert!(
+        fail_pool
+            .get("a.example")
+            .is_none()
+    );
 
     let autolist = Rc::new(RefCell::new(HostlistFile::default()));
     let hostlists = HostlistCollection::default();
@@ -171,13 +190,21 @@ fn lua_blocks_binary_bytecode_and_reclaims_expired_registry_slots()
         .to_vec();
     assert!(bytecode.starts_with(b"\x1bLJ"), "expected LuaJIT bytecode magic");
     let bytecode_str = String::from_utf8_lossy(&bytecode);
-    assert!(rt.exec_str(&bytecode_str).is_err(), "exec_str must reject bytecode");
+    assert!(
+        rt.exec_str(&bytecode_str)
+            .is_err(),
+        "exec_str must reject bytecode"
+    );
 
     let tmp_dir = std::env::temp_dir().join(format!("zapret-lua-bc-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&tmp_dir);
     let bc_path = tmp_dir.join("evil.luac");
     std::fs::write(&bc_path, &bytecode).expect("write temp bytecode");
-    assert!(rt.exec_file(&bc_path).is_err(), "exec_file must reject binary bytecode");
+    assert!(
+        rt.exec_file(&bc_path)
+            .is_err(),
+        "exec_file must reject binary bytecode"
+    );
     let _ = std::fs::remove_dir_all(&tmp_dir);
 
     // Weak-value probe proves oneshot timer + timer_del release registry references deterministically.
@@ -193,21 +220,43 @@ fn lua_blocks_binary_bytecode_and_reclaims_expired_registry_slots()
     .expect("oneshot timer registration must succeed");
 
     TimerPool::run_expired(rt.timer_pool(), rt.lua(), u64::MAX / 2);
-    rt.lua().gc_collect().expect("gc_collect must succeed");
-    let timer_alive: bool = rt.lua().load("return weak_probe[1] ~= nil").eval().expect("eval weak_probe");
+    rt.lua()
+        .gc_collect()
+        .expect("gc_collect must succeed");
+    let timer_alive: bool = rt
+        .lua()
+        .load("return weak_probe[1] ~= nil")
+        .eval()
+        .expect("eval weak_probe");
     assert!(!timer_alive, "expired oneshot timer must release registry value");
 
     // Verify `CtrackEntry::reinit` also releases old `lua_state` table references.
     let mut entry = CtrackEntry::new(Some(rt.lua())).expect("ctrack entry");
     if let Some(ref key) = entry.lua_state
     {
-        let tbl: mlua::Table = rt.lua().registry_value(key).expect("lua_state table");
-        let weak: mlua::Table = rt.lua().globals().get("weak_probe").expect("weak_probe");
-        weak.set(2, tbl).expect("set weak_probe[2]");
+        let tbl: mlua::Table = rt
+            .lua()
+            .registry_value(key)
+            .expect("lua_state table");
+        let weak: mlua::Table = rt
+            .lua()
+            .globals()
+            .get("weak_probe")
+            .expect("weak_probe");
+        weak.set(2, tbl)
+            .expect("set weak_probe[2]");
     }
-    entry.reinit(Some(rt.lua())).expect("reinit must succeed");
-    rt.lua().gc_collect().expect("gc_collect must succeed");
-    let ctrack_alive: bool = rt.lua().load("return weak_probe[2] ~= nil").eval().expect("eval weak_probe[2]");
+    entry
+        .reinit(Some(rt.lua()))
+        .expect("reinit must succeed");
+    rt.lua()
+        .gc_collect()
+        .expect("gc_collect must succeed");
+    let ctrack_alive: bool = rt
+        .lua()
+        .load("return weak_probe[2] ~= nil")
+        .eval()
+        .expect("eval weak_probe[2]");
     assert!(!ctrack_alive, "CtrackEntry::reinit must release old lua_state registry slot");
 }
 
@@ -259,43 +308,70 @@ fn conntrack_global_buffer_budget_caps_multi_flow_amplification_and_frees_to_zer
     };
 
     let t = MonotonicTime { sec: 50, nsec: 0 };
-    let (e1, _) = pool.feed(None, &make_syn(1), t).expect("f1").expect("e1");
-    let (e2, _) = pool.feed(None, &make_syn(2), t).expect("f2").expect("e2");
-    let (e3, _) = pool.feed(None, &make_syn(3), t).expect("f3").expect("e3");
+    let (e1, _) = pool
+        .feed(None, &make_syn(1), t)
+        .expect("f1")
+        .expect("e1");
+    let (e2, _) = pool
+        .feed(None, &make_syn(2), t)
+        .expect("f2")
+        .expect("e2");
+    let (e3, _) = pool
+        .feed(None, &make_syn(3), t)
+        .expect("f3")
+        .expect("e3");
 
     // Flow 1 allocates 600B reassembly + 200B delayed packet -> 800B used across pool.
-    assert!(e1.borrow_mut().try_start_reasm(600, 1));
-    assert!(e1.borrow_mut().push_delayed(DelayedPacket {
-        raw: vec![0xAA; 200],
-        fwmark: 0,
-        ifin: None,
-        ifout: None,
-        tpos: CtrackPositions::default(),
-    }));
+    assert!(
+        e1.borrow_mut()
+            .try_start_reasm(600, 1)
+    );
+    assert!(
+        e1.borrow_mut()
+            .push_delayed(DelayedPacket {
+                raw: vec![0xAA; 200],
+                fwmark: 0,
+                ifin: None,
+                ifout: None,
+                tpos: CtrackPositions::default(),
+            })
+    );
     assert_eq!(pool.queued_bytes(), 800);
 
     // Flow 2 requesting 400B reassembly would total 1200B > 1024B -> rejected.
-    assert!(!e2.borrow_mut().try_start_reasm(400, 1));
+    assert!(
+        !e2.borrow_mut()
+            .try_start_reasm(400, 1)
+    );
     // Flow 2 pushing 300B delayed also fails (> 1024B), while 200B fits cleanly (total 1000B).
-    assert!(!e2.borrow_mut().push_delayed(DelayedPacket {
-        raw: vec![0xBB; 300],
-        fwmark: 0,
-        ifin: None,
-        ifout: None,
-        tpos: CtrackPositions::default(),
-    }));
-    assert!(e2.borrow_mut().push_delayed(DelayedPacket {
-        raw: vec![0xCC; 200],
-        fwmark: 0,
-        ifin: None,
-        ifout: None,
-        tpos: CtrackPositions::default(),
-    }));
+    assert!(
+        !e2.borrow_mut()
+            .push_delayed(DelayedPacket {
+                raw: vec![0xBB; 300],
+                fwmark: 0,
+                ifin: None,
+                ifout: None,
+                tpos: CtrackPositions::default(),
+            })
+    );
+    assert!(
+        e2.borrow_mut()
+            .push_delayed(DelayedPacket {
+                raw: vec![0xCC; 200],
+                fwmark: 0,
+                ifin: None,
+                ifout: None,
+                tpos: CtrackPositions::default(),
+            })
+    );
     assert_eq!(pool.queued_bytes(), 1000);
 
     // Releasing flow 1 reasm and taking delayed drops budget down to 200B, then freeing flow 2 hits 0.
-    e1.borrow_mut().clear_reasm();
-    let _ = e1.borrow_mut().take_delayed();
+    e1.borrow_mut()
+        .clear_reasm();
+    let _ = e1
+        .borrow_mut()
+        .take_delayed();
     assert_eq!(pool.queued_bytes(), 200);
 
     // Dropping flow 2 / clearing pool must bring queued_bytes back to exactly 0.
@@ -392,9 +468,15 @@ func = "drop_test"
 
     let rt =
         LuaRuntime::with_sender(LuaConfig::default(), Rc::new(RefCell::new(NoopSender))).expect("runtime");
-    rt.apply_app_config(&cfg).expect("apply config caches action");
-    let func = rt.resolve_cached_action(0, 0, "drop_test").expect("cached action key resolves O(1)");
-    assert!(func.call::<u8>(()).is_ok());
+    rt.apply_app_config(&cfg)
+        .expect("apply config caches action");
+    let func = rt
+        .resolve_cached_action(0, 0, "drop_test")
+        .expect("cached action key resolves O(1)");
+    assert!(
+        func.call::<u8>(())
+            .is_ok()
+    );
 
     let hub = TelemetryHub::new(
         Arc::new(PacketCounters::default()),

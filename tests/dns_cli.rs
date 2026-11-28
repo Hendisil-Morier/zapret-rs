@@ -6,18 +6,9 @@ use zapret_rs::tools::dns::{
 };
 use zapret_rs::tools::{MulticallApplet, resolve_multicall};
 
-#[test]
-fn dns_presets_parse_cycle_and_expose_doh_templates()
+/// Asserts `DnsPreset` cycling order, CLI round-trips, and DoH template invariants.
+fn assert_dns_preset_cycle()
 {
-    assert_eq!(DnsPreset::from_name("cloudflare"), Some(DnsPreset::Cloudflare));
-    assert_eq!(DnsPreset::from_name("1.1.1.1"), Some(DnsPreset::Cloudflare));
-    assert_eq!(DnsPreset::from_name("Google"), Some(DnsPreset::Google));
-    assert_eq!(DnsPreset::from_name("quad9"), Some(DnsPreset::Quad9));
-    assert_eq!(DnsPreset::from_name("adguard"), Some(DnsPreset::AdGuard));
-    assert_eq!(DnsPreset::from_name("auto"), Some(DnsPreset::Auto));
-    assert_eq!(DnsPreset::from_name("dhcp"), Some(DnsPreset::Auto));
-    assert_eq!(DnsPreset::from_name("unknown"), None);
-
     let mut p = DnsPreset::Cloudflare;
     for expected in DnsPreset::ALL
     {
@@ -25,17 +16,45 @@ fn dns_presets_parse_cycle_and_expose_doh_templates()
         assert_eq!(DnsPreset::from_name(p.cli_name()), Some(p));
         if p == DnsPreset::Auto
         {
-            assert!(p.ipv4_servers().is_none());
-            assert!(p.doh_template().is_none());
+            assert!(
+                p.ipv4_servers()
+                    .is_none()
+                    && p.doh_template()
+                        .is_none()
+            );
         }
         else
         {
-            assert!(p.ipv4_servers().is_some());
-            assert!(p.doh_template().is_some_and(|t| t.starts_with("https://")));
+            assert!(
+                p.ipv4_servers()
+                    .is_some()
+                    && p.doh_template()
+                        .is_some_and(|t| t.starts_with("https://"))
+            );
         }
         p = p.next();
     }
     assert_eq!(p, DnsPreset::Cloudflare);
+}
+
+#[test]
+fn dns_presets_parse_cycle_and_expose_doh_templates()
+{
+    for (name, expected) in [
+        ("cloudflare", Some(DnsPreset::Cloudflare)),
+        ("1.1.1.1", Some(DnsPreset::Cloudflare)),
+        ("Google", Some(DnsPreset::Google)),
+        ("quad9", Some(DnsPreset::Quad9)),
+        ("adguard", Some(DnsPreset::AdGuard)),
+        ("auto", Some(DnsPreset::Auto)),
+        ("dhcp", Some(DnsPreset::Auto)),
+        ("unknown", None),
+    ]
+    {
+        assert_eq!(DnsPreset::from_name(name), expected);
+    }
+
+    assert_dns_preset_cycle();
 }
 
 #[test]

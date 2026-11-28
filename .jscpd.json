@@ -1,0 +1,8 @@
+{
+  "formats": ["rust"],
+  "minLines": 8,
+  "minTokens": 60,
+  "ignore": ["tests/**", "benches/**", "target/**", "lua/**", "docs/**"],
+  "ignoreIdentifiers": true,
+  "reporters": ["console"]
+}

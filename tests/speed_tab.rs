@@ -40,24 +40,50 @@ fn render_str(state: &AppState) -> String
 {
     let backend = TestBackend::new(120, 32);
     let mut term = Terminal::new(backend).expect("terminal");
-    term.draw(|f| draw_app(f, state)).expect("draw");
-    term.backend().buffer().content().iter().map(|c| c.symbol()).collect()
+    term.draw(|f| draw_app(f, state))
+        .expect("draw");
+    term.backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect()
 }
 
 #[test]
 fn build_targets_deduplicates_tab1_domains_and_appends_control()
 {
     let targets = build_targets("https://Example.COM/foo, youtube.com example.com");
-    let labels: Vec<&str> = targets.iter().map(|t| t.label.as_str()).collect();
+    let labels: Vec<&str> = targets
+        .iter()
+        .map(|t| {
+            t.label
+                .as_str()
+        })
+        .collect();
     assert_eq!(labels, vec!["example.com", "youtube.com", &format!("control ({CONTROL_HOST})")]);
 
     let single = build_scoped_targets("example.com", &[IpFamily::V4]);
     assert_eq!(single.len(), 2);
-    assert_eq!(single[0].0.label, "example.com");
+    assert_eq!(
+        single[0]
+            .0
+            .label,
+        "example.com"
+    );
     assert_eq!(single[0].1, IpFamily::V4);
 
     let dual = build_scoped_targets("example.com", &[IpFamily::V4, IpFamily::V6]);
-    let dual_labels: Vec<(&str, IpFamily)> = dual.iter().map(|(t, fam)| (t.label.as_str(), *fam)).collect();
+    let dual_labels: Vec<(&str, IpFamily)> = dual
+        .iter()
+        .map(|(t, fam)| {
+            (
+                t.label
+                    .as_str(),
+                *fam,
+            )
+        })
+        .collect();
     assert_eq!(
         dual_labels,
         vec![
@@ -120,7 +146,9 @@ fn format_rate_and_describe_sample_cover_scales_and_errors()
 fn tab4_key_switches_renders_empty_state_table_and_help_popup()
 {
     let mut state = AppState::new(None, None, false);
-    state.finder.domains_input = "example.com".to_owned();
+    state
+        .finder
+        .domains_input = "example.com".to_owned();
     state.handle_key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
     assert_eq!(state.tab, ActiveTab::Speed);
 
@@ -150,10 +178,15 @@ fn tab4_run_key_requires_confirmation_then_emits_run_speed_test_action()
 {
     let mut state = AppState::new(None, None, false);
     state.tab = ActiveTab::Speed;
-    state.finder.domains_input = "example.com".to_owned();
+    state
+        .finder
+        .domains_input = "example.com".to_owned();
 
     assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)), AppAction::None);
-    let modal = state.modal.as_ref().expect("r on Tab 4 must open ConfirmSpeedTest popup");
+    let modal = state
+        .modal
+        .as_ref()
+        .expect("r on Tab 4 must open ConfirmSpeedTest popup");
     assert_eq!(modal.purpose, ModalPurpose::ConfirmSpeedTest);
 
     let popup = render_str(&state);
@@ -161,13 +194,25 @@ fn tab4_run_key_requires_confirmation_then_emits_run_speed_test_action()
 
     // Confirming closes the modal and returns `AppAction::RunSpeedTest`.
     assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), AppAction::RunSpeedTest);
-    assert!(state.modal.is_none());
+    assert!(
+        state
+            .modal
+            .is_none()
+    );
 
     // Pressing Esc cancels instead.
     state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-    assert!(state.modal.is_some());
+    assert!(
+        state
+            .modal
+            .is_some()
+    );
     assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)), AppAction::None);
-    assert!(state.modal.is_none());
+    assert!(
+        state
+            .modal
+            .is_none()
+    );
 }
 
 #[test]
@@ -192,7 +237,9 @@ fn tab4_falls_back_to_active_toml_domains_and_cancels_with_x_or_esc()
     assert!(rendered.contains("store.steampowered.com") && rendered.contains("from active config"));
 
     // While running, both `x` and `Esc` emit `AppAction::CancelSpeedTest`.
-    state.speed.phase = SpeedPhase::ProbingBefore;
+    state
+        .speed
+        .phase = SpeedPhase::ProbingBefore;
     assert_eq!(
         state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
         AppAction::CancelSpeedTest

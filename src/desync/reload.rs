@@ -17,7 +17,14 @@ use crate::desync::engine::DesyncEngine;
 /// Returns display labels for active desync profiles (falling back to `profile#<index>`).
 pub fn collect_profile_names(profiles: &[Rc<DesyncProfile>]) -> Vec<String>
 {
-    profiles.iter().map(|p| p.name.clone().unwrap_or_else(|| format!("profile#{}", p.index))).collect()
+    profiles
+        .iter()
+        .map(|p| {
+            p.name
+                .clone()
+                .unwrap_or_else(|| format!("profile#{}", p.index))
+        })
+        .collect()
 }
 
 /// Parses `toml_str`, enforces immutable `qnum`/`fwmark`, and atomically swaps `engine` profiles.

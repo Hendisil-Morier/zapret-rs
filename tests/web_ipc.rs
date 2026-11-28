@@ -26,15 +26,24 @@ use zapret_rs::tools::{WebAuth, WebConfig, start_web_server};
 fn raw_http(addr: SocketAddr, req: &str) -> (u16, String)
 {
     let mut s = TcpStream::connect(addr).expect("connect web");
-    s.set_read_timeout(Some(Duration::from_secs(3))).expect("timeout");
-    s.write_all(req.as_bytes()).expect("write");
+    s.set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("timeout");
+    s.write_all(req.as_bytes())
+        .expect("write");
     let mut out = String::new();
-    s.read_to_string(&mut out).expect("read");
+    s.read_to_string(&mut out)
+        .expect("read");
     let status = out
         .lines()
         .next()
-        .and_then(|l| l.split_whitespace().nth(1))
-        .and_then(|c| c.parse::<u16>().ok())
+        .and_then(|l| {
+            l.split_whitespace()
+                .nth(1)
+        })
+        .and_then(|c| {
+            c.parse::<u16>()
+                .ok()
+        })
         .expect("status");
     (status, out)
 }
@@ -96,7 +105,8 @@ fn spawn_mock_daemon_loop(
 fn verify_sse_status_and_packet_stream(addr: SocketAddr, hub: &TelemetryHub)
 {
     let mut sse = TcpStream::connect(addr).expect("connect sse");
-    sse.set_read_timeout(Some(Duration::from_secs(3))).expect("timeout");
+    sse.set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("timeout");
     sse.write_all(
         b"GET /api/events HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer bridge-token\r\n\r\n",
     )
@@ -108,7 +118,9 @@ fn verify_sse_status_and_packet_stream(addr: SocketAddr, hub: &TelemetryHub)
     while Instant::now() < sse_deadline
     {
         line.clear();
-        sse_reader.read_line(&mut line).expect("read sse header");
+        sse_reader
+            .read_line(&mut line)
+            .expect("read sse header");
         collected.push_str(&line);
         if collected.contains("event: status") && collected.contains("tls13:multisplit:1")
         {
@@ -124,7 +136,9 @@ fn verify_sse_status_and_packet_stream(addr: SocketAddr, hub: &TelemetryHub)
     while Instant::now() < pkt_deadline
     {
         line.clear();
-        sse_reader.read_line(&mut line).expect("read sse packet");
+        sse_reader
+            .read_line(&mut line)
+            .expect("read sse packet");
         collected.push_str(&line);
         if collected.contains("event: packet") && collected.contains("tls13:multisplit:1")
         {
@@ -137,14 +151,21 @@ fn verify_sse_status_and_packet_stream(addr: SocketAddr, hub: &TelemetryHub)
 #[test]
 fn web_bridge_streams_status_sse_and_executes_daemon_actions()
 {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_web_ipc_{}_{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mkdir");
     let sock = dir.join("control.sock");
 
     let counters = Arc::new(PacketCounters::default());
-    counters.total.store(120, Ordering::Relaxed);
-    counters.modified.store(7, Ordering::Relaxed);
+    counters
+        .total
+        .store(120, Ordering::Relaxed);
+    counters
+        .modified
+        .store(7, Ordering::Relaxed);
     let meta = DaemonStatusMeta {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         pid: std::process::id(),
@@ -171,7 +192,9 @@ fn web_bridge_streams_status_sse_and_executes_daemon_actions()
         Arc::clone(&stop_seen),
     );
 
-    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let bind: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("bridge-token".to_owned()), false).expect("auth");
     let mut web =
         start_web_server(WebConfig { bind, auth, control_socket: Some(sock), config: None, lua_dir: None })

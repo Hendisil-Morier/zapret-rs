@@ -25,8 +25,14 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
 {
-    let argv: Vec<OsString> = args.into_iter().map(Into::into).collect();
-    if let Some(sf_args) = extract_strat_finder_args(argv.iter().cloned())
+    let argv: Vec<OsString> = args
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    if let Some(sf_args) = extract_strat_finder_args(
+        argv.iter()
+            .cloned(),
+    )
     {
         return run_strat_finder_cli(sf_args);
     }

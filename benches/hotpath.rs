@@ -59,7 +59,10 @@ mod linux_bench
     /// Resolves the sibling `zapret2` repository path relative to `CARGO_MANIFEST_DIR`.
     fn zapret2_path(rel: &str) -> PathBuf
     {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("zapret2").join(rel)
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("zapret2")
+            .join(rel)
     }
 
     /// Builds a wire-valid IPv4/TCP packet with valid IP and TCP checksums.
@@ -136,7 +139,9 @@ mod linux_bench
         {
             f();
         }
-        let elapsed_ns = start.elapsed().as_nanos() as f64;
+        let elapsed_ns = start
+            .elapsed()
+            .as_nanos() as f64;
         let ns_per_op = elapsed_ns / (iters as f64);
         let ops_per_sec = 1e9_f64 / ns_per_op;
         println!("{name:<30} {ns_per_op:9.1} ns/op  ({ops_per_sec:10.0} ops/s)");
@@ -276,8 +281,12 @@ args = { blob = "fake_default_tls" }
         fs::create_dir_all(&dir).expect("create temp benchmark dir");
         let hl_path = dir.join("hosts.txt");
         let ip_path = dir.join("ips.txt");
-        let hl_body = (0..100).map(|i| format!("blocked-{i}.example.com\n")).collect::<String>();
-        let ip_body = (0..100).map(|i| format!("198.51.100.{i}\n")).collect::<String>();
+        let hl_body = (0..100)
+            .map(|i| format!("blocked-{i}.example.com\n"))
+            .collect::<String>();
+        let ip_body = (0..100)
+            .map(|i| format!("198.51.100.{i}\n"))
+            .collect::<String>();
         fs::write(&hl_path, hl_body).expect("write benchmark hostlist");
         fs::write(&ip_path, ip_body).expect("write benchmark ipset");
 
@@ -363,11 +372,15 @@ args = { blob = "fake_default_tls" }
     fn bench_rawsend_loopback()
     {
         let mut sender = RawSender::new(true, true);
-        sender.preinit().expect("RawSender::preinit requires CAP_NET_RAW");
+        sender
+            .preinit()
+            .expect("RawSender::preinit requires CAP_NET_RAW");
         let pkt = build_tcp4_packet(([127, 0, 0, 1], 40009), ([127, 0, 0, 1], 443), 1, 0, TH_SYN, &[]);
         let dst = IpAddr::V4(Ipv4Addr::LOCALHOST);
         run_bench("rawsend_loopback_v4", 200, 10_000, || {
-            sender.send(dst, 0x4000_0000, Some("lo"), &pkt).expect("rawsend loopback should succeed");
+            sender
+                .send(dst, 0x4000_0000, Some("lo"), &pkt)
+                .expect("rawsend loopback should succeed");
         });
     }
 

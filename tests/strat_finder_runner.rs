@@ -54,9 +54,16 @@ impl StrategyApplier for MockApplier
     /// Updates `active_strategy` to the first profile's name (or `None` when cleared).
     fn apply_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), String>
     {
-        let mut st = self.0.borrow_mut();
+        let mut st = self
+            .0
+            .borrow_mut();
         st.swap_count += 1;
-        st.active_strategy = profiles.first().and_then(|p| p.name.clone());
+        st.active_strategy = profiles
+            .first()
+            .and_then(|p| {
+                p.name
+                    .clone()
+            });
         Ok(())
     }
 }
@@ -69,18 +76,31 @@ impl ProbeBackend for MockProbe
     /// Returns scripted HTTP/3 capability.
     fn supports_http3(&self) -> bool
     {
-        self.0.borrow().http3_supported
+        self.0
+            .borrow()
+            .http3_supported
     }
 
     /// Looks up `(req.domain, active_strategy)` in scripted outcomes.
     fn probe(&self, req: &ProbeRequest) -> ProbeOutcome
     {
-        let st = self.0.borrow();
-        if let Some(out) = st.outcomes.get(&(req.domain.clone(), st.active_strategy.clone()))
+        let st = self
+            .0
+            .borrow();
+        if let Some(out) = st
+            .outcomes
+            .get(&(
+                req.domain
+                    .clone(),
+                st.active_strategy
+                    .clone(),
+            ))
         {
             return out.clone();
         }
-        st.default_outcome.clone().unwrap_or(ProbeOutcome::Timeout)
+        st.default_outcome
+            .clone()
+            .unwrap_or(ProbeOutcome::Timeout)
     }
 }
 
@@ -144,8 +164,12 @@ fn nft_script_renders_multiline_bypass_queue_and_fwmark_guard()
     assert!(script.contains("udp dport { 443 } queue num 210 bypass"));
     assert!(script.contains("tcp sport { 80, 443 } ct original packets 1-6 queue num 210 bypass"));
     // forward chain excludes tunnel egress for dport rules and captures early WAN replies.
-    let forward_start = script.find("chain forward {").expect("forward chain missing");
-    let input_start = script.find("chain input {").expect("input chain missing");
+    let forward_start = script
+        .find("chain forward {")
+        .expect("forward chain missing");
+    let input_start = script
+        .find("chain input {")
+        .expect("input chain missing");
     let forward_block = &script[forward_start..input_start];
     assert!(forward_block.contains("oifname != \"tailscale0\" tcp dport { 80, 443 } queue num 210 bypass"));
     assert!(forward_block.contains("oifname != \"tailscale0\" udp dport { 443 } queue num 210 bypass"));
@@ -163,34 +187,41 @@ fn scan_orchestrator_skips_unblocked_rejects_spoofs_and_computes_cover()
     {
         let mut st = state.borrow_mut();
         // `open.test` is reachable on baseline -> must skip strategy sweep.
-        st.outcomes.insert(
-            ("open.test".to_owned(), None),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 15 },
-        );
+        st.outcomes
+            .insert(
+                ("open.test".to_owned(), None),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 15 },
+            );
         // `a.blocked` returns spoof redirect on baseline and on `multisplit:1`,
         // works with `multisplit:midsld` (weight 20, 40ms) and `fake:ttl=3` (weight 45, 25ms).
-        st.outcomes.insert(
-            ("a.blocked".to_owned(), None),
-            ProbeOutcome::SpoofRedirect { location: "http://isp.block/a".to_owned() },
-        );
-        st.outcomes.insert(
-            ("a.blocked".to_owned(), Some("tls13:ipv4:multisplit:1".to_owned())),
-            ProbeOutcome::SpoofRedirect { location: "http://isp.block/still-blocked".to_owned() },
-        );
-        st.outcomes.insert(
-            ("a.blocked".to_owned(), Some("tls13:ipv4:multisplit:midsld".to_owned())),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 40 },
-        );
-        st.outcomes.insert(
-            ("a.blocked".to_owned(), Some("tls13:ipv4:fake:ttl=3".to_owned())),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 25 },
-        );
+        st.outcomes
+            .insert(
+                ("a.blocked".to_owned(), None),
+                ProbeOutcome::SpoofRedirect { location: "http://isp.block/a".to_owned() },
+            );
+        st.outcomes
+            .insert(
+                ("a.blocked".to_owned(), Some("tls13:ipv4:multisplit:1".to_owned())),
+                ProbeOutcome::SpoofRedirect { location: "http://isp.block/still-blocked".to_owned() },
+            );
+        st.outcomes
+            .insert(
+                ("a.blocked".to_owned(), Some("tls13:ipv4:multisplit:midsld".to_owned())),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 40 },
+            );
+        st.outcomes
+            .insert(
+                ("a.blocked".to_owned(), Some("tls13:ipv4:fake:ttl=3".to_owned())),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 25 },
+            );
         // `b.blocked` times out on baseline and also works with `multisplit:midsld` (60ms).
-        st.outcomes.insert(("b.blocked".to_owned(), None), ProbeOutcome::Timeout);
-        st.outcomes.insert(
-            ("b.blocked".to_owned(), Some("tls13:ipv4:multisplit:midsld".to_owned())),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 60 },
-        );
+        st.outcomes
+            .insert(("b.blocked".to_owned(), None), ProbeOutcome::Timeout);
+        st.outcomes
+            .insert(
+                ("b.blocked".to_owned(), Some("tls13:ipv4:multisplit:midsld".to_owned())),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 60 },
+            );
     }
 
     let cfg = ScanConfig {
@@ -209,19 +240,49 @@ fn scan_orchestrator_skips_unblocked_rejects_spoofs_and_computes_cover()
     let report = run_scan(&cfg, &probe, &mut applier, &stop, |_| {}).expect("scan ok");
 
     assert!(!report.interrupted);
-    assert_eq!(report.targets.len(), 3);
+    assert_eq!(
+        report
+            .targets
+            .len(),
+        3
+    );
     assert!(report.targets[0].skipped_unblocked);
     assert_eq!(report.targets[0].tested_count, 0);
 
     // `a.blocked` had 2 valid matches (`multisplit:midsld` ranked ahead of heavier `fake:ttl=3`).
     assert!(!report.targets[1].skipped_unblocked);
-    assert_eq!(report.targets[1].matches.len(), 2);
-    assert_eq!(report.targets[1].matches[0].strategy.id, "tls13:ipv4:multisplit:midsld");
-    assert_eq!(report.targets[1].matches[1].strategy.id, "tls13:ipv4:fake:ttl=3");
+    assert_eq!(
+        report.targets[1]
+            .matches
+            .len(),
+        2
+    );
+    assert_eq!(
+        report.targets[1].matches[0]
+            .strategy
+            .id,
+        "tls13:ipv4:multisplit:midsld"
+    );
+    assert_eq!(
+        report.targets[1].matches[1]
+            .strategy
+            .id,
+        "tls13:ipv4:fake:ttl=3"
+    );
 
     // Set cover merges `a.blocked` and `b.blocked` into a single profile!
-    assert_eq!(report.cover.len(), 1);
-    assert_eq!(report.cover[0].strategy.id, "tls13:ipv4:multisplit:midsld");
+    assert_eq!(
+        report
+            .cover
+            .len(),
+        1
+    );
+    assert_eq!(
+        report.cover[0]
+            .strategy
+            .id,
+        "tls13:ipv4:multisplit:midsld"
+    );
     assert_eq!(report.cover[0].domains, vec!["a.blocked".to_owned(), "b.blocked".to_owned()]);
     assert_eq!(report.cover[0].avg_latency_ms, 50);
 }
@@ -234,15 +295,18 @@ fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt()
     {
         let mut st = state.borrow_mut();
         st.http3_supported = false;
-        st.outcomes.insert(("x.blocked".to_owned(), None), ProbeOutcome::TcpReset);
-        st.outcomes.insert(
-            ("x.blocked".to_owned(), Some("tls13:ipv4:multisplit:1".to_owned())),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 33 },
-        );
-        st.outcomes.insert(
-            ("x.blocked".to_owned(), Some("tls13:ipv4:multisplit:midsld".to_owned())),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 20 },
-        );
+        st.outcomes
+            .insert(("x.blocked".to_owned(), None), ProbeOutcome::TcpReset);
+        st.outcomes
+            .insert(
+                ("x.blocked".to_owned(), Some("tls13:ipv4:multisplit:1".to_owned())),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 33 },
+            );
+        st.outcomes
+            .insert(
+                ("x.blocked".to_owned(), Some("tls13:ipv4:multisplit:midsld".to_owned())),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 20 },
+            );
     }
 
     let cfg = ScanConfig {
@@ -269,8 +333,19 @@ fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt()
     .expect("scan ok");
 
     assert!(saw_h3_skip, "should notify when HTTP/3 is unavailable");
-    assert_eq!(report.targets.len(), 1, "HTTP/3 target must be skipped");
-    assert_eq!(report.targets[0].matches.len(), 1);
+    assert_eq!(
+        report
+            .targets
+            .len(),
+        1,
+        "HTTP/3 target must be skipped"
+    );
+    assert_eq!(
+        report.targets[0]
+            .matches
+            .len(),
+        1
+    );
     assert_eq!(report.targets[0].tested_count, 1, "stop-on-first must stop on candidate #1");
 
     // Pre-signaled stop flag interrupts immediately before probing.
@@ -278,7 +353,11 @@ fn scan_orchestrator_honors_stop_on_first_http3_skip_and_interrupt()
     let interrupted = run_scan(&cfg, &probe, &mut applier, &interrupted_stop, |_| {})
         .expect("interrupted scan returns partial report");
     assert!(interrupted.interrupted);
-    assert!(interrupted.targets.is_empty());
+    assert!(
+        interrupted
+            .targets
+            .is_empty()
+    );
 }
 
 /// Verifies the compiled `strat_finder` CLI handles `--version`, `--help`, invalid flags,
@@ -288,13 +367,25 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config()
 {
     let bin = env!("CARGO_BIN_EXE_zapret-rs");
 
-    let ver = Command::new(bin).args(["scan", "--version"]).output().expect("run --version");
-    assert!(ver.status.success());
+    let ver = Command::new(bin)
+        .args(["scan", "--version"])
+        .output()
+        .expect("run --version");
+    assert!(
+        ver.status
+            .success()
+    );
     let ver_str = String::from_utf8_lossy(&ver.stdout);
     assert_eq!(ver_str.trim(), format!("strat_finder {}", env!("CARGO_PKG_VERSION")));
 
-    let help = Command::new(bin).args(["scan", "--help"]).output().expect("run --help");
-    assert!(help.status.success());
+    let help = Command::new(bin)
+        .args(["scan", "--help"])
+        .output()
+        .expect("run --help");
+    assert!(
+        help.status
+            .success()
+    );
     let help_str = String::from_utf8_lossy(&help.stdout);
     assert!(help_str.contains("--domain"));
     assert!(help_str.contains("--write-config"));
@@ -304,7 +395,10 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config()
         .args(["scan", "--level", "invalid_level", "--list-strategies"])
         .output()
         .expect("run invalid --level");
-    assert!(!bad.status.success());
+    assert!(
+        !bad.status
+            .success()
+    );
     let bad_err = String::from_utf8_lossy(&bad.stderr);
     assert!(bad_err.contains("invalid scan level"));
 
@@ -326,23 +420,31 @@ fn strat_finder_cli_version_help_invalid_and_list_write_config()
         .arg(&tmp_path)
         .output()
         .expect("run --list-strategies");
-    assert!(list.status.success(), "stderr: {}", String::from_utf8_lossy(&list.stderr));
+    assert!(
+        list.status
+            .success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&list.stderr)
+    );
     let list_out = String::from_utf8_lossy(&list.stdout);
     assert!(list_out.contains("# http/ipv4 (quick):"));
     assert!(list_out.contains("# tls13/ipv4 (quick):"));
     assert!(list_out.contains("# http3/ipv4 (quick):"));
 
     let parsed = AppConfig::from_toml_file(&tmp_path).expect("CLI-written TOML must parse");
-    assert_eq!(parsed.profiles.len(), 3);
+    assert_eq!(
+        parsed
+            .profiles
+            .len(),
+        3
+    );
     let _ = fs::remove_file(&tmp_path);
 }
 
 /// Verifies `nfqws2 --strat-finder` dispatches into the built-in strategy finder and
-/// `prompt_interactive_wizard` handles custom answers, re-prompts on typos, and skipping output.
-#[test]
-fn nfqws2_strat_finder_flag_and_interactive_wizard()
+/// Verifies `--strat-finder` CLI extraction, daemon help text, and offline strategy listing.
+fn verify_strat_finder_cli_subcommands()
 {
-    // Argument extraction preserves flags and ignores `--strat-finder` after `--`.
     assert!(extract_strat_finder_args(["nfqws2", "--dry-run"]).is_none());
     assert!(extract_strat_finder_args(["nfqws2", "--", "--strat-finder"]).is_none());
     let extracted =
@@ -351,25 +453,33 @@ fn nfqws2_strat_finder_flag_and_interactive_wizard()
     assert_eq!(extracted[0], "nfqws2 --strat-finder");
     assert_eq!(extracted[1], "--level");
 
-    // `nfqws2 --help` lists `--strat-finder`, and `nfqws2 --strat-finder --list-strategies` works offline.
     let bin = env!("CARGO_BIN_EXE_zapret-rs");
-    let main_help = Command::new(bin).args(["daemon", "--help"]).output().expect("nfqws2 --help");
-    assert!(main_help.status.success());
-    assert!(String::from_utf8_lossy(&main_help.stdout).contains("--strat-finder"));
+    for (args, needle) in [
+        (&["daemon", "--help"][..], "--strat-finder"),
+        (&["daemon", "--strat-finder", "--help"][..], "--interactive"),
+        (
+            &["daemon", "--strat-finder", "--list-strategies", "--level", "quick", "--proto", "tls13"][..],
+            "# tls13/ipv4 (quick):",
+        ),
+    ]
+    {
+        let out = Command::new(bin)
+            .args(args)
+            .output()
+            .expect("run zapret-rs daemon helper");
+        assert!(
+            out.status
+                .success()
+        );
+        assert!(String::from_utf8_lossy(&out.stdout).contains(needle));
+    }
+}
 
-    let sf_help = Command::new(bin)
-        .args(["daemon", "--strat-finder", "--help"])
-        .output()
-        .expect("nfqws2 --strat-finder --help");
-    assert!(sf_help.status.success());
-    assert!(String::from_utf8_lossy(&sf_help.stdout).contains("--interactive"));
-
-    let sf_list = Command::new(bin)
-        .args(["daemon", "--strat-finder", "--list-strategies", "--level", "quick", "--proto", "tls13"])
-        .output()
-        .expect("nfqws2 --strat-finder --list-strategies");
-    assert!(sf_list.status.success());
-    assert!(String::from_utf8_lossy(&sf_list.stdout).contains("# tls13/ipv4 (quick):"));
+/// `prompt_interactive_wizard` handles custom answers, re-prompts on typos, and skipping output.
+#[test]
+fn nfqws2_strat_finder_flag_and_interactive_wizard()
+{
+    verify_strat_finder_cli_subcommands();
 
     // Interactive wizard: invalid domain -> valid domains, invalid level -> quick, custom lua + output.
     let defaults = InteractiveDefaults {

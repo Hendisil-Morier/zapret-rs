@@ -78,8 +78,10 @@ impl Drop for TempDir
 fn gzip_bytes(data: &[u8]) -> Vec<u8>
 {
     let mut enc = GzEncoder::new(Vec::new(), Compression::fast());
-    enc.write_all(data).expect("write gzip payload");
-    enc.finish().expect("finish gzip payload")
+    enc.write_all(data)
+        .expect("write gzip payload");
+    enc.finish()
+        .expect("finish gzip payload")
 }
 
 /// Builds a dissected IPv4 TCP packet for conntrack capacity testing.
@@ -123,10 +125,14 @@ fn make_syn_or_ack(src_last: u8, sport: u16, flags: u8) -> DissectedPacket
 fn writable_dir_refuses_symlink_in_custom_and_default_modes()
 {
     let tmp = TempDir::new("writable_symlink");
-    let victim_dir = tmp.path().join("victim_dir");
+    let victim_dir = tmp
+        .path()
+        .join("victim_dir");
     fs::create_dir(&victim_dir).expect("create victim dir");
 
-    let custom_link = tmp.path().join("custom_link");
+    let custom_link = tmp
+        .path()
+        .join("custom_link");
     symlink(&victim_dir, &custom_link).expect("create custom symlink");
 
     let err = ensure_writable_dir(&WritableDirConfig::Custom(custom_link), None)
@@ -144,7 +150,9 @@ fn writable_dir_refuses_symlink_in_custom_and_default_modes()
     }
 
     // Plant `<TMPDIR>/zapret-rs` symlink and confirm `nfqws2 --writable` refuses to accept it.
-    let tmp_root = tmp.path().join("tmpdir_env");
+    let tmp_root = tmp
+        .path()
+        .join("tmpdir_env");
     fs::create_dir(&tmp_root).expect("create tmpdir env");
     let default_target = resolve_default_writable_dir(Some(tmp_root.as_os_str()));
     symlink(&victim_dir, &default_target).expect("create default writable symlink");
@@ -155,10 +163,16 @@ fn writable_dir_refuses_symlink_in_custom_and_default_modes()
         .args(["--intercept=0", "--writable"])
         .output()
         .expect("run nfqws2 --writable against symlink");
-    assert!(!out.status.success(), "nfqws2 must fail when default --writable is a symlink");
+    assert!(
+        !out.status
+            .success(),
+        "nfqws2 must fail when default --writable is a symlink"
+    );
 
     // Genuine owned directory continues to work cleanly.
-    let real_dir = tmp.path().join("real_writable");
+    let real_dir = tmp
+        .path()
+        .join("real_writable");
     let resolved = ensure_writable_dir(&WritableDirConfig::Custom(real_dir), None)
         .expect("genuine owned writable dir must succeed");
     assert!(resolved.is_dir());
@@ -168,10 +182,14 @@ fn writable_dir_refuses_symlink_in_custom_and_default_modes()
 fn pidfile_guard_refuses_symlink_without_truncating_target()
 {
     let tmp = TempDir::new("pidfile_symlink");
-    let victim = tmp.path().join("victim.txt");
+    let victim = tmp
+        .path()
+        .join("victim.txt");
     fs::write(&victim, b"keep-intact").expect("write victim file");
 
-    let pid_link = tmp.path().join("daemon.pid");
+    let pid_link = tmp
+        .path()
+        .join("daemon.pid");
     symlink(&victim, &pid_link).expect("create pid symlink");
 
     match PidFileGuard::create(&pid_link)
@@ -189,10 +207,14 @@ fn pidfile_guard_refuses_symlink_without_truncating_target()
         "symlink target must remain untruncated"
     );
 
-    let real_pid = tmp.path().join("normal.pid");
+    let real_pid = tmp
+        .path()
+        .join("normal.pid");
     {
         let mut guard = PidFileGuard::create(&real_pid).expect("create normal pidfile");
-        guard.write_current_pid().expect("write pid");
+        guard
+            .write_current_pid()
+            .expect("write pid");
         assert!(real_pid.is_file());
     }
     assert!(!real_pid.exists(), "PidFileGuard drop removes regular pidfile");
@@ -209,7 +231,12 @@ fn conntrack_pool_caps_entries_and_recovers_after_expiry()
     {
         let pkt = make_syn_or_ack(10 + idx as u8, 10_000 + idx, TH_SYN);
         let t = MonotonicTime { sec: 100 + i64::from(idx), nsec: 0 };
-        assert!(pool.feed(None, &pkt, t).expect("feed syn").is_some(), "flow {idx} within cap must insert");
+        assert!(
+            pool.feed(None, &pkt, t)
+                .expect("feed syn")
+                .is_some(),
+            "flow {idx} within cap must insert"
+        );
     }
     assert_eq!(pool.len(), 4);
 
@@ -230,8 +257,16 @@ fn conntrack_pool_caps_entries_and_recovers_after_expiry()
     );
     assert_eq!(pool.len(), 4);
     let evicted_probe = make_syn_or_ack(11, 10_001, TH_ACK);
-    assert!(pool.double_search(&evicted_probe).is_none(), "oldest flow 1 must be evicted");
-    assert!(pool.double_search(&flow0_ack).is_some(), "refreshed flow 0 must remain tracked");
+    assert!(
+        pool.double_search(&evicted_probe)
+            .is_none(),
+        "oldest flow 1 must be evicted"
+    );
+    assert!(
+        pool.double_search(&flow0_ack)
+            .is_some(),
+        "refreshed flow 0 must remain tracked"
+    );
 
     // Once un-ACKed SYN flows pass timeout (`60s`), cap check purges them while keeping the
     // established flow (timeout `300s`), leaving room cleanly.
@@ -241,7 +276,9 @@ fn conntrack_pool_caps_entries_and_recovers_after_expiry()
 
     // Spoofed/unexpected reverse-direction SYN against active flow 0 must NOT reinit state.
     {
-        let (rc, _) = pool.double_search(&flow0_ack).expect("flow 0 active");
+        let (rc, _) = pool
+            .double_search(&flow0_ack)
+            .expect("flow 0 active");
         let mut entry = rc.borrow_mut();
         entry.cutoff = true;
         entry.hostname = Some("keep.example".to_owned());
@@ -281,10 +318,18 @@ fn conntrack_pool_caps_entries_and_recovers_after_expiry()
         .expect("feed reverse syn")
         .expect("entry remains");
     assert!(b_rev);
-    let (rc, _) = pool.double_search(&flow0_ack).expect("flow 0 still exists");
+    let (rc, _) = pool
+        .double_search(&flow0_ack)
+        .expect("flow 0 still exists");
     let entry = rc.borrow();
     assert!(entry.cutoff, "reverse SYN must not wipe cutoff");
-    assert_eq!(entry.hostname.as_deref(), Some("keep.example"), "reverse SYN must not wipe host");
+    assert_eq!(
+        entry
+            .hostname
+            .as_deref(),
+        Some("keep.example"),
+        "reverse SYN must not wipe host"
+    );
 }
 
 #[test]
@@ -316,7 +361,11 @@ fn ipcache_caps_entries_and_recovers_after_expiry()
     assert_eq!(cache.get_hostname(overflow_ip), Some(("overflow.example", false)));
     assert_eq!(cache.get_hostname(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2))), None);
     assert_eq!(cache.get_hostname(first_ip), Some(("updated.example", false)));
-    assert!(cache.try_touch(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 6)), "", 107).is_some());
+    assert!(
+        cache
+            .try_touch(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 6)), "", 107)
+            .is_some()
+    );
     assert_eq!(cache.len(), 4);
 
     // After lifetime expiration (107 + 30 = 137), stale entries purge cleanly on next new insert.
@@ -333,19 +382,28 @@ fn gunzip_inflate_enforces_output_cap_and_rejects_bomb()
     let over = gzip_bytes(&vec![b'A'; 1025]);
 
     let mut ok_stream = InflateStream::with_max_output(InflateMode::Gzip, 1024);
-    let (out, eof) = ok_stream.inflate(&exact, 1024).expect("exact limit passes");
+    let (out, eof) = ok_stream
+        .inflate(&exact, 1024)
+        .expect("exact limit passes");
     assert!(eof);
     assert_eq!(out.len(), 1024);
 
     let mut single_over = InflateStream::with_max_output(InflateMode::Gzip, 1024);
-    assert!(single_over.inflate(&over, 1024).is_none(), "1025-byte single chunk must fail 1024-byte cap");
+    assert!(
+        single_over
+            .inflate(&over, 1024)
+            .is_none(),
+        "1025-byte single chunk must fail 1024-byte cap"
+    );
 
     // Verify cumulative cap holds across small chunks as well.
     let mut chunked_over = InflateStream::with_max_output(InflateMode::Gzip, 1024);
     let mut failed = false;
     for chunk in over.chunks(8)
     {
-        if chunked_over.inflate(chunk, 128).is_none()
+        if chunked_over
+            .inflate(chunk, 128)
+            .is_none()
         {
             failed = true;
             break;
@@ -361,7 +419,12 @@ fn gunzip_inflate_enforces_output_cap_and_rejects_bomb()
     let rt = LuaRuntime::new(LuaConfig::default()).expect("create lua runtime");
     rt.lua()
         .globals()
-        .set("BOMB", rt.lua().create_string(&bomb).expect("lua bomb string"))
+        .set(
+            "BOMB",
+            rt.lua()
+                .create_string(&bomb)
+                .expect("lua bomb string"),
+        )
         .expect("set BOMB global");
     let rejected: bool = rt
         .lua()

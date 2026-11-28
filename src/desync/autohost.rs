@@ -42,7 +42,9 @@ pub(crate) fn build_retrans_rst_packet(
     server_ip6flow: u32,
 ) -> Option<Vec<u8>>
 {
-    let tcp = dis.tcp.as_ref()?;
+    let tcp = dis
+        .tcp
+        .as_ref()?;
     let rst_tcp = TcpHeader {
         s_port: tcp.d_port,
         d_port: tcp.s_port,
@@ -161,31 +163,59 @@ pub(crate) fn handle_tcp_retrans_fail(
     {
         return;
     };
-    if tgt.server || tgt.runtime.autolist.is_none()
+    if tgt.server
+        || tgt
+            .runtime
+            .autolist
+            .is_none()
     {
         return;
     }
 
     let (trigger, hostname, host_is_ip, l7proto, winsize, ip6flow, client_ip) = {
         let mut entry = entry_rc.borrow_mut();
-        let trigger = check_tcp_retrans_trigger(&mut entry, &tgt.profile.lists.hostlist_auto_settings);
+        let trigger = check_tcp_retrans_trigger(
+            &mut entry,
+            &tgt.profile
+                .lists
+                .hostlist_auto_settings,
+        );
         let client_ip = extract_endpoint_ip(dis, true);
         (
             trigger,
-            trigger.is_some().then(|| entry.hostname.clone()).flatten(),
+            trigger
+                .is_some()
+                .then(|| {
+                    entry
+                        .hostname
+                        .clone()
+                })
+                .flatten(),
             entry.hostname_is_ip,
             entry.l7proto,
-            entry.pos.server.winsize,
-            entry.pos.server.ip6flow,
+            entry
+                .pos
+                .server
+                .winsize,
+            entry
+                .pos
+                .server
+                .ip6flow,
             client_ip,
         )
     };
 
     if trigger == Some(true)
-        && tgt.profile.lists.hostlist_auto_settings.retrans_reset
+        && tgt
+            .profile
+            .lists
+            .hostlist_auto_settings
+            .retrans_reset
         && let (Some(dst_ip), Some(rst_pkt)) = (client_ip, build_retrans_rst_packet(dis, winsize, ip6flow))
     {
-        let _ = sender.borrow_mut().send(dst_ip, 0, ifin, &rst_pkt);
+        let _ = sender
+            .borrow_mut()
+            .send(dst_ip, 0, ifin, &rst_pkt);
     }
 
     apply_autohost_outcome(tgt, hostname.as_deref(), host_is_ip, l7proto, trigger);
@@ -204,7 +234,11 @@ pub(crate) fn handle_tcp_incoming_fail(
     {
         return;
     };
-    if tgt.server || tgt.runtime.autolist.is_none()
+    if tgt.server
+        || tgt
+            .runtime
+            .autolist
+            .is_none()
     {
         return;
     }
@@ -219,13 +253,23 @@ pub(crate) fn handle_tcp_incoming_fail(
         let trigger = check_tcp_incoming_trigger(
             &mut entry,
             tcp.flags,
-            dis.payload.as_deref(),
+            dis.payload
+                .as_deref(),
             l7payload,
-            &tgt.profile.lists.hostlist_auto_settings,
+            &tgt.profile
+                .lists
+                .hostlist_auto_settings,
         );
         (
             trigger,
-            trigger.is_some().then(|| entry.hostname.clone()).flatten(),
+            trigger
+                .is_some()
+                .then(|| {
+                    entry
+                        .hostname
+                        .clone()
+                })
+                .flatten(),
             entry.hostname_is_ip,
             entry.l7proto,
         )
@@ -246,18 +290,37 @@ pub(crate) fn handle_udp_fail(
     {
         return;
     };
-    if tgt.server || tgt.runtime.autolist.is_none()
+    if tgt.server
+        || tgt
+            .runtime
+            .autolist
+            .is_none()
     {
         return;
     }
 
     let (trigger, hostname, host_is_ip, l7proto) = {
         let mut entry = entry_rc.borrow_mut();
-        let snapshot = tpos_override.copied().unwrap_or(entry.pos);
-        let trigger = check_udp_trigger(&mut entry, &snapshot, &tgt.profile.lists.hostlist_auto_settings);
+        let snapshot = tpos_override
+            .copied()
+            .unwrap_or(entry.pos);
+        let trigger = check_udp_trigger(
+            &mut entry,
+            &snapshot,
+            &tgt.profile
+                .lists
+                .hostlist_auto_settings,
+        );
         (
             trigger,
-            trigger.is_some().then(|| entry.hostname.clone()).flatten(),
+            trigger
+                .is_some()
+                .then(|| {
+                    entry
+                        .hostname
+                        .clone()
+                })
+                .flatten(),
             entry.hostname_is_ip,
             entry.l7proto,
         )
@@ -269,36 +332,62 @@ pub(crate) fn handle_udp_fail(
 /// Records an autohostlist failure against `target` and promotes `host` when threshold is reached.
 fn record_profile_failure(target: &AutohostFailTarget<'_>, host: &str, host_is_ip: bool, l7proto: L7Proto)
 {
-    let Some(autolist_file) = &target.runtime.autolist
+    let Some(autolist_file) = &target
+        .runtime
+        .autolist
     else
     {
         return;
     };
-    let mut pool = target.runtime.fail_pool.borrow_mut();
+    let mut pool = target
+        .runtime
+        .fail_pool
+        .borrow_mut();
     let mut ctx = AutoHostlistRecordCtx {
-        settings: &target.profile.lists.hostlist_auto_settings,
+        settings: &target
+            .profile
+            .lists
+            .hostlist_auto_settings,
         fail_pool: &mut pool,
-        hostlists: &target.runtime.hostlists,
+        hostlists: &target
+            .runtime
+            .hostlists,
         autolist_file,
         debug_log: target.debug_log,
-        profile_n: target.profile.index,
-        profile_name: target.profile.name.as_deref().unwrap_or("noname"),
+        profile_n: target
+            .profile
+            .index,
+        profile_name: target
+            .profile
+            .name
+            .as_deref()
+            .unwrap_or("noname"),
         client_label: target.client_label,
         l7proto,
         now_sec: boottime_secs(),
     };
     let action = record_autohost_failure(&mut ctx, host, host_is_ip);
     if matches!(action, AutoHostlistAction::FailCounted(_))
-        && target.profile.lists.hostlist_auto_settings.confirm_block
+        && target
+            .profile
+            .lists
+            .hostlist_auto_settings
+            .confirm_block
         && let Some(confirm) = target.auto_confirm
     {
         confirm.try_submit(AutoConfirmRequest {
             profile_slot: target.profile_slot,
-            profile_index: target.profile.index,
+            profile_index: target
+                .profile
+                .index,
             host: host.to_owned(),
             host_is_ip,
-            dst_ip: target.target_endpoint.0,
-            dst_port: target.target_endpoint.1,
+            dst_ip: target
+                .target_endpoint
+                .0,
+            dst_port: target
+                .target_endpoint
+                .1,
             l7proto,
         });
     }
@@ -307,13 +396,22 @@ fn record_profile_failure(target: &AutohostFailTarget<'_>, host: &str, host_is_i
 /// Clears any active autohostlist fail counter for `host` after healthy response traffic.
 fn reset_profile_failure(target: &AutohostFailTarget<'_>, host: &str, l7proto: L7Proto)
 {
-    let mut pool = target.runtime.fail_pool.borrow_mut();
+    let mut pool = target
+        .runtime
+        .fail_pool
+        .borrow_mut();
     let _ = reset_autohost_failure(
         &mut pool,
         host,
         target.debug_log,
-        target.profile.index,
-        target.profile.name.as_deref().unwrap_or("noname"),
+        target
+            .profile
+            .index,
+        target
+            .profile
+            .name
+            .as_deref()
+            .unwrap_or("noname"),
         target.client_label,
         l7proto,
     );

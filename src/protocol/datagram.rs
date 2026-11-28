@@ -19,7 +19,9 @@ pub fn is_xmpp_stream(data: &[u8]) -> bool
     (data.len() >= 16 && data.starts_with(STREAM))
         || (data.len() >= 36
             && data.starts_with(b"<?xml ")
-            && data[21..].windows(STREAM.len()).any(|w| w == STREAM))
+            && data[21..]
+                .windows(STREAM.len())
+                .any(|w| w == STREAM))
 }
 
 /// Returns `true` for XMPP `<starttls ` frames (`IsXMPPStartTLS`).
@@ -162,7 +164,11 @@ pub fn is_dht(data: &[u8]) -> bool
 /// Returns `true` for 74-byte Discord voice IP discovery requests (`IsDiscordIpDiscoveryRequest`).
 pub fn is_discord_ip_discovery_request(data: &[u8]) -> bool
 {
-    data.len() == 74 && data[0..4] == [0x00, 0x01, 0x00, 70] && data[8..72].iter().all(|&b| b == 0)
+    data.len() == 74
+        && data[0..4] == [0x00, 0x01, 0x00, 70]
+        && data[8..72]
+            .iter()
+            .all(|&b| b == 0)
 }
 
 /// Returns `true` for STUN messages carrying magic cookie `0x2112A442` (`IsStunMessage`).
@@ -179,8 +185,14 @@ pub fn is_stun_message(data: &[u8]) -> bool
 pub fn is_mtproto(data: &[u8]) -> bool
 {
     let (Ok(key), Ok(mut iv)) = (
-        <[u8; 32]>::try_from(data.get(8..40).unwrap_or_default()),
-        <[u8; 16]>::try_from(data.get(40..56).unwrap_or_default()),
+        <[u8; 32]>::try_from(
+            data.get(8..40)
+                .unwrap_or_default(),
+        ),
+        <[u8; 16]>::try_from(
+            data.get(40..56)
+                .unwrap_or_default(),
+        ),
     )
     else
     {

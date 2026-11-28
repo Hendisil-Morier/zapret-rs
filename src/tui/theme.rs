@@ -15,8 +15,16 @@ use crate::tui::theme_config::Theme;
 pub fn centered_rect(area: Rect, width: u16, height: u16) -> Rect
 {
     Rect {
-        x: area.x + area.width.saturating_sub(width) / 2,
-        y: area.y + area.height.saturating_sub(height) / 2,
+        x: area.x
+            + area
+                .width
+                .saturating_sub(width)
+                / 2,
+        y: area.y
+            + area
+                .height
+                .saturating_sub(height)
+                / 2,
         width,
         height,
     }
@@ -26,8 +34,18 @@ pub fn centered_rect(area: Rect, width: u16, height: u16) -> Rect
 /// margin) and height clamped to `min_h..=max_h` (2px vertical margin).
 pub fn clamped_centered_rect(area: Rect, max_w: u16, min_w: u16, max_h: u16, min_h: u16) -> Rect
 {
-    let w = max_w.min(area.width.saturating_sub(4)).max(min_w.min(area.width));
-    let h = max_h.min(area.height.saturating_sub(2)).max(min_h.min(area.height));
+    let w = max_w
+        .min(
+            area.width
+                .saturating_sub(4),
+        )
+        .max(min_w.min(area.width));
+    let h = max_h
+        .min(
+            area.height
+                .saturating_sub(2),
+        )
+        .max(min_h.min(area.height));
     centered_rect(area, w, h)
 }
 
@@ -37,7 +55,12 @@ pub fn panel_block(title: impl Into<String>, border: Color, title_color: Color) 
     Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
-        .title(Span::styled(title.into(), Style::default().fg(title_color).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            title.into(),
+            Style::default()
+                .fg(title_color)
+                .add_modifier(Modifier::BOLD),
+        ))
 }
 
 /// Highlights `[key]` segments in footer and modal hint bars using `theme` colors.
@@ -57,7 +80,9 @@ pub fn styled_key_hints<'a>(hints: &'a str, theme: &Theme) -> Vec<Span<'a>>
             let keycap = &after_open[..=close];
             spans.push(Span::styled(
                 keycap,
-                Style::default().fg(theme.warn_bright).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme.warn_bright)
+                    .add_modifier(Modifier::BOLD),
             ));
             rest = &after_open[close + 1..];
         }
@@ -80,7 +105,13 @@ pub fn styled_key_hints_owned(hints: &str, theme: &Theme) -> Vec<Span<'static>>
 {
     styled_key_hints(hints, theme)
         .into_iter()
-        .map(|s| Span::styled(s.content.into_owned(), s.style))
+        .map(|s| {
+            Span::styled(
+                s.content
+                    .into_owned(),
+                s.style,
+            )
+        })
         .collect()
 }
 
@@ -148,7 +179,12 @@ pub fn log_line_spans<'a>(line: &'a str, theme: &Theme) -> Line<'a>
             (theme.accent_bright, theme.subtle)
         };
         return Line::from(vec![
-            Span::styled(tag, Style::default().fg(tag_col).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                tag,
+                Style::default()
+                    .fg(tag_col)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(body, Style::default().fg(body_col)),
         ]);
     }
@@ -158,7 +194,9 @@ pub fn log_line_spans<'a>(line: &'a str, theme: &Theme) -> Line<'a>
 /// Syntax-highlights TOML lines for Tab 3's `nfqws2.toml` viewer using `theme`.
 pub fn highlight_toml<'a>(text: &'a str, theme: &Theme) -> Vec<Line<'a>>
 {
-    text.lines().map(|l| highlight_toml_line(l, theme)).collect()
+    text.lines()
+        .map(|l| highlight_toml_line(l, theme))
+        .collect()
 }
 
 /// Highlights a single TOML line into colored `ratatui` spans.
@@ -179,13 +217,20 @@ fn highlight_toml_line<'a>(line: &'a str, theme: &Theme) -> Line<'a>
         {
             let (head, tail) = line.split_at(close + 1);
             return Line::from(vec![
-                Span::styled(head, Style::default().fg(theme.special_bright).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    head,
+                    Style::default()
+                        .fg(theme.special_bright)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(tail, Style::default().fg(theme.muted)),
             ]);
         }
         return Line::from(Span::styled(
             line,
-            Style::default().fg(theme.special_bright).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.special_bright)
+                .add_modifier(Modifier::BOLD),
         ));
     }
     if let Some(eq_idx) = line.find('=')
@@ -278,7 +323,10 @@ fn highlight_toml_value<'a>(rhs: &'a str, theme: &Theme) -> Vec<Span<'a>>
 /// Syntax-highlights an `nftables` script for Tab 3's preview pane using `theme`.
 pub fn highlight_nft<'a>(script: &'a str, theme: &Theme) -> Vec<Line<'a>>
 {
-    script.lines().map(|l| highlight_nft_line(l, theme)).collect()
+    script
+        .lines()
+        .map(|l| highlight_nft_line(l, theme))
+        .collect()
 }
 
 /// Highlights a single `nftables` rule or block header line.
@@ -353,11 +401,15 @@ fn nft_token_style(tok: &str, theme: &Theme) -> Style
             | "filter"
     )
     {
-        Style::default().fg(theme.special_bright).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme.special_bright)
+            .add_modifier(Modifier::BOLD)
     }
     else if matches!(tok, "accept" | "drop" | "return")
     {
-        Style::default().fg(theme.ok_bright).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme.ok_bright)
+            .add_modifier(Modifier::BOLD)
     }
     else if matches!(
         tok,
@@ -379,7 +431,10 @@ fn nft_token_style(tok: &str, theme: &Theme) -> Style
     {
         Style::default().fg(theme.accent_bright)
     }
-    else if tok.starts_with("0x") || tok.bytes().all(|b| b.is_ascii_digit() || b == b'-')
+    else if tok.starts_with("0x")
+        || tok
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b == b'-')
     {
         Style::default().fg(theme.warn_bright)
     }

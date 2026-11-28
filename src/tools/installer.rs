@@ -92,7 +92,9 @@ fn default_install_prefix(prefer_system: bool) -> PathBuf
     {
         return PathBuf::from("/usr/local");
     }
-    resolve_user_home().map(|h| h.join(".local")).unwrap_or_else(|| PathBuf::from("/usr/local"))
+    resolve_user_home()
+        .map(|h| h.join(".local"))
+        .unwrap_or_else(|| PathBuf::from("/usr/local"))
 }
 
 /// Formats a consistent `"failed to <action> '<path>': <err>"` diagnostic message.
@@ -106,7 +108,12 @@ fn ensure_real_dir(dir: &Path) -> Result<(), String>
 {
     if let Ok(meta) = fs::symlink_metadata(dir)
     {
-        if meta.file_type().is_symlink() || !meta.file_type().is_dir()
+        if meta
+            .file_type()
+            .is_symlink()
+            || !meta
+                .file_type()
+                .is_dir()
         {
             return Err(format!("refusing symlink or non-directory installation path '{}'", dir.display()));
         }
@@ -121,7 +128,10 @@ fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String>
 {
     let parent = dst
         .parent()
-        .filter(|p| !p.as_os_str().is_empty())
+        .filter(|p| {
+            !p.as_os_str()
+                .is_empty()
+        })
         .ok_or_else(|| format!("invalid target path '{}'", dst.display()))?;
     ensure_real_dir(parent)?;
 
@@ -132,9 +142,11 @@ fn atomic_copy_executable(src: &Path, dst: &Path) -> Result<(), String>
     {
         let candidate = parent.join(format!(".zapret-rs.stage.{}.{}", std::process::id(), attempt));
         let mut opts = OpenOptions::new();
-        opts.write(true).create_new(true);
+        opts.write(true)
+            .create_new(true);
         #[cfg(unix)]
-        opts.mode(0o755).custom_flags(libc::O_NOFOLLOW);
+        opts.mode(0o755)
+            .custom_flags(libc::O_NOFOLLOW);
         match opts.open(&candidate)
         {
             Ok(file) =>
@@ -180,7 +192,9 @@ fn symlink_points_to_zapret(link_path: &Path, dst_bin: &Path) -> bool
     {
         return false;
     };
-    if !meta.file_type().is_symlink()
+    if !meta
+        .file_type()
+        .is_symlink()
     {
         return false;
     }
@@ -194,7 +208,10 @@ fn symlink_points_to_zapret(link_path: &Path, dst_bin: &Path) -> bool
 /// Installs `zapret-rs`, bundled Lua scripts, optional symlinks, capabilities, and systemd unit.
 fn perform_install(cli: &InstallCli) -> Result<(), String>
 {
-    let prefix = cli.prefix.clone().unwrap_or_else(|| default_install_prefix(cli.systemd));
+    let prefix = cli
+        .prefix
+        .clone()
+        .unwrap_or_else(|| default_install_prefix(cli.systemd));
     let src_bin = match &cli.source_bin
     {
         Some(path) => path.clone(),
@@ -202,13 +219,19 @@ fn perform_install(cli: &InstallCli) -> Result<(), String>
     };
     let bin_dir = prefix.join("bin");
     let dst_bin = bin_dir.join("zapret-rs");
-    let dst_is_symlink = fs::symlink_metadata(&dst_bin).is_ok_and(|meta| meta.file_type().is_symlink());
+    let dst_is_symlink = fs::symlink_metadata(&dst_bin).is_ok_and(|meta| {
+        meta.file_type()
+            .is_symlink()
+    });
     if dst_is_symlink || fs::canonicalize(&src_bin).ok() != fs::canonicalize(&dst_bin).ok()
     {
         atomic_copy_executable(&src_bin, &dst_bin)?;
     }
 
-    let lua_dir = prefix.join("share").join("zapret-rs").join("lua");
+    let lua_dir = prefix
+        .join("share")
+        .join("zapret-rs")
+        .join("lua");
     ensure_real_dir(&lua_dir)?;
     extract_bundled_lua(&lua_dir)?;
 
@@ -219,7 +242,12 @@ fn perform_install(cli: &InstallCli) -> Result<(), String>
         {
             let link = bin_dir.join(name);
             if let Ok(meta) = fs::symlink_metadata(&link)
-                && (meta.file_type().is_symlink() || meta.file_type().is_file())
+                && (meta
+                    .file_type()
+                    .is_symlink()
+                    || meta
+                        .file_type()
+                        .is_file())
             {
                 fs::remove_file(&link)
                     .map_err(|err| format!("failed to replace '{}': {err}", link.display()))?;
@@ -253,21 +281,33 @@ fn perform_install(cli: &InstallCli) -> Result<(), String>
 /// Removes installed files from `prefix` (preserving `~/.config/zapret-rs` and unrelated binaries).
 fn perform_uninstall(cli: &UninstallCli) -> Result<(), String>
 {
-    let prefix = cli.prefix.clone().unwrap_or_else(|| {
-        let user_prefix = default_install_prefix(false);
-        if user_prefix.join("bin").join("zapret-rs").exists() && current_euid() != 0
-        {
-            user_prefix
-        }
-        else
-        {
-            default_install_prefix(cli.systemd)
-        }
-    });
+    let prefix = cli
+        .prefix
+        .clone()
+        .unwrap_or_else(|| {
+            let user_prefix = default_install_prefix(false);
+            if user_prefix
+                .join("bin")
+                .join("zapret-rs")
+                .exists()
+                && current_euid() != 0
+            {
+                user_prefix
+            }
+            else
+            {
+                default_install_prefix(cli.systemd)
+            }
+        });
     let bin_dir = prefix.join("bin");
     let main_bin = bin_dir.join("zapret-rs");
     if let Ok(meta) = fs::symlink_metadata(&main_bin)
-        && (meta.file_type().is_file() || meta.file_type().is_symlink())
+        && (meta
+            .file_type()
+            .is_file()
+            || meta
+                .file_type()
+                .is_symlink())
     {
         fs::remove_file(&main_bin)
             .map_err(|err| format!("failed to remove '{}': {err}", main_bin.display()))?;
@@ -281,10 +321,16 @@ fn perform_uninstall(cli: &UninstallCli) -> Result<(), String>
                 .map_err(|err| format!("failed to remove '{}': {err}", target.display()))?;
         }
     }
-    let lua_share = prefix.join("share").join("zapret-rs");
+    let lua_share = prefix
+        .join("share")
+        .join("zapret-rs");
     if let Ok(meta) = fs::symlink_metadata(&lua_share)
-        && !meta.file_type().is_symlink()
-        && meta.file_type().is_dir()
+        && !meta
+            .file_type()
+            .is_symlink()
+        && meta
+            .file_type()
+            .is_dir()
     {
         fs::remove_dir_all(&lua_share)
             .map_err(|err| format!("failed to remove '{}': {err}", lua_share.display()))?;

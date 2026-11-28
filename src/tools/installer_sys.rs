@@ -40,7 +40,9 @@ const SYSTEMD_SERVICE_DEST: &str = "/etc/systemd/system/zapret-rs.service";
 /// Strips ASCII control characters (`\r`, `\n`, `\0`, etc.) from a systemd substitution string.
 fn strip_control_chars(raw: &str) -> String
 {
-    raw.chars().filter(|ch| !ch.is_control()).collect()
+    raw.chars()
+        .filter(|ch| !ch.is_control())
+        .collect()
 }
 
 /// Validates and renders the embedded systemd unit, rejecting newlines, control bytes, or unsafe inputs.
@@ -49,9 +51,15 @@ pub fn try_render_systemd_service(bin_path: &Path, user: &str, home: &Path) -> R
     let bin_str = bin_path.to_string_lossy();
     let home_str = home.to_string_lossy();
     if user.is_empty()
-        || user.chars().any(|ch| ch.is_control() || ch.is_whitespace())
-        || bin_str.chars().any(char::is_control)
-        || home_str.chars().any(char::is_control)
+        || user
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace())
+        || bin_str
+            .chars()
+            .any(char::is_control)
+        || home_str
+            .chars()
+            .any(char::is_control)
     {
         return Err(
             "systemd unit fields cannot contain control characters or invalid username whitespace".to_owned()
@@ -71,7 +79,10 @@ pub fn try_render_systemd_service(bin_path: &Path, user: &str, home: &Path) -> R
 pub fn render_systemd_service(bin_path: &Path, user: &str, home: &Path) -> String
 {
     let clean_bin = strip_control_chars(&bin_path.to_string_lossy());
-    let clean_user: String = strip_control_chars(user).chars().filter(|ch| !ch.is_whitespace()).collect();
+    let clean_user: String = strip_control_chars(user)
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect();
     let clean_home = strip_control_chars(&home.to_string_lossy());
     SYSTEMD_SERVICE_TEMPLATE
         .replace("/usr/local/bin/zapret-rs", &clean_bin)
@@ -101,7 +112,11 @@ fn resolve_operator_identity() -> (String, PathBuf)
     let user = std::env::var("SUDO_USER")
         .ok()
         .filter(|u| !u.is_empty())
-        .or_else(|| std::env::var("USER").ok().filter(|u| !u.is_empty()))
+        .or_else(|| {
+            std::env::var("USER")
+                .ok()
+                .filter(|u| !u.is_empty())
+        })
         .unwrap_or_else(|| "root".to_owned());
     let home = resolve_user_home().unwrap_or_else(|| PathBuf::from("/root"));
     (user, home)
@@ -116,13 +131,19 @@ fn run_privileged_bin(tool_name: &str, args: &[&OsStr]) -> Result<(), String>
     // SAFETY: `geteuid` takes no arguments and cannot fail.
     let status = if unsafe { libc::geteuid() } == 0
     {
-        Command::new(&tool_bin).args(args).status()
+        Command::new(&tool_bin)
+            .args(args)
+            .status()
     }
     else
     {
         let sudo_bin =
             resolve_trusted_system_bin("sudo").map_err(|err| format!("cannot locate trusted sudo: {err}"))?;
-        Command::new(&sudo_bin).arg("--").arg(&tool_bin).args(args).status()
+        Command::new(&sudo_bin)
+            .arg("--")
+            .arg(&tool_bin)
+            .args(args)
+            .status()
     }
     .map_err(|err| format!("failed to execute {tool_name}: {err}"))?;
     if !status.success()
@@ -139,7 +160,12 @@ fn lock_down_setcap_target(bin_path: &Path) -> Result<(), String>
 {
     let meta = fs::symlink_metadata(bin_path)
         .map_err(|err| format!("failed to inspect '{}': {err}", bin_path.display()))?;
-    if meta.file_type().is_symlink() || !meta.file_type().is_file()
+    if meta
+        .file_type()
+        .is_symlink()
+        || !meta
+            .file_type()
+            .is_file()
     {
         return Err(format!("refusing setcap on non-regular or symlink path '{}'", bin_path.display()));
     }
@@ -148,8 +174,12 @@ fn lock_down_setcap_target(bin_path: &Path) -> Result<(), String>
     // SAFETY: `geteuid` takes no arguments and cannot fail.
     if unsafe { libc::geteuid() } == 0
     {
-        let c_path = CString::new(bin_path.as_os_str().as_bytes())
-            .map_err(|_| format!("invalid NUL byte in '{}'", bin_path.display()))?;
+        let c_path = CString::new(
+            bin_path
+                .as_os_str()
+                .as_bytes(),
+        )
+        .map_err(|_| format!("invalid NUL byte in '{}'", bin_path.display()))?;
         // SAFETY: `c_path` is a NUL-terminated path and `chown` follows no extra pointers.
         if unsafe { libc::chown(c_path.as_ptr(), 0, op_gid) } < 0
         {
@@ -187,13 +217,21 @@ pub(crate) fn install_systemd_service(bin_path: &Path) -> Result<(), String>
         .map_err(|err| format!("failed to write {SYSTEMD_SERVICE_DEST} (run with sudo): {err}"))?;
     let systemctl_bin = resolve_trusted_system_bin("systemctl")
         .map_err(|err| format!("cannot locate trusted systemctl: {err}"))?;
-    let reload = Command::new(&systemctl_bin).args(["daemon-reload"]).status();
-    if !reload.as_ref().is_ok_and(|s| s.success())
+    let reload = Command::new(&systemctl_bin)
+        .args(["daemon-reload"])
+        .status();
+    if !reload
+        .as_ref()
+        .is_ok_and(|s| s.success())
     {
         return Err("systemctl daemon-reload failed".to_owned());
     }
-    let enable = Command::new(&systemctl_bin).args(["enable", "zapret-rs.service"]).status();
-    if !enable.as_ref().is_ok_and(|s| s.success())
+    let enable = Command::new(&systemctl_bin)
+        .args(["enable", "zapret-rs.service"])
+        .status();
+    if !enable
+        .as_ref()
+        .is_ok_and(|s| s.success())
     {
         return Err("systemctl enable zapret-rs.service failed".to_owned());
     }
@@ -206,13 +244,20 @@ pub(crate) fn uninstall_systemd_service() -> Result<(), String>
 {
     if let Ok(systemctl_bin) = resolve_trusted_system_bin("systemctl")
     {
-        let _ = Command::new(&systemctl_bin).args(["disable", "--now", "zapret-rs.service"]).status();
+        let _ = Command::new(&systemctl_bin)
+            .args(["disable", "--now", "zapret-rs.service"])
+            .status();
         let unit = Path::new(SYSTEMD_SERVICE_DEST);
-        if fs::symlink_metadata(unit).is_ok_and(|meta| meta.file_type().is_file())
+        if fs::symlink_metadata(unit).is_ok_and(|meta| {
+            meta.file_type()
+                .is_file()
+        })
         {
             fs::remove_file(unit).map_err(|err| format!("failed to remove {SYSTEMD_SERVICE_DEST}: {err}"))?;
         }
-        let _ = Command::new(&systemctl_bin).args(["daemon-reload"]).status();
+        let _ = Command::new(&systemctl_bin)
+            .args(["daemon-reload"])
+            .status();
     }
     Ok(())
 }

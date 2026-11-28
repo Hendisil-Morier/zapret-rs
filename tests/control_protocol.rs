@@ -107,11 +107,16 @@ fn round_trip_every_request_and_response_variant()
 fn counters_snapshot_round_trips_into_atomic_counters()
 {
     let src = PacketCounters::default();
-    src.total.store(50, std::sync::atomic::Ordering::Relaxed);
-    src.passed.store(40, std::sync::atomic::Ordering::Relaxed);
-    src.reassembled.store(3, std::sync::atomic::Ordering::Relaxed);
-    src.modified.store(2, std::sync::atomic::Ordering::Relaxed);
-    src.desynced.store(5, std::sync::atomic::Ordering::Relaxed);
+    src.total
+        .store(50, std::sync::atomic::Ordering::Relaxed);
+    src.passed
+        .store(40, std::sync::atomic::Ordering::Relaxed);
+    src.reassembled
+        .store(3, std::sync::atomic::Ordering::Relaxed);
+    src.modified
+        .store(2, std::sync::atomic::Ordering::Relaxed);
+    src.desynced
+        .store(5, std::sync::atomic::Ordering::Relaxed);
 
     let snap = CountersSnapshot::from(&src);
     let dst = PacketCounters::default();
@@ -137,7 +142,11 @@ fn oversized_line_and_malformed_json_return_typed_errors()
     assert!(matches!(json_err, CodecError::Json(_)));
 
     let mut empty = Cursor::new(b"".as_slice());
-    assert!(read_bounded_line(&mut empty, MAX_CONTROL_LINE_BYTES).expect("eof").is_none());
+    assert!(
+        read_bounded_line(&mut empty, MAX_CONTROL_LINE_BYTES)
+            .expect("eof")
+            .is_none()
+    );
 }
 
 #[test]

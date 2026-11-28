@@ -51,7 +51,9 @@ impl ChecksumAccumulator
     /// Feeds arbitrary bytes into the one's-complement sum, handling odd-length slice boundaries.
     pub fn update(&mut self, bytes: &[u8])
     {
-        let rest = if let Some(prev) = self.odd_byte.take()
+        let rest = if let Some(prev) = self
+            .odd_byte
+            .take()
         {
             if let Some((&first, tail)) = bytes.split_first()
             {
@@ -169,14 +171,22 @@ fn detect_l3_addrs(ip_hdr: &[u8]) -> PEResult<L3ChecksumTarget>
 {
     if is_valid_ipv4_header_for_csum(ip_hdr)
     {
-        let src: [u8; 4] = ip_hdr[12..16].try_into().map_err(|_| PacketError::InvalidChecksumHeader)?;
-        let dst: [u8; 4] = ip_hdr[16..20].try_into().map_err(|_| PacketError::InvalidChecksumHeader)?;
+        let src: [u8; 4] = ip_hdr[12..16]
+            .try_into()
+            .map_err(|_| PacketError::InvalidChecksumHeader)?;
+        let dst: [u8; 4] = ip_hdr[16..20]
+            .try_into()
+            .map_err(|_| PacketError::InvalidChecksumHeader)?;
         Ok(L3ChecksumTarget::V4 { src, dst })
     }
     else if check_ipv6_header(ip_hdr)
     {
-        let src: [u8; 16] = ip_hdr[8..24].try_into().map_err(|_| PacketError::InvalidChecksumHeader)?;
-        let dst: [u8; 16] = ip_hdr[24..40].try_into().map_err(|_| PacketError::InvalidChecksumHeader)?;
+        let src: [u8; 16] = ip_hdr[8..24]
+            .try_into()
+            .map_err(|_| PacketError::InvalidChecksumHeader)?;
+        let dst: [u8; 16] = ip_hdr[24..40]
+            .try_into()
+            .map_err(|_| PacketError::InvalidChecksumHeader)?;
         Ok(L3ChecksumTarget::V6 { src, dst })
     }
     else

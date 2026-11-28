@@ -25,7 +25,9 @@ use crate::packet::{DissectedPacket, dissect_packet};
 /// Resolves cached `(hostname, is_ip)` from dst or src endpoint in `ipcache` when flow host is absent.
 fn lookup_dual_ipcache_host(engine: &DesyncEngine, dis: &DissectedPacket) -> Option<(String, bool)>
 {
-    let cache = engine.ipcache.borrow();
+    let cache = engine
+        .ipcache
+        .borrow();
     if let Some(dst_ip) = extract_endpoint_ip(dis, false)
         && let Some((host, is_ip)) = cache.get_hostname(dst_ip)
     {
@@ -53,7 +55,9 @@ fn autohostlist_allows(
     {
         return true;
     };
-    if engine.profile_runtimes[profile_idx].autolist.is_none()
+    if engine.profile_runtimes[profile_idx]
+        .autolist
+        .is_none()
     {
         return true;
     }
@@ -62,7 +66,10 @@ fn autohostlist_allows(
     {
         return result;
     }
-    engine.profile_runtimes[profile_idx].hostlists.check(host, hostname_is_ip, false).matched
+    engine.profile_runtimes[profile_idx]
+        .hostlists
+        .check(host, hostname_is_ip, false)
+        .matched
 }
 
 /// Inherited parent-flow metadata recovered from an attached ICMP error payload.
@@ -96,7 +103,12 @@ fn resolve_icmp_flow(
     let mut out = InheritedIcmpFlow {
         l7payload: L7Payload::Icmp,
         ctrack: None,
-        b_reverse: pkt.ifin.is_some_and(|s| !s.is_empty()) && !pkt.ifout.is_some_and(|s| !s.is_empty()),
+        b_reverse: pkt
+            .ifin
+            .is_some_and(|s| !s.is_empty())
+            && !pkt
+                .ifout
+                .is_some_and(|s| !s.is_empty()),
         prof_id: None,
         l7proto: L7Proto::Unknown,
         host: None,
@@ -104,19 +116,41 @@ fn resolve_icmp_flow(
         ctrack_check: None,
     };
     if is_icmp_error_with_attached_ip(dis, icmp_type)
-        && let Some(attached) = dis.payload.as_deref()
+        && let Some(attached) = dis
+            .payload
+            .as_deref()
     {
         let inner = dissect_packet(attached, true);
-        if inner.ip.is_some() || inner.ip6.is_some()
+        if inner
+            .ip
+            .is_some()
+            || inner
+                .ip6
+                .is_some()
         {
-            out.l7payload = if inner.ip.is_some() { L7Payload::Ipv4 } else { L7Payload::Ipv6 };
-            if let Some((entry_rc, rev)) = engine.runtime().conntrack().borrow().double_search(&inner)
+            out.l7payload = if inner
+                .ip
+                .is_some()
+            {
+                L7Payload::Ipv4
+            }
+            else
+            {
+                L7Payload::Ipv6
+            };
+            if let Some((entry_rc, rev)) = engine
+                .runtime()
+                .conntrack()
+                .borrow()
+                .double_search(&inner)
             {
                 out.b_reverse = !rev;
                 let entry = entry_rc.borrow();
                 out.prof_id = entry.profile_index;
                 out.l7proto = entry.l7proto;
-                out.host = entry.hostname.clone();
+                out.host = entry
+                    .hostname
+                    .clone();
                 out.host_is_ip = entry.hostname_is_ip;
                 out.ctrack_check = Some((entry.check_done, entry.check_result));
                 drop(entry);
@@ -134,7 +168,12 @@ pub(crate) fn process_icmp_packet(
     dis: &DissectedPacket,
 ) -> Decision
 {
-    if dis.ip.is_some() == dis.ip6.is_some()
+    if dis
+        .ip
+        .is_some()
+        == dis
+            .ip6
+            .is_some()
     {
         return Decision::Pass;
     }
@@ -145,8 +184,19 @@ pub(crate) fn process_icmp_packet(
     };
 
     let mut flow = resolve_icmp_flow(engine, pkt, dis, icmp.icmp_type);
-    let incoming = if flow.ctrack.is_some() { flow.b_reverse ^ engine.server } else { flow.b_reverse };
-    if flow.host.is_none()
+    let incoming = if flow
+        .ctrack
+        .is_some()
+    {
+        flow.b_reverse ^ engine.server
+    }
+    else
+    {
+        flow.b_reverse
+    };
+    if flow
+        .host
+        .is_none()
         && let Some((cached, is_ip)) = lookup_dual_ipcache_host(engine, dis)
     {
         flow.host = Some(cached);
@@ -160,14 +210,18 @@ pub(crate) fn process_icmp_packet(
     };
     let src_ip = extract_endpoint_ip(dis, true);
 
-    let profile_idx = match flow.prof_id.and_then(|id| profile_slot_by_id(&engine.profiles, id))
+    let profile_idx = match flow
+        .prof_id
+        .and_then(|id| profile_slot_by_id(&engine.profiles, id))
     {
         Some(idx) => Some(idx),
         None =>
         {
             let match_input = FullMatchInput {
                 base: ProfileMatchInput {
-                    is_v6: dis.ip6.is_some(),
+                    is_v6: dis
+                        .ip6
+                        .is_some(),
                     l4proto: dis.l4proto,
                     port: 0,
                     icmp_type: icmp.icmp_type,
@@ -177,7 +231,9 @@ pub(crate) fn process_icmp_packet(
                 },
                 primary_ip: dst_ip,
                 reverse_ip: src_ip,
-                hostname: flow.host.as_deref(),
+                hostname: flow
+                    .host
+                    .as_deref(),
                 hostname_is_ip: flow.host_is_ip,
             };
             let found = find_matching_profile(&engine.profiles, &engine.profile_runtimes, &match_input);
@@ -196,16 +252,31 @@ pub(crate) fn process_icmp_packet(
     {
         return Decision::Pass;
     };
-    if !autohostlist_allows(engine, idx, flow.host.as_deref(), flow.host_is_ip, flow.ctrack_check)
+    if !autohostlist_allows(
+        engine,
+        idx,
+        flow.host
+            .as_deref(),
+        flow.host_is_ip,
+        flow.ctrack_check,
+    )
     {
         return Decision::Pass;
     }
 
-    let target_ip4 = dis.ip.as_ref().map(|ip| if incoming { ip.src } else { ip.dst });
-    let target_ip6 = dis.ip6.as_ref().map(|ip6| if incoming { ip6.src } else { ip6.dst });
+    let target_ip4 = dis
+        .ip
+        .as_ref()
+        .map(|ip| if incoming { ip.src } else { ip.dst });
+    let target_ip6 = dis
+        .ip6
+        .as_ref()
+        .map(|ip6| if incoming { ip6.src } else { ip6.dst });
     let ps = PlayState {
         profile_idx: Some(idx),
-        ctrack: flow.ctrack.clone(),
+        ctrack: flow
+            .ctrack
+            .clone(),
         ctrack_replay: flow.ctrack,
         b_reverse: flow.b_reverse,
         incoming,
@@ -230,7 +301,12 @@ pub(crate) fn process_raw_ip_packet(
     dis: &DissectedPacket,
 ) -> Decision
 {
-    if dis.ip.is_some() == dis.ip6.is_some()
+    if dis
+        .ip
+        .is_some()
+        == dis
+            .ip6
+            .is_some()
     {
         return Decision::Pass;
     }
@@ -248,7 +324,9 @@ pub(crate) fn process_raw_ip_packet(
 
     let match_input = FullMatchInput {
         base: ProfileMatchInput {
-            is_v6: dis.ip6.is_some(),
+            is_v6: dis
+                .ip6
+                .is_some(),
             l4proto: dis.l4proto,
             port: 0,
             icmp_type: 0xFF,
@@ -271,9 +349,20 @@ pub(crate) fn process_raw_ip_packet(
         return Decision::Pass;
     }
 
-    let b_reverse = pkt.ifin.is_some_and(|s| !s.is_empty()) && !pkt.ifout.is_some_and(|s| !s.is_empty());
-    let target_ip4 = dis.ip.as_ref().map(|ip| if b_reverse { ip.src } else { ip.dst });
-    let target_ip6 = dis.ip6.as_ref().map(|ip6| if b_reverse { ip6.src } else { ip6.dst });
+    let b_reverse = pkt
+        .ifin
+        .is_some_and(|s| !s.is_empty())
+        && !pkt
+            .ifout
+            .is_some_and(|s| !s.is_empty());
+    let target_ip4 = dis
+        .ip
+        .as_ref()
+        .map(|ip| if b_reverse { ip.src } else { ip.dst });
+    let target_ip6 = dis
+        .ip6
+        .as_ref()
+        .map(|ip6| if b_reverse { ip6.src } else { ip6.dst });
     let ps = PlayState {
         profile_idx: Some(idx),
         ctrack: None,

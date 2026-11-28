@@ -122,7 +122,8 @@ impl DeflateStream
 
         if matches!(self.mode, DeflateMode::Gzip)
         {
-            self.crc.update(input);
+            self.crc
+                .update(input);
         }
         let mut rem = input;
         loop
@@ -132,11 +133,23 @@ impl DeflateStream
                 out.reserve(DEFLATE_GROWTH);
             }
             let spare_before = out.capacity() - out.len();
-            let before_in = self.comp.total_in();
-            let before_out = self.comp.total_out();
-            let status = self.comp.compress_vec(rem, &mut out, FlushCompress::None);
-            let consumed = (self.comp.total_in() - before_in) as usize;
-            let produced = (self.comp.total_out() - before_out) as usize;
+            let before_in = self
+                .comp
+                .total_in();
+            let before_out = self
+                .comp
+                .total_out();
+            let status = self
+                .comp
+                .compress_vec(rem, &mut out, FlushCompress::None);
+            let consumed = (self
+                .comp
+                .total_in()
+                - before_in) as usize;
+            let produced = (self
+                .comp
+                .total_out()
+                - before_out) as usize;
             rem = &rem[consumed..];
             match status
             {
@@ -166,9 +179,16 @@ impl DeflateStream
             {
                 out.reserve(DEFLATE_GROWTH);
             }
-            let before_out = self.comp.total_out();
-            let status = self.comp.compress_vec(&[], &mut out, FlushCompress::Finish);
-            let produced = (self.comp.total_out() - before_out) as usize;
+            let before_out = self
+                .comp
+                .total_out();
+            let status = self
+                .comp
+                .compress_vec(&[], &mut out, FlushCompress::Finish);
+            let produced = (self
+                .comp
+                .total_out()
+                - before_out) as usize;
             match status
             {
                 Ok(Status::StreamEnd) => break,
@@ -192,8 +212,18 @@ impl DeflateStream
         }
         if matches!(self.mode, DeflateMode::Gzip)
         {
-            out.extend_from_slice(&self.crc.sum().to_le_bytes());
-            out.extend_from_slice(&self.crc.amount().to_le_bytes());
+            out.extend_from_slice(
+                &self
+                    .crc
+                    .sum()
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(
+                &self
+                    .crc
+                    .amount()
+                    .to_le_bytes(),
+            );
         }
         self.finished = true;
         Some((out, true))

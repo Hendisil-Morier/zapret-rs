@@ -90,8 +90,14 @@ impl FinderState
     {
         let lua_dir_input = initial_lua_dir
             .or_else(|| detect_lua_dir(None))
-            .map_or_else(String::new, |p| p.display().to_string());
-        let output_path = initial_config.unwrap_or_else(default_output_config_path).display().to_string();
+            .map_or_else(String::new, |p| {
+                p.display()
+                    .to_string()
+            });
+        let output_path = initial_config
+            .unwrap_or_else(default_output_config_path)
+            .display()
+            .to_string();
         Self {
             focus_idx: 0,
             editing_text: false,
@@ -214,7 +220,13 @@ impl Default for StatusTabState
         let has_net_caps = has_packet_capture_privileges().unwrap_or(false);
         let exe_path = std::env::current_exe()
             .ok()
-            .map_or_else(|| "./target/release/zapret-rs".to_owned(), |p| p.display().to_string());
+            .map_or_else(
+                || "./target/release/zapret-rs".to_owned(),
+                |p| {
+                    p.display()
+                        .to_string()
+                },
+            );
         Self {
             checks: Vec::new(),
             selected: 0,

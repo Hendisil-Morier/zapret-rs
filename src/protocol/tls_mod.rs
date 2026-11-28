@@ -99,14 +99,18 @@ fn truncate_sni_utf8(s: &str, max_bytes: usize) -> &str
 /// Reads an unsigned big-endian 16-bit integer at `off`, returning `None` if out of bounds.
 fn read_be16(buf: &[u8], off: usize) -> Option<u16>
 {
-    let bytes: [u8; 2] = buf.get(off..off + 2)?.try_into().ok()?;
+    let bytes: [u8; 2] = buf
+        .get(off..off + 2)?
+        .try_into()
+        .ok()?;
     Some(u16::from_be_bytes(bytes))
 }
 
 /// Writes `val` as a big-endian 16-bit integer at `off`.
 fn write_be16(buf: &mut [u8], off: usize, val: u16) -> Option<()>
 {
-    buf.get_mut(off..off + 2)?.copy_from_slice(&val.to_be_bytes());
+    buf.get_mut(off..off + 2)?
+        .copy_from_slice(&val.to_be_bytes());
     Some(())
 }
 
@@ -125,7 +129,8 @@ fn write_be24(buf: &mut [u8], off: usize, val: u32) -> Option<()>
         return None;
     }
     let be = val.to_be_bytes();
-    buf.get_mut(off..off + 3)?.copy_from_slice(&be[1..4]);
+    buf.get_mut(off..off + 3)?
+        .copy_from_slice(&be[1..4]);
     Some(())
 }
 
@@ -156,6 +161,85 @@ fn random_az09(rng: &mut impl RngExt) -> u8
     if r < 10 { b'0' + r } else { b'a' + (r - 10) }
 }
 
+/// Replaces the SNI hostname bytes inside `buf` and updates all enclosing TLS length fields.
+fn apply_sni_override(
+    buf: &mut Vec<u8>,
+    maxlen: usize,
+    extlen_offset: usize,
+    sniext: usize,
+    sni_off: usize,
+    slen: usize,
+    spec: &FakeTlsMod,
+) -> Option<usize>
+{
+    let new_sni = spec
+        .sni
+        .as_bytes();
+    let slen_new = new_sni.len();
+    let slen_delta = isize::try_from(slen_new)
+        .ok()?
+        .checked_sub(isize::try_from(slen).ok()?)?;
+
+    if slen_delta == 0
+    {
+        buf.get_mut(sni_off..sni_off + slen_new)?
+            .copy_from_slice(new_sni);
+        return Some(slen);
+    }
+
+    let next_len = usize::try_from(
+        isize::try_from(buf.len())
+            .ok()?
+            .checked_add(slen_delta)?,
+    )
+    .ok()?;
+    if next_len > maxlen
+    {
+        return None;
+    }
+    buf.splice(
+        sni_off..sni_off + slen,
+        new_sni
+            .iter()
+            .copied(),
+    );
+    add_be16(buf, 3, slen_delta)?;
+    add_be24(buf, 6, slen_delta)?;
+    add_be16(buf, extlen_offset, slen_delta)?;
+    add_be16(buf, sniext.checked_sub(2)?, slen_delta)?;
+    add_be16(buf, sniext, slen_delta)?;
+    add_be16(buf, sni_off.checked_sub(2)?, slen_delta)?;
+    Some(slen_new)
+}
+
+/// Randomizes the SNI hostname slice in place (`rndsni`), appending a `.tld` suffix when length allows.
+fn apply_rnd_sni(buf: &mut [u8], sni_off: usize, slen: usize) -> Option<()>
+{
+    if slen == 0
+    {
+        return None;
+    }
+    let mut rng = rand::rng();
+    let sni_slice = buf.get_mut(sni_off..sni_off + slen)?;
+    sni_slice[0] = rng.random_range(b'a'..=b'z');
+    let label_end = if slen >= 7
+    {
+        sni_slice[slen - 4] = b'.';
+        let tld = RANDOM_TLDS[rng.random_range(0..RANDOM_TLDS.len())];
+        sni_slice[slen - 3..slen].copy_from_slice(tld);
+        slen - 4
+    }
+    else
+    {
+        slen
+    };
+    for b in &mut sni_slice[1..label_end]
+    {
+        *b = random_az09(&mut rng);
+    }
+    Some(())
+}
+
 /// Applies `sni=<host>` and/or `rndsni` mutations to the SNI extension inside `buf`.
 fn apply_sni_mods(buf: &mut Vec<u8>, maxlen: usize, extlen_offset: usize, spec: &FakeTlsMod) -> Option<()>
 {
@@ -165,58 +249,12 @@ fn apply_sni_mods(buf: &mut Vec<u8>, maxlen: usize, extlen_offset: usize, spec: 
 
     if (spec.mod_flags & FAKE_TLS_MOD_SNI) != 0
     {
-        let new_sni = spec.sni.as_bytes();
-        let slen_new = new_sni.len();
-        let slen_delta = isize::try_from(slen_new).ok()?.checked_sub(isize::try_from(slen).ok()?)?;
-
-        if slen_delta != 0
-        {
-            let next_len = usize::try_from(isize::try_from(buf.len()).ok()?.checked_add(slen_delta)?).ok()?;
-            if next_len > maxlen
-            {
-                return None;
-            }
-            buf.splice(sni_off..sni_off + slen, new_sni.iter().copied());
-            add_be16(buf, 3, slen_delta)?;
-            add_be24(buf, 6, slen_delta)?;
-            add_be16(buf, extlen_offset, slen_delta)?;
-            add_be16(buf, sniext.checked_sub(2)?, slen_delta)?;
-            add_be16(buf, sniext, slen_delta)?;
-            add_be16(buf, sni_off.checked_sub(2)?, slen_delta)?;
-            slen = slen_new;
-        }
-        else
-        {
-            buf.get_mut(sni_off..sni_off + slen_new)?.copy_from_slice(new_sni);
-        }
+        slen = apply_sni_override(buf, maxlen, extlen_offset, sniext, sni_off, slen, spec)?;
     }
 
     if (spec.mod_flags & FAKE_TLS_MOD_RND_SNI) != 0
     {
-        if slen == 0
-        {
-            return None;
-        }
-        let mut rng = rand::rng();
-        let sni_slice = buf.get_mut(sni_off..sni_off + slen)?;
-        sni_slice[0] = rng.random_range(b'a'..=b'z');
-        if slen >= 7
-        {
-            for b in &mut sni_slice[1..slen - 4]
-            {
-                *b = random_az09(&mut rng);
-            }
-            sni_slice[slen - 4] = b'.';
-            let tld = RANDOM_TLDS[rng.random_range(0..RANDOM_TLDS.len())];
-            sni_slice[slen - 3..slen].copy_from_slice(tld);
-        }
-        else
-        {
-            for b in &mut sni_slice[1..slen]
-            {
-                *b = random_az09(&mut rng);
-            }
-        }
+        apply_rnd_sni(buf, sni_off, slen)?;
     }
 
     Some(())
@@ -237,7 +275,10 @@ fn apply_padencap(buf: &mut Vec<u8>, maxlen: usize, extlen_offset: usize, payloa
         }
         None =>
         {
-            if buf.len().checked_add(4)? > maxlen
+            if buf
+                .len()
+                .checked_add(4)?
+                > maxlen
             {
                 return None;
             }
@@ -253,7 +294,9 @@ fn apply_padencap(buf: &mut Vec<u8>, maxlen: usize, extlen_offset: usize, payloa
     // Length overflow on payload encapsulation is non-fatal in `protocol.c:956-959`.
     if let (Some(sz_rec), Some(sz_hs), Some(sz_ext), Some(sz_pad)) = (
         usize::from(read_be16(buf, 3)?).checked_add(payload_len),
-        usize::try_from(read_be24(buf, 6)?).ok().and_then(|v| v.checked_add(payload_len)),
+        usize::try_from(read_be24(buf, 6)?)
+            .ok()
+            .and_then(|v| v.checked_add(payload_len)),
         usize::from(read_be16(buf, extlen_offset)?).checked_add(payload_len),
         usize::from(read_be16(buf, padlen_offset)?).checked_add(payload_len),
     ) && sz_rec <= 0xFFFF
@@ -328,7 +371,8 @@ pub fn tls_mod(spec: &FakeTlsMod, payload: Option<&[u8]>, fake_tls: &[u8]) -> Op
             let sid_len = usize::from(buf[43]);
             if pl.len() >= 44 + sid_len
             {
-                buf.get_mut(44..44 + sid_len)?.copy_from_slice(&pl[44..44 + sid_len]);
+                buf.get_mut(44..44 + sid_len)?
+                    .copy_from_slice(&pl[44..44 + sid_len]);
             }
         }
         if (spec.mod_flags & FAKE_TLS_MOD_PADENCAP) != 0

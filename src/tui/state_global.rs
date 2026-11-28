@@ -20,19 +20,30 @@ impl AppState
     /// tab-local close bindings (or plain characters) cannot trigger underneath the popup.
     pub(crate) fn handle_global_key(&mut self, key: KeyEvent) -> Option<AppAction>
     {
-        let detail_open = self.inspector.detail_open;
-        let g = &self.keybinds.global;
-        if !detail_open && g.help.contains(key)
+        let detail_open = self
+            .inspector
+            .detail_open;
+        let g = &self
+            .keybinds
+            .global;
+        if !detail_open
+            && g.help
+                .contains(key)
         {
             self.help_open = true;
             self.dismiss_finder_hover();
             return Some(AppAction::None);
         }
-        if g.quit.contains(key)
+        if g.quit
+            .contains(key)
         {
             return Some(AppAction::Quit);
         }
-        if !self.status.has_net_caps && g.caps_modal.contains(key)
+        if !self
+            .status
+            .has_net_caps
+            && g.caps_modal
+                .contains(key)
         {
             self.open_caps_modal();
             return Some(AppAction::None);
@@ -47,30 +58,51 @@ impl AppState
             (&g.tab_7, ActiveTab::Settings),
         ]
         .into_iter()
-        .find_map(|(keys, tab)| keys.contains(key).then_some(tab));
+        .find_map(|(keys, tab)| {
+            keys.contains(key)
+                .then_some(tab)
+        });
         if let Some(tab) = tab_target
         {
             return Some(self.switch_tab(tab));
         }
-        if g.prev_tab.contains(key)
+        if g.prev_tab
+            .contains(key)
         {
-            return Some(self.switch_tab(self.tab.prev()));
+            return Some(
+                self.switch_tab(
+                    self.tab
+                        .prev(),
+                ),
+            );
         }
-        if g.next_tab.contains(key)
+        if g.next_tab
+            .contains(key)
         {
-            return Some(self.switch_tab(self.tab.next()));
+            return Some(
+                self.switch_tab(
+                    self.tab
+                        .next(),
+                ),
+            );
         }
-        if g.next_panel.contains(key)
+        if g.next_panel
+            .contains(key)
         {
             return Some(self.cycle_panel_focus(true));
         }
-        if g.prev_panel.contains(key)
+        if g.prev_panel
+            .contains(key)
         {
             return Some(self.cycle_panel_focus(false));
         }
-        if !detail_open && g.web_ui.contains(key)
+        if !detail_open
+            && g.web_ui
+                .contains(key)
         {
-            if self.web_status.is_some()
+            if self
+                .web_status
+                .is_some()
             {
                 return Some(AppAction::StopWebUi);
             }
@@ -78,11 +110,21 @@ impl AppState
             self.dismiss_finder_hover();
             return Some(AppAction::None);
         }
-        if !detail_open && self.web_status.is_some() && g.copy_web_passcode.contains(key)
+        if !detail_open
+            && self
+                .web_status
+                .is_some()
+            && g.copy_web_passcode
+                .contains(key)
         {
             return Some(AppAction::CopyWebPasscode);
         }
-        if !detail_open && self.web_status.is_some() && g.open_web_ui.contains(key)
+        if !detail_open
+            && self
+                .web_status
+                .is_some()
+            && g.open_web_ui
+                .contains(key)
         {
             return Some(AppAction::OpenWebUi);
         }
@@ -110,15 +152,18 @@ impl AppState
     {
         if self.tab == ActiveTab::Hostlist
         {
-            self.hostlist.toggle_focus();
+            self.hostlist
+                .toggle_focus();
         }
         else if self.tab == ActiveTab::Settings
         {
-            self.settings.toggle_focus();
+            self.settings
+                .toggle_focus();
         }
         else
         {
-            self.focus.cycle(self.tab, forward);
+            self.focus
+                .cycle(self.tab, forward);
         }
         self.reset_finder_hover();
         AppAction::None
@@ -131,25 +176,38 @@ impl AppState
             "[attach] connected to PID {} on queue {} ({}, {} profiles)",
             meta.pid,
             meta.qnum,
-            meta.socket_path.display(),
-            meta.profile_names.len()
+            meta.socket_path
+                .display(),
+            meta.profile_names
+                .len()
         );
         self.status_banner =
             "Attached to nfqws2. Press 'x' to detach, 'l' to reload lists, 'S' to stop daemon.".to_owned();
-        self.run.detected_socket = Some(meta.socket_path.clone());
-        self.run.remote_meta = Some(meta);
-        self.run.status = RunStatus::Attached;
-        self.run.auto_reattach = true;
-        self.run.counter_baseline = (0, 0, 0, 0, 0);
+        self.run
+            .detected_socket = Some(
+            meta.socket_path
+                .clone(),
+        );
+        self.run
+            .remote_meta = Some(meta);
+        self.run
+            .status = RunStatus::Attached;
+        self.run
+            .auto_reattach = true;
+        self.run
+            .counter_baseline = (0, 0, 0, 0, 0);
         self.push_run_log(log_line);
     }
 
     /// Transitions Tab 2 back from [`RunStatus::Attached`] to [`RunStatus::Stopped`].
     pub fn set_detached(&mut self, log_line: String, banner: String)
     {
-        self.run.remote_meta = None;
-        self.run.status = RunStatus::Stopped;
-        self.run.counter_baseline = (0, 0, 0, 0, 0);
+        self.run
+            .remote_meta = None;
+        self.run
+            .status = RunStatus::Stopped;
+        self.run
+            .counter_baseline = (0, 0, 0, 0, 0);
         self.push_run_log(log_line);
         self.status_banner = banner;
     }
@@ -157,8 +215,13 @@ impl AppState
     /// Returns `(total, passed, reassembled, modified, desynced)` minus [`Self::counter_baseline`].
     pub fn visible_counters(&self) -> (u64, u64, u64, u64, u64)
     {
-        let (s0, s1, s2, s3, s4) = self.run.counters.snapshot();
-        let (b0, b1, b2, b3, b4) = self.run.counter_baseline;
+        let (s0, s1, s2, s3, s4) = self
+            .run
+            .counters
+            .snapshot();
+        let (b0, b1, b2, b3, b4) = self
+            .run
+            .counter_baseline;
         if s0 < b0 || s1 < b1 || s2 < b2 || s3 < b3 || s4 < b4
         {
             return (s0, s1, s2, s3, s4);

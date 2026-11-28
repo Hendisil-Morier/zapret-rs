@@ -85,11 +85,25 @@ fn ipv4_tcp_with_unaligned_ip_options_roundtrips_cleanly()
     assert_eq!(parsed.l4proto, IPPROTO_TCP);
     assert_eq!(parsed.l3_len, 28);
     assert_eq!(parsed.l4_len, 32);
-    assert_eq!(parsed.ip.as_ref().expect("ip present").options, vec![1, 2, 3, 4, 5, 0, 0, 0]);
-    assert_eq!(parsed.payload.as_deref(), Some(&b"GET / HTTP/1.1\r\n\r\n"[..]));
+    assert_eq!(
+        parsed
+            .ip
+            .as_ref()
+            .expect("ip present")
+            .options,
+        vec![1, 2, 3, 4, 5, 0, 0, 0]
+    );
+    assert_eq!(
+        parsed
+            .payload
+            .as_deref(),
+        Some(&b"GET / HTTP/1.1\r\n\r\n"[..])
+    );
 
     // Reconstructing the dissected packet must be byte-for-byte identical.
-    dis.ip = parsed.ip.clone();
+    dis.ip = parsed
+        .ip
+        .clone();
     let wire2 = reconstruct_packet(&parsed, &ReconstructOptions::default())
         .expect("second reconstruction should succeed");
     assert_eq!(wire1, wire2);
@@ -131,8 +145,21 @@ fn ipv6_extension_headers_and_udp_roundtrip()
     assert_eq!(parsed.l4proto, IPPROTO_UDP);
     assert_eq!(parsed.l3_len, 84);
     assert_eq!(parsed.l4_len, 8);
-    assert_eq!(parsed.ip6.as_ref().expect("ip6 present").exthdr.len(), 4);
-    assert_eq!(parsed.payload.as_deref(), Some(&b"quic-initial"[..]));
+    assert_eq!(
+        parsed
+            .ip6
+            .as_ref()
+            .expect("ip6 present")
+            .exthdr
+            .len(),
+        4
+    );
+    assert_eq!(
+        parsed
+            .payload
+            .as_deref(),
+        Some(&b"quic-initial"[..])
+    );
 
     let wire2 = reconstruct_packet(&parsed, &ReconstructOptions::default())
         .expect("re-reconstruction should succeed");
@@ -158,14 +185,35 @@ fn dissect_packet_respects_no_payload_check_on_truncated_ipv6()
     let truncated = &wire[..53];
 
     let strict = dissect_packet(truncated, false);
-    assert!(strict.ip6.is_none());
-    assert!(strict.payload.is_none());
+    assert!(
+        strict
+            .ip6
+            .is_none()
+    );
+    assert!(
+        strict
+            .payload
+            .is_none()
+    );
 
     let lenient = dissect_packet(truncated, true);
-    assert!(lenient.ip6.is_some());
+    assert!(
+        lenient
+            .ip6
+            .is_some()
+    );
     assert_eq!(lenient.l4proto, IPPROTO_UDP);
-    assert!(lenient.udp.is_none());
-    assert_eq!(lenient.payload.as_deref(), Some(&wire[48..53]));
+    assert!(
+        lenient
+            .udp
+            .is_none()
+    );
+    assert_eq!(
+        lenient
+            .payload
+            .as_deref(),
+        Some(&wire[48..53])
+    );
 }
 
 /// Verifies ICMPv4 and ICMPv6 packets reconstruct and dissect accurately with valid checksums.
@@ -181,7 +229,13 @@ fn icmp_v4_and_v6_roundtrip()
     let w4 = reconstruct_packet(&v4, &ReconstructOptions::default()).expect("icmp4");
     let d4 = dissect_packet(&w4, false);
     assert_eq!(d4.l4proto, IPPROTO_ICMP);
-    assert_eq!(d4.icmp.as_ref().expect("icmp").data, 0x0001_0002);
+    assert_eq!(
+        d4.icmp
+            .as_ref()
+            .expect("icmp")
+            .data,
+        0x0001_0002
+    );
 
     let v6 = DissectedPacket {
         ip6: Some(sample_ipv6(Vec::new())),
@@ -192,7 +246,13 @@ fn icmp_v4_and_v6_roundtrip()
     let w6 = reconstruct_packet(&v6, &ReconstructOptions::default()).expect("icmp6");
     let d6 = dissect_packet(&w6, false);
     assert_eq!(d6.l4proto, IPPROTO_ICMPV6);
-    assert_eq!(d6.icmp.as_ref().expect("icmp6").data, 0x0003_0004);
+    assert_eq!(
+        d6.icmp
+            .as_ref()
+            .expect("icmp6")
+            .data,
+        0x0003_0004
+    );
 }
 
 /// Verifies `extract_dst` across IPv4, IPv6, truncated buffers, and unsupported versions.

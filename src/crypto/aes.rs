@@ -60,7 +60,12 @@ fn expand_key(key: &[u8], nk: usize, rounds: usize) -> [[u8; 4]; 60]
 {
     let mut w = [[0u8; 4]; 60];
     let total_words = 4 * (rounds + 1);
-    for (dst, &word) in w[..nk].iter_mut().zip(key.as_chunks::<4>().0)
+    for (dst, &word) in w[..nk]
+        .iter_mut()
+        .zip(
+            key.as_chunks::<4>()
+                .0,
+        )
     {
         *dst = word;
     }
@@ -86,7 +91,9 @@ fn expand_key(key: &[u8], nk: usize, rounds: usize) -> [[u8; 4]; 60]
 /// XORs 4 round-key words (`16` bytes) into the column-major AES state (`AddRoundKey`).
 fn add_round_key(state: &mut [u8; 16], round_key: &[[u8; 4]])
 {
-    for (col, word) in round_key.iter().enumerate()
+    for (col, word) in round_key
+        .iter()
+        .enumerate()
     {
         let base = col * 4;
         state[base] ^= word[0];
@@ -270,7 +277,9 @@ pub fn aes_ctr_crypt(key: &[u8], iv: &[u8; 16], input: &[u8]) -> Result<Vec<u8>,
     {
         let keystream = aes.encrypt_block(&ctr);
         ctr_add(&mut ctr, 1);
-        for (&byte, &ks) in chunk.iter().zip(keystream.iter())
+        for (&byte, &ks) in chunk
+            .iter()
+            .zip(keystream.iter())
         {
             out.push(byte ^ ks);
         }

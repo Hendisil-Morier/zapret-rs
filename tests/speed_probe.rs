@@ -60,10 +60,26 @@ fn url_args_leave_tls_unpinned_and_keep_scan_args_unchanged()
         Duration::from_secs(8),
         SPEED_WRITE_OUT,
     );
-    assert!(!speed.iter().any(|a| a.starts_with("--tls") || a.starts_with("--http")));
+    assert!(
+        !speed
+            .iter()
+            .any(|a| a.starts_with("--tls") || a.starts_with("--http"))
+    );
     assert!(speed.contains(&"-4".to_owned()));
-    assert_eq!(speed.last().map(String::as_str), Some("https://example.com/"));
-    assert_eq!(speed[speed.iter().position(|a| a == "-w").expect("-w") + 1], SPEED_WRITE_OUT);
+    assert_eq!(
+        speed
+            .last()
+            .map(String::as_str),
+        Some("https://example.com/")
+    );
+    assert_eq!(
+        speed[speed
+            .iter()
+            .position(|a| a == "-w")
+            .expect("-w")
+            + 1],
+        SPEED_WRITE_OUT
+    );
     assert!(SPEED_WRITE_OUT.starts_with(PROBE_WRITE_OUT));
 
     let v6 = CurlProbeBackend::build_url_args("https://x/", None, IpFamily::V6, Duration::from_secs(1), "");
@@ -74,9 +90,21 @@ fn url_args_leave_tls_unpinned_and_keep_scan_args_unchanged()
 fn targets_have_expected_urls_and_control_gets_longer_timeout()
 {
     let d = domain_target("example.com");
-    assert_eq!((d.label.as_str(), d.url.as_str()), ("example.com", "https://example.com/"));
+    assert_eq!(
+        (
+            d.label
+                .as_str(),
+            d.url
+                .as_str()
+        ),
+        ("example.com", "https://example.com/")
+    );
     let c = control_target();
-    assert!(c.url.contains("bytes=25000000") && c.timeout > d.timeout);
+    assert!(
+        c.url
+            .contains("bytes=25000000")
+            && c.timeout > d.timeout
+    );
 }
 
 #[test]

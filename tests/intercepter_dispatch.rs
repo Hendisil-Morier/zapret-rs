@@ -103,7 +103,12 @@ fn ifname_resolver_resolves_loopback_and_rejects_zero_or_missing_index()
     // SAFETY: `c"lo"` is a valid NUL-terminated static C string literal.
     let lo_idx = unsafe { libc::if_nametoindex(c"lo".as_ptr()) };
     assert_ne!(lo_idx, 0, "loopback interface `lo` must exist on Linux");
-    assert_eq!(resolver.resolve(lo_idx).as_deref(), Some("lo"));
+    assert_eq!(
+        resolver
+            .resolve(lo_idx)
+            .as_deref(),
+        Some("lo")
+    );
 }
 
 /// Verifies `poll_timeout_ms` converts infinite, zero, normal, and overflowing durations safely.

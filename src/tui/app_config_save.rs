@@ -57,8 +57,14 @@ pub(crate) fn sparse_theme_table(theme: Theme) -> toml::Table
 /// Returns a `[keybinds]` table containing only sections and actions that differ from defaults.
 pub(crate) fn sparse_keybinds_table(keybinds: &Keybinds) -> Option<toml::Table>
 {
-    let cur = toml::Value::try_from(keybinds).ok()?.as_table()?.clone();
-    let def = toml::Value::try_from(Keybinds::default()).ok()?.as_table()?.clone();
+    let cur = toml::Value::try_from(keybinds)
+        .ok()?
+        .as_table()?
+        .clone();
+    let def = toml::Value::try_from(Keybinds::default())
+        .ok()?
+        .as_table()?
+        .clone();
     let mut out = toml::Table::new();
     for (sec, val) in cur
     {
@@ -67,7 +73,9 @@ pub(crate) fn sparse_keybinds_table(keybinds: &Keybinds) -> Option<toml::Table>
         {
             continue;
         };
-        let def_tbl = def.get(&sec).and_then(toml::Value::as_table);
+        let def_tbl = def
+            .get(&sec)
+            .and_then(toml::Value::as_table);
         let mut diff_sec = toml::Table::new();
         for (k, v) in sec_tbl
         {
@@ -97,11 +105,16 @@ pub fn render_sparse_app_config(
 ) -> Result<String, String>
 {
     let mut root = toml::Table::new();
-    if let Some(imp) = import_path.filter(|s| !s.trim().is_empty())
+    if let Some(imp) = import_path.filter(|s| {
+        !s.trim()
+            .is_empty()
+    })
     {
         root.insert("import".to_owned(), toml::Value::String(imp.to_owned()));
     }
-    if let Some(cfg) = nfqws2_config.map(str::trim).filter(|s| !s.is_empty())
+    if let Some(cfg) = nfqws2_config
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
     {
         root.insert("nfqws2_config".to_owned(), toml::Value::String(cfg.to_owned()));
     }
@@ -115,7 +128,13 @@ pub fn render_sparse_app_config(
     }
     if let Some(sock) = control_socket
     {
-        root.insert("control_socket".to_owned(), toml::Value::String(sock.display().to_string()));
+        root.insert(
+            "control_socket".to_owned(),
+            toml::Value::String(
+                sock.display()
+                    .to_string(),
+            ),
+        );
     }
     if let Some(t) = theme
     {
@@ -132,8 +151,13 @@ pub fn render_sparse_app_config(
 /// Returns `lua_dir` only when set and different from the auto-detected system Lua directory.
 fn explicit_lua_dir(lua_dir: Option<&str>) -> Option<&str>
 {
-    let trimmed = lua_dir.map(str::trim).filter(|s| !s.is_empty())?;
-    let auto = detect_lua_dir(None).map(|p| p.display().to_string());
+    let trimmed = lua_dir
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let auto = detect_lua_dir(None).map(|p| {
+        p.display()
+            .to_string()
+    });
     if auto.as_deref() == Some(trimmed) { None } else { Some(trimmed) }
 }
 
@@ -141,22 +165,33 @@ fn explicit_lua_dir(lua_dir: Option<&str>) -> Option<&str>
 pub fn ensure_default_app_config_file(resolved: &ResolvedAppConfig, active_lua_dir: &str) -> Option<String>
 {
     let path = &resolved.app_config_path;
-    if path.exists() || path.symlink_metadata().is_ok()
+    if path.exists()
+        || path
+            .symlink_metadata()
+            .is_ok()
     {
         return None;
     }
-    let default_nfq = default_output_config_path().display().to_string();
-    let import_theme = path.with_file_name("theme.toml").exists();
+    let default_nfq = default_output_config_path()
+        .display()
+        .to_string();
+    let import_theme = path
+        .with_file_name("theme.toml")
+        .exists();
     let rendered = render_sparse_app_config(
         Some(&default_nfq),
         Some(active_lua_dir),
         resolved.no_nft,
-        resolved.control_socket.as_deref(),
+        resolved
+            .control_socket
+            .as_deref(),
         (!import_theme).then_some(resolved.theme),
         import_theme.then_some("./theme.toml"),
         &resolved.keybinds,
     );
-    rendered.and_then(|toml| save_app_config_to_path(path, &toml)).err()
+    rendered
+        .and_then(|toml| save_app_config_to_path(path, &toml))
+        .err()
 }
 
 /// Saves Tab 7 settings sparsely, preserving comments, `import` lines, and standalone `theme.toml`.
@@ -196,7 +231,13 @@ pub fn save_settings_surgically(
         let theme_toml = toml::to_string_pretty(&sparse_theme_table(theme))
             .map_err(|e| format!("serialize theme failed: {e}"))?;
         save_app_config_to_path(theme_path, &theme_toml)?;
-        note = format!(" (+ {})", theme_path.file_name().and_then(|n| n.to_str()).unwrap_or("theme.toml"));
+        note = format!(
+            " (+ {})",
+            theme_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("theme.toml")
+        );
         false
     }
     else
@@ -227,7 +268,10 @@ pub fn save_settings_surgically(
             let mut wrap = toml::Table::new();
             wrap.insert("keybinds".to_owned(), toml::Value::Table(kb_tbl));
             let s = toml::to_string_pretty(&wrap).map_err(|e| format!("serialize [keybinds] failed: {e}"))?;
-            Some(s.trim_end().to_owned())
+            Some(
+                s.trim_end()
+                    .to_owned(),
+            )
         }
         None => None,
     };
@@ -243,11 +287,16 @@ pub fn save_settings_surgically(
 fn find_imported_theme_path(existing: &str, base_dir: Option<&Path>) -> Option<std::path::PathBuf>
 {
     let tbl = toml::from_str::<toml::Table>(existing).ok()?;
-    let val = tbl.get("import").or_else(|| tbl.get("imports"))?;
+    let val = tbl
+        .get("import")
+        .or_else(|| tbl.get("imports"))?;
     let specs: Vec<&str> = match val
     {
         toml::Value::String(s) => vec![s.as_str()],
-        toml::Value::Array(arr) => arr.iter().filter_map(toml::Value::as_str).collect(),
+        toml::Value::Array(arr) => arr
+            .iter()
+            .filter_map(toml::Value::as_str)
+            .collect(),
         _ => return None,
     };
     for spec in specs

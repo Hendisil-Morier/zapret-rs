@@ -25,8 +25,14 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState)
         .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
         .split(area);
 
-    let toml_focused = state.focus.config == ConfigFocus::Toml;
-    let (toml_lines, toml_title, border_color, title_color) = if state.config.active_toml.is_empty()
+    let toml_focused = state
+        .focus
+        .config
+        == ConfigFocus::Toml;
+    let (toml_lines, toml_title, border_color, title_color) = if state
+        .config
+        .active_toml
+        .is_empty()
     {
         (
             vec![
@@ -36,17 +42,37 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState)
                     Style::default().fg(t.muted),
                 )),
             ],
-            format!(" nfqws2.toml ({}) ", state.finder.output_path),
+            format!(
+                " nfqws2.toml ({}) ",
+                state
+                    .finder
+                    .output_path
+            ),
             if toml_focused { t.accent_bright } else { t.frame },
             t.accent_bright,
         )
     }
-    else if let Some(err) = &state.config.toml_error
+    else if let Some(err) = &state
+        .config
+        .toml_error
     {
-        let short = err.lines().next().unwrap_or(err.as_str());
+        let short = err
+            .lines()
+            .next()
+            .unwrap_or(err.as_str());
         (
-            highlight_toml(&state.config.active_toml, t),
-            format!(" nfqws2.toml ({}) [INVALID: {short}] ", state.finder.output_path),
+            highlight_toml(
+                &state
+                    .config
+                    .active_toml,
+                t,
+            ),
+            format!(
+                " nfqws2.toml ({}) [INVALID: {short}] ",
+                state
+                    .finder
+                    .output_path
+            ),
             t.err,
             t.err_bright,
         )
@@ -54,28 +80,49 @@ pub(crate) fn draw_config_tab(frame: &mut Frame, area: Rect, state: &AppState)
     else
     {
         (
-            highlight_toml(&state.config.active_toml, t),
+            highlight_toml(
+                &state
+                    .config
+                    .active_toml,
+                t,
+            ),
             format!(
                 " nfqws2.toml ({}) [VALID: {} profiles] ",
-                state.finder.output_path,
-                state.config.parsed_profiles.len()
+                state
+                    .finder
+                    .output_path,
+                state
+                    .config
+                    .parsed_profiles
+                    .len()
             ),
             if toml_focused { t.accent_bright } else { t.ok },
             t.ok_bright,
         )
     };
-    let toml_pane = Paragraph::new(toml_lines).scroll((state.config.toml_scroll, 0)).block(panel_block(
-        &toml_title,
-        border_color,
-        title_color,
-    ));
+    let toml_pane = Paragraph::new(toml_lines)
+        .scroll((
+            state
+                .config
+                .toml_scroll,
+            0,
+        ))
+        .block(panel_block(&toml_title, border_color, title_color));
     frame.render_widget(toml_pane, cols[0]);
 
-    let nft_focused = state.focus.config == ConfigFocus::Nft;
+    let nft_focused = state
+        .focus
+        .config
+        == ConfigFocus::Nft;
     let nft_border = if nft_focused { t.accent_bright } else { t.frame };
     let (filter_title, nft_script) = state.filter_preview();
     let nft_pane = Paragraph::new(highlight_nft(&nft_script, t))
-        .scroll((state.focus.nft_scroll, 0))
+        .scroll((
+            state
+                .focus
+                .nft_scroll,
+            0,
+        ))
         .wrap(Wrap { trim: false })
         .block(panel_block(filter_title, nft_border, t.accent_bright));
     frame.render_widget(nft_pane, cols[1]);

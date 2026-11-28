@@ -64,12 +64,19 @@ pub fn strip_host_to_ip(host: &str) -> (String, bool)
         if let Some(close_idx) = after_open.find(']')
         {
             let inner = &after_open[..close_idx];
-            return (inner.to_owned(), inner.parse::<Ipv6Addr>().is_ok());
+            return (
+                inner.to_owned(),
+                inner
+                    .parse::<Ipv6Addr>()
+                    .is_ok(),
+            );
         }
         return (host.to_owned(), false);
     }
 
-    if trimmed.parse::<Ipv6Addr>().is_ok()
+    if trimmed
+        .parse::<Ipv6Addr>()
+        .is_ok()
     {
         return (trimmed.to_owned(), true);
     }
@@ -79,13 +86,21 @@ pub fn strip_host_to_ip(host: &str) -> (String, bool)
         Some(colon_idx) => &trimmed[..colon_idx],
         None => trimmed,
     };
-    (without_port.to_owned(), without_port.parse::<Ipv4Addr>().is_ok())
+    (
+        without_port.to_owned(),
+        without_port
+            .parse::<Ipv4Addr>()
+            .is_ok(),
+    )
 }
 
 /// Returns `true` if `data` begins with a valid HTTP/1.x request line (`IsHttp` in `protocol.c`).
 pub fn is_http(data: &[u8]) -> bool
 {
-    if data.len() < 4 || !HTTP_METHODS.iter().any(|m| data.starts_with(m))
+    if data.len() < 4
+        || !HTTP_METHODS
+            .iter()
+            .any(|m| data.starts_with(m))
     {
         return false;
     }
@@ -137,13 +152,18 @@ pub fn is_http_reply(data: &[u8]) -> bool
         && data.starts_with(b"HTTP/1.")
         && matches!(data[7], b'0' | b'1')
         && data[8] == b' '
-        && data[9..12].iter().all(u8::is_ascii_digit)
+        && data[9..12]
+            .iter()
+            .all(u8::is_ascii_digit)
 }
 
 /// Extracts the 3-digit status code from an HTTP status line (`HttpReplyCode`).
 pub fn http_reply_code(data: &[u8]) -> Option<u16>
 {
-    if data.len() < 12 || !data[9..12].iter().all(u8::is_ascii_digit)
+    if data.len() < 12
+        || !data[9..12]
+            .iter()
+            .all(u8::is_ascii_digit)
     {
         return None;
     }
@@ -160,7 +180,9 @@ pub fn http_extract_header(data: &[u8], header: &[u8]) -> Option<String>
     {
         return None;
     }
-    let match_idx = data.windows(header.len()).position(|w| w.eq_ignore_ascii_case(header))?;
+    let match_idx = data
+        .windows(header.len())
+        .position(|w| w.eq_ignore_ascii_case(header))?;
 
     let mut start = match_idx + header.len();
     while start < data.len() && matches!(data[start], b' ' | b'\t')
@@ -178,7 +200,10 @@ pub fn http_extract_header(data: &[u8], header: &[u8]) -> Option<String>
     }
 
     let capped_end = start + (end - start).min(MAX_HTTP_HEADER_VAL_LEN);
-    let lower_bytes: Vec<u8> = data[start..capped_end].iter().map(u8::to_ascii_lowercase).collect();
+    let lower_bytes: Vec<u8> = data[start..capped_end]
+        .iter()
+        .map(u8::to_ascii_lowercase)
+        .collect();
     Some(String::from_utf8_lossy(&lower_bytes).into_owned())
 }
 
@@ -195,13 +220,16 @@ const MAX_HTTP_META_SCAN_LEN: usize = 2048;
 /// Returns `true` when `url` (`http://...` or `https://...`) targets a different IP or second-level domain than `host`.
 fn url_looks_off_domain(url: &str, host: &str, host_is_ip: bool) -> bool
 {
-    let Some(after_scheme) = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://"))
+    let Some(after_scheme) = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
     else
     {
         return false;
     };
-    let auth_end =
-        after_scheme.find(['/', '?', '#', '"', '\'', ' ', '\t', '>']).unwrap_or(after_scheme.len());
+    let auth_end = after_scheme
+        .find(['/', '?', '#', '"', '\'', ' ', '\t', '>'])
+        .unwrap_or(after_scheme.len());
     let raw_target = &after_scheme[..auth_end];
     if raw_target.is_empty()
     {
@@ -238,9 +266,15 @@ fn extract_meta_refresh_url(data: &[u8]) -> Option<String>
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
         .map(|pos| pos + 4)
-        .or_else(|| data.windows(2).position(|w| w == b"\n\n").map(|pos| pos + 2))?;
+        .or_else(|| {
+            data.windows(2)
+                .position(|w| w == b"\n\n")
+                .map(|pos| pos + 2)
+        })?;
     let body = &data[body_start..];
-    let scan_len = body.len().min(MAX_HTTP_META_SCAN_LEN);
+    let scan_len = body
+        .len()
+        .min(MAX_HTTP_META_SCAN_LEN);
     let lower = String::from_utf8_lossy(&body[..scan_len]).to_ascii_lowercase();
     let meta_pos = lower.find("<meta")?;
     let meta_end = lower[meta_pos..].find('>')?;
@@ -331,7 +365,10 @@ pub fn http_pos(marker: PosMarker, pos: i16, data: &[u8]) -> Option<usize>
                 m += 1;
             }
             let mut count = 0usize;
-            while count < 9 && data.get(m + count).is_some_and(u8::is_ascii_uppercase)
+            while count < 9
+                && data
+                    .get(m + count)
+                    .is_some_and(u8::is_ascii_uppercase)
             {
                 count += 1;
             }
@@ -339,7 +376,9 @@ pub fn http_pos(marker: PosMarker, pos: i16, data: &[u8]) -> Option<usize>
             {
                 return None;
             }
-            let offset = isize::try_from(m).ok()?.checked_add(isize::from(pos))?;
+            let offset = isize::try_from(m)
+                .ok()?
+                .checked_add(isize::from(pos))?;
             check_pos(data.len(), offset)
         }
         PosMarker::Host

@@ -33,7 +33,9 @@ impl WinDivertSender
     /// Returns the open send-only handle, loading `WinDivert.dll` lazily if needed.
     fn ensure_handle(&mut self) -> Result<&WinDivertHandle, RawSendError>
     {
-        if self.handle.is_none()
+        if self
+            .handle
+            .is_none()
         {
             let api = WinDivertApi::load()?;
             let handle = api.open("false", WINDIVERT_LAYER_NETWORK, 0, WINDIVERT_FLAG_SEND_ONLY)?;
@@ -120,13 +122,21 @@ pub fn parse_ifout_indices(ifout: Option<&str>) -> Option<(u32, u32)>
     let raw = ifout?.trim();
     if let Some((idx_s, sub_s)) = raw.split_once('.')
     {
-        let if_idx = idx_s.parse::<u32>().ok().filter(|&v| v > 0)?;
-        let sub_if_idx = sub_s.parse::<u32>().ok()?;
+        let if_idx = idx_s
+            .parse::<u32>()
+            .ok()
+            .filter(|&v| v > 0)?;
+        let sub_if_idx = sub_s
+            .parse::<u32>()
+            .ok()?;
         Some((if_idx, sub_if_idx))
     }
     else
     {
-        let if_idx = raw.parse::<u32>().ok().filter(|&v| v > 0)?;
+        let if_idx = raw
+            .parse::<u32>()
+            .ok()
+            .filter(|&v| v > 0)?;
         Some((if_idx, 0))
     }
 }
@@ -138,7 +148,9 @@ pub fn parse_ifout_indices(ifout: Option<&str>) -> Option<(u32, u32)>
 /// via RFC 1624 incremental adjustment without touching TCP/UDP checksums (preserving `badsum`).
 pub fn bump_impostor_min_ttl(packet: &[u8]) -> Cow<'_, [u8]>
 {
-    let version = packet.first().map_or(0, |b| b >> 4);
+    let version = packet
+        .first()
+        .map_or(0, |b| b >> 4);
     if version == 4 && packet.len() >= 20 && packet[8] <= 1
     {
         let mut owned = packet.to_vec();
@@ -165,7 +177,9 @@ pub fn bump_impostor_min_ttl(packet: &[u8]) -> Cow<'_, [u8]>
 /// Reads the IPv4 TTL or IPv6 HopLimit byte for diagnostic send-error messages.
 fn packet_ttl(packet: &[u8]) -> u8
 {
-    match packet.first().map_or(0, |b| b >> 4)
+    match packet
+        .first()
+        .map_or(0, |b| b >> 4)
     {
         4 if packet.len() >= 20 => packet[8],
         6 if packet.len() >= 40 => packet[7],

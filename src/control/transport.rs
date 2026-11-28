@@ -54,7 +54,8 @@ impl ControlStream
     pub(crate) fn as_raw_fd(&self) -> RawFd
     {
         use std::os::fd::AsRawFd;
-        self.inner.as_raw_fd()
+        self.inner
+            .as_raw_fd()
     }
 
     /// Connects to an active control endpoint at `path`.
@@ -74,7 +75,10 @@ impl ControlStream
                 .trim()
                 .parse()
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid control port"))?;
-            let token = lines.next().unwrap_or("").trim();
+            let token = lines
+                .next()
+                .unwrap_or("")
+                .trim();
             if token.len() != 32
             {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid control token"));
@@ -88,31 +92,37 @@ impl ControlStream
     /// Clones the underlying socket handle for separate reader/writer threads.
     pub fn try_clone(&self) -> io::Result<Self>
     {
-        self.inner.try_clone().map(|inner| Self { inner })
+        self.inner
+            .try_clone()
+            .map(|inner| Self { inner })
     }
 
     /// Sets the socket non-blocking mode (`false` clears listener-inherited non-blocking flags).
     pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()>
     {
-        self.inner.set_nonblocking(nonblocking)
+        self.inner
+            .set_nonblocking(nonblocking)
     }
 
     /// Sets the socket read timeout.
     pub fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()>
     {
-        self.inner.set_read_timeout(dur)
+        self.inner
+            .set_read_timeout(dur)
     }
 
     /// Sets the socket write timeout.
     pub fn set_write_timeout(&self, dur: Option<Duration>) -> io::Result<()>
     {
-        self.inner.set_write_timeout(dur)
+        self.inner
+            .set_write_timeout(dur)
     }
 
     /// Shuts down one or both halves of the underlying socket.
     pub fn shutdown(&self, how: Shutdown) -> io::Result<()>
     {
-        self.inner.shutdown(how)
+        self.inner
+            .shutdown(how)
     }
 }
 
@@ -120,7 +130,8 @@ impl Read for ControlStream
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>
     {
-        self.inner.read(buf)
+        self.inner
+            .read(buf)
     }
 }
 
@@ -128,12 +139,14 @@ impl Write for ControlStream
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize>
     {
-        self.inner.write(buf)
+        self.inner
+            .write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()>
     {
-        self.inner.flush()
+        self.inner
+            .flush()
     }
 }
 
@@ -145,17 +158,23 @@ pub fn is_live_control_socket(path: &Path) -> bool
     {
         return false;
     };
-    if meta.file_type().is_symlink()
+    if meta
+        .file_type()
+        .is_symlink()
     {
         return false;
     }
     #[cfg(unix)]
-    if !meta.file_type().is_socket()
+    if !meta
+        .file_type()
+        .is_socket()
     {
         return false;
     }
     #[cfg(not(unix))]
-    if !meta.file_type().is_file()
+    if !meta
+        .file_type()
+        .is_file()
     {
         return false;
     }
@@ -168,10 +187,16 @@ pub(crate) fn verify_loopback_token(stream: &mut ControlStream, expected: &str) 
 {
     let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
     let mut buf = [0u8; 33];
-    let ok = stream.read_exact(&mut buf).is_ok()
+    let ok = stream
+        .read_exact(&mut buf)
+        .is_ok()
         && buf[32] == b'\n'
         && expected.len() == 32
-        && buf[..32].iter().zip(expected.as_bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0;
+        && buf[..32]
+            .iter()
+            .zip(expected.as_bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0;
     let _ = stream.set_read_timeout(None);
     ok
 }

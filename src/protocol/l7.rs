@@ -315,7 +315,12 @@ pub fn l7_payload_names(mask: u64) -> Vec<&'static str>
     {
         return vec!["all"];
     }
-    ALL_L7_PAYLOADS.iter().copied().filter(|pl| (mask & pl.bit()) != 0).map(L7Payload::as_str).collect()
+    ALL_L7_PAYLOADS
+        .iter()
+        .copied()
+        .filter(|pl| (mask & pl.bit()) != 0)
+        .map(L7Payload::as_str)
+        .collect()
 }
 
 /// Formats a payload bitmask as a comma-separated string (`"all"` when `mask == 0`).

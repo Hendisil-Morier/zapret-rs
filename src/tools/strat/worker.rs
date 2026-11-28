@@ -92,20 +92,24 @@ impl WorkerStats
     #[cfg(any(target_os = "linux", windows))]
     fn record_decision(&self, decision: &Decision)
     {
-        self.captured.fetch_add(1, Ordering::Relaxed);
+        self.captured
+            .fetch_add(1, Ordering::Relaxed);
         match decision
         {
             Decision::Pass =>
             {
-                self.passed.fetch_add(1, Ordering::Relaxed);
+                self.passed
+                    .fetch_add(1, Ordering::Relaxed);
             }
             Decision::Replace(_) =>
             {
-                self.modified.fetch_add(1, Ordering::Relaxed);
+                self.modified
+                    .fetch_add(1, Ordering::Relaxed);
             }
             Decision::Drop =>
             {
-                self.dropped.fetch_add(1, Ordering::Relaxed);
+                self.dropped
+                    .fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -113,15 +117,31 @@ impl WorkerStats
     /// Formats a compact diagnostic summary line for `Live Scan Log` and debug reports.
     fn summary(&self) -> String
     {
-        let cap = self.captured.load(Ordering::Relaxed);
-        let pass = self.passed.load(Ordering::Relaxed);
-        let mod_n = self.modified.load(Ordering::Relaxed);
-        let drop_n = self.dropped.load(Ordering::Relaxed);
-        let ok = self.rawsend_ok.load(Ordering::Relaxed);
-        let err = self.rawsend_err.load(Ordering::Relaxed);
+        let cap = self
+            .captured
+            .load(Ordering::Relaxed);
+        let pass = self
+            .passed
+            .load(Ordering::Relaxed);
+        let mod_n = self
+            .modified
+            .load(Ordering::Relaxed);
+        let drop_n = self
+            .dropped
+            .load(Ordering::Relaxed);
+        let ok = self
+            .rawsend_ok
+            .load(Ordering::Relaxed);
+        let err = self
+            .rawsend_err
+            .load(Ordering::Relaxed);
         let base =
             format!("captured={cap} pass={pass} mod={mod_n} drop={drop_n} rawsend_ok={ok} rawsend_err={err}");
-        let last = self.last_rawsend_err.lock().ok().and_then(|g| g.clone());
+        let last = self
+            .last_rawsend_err
+            .lock()
+            .ok()
+            .and_then(|g| g.clone());
         match last
         {
             Some(msg) => format!("{base} (last_err: {msg})"),
@@ -152,17 +172,26 @@ impl<S: PacketSender> PacketSender for CountingSender<S>
         packet: &[u8],
     ) -> Result<(), RawSendError>
     {
-        let res = self.inner.send(dst, fwmark, ifout, packet);
+        let res = self
+            .inner
+            .send(dst, fwmark, ifout, packet);
         match &res
         {
             Ok(()) =>
             {
-                self.stats.rawsend_ok.fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .rawsend_ok
+                    .fetch_add(1, Ordering::Relaxed);
             }
             Err(err) =>
             {
-                self.stats.rawsend_err.fetch_add(1, Ordering::Relaxed);
-                if let Ok(mut slot) = self.stats.last_rawsend_err.lock()
+                self.stats
+                    .rawsend_err
+                    .fetch_add(1, Ordering::Relaxed);
+                if let Ok(mut slot) = self
+                    .stats
+                    .last_rawsend_err
+                    .lock()
                 {
                     *slot = Some(err.to_string());
                 }
@@ -236,13 +265,18 @@ impl InProcessWorkerHandle
     /// Returns a human-readable description of the active packet capture filter or queue.
     pub fn capture_spec(&self) -> String
     {
-        self.stats.capture_spec.lock().map(|g| g.clone()).unwrap_or_default()
+        self.stats
+            .capture_spec
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     /// Returns a single-line summary of captured packets, verdicts, and rawsend results.
     pub fn stats_summary(&self) -> String
     {
-        self.stats.summary()
+        self.stats
+            .summary()
     }
 }
 
@@ -259,7 +293,9 @@ impl StrategyApplier for InProcessWorkerHandle
         let (ack_tx, ack_rx) = mpsc::sync_channel(1);
         tx.send(WorkerCmd::Swap { profiles, ack: ack_tx })
             .map_err(|_| "capture worker channel closed".to_owned())?;
-        ack_rx.recv().map_err(|_| "capture worker terminated before acknowledging profile swap".to_owned())?
+        ack_rx
+            .recv()
+            .map_err(|_| "capture worker terminated before acknowledging profile swap".to_owned())?
     }
 }
 
@@ -268,12 +304,17 @@ impl Drop for InProcessWorkerHandle
     /// Signals the worker thread to exit and joins it so the intercepter unbinds cleanly.
     fn drop(&mut self)
     {
-        self.worker_stop.store(true, Ordering::Release);
-        if let Some(tx) = self.cmd_tx.take()
+        self.worker_stop
+            .store(true, Ordering::Release);
+        if let Some(tx) = self
+            .cmd_tx
+            .take()
         {
             let _ = tx.send(WorkerCmd::Shutdown);
         }
-        if let Some(handle) = self.join.take()
+        if let Some(handle) = self
+            .join
+            .take()
         {
             let _ = handle.join();
         }
@@ -306,7 +347,10 @@ fn drain_worker_cmds(cmd_rx: &Receiver<WorkerCmd>, engine: &RefCell<DesyncEngine
         {
             WorkerCmd::Swap { profiles, ack } =>
             {
-                let res = engine.borrow_mut().replace_profiles(profiles).map_err(|e| e.to_string());
+                let res = engine
+                    .borrow_mut()
+                    .replace_profiles(profiles)
+                    .map_err(|e| e.to_string());
                 let _ = ack.send(res);
             }
             WorkerCmd::Shutdown => return true,
@@ -336,7 +380,9 @@ fn run_catcher_loop<I: PacketIntercepter>(
             return;
         }
     };
-    if ready_tx.send(Ok(())).is_err()
+    if ready_tx
+        .send(Ok(()))
+        .is_err()
     {
         return;
     }
@@ -354,7 +400,9 @@ fn run_catcher_loop<I: PacketIntercepter>(
             Some(WORKER_POLL_INTERVAL)
         },
         |pkt| {
-            let decision = engine.borrow().process_packet(pkt);
+            let decision = engine
+                .borrow()
+                .process_packet(pkt);
             stats.record_decision(&decision);
             decision
         },
@@ -375,7 +423,9 @@ fn run_worker_thread(
     #[cfg(target_os = "linux")]
     let mut catcher = {
         let qcfg = QueueConfig::with_fwmark(base_config.qnum, base_config.fwmark);
-        if let Ok(mut spec) = stats.capture_spec.lock()
+        if let Ok(mut spec) = stats
+            .capture_spec
+            .lock()
         {
             *spec = format!("NFQUEUE queue={} fwmark=0x{:08x}", qcfg.queue_num, base_config.fwmark);
         }
@@ -400,7 +450,9 @@ fn run_worker_thread(
             udp = vec![443];
         }
         let filter = crate::tools::strat::windivert::build_windivert_filter(&tcp, &udp);
-        if let Ok(mut spec) = stats.capture_spec.lock()
+        if let Ok(mut spec) = stats
+            .capture_spec
+            .lock()
         {
             *spec = format!("WinDivert filter: {filter}");
         }

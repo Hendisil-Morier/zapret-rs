@@ -42,7 +42,9 @@ fn try_tcp_tls_reassembly(
 ) -> Option<Decision>
 {
     let is_full = is_tls_record_full(rdata);
-    let ctrack_rc = ps.ctrack.as_ref()?;
+    let ctrack_rc = ps
+        .ctrack
+        .as_ref()?;
     if l7_payload_matches(L7Payload::TlsClientHello, engine.reasm_disable)
     {
         return None;
@@ -52,7 +54,14 @@ fn try_tcp_tls_reassembly(
     let mut overflowed = false;
     {
         let mut entry = ctrack_rc.borrow_mut();
-        if !is_full && entry.reasm_client.is_empty() && !entry.pos.client.is_retransmission()
+        if !is_full
+            && entry
+                .reasm_client
+                .is_empty()
+            && !entry
+                .pos
+                .client
+                .is_retransmission()
         {
             let target_len = tls_record_len(raw_payload)?;
             if !reasm_client_start(
@@ -67,7 +76,9 @@ fn try_tcp_tls_reassembly(
                 return None;
             }
         }
-        if entry.reasm_client.is_empty()
+        if entry
+            .reasm_client
+            .is_empty()
         {
             return None;
         }
@@ -75,7 +86,9 @@ fn try_tcp_tls_reassembly(
         {
             overflowed = true;
         }
-        else if entry.reasm_client.is_full()
+        else if entry
+            .reasm_client
+            .is_full()
         {
             delayed_ready = Some(entry.take_delayed());
         }
@@ -83,13 +96,24 @@ fn try_tcp_tls_reassembly(
 
     if overflowed
     {
-        reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
+        reasm_client_stop(
+            ps.ctrack
+                .as_ref(),
+            engine.desync_fwmark,
+            &engine.sender,
+        );
         ps.l7payload = L7Payload::Unknown;
         return None;
     }
     if let Some(delayed) = delayed_ready
     {
-        replay_and_finish(engine, pkt.packet_id, ps.ctrack.as_ref(), delayed);
+        replay_and_finish(
+            engine,
+            pkt.packet_id,
+            ps.ctrack
+                .as_ref(),
+            delayed,
+        );
     }
     engine.record_outcome(crate::desync::play::PacketOutcome::Reasm);
     Some(Decision::Drop)
@@ -102,16 +126,19 @@ fn tcp_fail_target<'a>(
     ps: &'a PlayState,
 ) -> Option<AutohostFailTarget<'a>>
 {
-    ps.profile_idx.map(|i| AutohostFailTarget {
-        profile_slot: i,
-        profile: svc.profiles[i].as_ref(),
-        runtime: &svc.profile_runtimes[i],
-        server: engine.server,
-        client_label: &ps.client_label,
-        debug_log: engine.hostlist_auto_debug.as_deref(),
-        target_endpoint: (ps.target_ip, ps.target_port),
-        auto_confirm: svc.auto_confirm,
-    })
+    ps.profile_idx
+        .map(|i| AutohostFailTarget {
+            profile_slot: i,
+            profile: svc.profiles[i].as_ref(),
+            runtime: &svc.profile_runtimes[i],
+            server: engine.server,
+            client_label: &ps.client_label,
+            debug_log: engine
+                .hostlist_auto_debug
+                .as_deref(),
+            target_endpoint: (ps.target_ip, ps.target_port),
+            auto_confirm: svc.auto_confirm,
+        })
 }
 
 /// Evaluates outgoing TCP reassembly, L7 probing, TLS/HTTP host extraction, and retrans triggers.
@@ -127,17 +154,24 @@ fn process_tcp_outgoing_payload(
 {
     let rdata_buf = if replay.is_replay()
     {
-        clone_reasm_bytes(ps.ctrack_replay.as_ref())
+        clone_reasm_bytes(
+            ps.ctrack_replay
+                .as_ref(),
+        )
     }
     else if reasm_client_feed(
-        ps.ctrack.as_ref(),
+        ps.ctrack
+            .as_ref(),
         IPPROTO_TCP,
         raw_payload,
         engine.desync_fwmark,
         &engine.sender,
     )
     {
-        clone_reasm_bytes(ps.ctrack.as_ref())
+        clone_reasm_bytes(
+            ps.ctrack
+                .as_ref(),
+        )
     }
     else
     {
@@ -145,21 +179,41 @@ fn process_tcp_outgoing_payload(
     };
 
     let fail_tgt = tcp_fail_target(svc, engine, ps);
-    handle_tcp_retrans_fail(ps.ctrack.as_ref(), dis, fail_tgt.as_ref(), pkt.ifin, &engine.sender);
+    handle_tcp_retrans_fail(
+        ps.ctrack
+            .as_ref(),
+        dis,
+        fail_tgt.as_ref(),
+        pkt.ifin,
+        &engine.sender,
+    );
 
-    let rdata = rdata_buf.as_deref().unwrap_or(raw_payload);
-    if ps.ctrack_replay.as_ref().is_none_or(|rc| rc.borrow().reasm_client.is_empty())
+    let rdata = rdata_buf
+        .as_deref()
+        .unwrap_or(raw_payload);
+    if ps
+        .ctrack_replay
+        .as_ref()
+        .is_none_or(|rc| {
+            rc.borrow()
+                .reasm_client
+                .is_empty()
+        })
     {
         let live_tpos = match (replay.tpos, &ps.ctrack_replay)
         {
             (Some(tp), _) => Some(*tp),
-            (None, Some(rc)) => Some(rc.borrow().pos),
+            (None, Some(rc)) => Some(
+                rc.borrow()
+                    .pos,
+            ),
             (None, None) => None,
         };
         probe_tcp_outgoing(
             rdata,
             engine.payload_disable,
-            ps.ctrack_replay.as_ref(),
+            ps.ctrack_replay
+                .as_ref(),
             live_tpos.as_ref(),
             &mut ps.l7proto,
             &mut ps.l7payload,
@@ -167,10 +221,16 @@ fn process_tcp_outgoing_payload(
     }
 
     let is_tls_reasm = ps.l7payload == L7Payload::TlsClientHello
-        || ps.ctrack_replay.as_ref().is_some_and(|rc| {
-            let e = rc.borrow();
-            e.reasm_client_payload == L7Payload::TlsClientHello && !e.reasm_client.is_empty()
-        });
+        || ps
+            .ctrack_replay
+            .as_ref()
+            .is_some_and(|rc| {
+                let e = rc.borrow();
+                e.reasm_client_payload == L7Payload::TlsClientHello
+                    && !e
+                        .reasm_client
+                        .is_empty()
+            });
     if is_tls_reasm
     {
         ps.l7payload = L7Payload::TlsClientHello;
@@ -183,7 +243,12 @@ fn process_tcp_outgoing_payload(
     }
     else
     {
-        reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
+        reasm_client_stop(
+            ps.ctrack
+                .as_ref(),
+            engine.desync_fwmark,
+            &engine.sender,
+        );
         if ps.l7payload == L7Payload::HttpReq
         {
             ps.host = http_extract_host(rdata);
@@ -212,7 +277,10 @@ pub(crate) fn process_tcp_packet(
     {
         return Decision::Pass;
     };
-    let raw_payload = dis.payload.as_deref().unwrap_or(&[]);
+    let raw_payload = dis
+        .payload
+        .as_deref()
+        .unwrap_or(&[]);
     let is_syn = (tcp.flags & TH_SYN) != 0;
     let mut rdata_buf: Option<Vec<u8>> = None;
 
@@ -223,13 +291,20 @@ pub(crate) fn process_tcp_packet(
             probe_tcp_incoming(
                 raw_payload,
                 engine.payload_disable,
-                ps.ctrack.as_ref(),
+                ps.ctrack
+                    .as_ref(),
                 &mut ps.l7proto,
                 &mut ps.l7payload,
             );
         }
         let fail_tgt = tcp_fail_target(&svc, engine, &ps);
-        handle_tcp_incoming_fail(ps.ctrack.as_ref(), dis, ps.l7payload, fail_tgt.as_ref());
+        handle_tcp_incoming_fail(
+            ps.ctrack
+                .as_ref(),
+            dis,
+            ps.l7payload,
+            fail_tgt.as_ref(),
+        );
     }
     else if !is_syn && !raw_payload.is_empty()
     {
@@ -242,7 +317,12 @@ pub(crate) fn process_tcp_packet(
 
     if !dp_rediscovery(&svc, &mut ps, dis, replay.tpos, now.sec)
     {
-        reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
+        reasm_client_stop(
+            ps.ctrack
+                .as_ref(),
+            engine.desync_fwmark,
+            &engine.sender,
+        );
         return Decision::Pass;
     }
 
@@ -256,13 +336,20 @@ pub(crate) fn process_tcp_packet(
     }
     else
     {
-        dis.payload.as_deref()
+        dis.payload
+            .as_deref()
     };
 
     let decision = engine.dispatch_state(replay, pkt, dis, &ps, reasm_slice, None);
     if !ps.incoming && decision == Decision::Drop
     {
-        return ct_new_postnat_fix(ps.ctrack.as_ref(), engine.server, dis, pkt.payload);
+        return ct_new_postnat_fix(
+            ps.ctrack
+                .as_ref(),
+            engine.server,
+            dis,
+            pkt.payload,
+        );
     }
     decision
 }

@@ -33,7 +33,10 @@ impl TabSpec
     pub const fn hit_width(self, compact: bool) -> u16
     {
         let label = if compact { self.compact_label } else { self.short_label };
-        (self.num_prefix.len() + label.len()) as u16
+        (self
+            .num_prefix
+            .len()
+            + label.len()) as u16
     }
 }
 
@@ -142,7 +145,10 @@ impl ActiveTab
     /// Returns the 0-based tab index for `ratatui::widgets::Tabs`.
     pub fn index(self) -> usize
     {
-        Self::SPECS.iter().position(|s| s.tab == self).unwrap_or(0)
+        Self::SPECS
+            .iter()
+            .position(|s| s.tab == self)
+            .unwrap_or(0)
     }
 
     /// Advances to the next tab cyclically.
@@ -162,23 +168,37 @@ impl ActiveTab
 pub fn adjust_log_scroll_key(scroll: &mut u16, total_len: usize, key: KeyEvent, nav: &NavKeybinds) -> bool
 {
     let cap = u16::try_from(total_len.saturating_sub(1)).unwrap_or(u16::MAX);
-    if nav.up.contains(key)
+    if nav
+        .up
+        .contains(key)
     {
-        *scroll = scroll.saturating_add(1).min(cap);
+        *scroll = scroll
+            .saturating_add(1)
+            .min(cap);
     }
-    else if nav.down.contains(key)
+    else if nav
+        .down
+        .contains(key)
     {
         *scroll = scroll.saturating_sub(1);
     }
-    else if nav.page_up.contains(key)
+    else if nav
+        .page_up
+        .contains(key)
     {
-        *scroll = scroll.saturating_add(5).min(cap);
+        *scroll = scroll
+            .saturating_add(5)
+            .min(cap);
     }
-    else if nav.page_down.contains(key)
+    else if nav
+        .page_down
+        .contains(key)
     {
         *scroll = scroll.saturating_sub(5);
     }
-    else if nav.end.contains(key)
+    else if nav
+        .end
+        .contains(key)
     {
         *scroll = 0;
     }
@@ -192,23 +212,33 @@ pub fn adjust_log_scroll_key(scroll: &mut u16, total_len: usize, key: KeyEvent, 
 /// Adjusts a top-anchored preview scroll offset (`0` = top) using configurable [`NavKeybinds`].
 pub fn adjust_pane_scroll_key(scroll: &mut u16, key: KeyEvent, nav: &NavKeybinds) -> bool
 {
-    if nav.up.contains(key)
+    if nav
+        .up
+        .contains(key)
     {
         *scroll = scroll.saturating_sub(1);
     }
-    else if nav.down.contains(key)
+    else if nav
+        .down
+        .contains(key)
     {
         *scroll = scroll.saturating_add(1);
     }
-    else if nav.page_up.contains(key)
+    else if nav
+        .page_up
+        .contains(key)
     {
         *scroll = scroll.saturating_sub(10);
     }
-    else if nav.page_down.contains(key)
+    else if nav
+        .page_down
+        .contains(key)
     {
         *scroll = scroll.saturating_add(10);
     }
-    else if nav.home.contains(key)
+    else if nav
+        .home
+        .contains(key)
     {
         *scroll = 0;
     }
@@ -227,7 +257,9 @@ pub(crate) fn visible_window(len: usize, selected: usize, capacity: usize) -> (u
         return (0, 0);
     }
     let clamped = selected.min(len - 1);
-    let end = (clamped + 1).max(capacity.min(len)).min(len);
+    let end = (clamped + 1)
+        .max(capacity.min(len))
+        .min(len);
     let start = end.saturating_sub(capacity);
     (start, end)
 }
@@ -239,7 +271,9 @@ pub(crate) fn step_selection(selected: usize, len: usize, delta: isize) -> usize
     {
         return 0;
     }
-    selected.saturating_add_signed(delta).min(len - 1)
+    selected
+        .saturating_add_signed(delta)
+        .min(len - 1)
 }
 
 /// Result of applying a single key event to an inline plain-text `String` buffer.

@@ -59,8 +59,17 @@ impl IfNameResolver
     {
         let now = boottime_secs();
         let slot_idx = self.ensure_cached(ifindex, now)?;
-        let cache = self.cache.borrow();
-        cache.get(slot_idx).map(|entry| entry.name.as_ref().to_owned())
+        let cache = self
+            .cache
+            .borrow();
+        cache
+            .get(slot_idx)
+            .map(|entry| {
+                entry
+                    .name
+                    .as_ref()
+                    .to_owned()
+            })
     }
 
     /// Resolves `(indev, outdev)` together and passes borrowed `Option<&str>` names to `f` without allocation.
@@ -72,13 +81,36 @@ impl IfNameResolver
     ) -> R
     {
         let now = boottime_secs();
-        let in_present = self.ensure_cached(indev, now).is_some();
-        let out_present = self.ensure_cached(outdev, now).is_some();
-        let cache = self.cache.borrow();
-        let ifin =
-            in_present.then(|| cache.iter().find(|e| e.ifindex == indev).map(|e| e.name.as_ref())).flatten();
+        let in_present = self
+            .ensure_cached(indev, now)
+            .is_some();
+        let out_present = self
+            .ensure_cached(outdev, now)
+            .is_some();
+        let cache = self
+            .cache
+            .borrow();
+        let ifin = in_present
+            .then(|| {
+                cache
+                    .iter()
+                    .find(|e| e.ifindex == indev)
+                    .map(|e| {
+                        e.name
+                            .as_ref()
+                    })
+            })
+            .flatten();
         let ifout = out_present
-            .then(|| cache.iter().find(|e| e.ifindex == outdev).map(|e| e.name.as_ref()))
+            .then(|| {
+                cache
+                    .iter()
+                    .find(|e| e.ifindex == outdev)
+                    .map(|e| {
+                        e.name
+                            .as_ref()
+                    })
+            })
             .flatten();
         f(ifin, ifout)
     }
@@ -100,12 +132,16 @@ impl IfNameResolver
         }
 
         let resolved = self.resolve_uncached(ifindex);
-        let mut cache = self.cache.borrow_mut();
+        let mut cache = self
+            .cache
+            .borrow_mut();
         match resolved
         {
             Some(name) =>
             {
-                if let Some(pos) = cache.iter().position(|entry| entry.ifindex == ifindex)
+                if let Some(pos) = cache
+                    .iter()
+                    .position(|entry| entry.ifindex == ifindex)
                 {
                     cache[pos].name = name.into_boxed_str();
                     cache[pos].fetched_sec = now;
@@ -133,22 +169,39 @@ impl IfNameResolver
         let idx = libc::c_int::try_from(ifindex).ok()?;
         // SAFETY: `libc::ifreq` is a plain C struct for which all-zero initialization is valid.
         let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
-        ifr.ifr_ifru.ifru_ifindex = idx;
+        ifr.ifr_ifru
+            .ifru_ifindex = idx;
 
         // SAFETY: `SIOCGIFNAME` reads `ifr_ifru.ifru_ifindex` and writes a NUL-terminated name into `ifr_name`.
-        let rc = unsafe { libc::ioctl(self.sock.as_raw_fd(), libc::SIOCGIFNAME, &raw mut ifr) };
+        let rc = unsafe {
+            libc::ioctl(
+                self.sock
+                    .as_raw_fd(),
+                libc::SIOCGIFNAME,
+                &raw mut ifr,
+            )
+        };
         if rc < 0
         {
             return None;
         }
 
-        let len = ifr.ifr_name.iter().position(|&ch| ch == 0).unwrap_or(ifr.ifr_name.len());
+        let len = ifr
+            .ifr_name
+            .iter()
+            .position(|&ch| ch == 0)
+            .unwrap_or(
+                ifr.ifr_name
+                    .len(),
+            );
         if len == 0
         {
             return None;
         }
         let mut buf = [0u8; libc::IFNAMSIZ];
-        for (dst, &src) in buf[..len].iter_mut().zip(&ifr.ifr_name[..len])
+        for (dst, &src) in buf[..len]
+            .iter_mut()
+            .zip(&ifr.ifr_name[..len])
         {
             *dst = src as u8;
         }

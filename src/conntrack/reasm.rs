@@ -41,38 +41,51 @@ impl GlobalBufferBudget
     /// Returns total currently reserved bytes across all tracked flows sharing this budget.
     pub fn used_bytes(&self) -> usize
     {
-        self.used.get()
+        self.used
+            .get()
     }
 
     /// Returns the configured byte limit (`0` = unbounded).
     pub fn max_bytes(&self) -> usize
     {
-        self.max_bytes.get()
+        self.max_bytes
+            .get()
     }
 
     /// Updates the shared byte limit across existing and future flows.
     pub fn set_max_bytes(&self, max_bytes: usize)
     {
-        self.max_bytes.set(max_bytes);
+        self.max_bytes
+            .set(max_bytes);
     }
 
     /// Attempts to reserve `bytes` under the budget, returning `false` when full.
     pub fn try_reserve(&self, bytes: usize) -> bool
     {
-        let current = self.used.get();
-        let cap = self.max_bytes.get();
+        let current = self
+            .used
+            .get();
+        let cap = self
+            .max_bytes
+            .get();
         if cap > 0 && current.saturating_add(bytes) > cap
         {
             return false;
         }
-        self.used.set(current.saturating_add(bytes));
+        self.used
+            .set(current.saturating_add(bytes));
         true
     }
 
     /// Releases `bytes` previously acquired via [`Self::try_reserve`].
     pub fn release(&self, bytes: usize)
     {
-        self.used.set(self.used.get().saturating_sub(bytes));
+        self.used
+            .set(
+                self.used
+                    .get()
+                    .saturating_sub(bytes),
+            );
     }
 }
 
@@ -98,8 +111,10 @@ impl StreamReassembler
     /// Starts a fresh reassembly session expecting `size_requested` total bytes starting at `seq_start`.
     pub fn init(&mut self, size_requested: usize, seq_start: u32)
     {
-        self.buf.clear();
-        self.buf.resize(size_requested, 0);
+        self.buf
+            .clear();
+        self.buf
+            .resize(size_requested, 0);
         self.seq = seq_start;
         self.size = size_requested;
         self.size_present = 0;
@@ -129,7 +144,9 @@ impl StreamReassembler
     /// Returns `true` if `len` additional new bytes fit within the target `size`.
     pub const fn has_space(&self, len: usize) -> bool
     {
-        self.size.saturating_sub(self.size_present) >= len
+        self.size
+            .saturating_sub(self.size_present)
+            >= len
     }
 
     /// Returns the total expected message size for the active session (`0` if inactive).
@@ -177,7 +194,9 @@ impl StreamReassembler
             return false;
         }
 
-        let mut neg_overlap = self.seq.wrapping_sub(seq);
+        let mut neg_overlap = self
+            .seq
+            .wrapping_sub(seq);
         if neg_overlap > REASM_MAX_NEG
         {
             return false;
@@ -205,7 +224,9 @@ impl StreamReassembler
         {
             let delta = szcopy - neg_usize;
             self.size_present += delta;
-            self.seq = self.seq.wrapping_add(delta as u32);
+            self.seq = self
+                .seq
+                .wrapping_add(delta as u32);
         }
 
         true

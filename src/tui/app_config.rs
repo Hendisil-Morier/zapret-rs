@@ -116,16 +116,22 @@ pub fn is_centralized_app_config(input: &str, path: &Path) -> bool
 {
     if let Ok(table) = toml::from_str::<toml::Table>(input)
     {
-        if NFQWS2_ONLY_KEYS.iter().any(|k| table.contains_key(*k))
+        if NFQWS2_ONLY_KEYS
+            .iter()
+            .any(|k| table.contains_key(*k))
         {
             return false;
         }
-        if APP_CONFIG_ONLY_KEYS.iter().any(|k| table.contains_key(*k))
+        if APP_CONFIG_ONLY_KEYS
+            .iter()
+            .any(|k| table.contains_key(*k))
         {
             return true;
         }
     }
-    path.file_name().and_then(|n| n.to_str()) == Some("config.toml")
+    path.file_name()
+        .and_then(|n| n.to_str())
+        == Some("config.toml")
 }
 
 /// Parses a centralized `config.toml` string (resolving `import` / `imports` recursively) into settings.
@@ -139,7 +145,9 @@ pub fn parse_app_config_str(
     let merged = load_merged_app_table(input, base_dir, Some(&config_path), &mut ancestors, expand_tilde)?;
     let raw: RawAppConfigFile = RawAppConfigFile::deserialize(toml::Value::Table(merged))
         .map_err(|err| format!("invalid config.toml: {err}"))?;
-    let (theme, has_theme) = match raw.theme.as_ref()
+    let (theme, has_theme) = match raw
+        .theme
+        .as_ref()
     {
         Some(raw_theme) => (Theme::from_raw(raw_theme)?, true),
         None => (Theme::neon(), false),
@@ -150,8 +158,13 @@ pub fn parse_app_config_str(
             .nfqws2_config
             .as_deref()
             .and_then(|s| resolve_import_path(s, base_dir, expand_tilde)),
-        lua_dir: raw.lua_dir.as_deref().and_then(|s| resolve_import_path(s, base_dir, expand_tilde)),
-        no_nft: raw.no_nft.unwrap_or(false),
+        lua_dir: raw
+            .lua_dir
+            .as_deref()
+            .and_then(|s| resolve_import_path(s, base_dir, expand_tilde)),
+        no_nft: raw
+            .no_nft
+            .unwrap_or(false),
         control_socket: raw
             .control_socket
             .as_deref()
@@ -225,7 +238,11 @@ pub fn resolve_startup_app_config(req: StartupConfigRequest<'_>) -> (ResolvedApp
                     direct_nfqws2 = Some(cli_path.to_path_buf());
                 }
             }
-            Err(_) if cli_path.file_name().and_then(|n| n.to_str()) == Some("config.toml") =>
+            Err(_)
+                if cli_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    == Some("config.toml") =>
             {
                 app_cfg_path = cli_path.to_path_buf();
             }

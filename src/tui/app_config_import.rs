@@ -150,13 +150,19 @@ fn load_fragment_from_spec(
         return Ok(wrap_if_unwrapped_theme(raw_tbl));
     }
 
-    if !raw_tbl.is_empty() && raw_tbl.keys().all(|k| THEME_FILE_KEYS.contains(&k.as_str()))
+    if !raw_tbl.is_empty()
+        && raw_tbl
+            .keys()
+            .all(|k| THEME_FILE_KEYS.contains(&k.as_str()))
     {
         let mut wrapper = toml::Table::new();
         wrapper.insert("theme".to_owned(), toml::Value::Table(raw_tbl));
         return Ok(wrapper);
     }
-    if !raw_tbl.is_empty() && raw_tbl.keys().all(|k| KEYBIND_SECTION_KEYS.contains(&k.as_str()))
+    if !raw_tbl.is_empty()
+        && raw_tbl
+            .keys()
+            .all(|k| KEYBIND_SECTION_KEYS.contains(&k.as_str()))
     {
         let mut wrapper = toml::Table::new();
         wrapper.insert("keybinds".to_owned(), toml::Value::Table(raw_tbl));
@@ -227,7 +233,9 @@ fn normalize_relative_path_fields(
         if let Some(toml::Value::String(raw)) = table.get_mut(key)
             && let Some(resolved) = resolve_import_path(raw, base_dir, expand_home)
         {
-            *raw = resolved.display().to_string();
+            *raw = resolved
+                .display()
+                .to_string();
         }
     }
 }

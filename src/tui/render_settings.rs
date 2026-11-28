@@ -29,33 +29,71 @@ pub(crate) fn draw_settings_tab(frame: &mut Frame, area: Rect, state: &AppState)
         .constraints([Constraint::Length(3), Constraint::Min(8)])
         .split(area);
 
-    let header_line = if state.settings.capturing_rebind
+    let header_line = if state
+        .settings
+        .capturing_rebind
     {
-        let target = KEYBIND_ENTRIES.get(state.settings.keybind_sel).map_or("", |s| s.id);
+        let target = KEYBIND_ENTRIES
+            .get(
+                state
+                    .settings
+                    .keybind_sel,
+            )
+            .map_or("", |s| s.id);
         Line::from(vec![
-            Span::styled(" Rebinding ", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
-            Span::styled(target, Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " Rebinding ",
+                Style::default()
+                    .fg(t.warn_bright)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                target,
+                Style::default()
+                    .fg(t.accent_bright)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(": press new key or chord  (Esc cancels)", Style::default().fg(t.text)),
         ])
     }
-    else if state.settings.editing_option
+    else if state
+        .settings
+        .editing_option
     {
         Line::from(vec![
             Span::styled(
                 " Editing Path: ",
-                Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(t.accent_bright)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{}_", state.settings.edit_buf),
-                Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+                format!(
+                    "{}_",
+                    state
+                        .settings
+                        .edit_buf
+                ),
+                Style::default()
+                    .fg(t.text)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("   (Enter applies, Esc cancels)", Style::default().fg(t.muted)),
         ])
     }
     else
     {
-        let focus_label =
-            if state.settings.focus == SettingsFocus::Options { "Options" } else { "Keybindings" };
+        let focus_label = if state
+            .settings
+            .focus
+            == SettingsFocus::Options
+        {
+            "Options"
+        }
+        else
+        {
+            "Keybindings"
+        };
         let defaults = Keybinds::default();
         let custom_count = KEYBIND_ENTRIES
             .iter()
@@ -64,20 +102,43 @@ pub(crate) fn draw_settings_tab(frame: &mut Frame, area: Rect, state: &AppState)
         Line::from(Span::styled(
             format!(
                 " Theme: {}   Custom keybinds: {custom_count}/{}   Focus: {focus_label}",
-                state.theme.name,
+                state
+                    .theme
+                    .name,
                 KEYBIND_ENTRIES.len(),
             ),
             Style::default().fg(t.info),
         ))
     };
 
-    let status_tag = if state.settings.dirty { "[MODIFIED]" } else { "[SAVED]" };
-    let header_title = format!(" Settings Manager ({}) {status_tag} ", state.app_config_path.display());
-    let header_border = if state.settings.capturing_rebind || state.settings.editing_option
+    let status_tag = if state
+        .settings
+        .dirty
+    {
+        "[MODIFIED]"
+    }
+    else
+    {
+        "[SAVED]"
+    };
+    let header_title = format!(
+        " Settings Manager ({}) {status_tag} ",
+        state
+            .app_config_path
+            .display()
+    );
+    let header_border = if state
+        .settings
+        .capturing_rebind
+        || state
+            .settings
+            .editing_option
     {
         t.warn_bright
     }
-    else if state.settings.dirty
+    else if state
+        .settings
+        .dirty
     {
         t.warn
     }
@@ -101,14 +162,20 @@ pub(crate) fn draw_settings_tab(frame: &mut Frame, area: Rect, state: &AppState)
 fn draw_options_column(frame: &mut Frame, area: Rect, state: &AppState)
 {
     let t = &state.theme;
-    let focused = state.settings.focus == SettingsFocus::Options;
+    let focused = state
+        .settings
+        .focus
+        == SettingsFocus::Options;
     let border = if focused { t.accent_bright } else { t.frame };
 
     let items: Vec<ListItem> = SettingRow::ALL
         .iter()
         .enumerate()
         .map(|(idx, &row)| {
-            let selected = idx == state.settings.option_sel;
+            let selected = idx
+                == state
+                    .settings
+                    .option_sel;
             let prefix = if selected && focused
             {
                 "> "
@@ -123,7 +190,10 @@ fn draw_options_column(frame: &mut Frame, area: Rect, state: &AppState)
             };
             let (label, val) = option_label_and_value(state, row, selected);
             let bg = if selected { t.highlight_bg } else { Color::Reset };
-            let val_col = if row == SettingRow::NoNft && state.finder.no_nft
+            let val_col = if row == SettingRow::NoNft
+                && state
+                    .finder
+                    .no_nft
             {
                 t.warn_bright
             }
@@ -136,9 +206,25 @@ fn draw_options_column(frame: &mut Frame, area: Rect, state: &AppState)
                 t.text
             };
             ListItem::new(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(t.warn_bright).bg(bg).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{label:<14} "), Style::default().fg(t.info).bg(bg)),
-                Span::styled(val, Style::default().fg(val_col).bg(bg)),
+                Span::styled(
+                    prefix,
+                    Style::default()
+                        .fg(t.warn_bright)
+                        .bg(bg)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{label:<14} "),
+                    Style::default()
+                        .fg(t.info)
+                        .bg(bg),
+                ),
+                Span::styled(
+                    val,
+                    Style::default()
+                        .fg(val_col)
+                        .bg(bg),
+                ),
             ]))
         })
         .collect();
@@ -150,7 +236,10 @@ fn draw_options_column(frame: &mut Frame, area: Rect, state: &AppState)
 /// Formats display label and current value string for one [`SettingRow`].
 fn option_label_and_value(state: &AppState, row: SettingRow, selected: bool) -> (&'static str, String)
 {
-    if selected && state.settings.editing_option
+    if selected
+        && state
+            .settings
+            .editing_option
     {
         let name = match row
         {
@@ -159,35 +248,77 @@ fn option_label_and_value(state: &AppState, row: SettingRow, selected: bool) -> 
             SettingRow::ControlSocket => "control_socket",
             _ => "value",
         };
-        return (name, format!("{}_", state.settings.edit_buf));
+        return (
+            name,
+            format!(
+                "{}_",
+                state
+                    .settings
+                    .edit_buf
+            ),
+        );
     }
     match row
     {
-        SettingRow::ThemePreset => ("theme.preset", state.theme.name.to_owned()),
-        SettingRow::Nfqws2Config => ("nfqws2_config", state.finder.output_path.clone()),
+        SettingRow::ThemePreset => (
+            "theme.preset",
+            state
+                .theme
+                .name
+                .to_owned(),
+        ),
+        SettingRow::Nfqws2Config => (
+            "nfqws2_config",
+            state
+                .finder
+                .output_path
+                .clone(),
+        ),
         SettingRow::LuaDir =>
         {
-            let v = if state.finder.lua_dir_input.is_empty()
+            let v = if state
+                .finder
+                .lua_dir_input
+                .is_empty()
             {
                 "(auto)".to_owned()
             }
             else
             {
-                state.finder.lua_dir_input.clone()
+                state
+                    .finder
+                    .lua_dir_input
+                    .clone()
             };
             ("lua_dir", v)
         }
-        SettingRow::NoNft =>
-        {
-            ("no_nft", if state.finder.no_nft { "true (manual)" } else { "false (auto)" }.to_owned())
-        }
+        SettingRow::NoNft => (
+            "no_nft",
+            if state
+                .finder
+                .no_nft
+            {
+                "true (manual)"
+            }
+            else
+            {
+                "false (auto)"
+            }
+            .to_owned(),
+        ),
         SettingRow::ControlSocket => (
             "control_socket",
             state
                 .run
                 .control_socket_override
                 .as_ref()
-                .map_or_else(|| "(auto)".to_owned(), |p| p.display().to_string()),
+                .map_or_else(
+                    || "(auto)".to_owned(),
+                    |p| {
+                        p.display()
+                            .to_string()
+                    },
+                ),
         ),
     }
 }
@@ -196,23 +327,46 @@ fn option_label_and_value(state: &AppState, row: SettingRow, selected: bool) -> 
 fn draw_keybinds_column(frame: &mut Frame, area: Rect, state: &AppState)
 {
     let t = &state.theme;
-    let focused = state.settings.focus == SettingsFocus::Keybinds;
+    let focused = state
+        .settings
+        .focus
+        == SettingsFocus::Keybinds;
     let border = if focused { t.accent_bright } else { t.frame };
     let defaults = Keybinds::default();
-    let cap = usize::from(area.height.saturating_sub(3)).max(1);
-    let (start, end) = visible_window(KEYBIND_ENTRIES.len(), state.settings.keybind_sel, cap);
+    let cap = usize::from(
+        area.height
+            .saturating_sub(3),
+    )
+    .max(1);
+    let (start, end) = visible_window(
+        KEYBIND_ENTRIES.len(),
+        state
+            .settings
+            .keybind_sel,
+        cap,
+    );
 
-    let header = Row::new(["Action", "Binding", "State"])
-        .style(Style::default().fg(t.warn_bright).bg(t.highlight_bg).add_modifier(Modifier::BOLD));
+    let header = Row::new(["Action", "Binding", "State"]).style(
+        Style::default()
+            .fg(t.warn_bright)
+            .bg(t.highlight_bg)
+            .add_modifier(Modifier::BOLD),
+    );
 
     let rows: Vec<Row> = (start..end)
         .map(|idx| {
             let spec = &KEYBIND_ENTRIES[idx];
-            let selected = idx == state.settings.keybind_sel;
+            let selected = idx
+                == state
+                    .settings
+                    .keybind_sel;
             let cur = (spec.get)(&state.keybinds);
             let def = (spec.get)(&defaults);
             let is_custom = cur != def;
-            let capturing = selected && state.settings.capturing_rebind;
+            let capturing = selected
+                && state
+                    .settings
+                    .capturing_rebind;
             let bg = if selected { t.highlight_bg } else { Color::Reset };
 
             let bind_txt = if capturing { "<press new key...>".to_owned() } else { cur.joined_label() };
@@ -254,9 +408,22 @@ fn draw_keybinds_column(frame: &mut Frame, area: Rect, state: &AppState)
                 "  "
             };
             Row::new([
-                Cell::from(format!("{marker}{}", spec.id)).style(Style::default().fg(t.info).bg(bg)),
-                Cell::from(bind_txt).style(Style::default().fg(bind_col).bg(bg).add_modifier(Modifier::BOLD)),
-                Cell::from(state_txt).style(Style::default().fg(state_col).bg(bg)),
+                Cell::from(format!("{marker}{}", spec.id)).style(
+                    Style::default()
+                        .fg(t.info)
+                        .bg(bg),
+                ),
+                Cell::from(bind_txt).style(
+                    Style::default()
+                        .fg(bind_col)
+                        .bg(bg)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Cell::from(state_txt).style(
+                    Style::default()
+                        .fg(state_col)
+                        .bg(bg),
+                ),
             ])
         })
         .collect();

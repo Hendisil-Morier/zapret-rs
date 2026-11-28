@@ -84,8 +84,11 @@ fn handle_dns_parse_query() -> ExitCode
     let stdout = io::stdout();
     let mut reader = stdin.lock();
     let mut writer = BufWriter::new(stdout.lock());
-    let outcome = read_and_parse_dns_reply(&mut reader, &mut writer)
-        .and_then(|()| writer.flush().map_err(MdigDnsError::WriteFailed));
+    let outcome = read_and_parse_dns_reply(&mut reader, &mut writer).and_then(|()| {
+        writer
+            .flush()
+            .map_err(MdigDnsError::WriteFailed)
+    });
     match outcome
     {
         Ok(()) => ExitCode::SUCCESS,
@@ -120,7 +123,9 @@ fn handle_dns_make_query(domain: &str, cfg: &MdigConfig) -> ExitCode
     };
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    match out.write_all(&packet).and_then(|()| out.flush())
+    match out
+        .write_all(&packet)
+        .and_then(|()| out.flush())
     {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) if err.kind() == ErrorKind::BrokenPipe => ExitCode::SUCCESS,
@@ -155,12 +160,17 @@ where
     }
 
     let cfg = match MdigConfig::from_options(
-        cli.family.as_deref(),
-        cli.threads.as_deref(),
-        cli.eagain.as_deref(),
-        cli.eagain_delay.as_deref(),
+        cli.family
+            .as_deref(),
+        cli.threads
+            .as_deref(),
+        cli.eagain
+            .as_deref(),
+        cli.eagain_delay
+            .as_deref(),
         cli.verbose,
-        cli.stats.as_deref(),
+        cli.stats
+            .as_deref(),
     )
     {
         Ok(cfg) => cfg,
@@ -171,17 +181,25 @@ where
         }
     };
 
-    if let Some(domain) = cli.dns_make_query.as_deref()
+    if let Some(domain) = cli
+        .dns_make_query
+        .as_deref()
     {
         return handle_dns_make_query(domain, &cfg);
     }
 
-    let mut log_resolved = match open_optional_log(cli.log_resolved.as_deref())
+    let mut log_resolved = match open_optional_log(
+        cli.log_resolved
+            .as_deref(),
+    )
     {
         Ok(writer) => writer,
         Err(code) => return code,
     };
-    let mut log_failed = match open_optional_log(cli.log_failed.as_deref())
+    let mut log_failed = match open_optional_log(
+        cli.log_failed
+            .as_deref(),
+    )
     {
         Ok(writer) => writer,
         Err(code) => return code,
@@ -193,8 +211,12 @@ where
     let outputs = MdigOutputs {
         stdout: &mut out,
         stderr: &mut err,
-        log_resolved: log_resolved.as_mut().map(|w| w as &mut (dyn Write + Send)),
-        log_failed: log_failed.as_mut().map(|w| w as &mut (dyn Write + Send)),
+        log_resolved: log_resolved
+            .as_mut()
+            .map(|w| w as &mut (dyn Write + Send)),
+        log_failed: log_failed
+            .as_mut()
+            .map(|w| w as &mut (dyn Write + Send)),
     };
 
     let started = run_mdig_resolver(&cfg, &LibcResolver, &mut reader, outputs);

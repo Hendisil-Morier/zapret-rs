@@ -94,7 +94,10 @@ impl SpeedState
     /// Resets the table from preformatted row labels and marks the run as starting.
     fn reset_rows(&mut self, labels: impl IntoIterator<Item = String>)
     {
-        self.rows = labels.into_iter().map(|label| SpeedRow { label, before: None, after: None }).collect();
+        self.rows = labels
+            .into_iter()
+            .map(|label| SpeedRow { label, before: None, after: None })
+            .collect();
         self.phase = SpeedPhase::Stopping;
         self.selected = 0;
     }
@@ -102,19 +105,35 @@ impl SpeedState
     /// Resets the table to one empty row per target and marks the run as starting.
     pub fn start(&mut self, targets: &[SpeedTarget])
     {
-        self.reset_rows(targets.iter().map(|t| t.label.clone()));
+        self.reset_rows(
+            targets
+                .iter()
+                .map(|t| {
+                    t.label
+                        .clone()
+                }),
+        );
     }
 
     /// Resets the table from family-expanded `(SpeedTarget, IpFamily)` entries.
     pub fn start_scoped(&mut self, targets: &[(SpeedTarget, IpFamily)])
     {
-        self.reset_rows(targets.iter().map(|(t, _)| t.label.clone()));
+        self.reset_rows(
+            targets
+                .iter()
+                .map(|(t, _)| {
+                    t.label
+                        .clone()
+                }),
+        );
     }
 
     /// Stores `sample` for row `idx` on `side`; out-of-range indexes are ignored.
     pub fn record(&mut self, side: Side, idx: usize, sample: SpeedSample)
     {
-        if let Some(row) = self.rows.get_mut(idx)
+        if let Some(row) = self
+            .rows
+            .get_mut(idx)
         {
             match side
             {
@@ -127,9 +146,12 @@ impl SpeedState
     /// Drops all results; ignored while a run is in flight.
     pub fn clear(&mut self)
     {
-        if !self.phase.is_running()
+        if !self
+            .phase
+            .is_running()
         {
-            self.rows.clear();
+            self.rows
+                .clear();
             self.phase = SpeedPhase::Idle;
             self.selected = 0;
         }
@@ -138,18 +160,27 @@ impl SpeedState
     /// Moves the row selection by `delta`, clamped to the table.
     pub fn move_selection(&mut self, delta: isize)
     {
-        self.selected = step_selection(self.selected, self.rows.len(), delta);
+        self.selected = step_selection(
+            self.selected,
+            self.rows
+                .len(),
+            delta,
+        );
     }
 }
 
 /// Returns `domains_input` when non-empty, otherwise extracts inline `hostlist_domains` from `active_toml`.
 pub fn effective_speed_domains(domains_input: &str, active_toml: &str) -> String
 {
-    if !domains_input.trim().is_empty()
+    if !domains_input
+        .trim()
+        .is_empty()
     {
         return domains_input.to_owned();
     }
-    if active_toml.trim().is_empty()
+    if active_toml
+        .trim()
+        .is_empty()
     {
         return String::new();
     }
@@ -162,14 +193,19 @@ pub fn effective_speed_domains(domains_input: &str, active_toml: &str) -> String
 pub fn build_targets(domains_input: &str) -> Vec<SpeedTarget>
 {
     let mut seen: Vec<String> = Vec::new();
-    for domain in domains_input.split(|c: char| c.is_whitespace() || c == ',').filter_map(normalize_domain)
+    for domain in domains_input
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter_map(normalize_domain)
     {
         if !seen.contains(&domain)
         {
             seen.push(domain);
         }
     }
-    let mut targets: Vec<SpeedTarget> = seen.iter().map(|d| domain_target(d)).collect();
+    let mut targets: Vec<SpeedTarget> = seen
+        .iter()
+        .map(|d| domain_target(d))
+        .collect();
     targets.push(control_target());
     targets
 }
@@ -218,7 +254,9 @@ pub fn format_rate(bytes_per_sec: u64) -> String
 /// Describes one sample: TCP connect time, first-byte time, and speed on success, else failure class.
 pub fn describe_sample(sample: &SpeedSample) -> String
 {
-    if sample.outcome.is_success()
+    if sample
+        .outcome
+        .is_success()
     {
         format!(
             "conn {}ms ttfb {}ms  {}",
@@ -229,7 +267,13 @@ pub fn describe_sample(sample: &SpeedSample) -> String
     }
     else
     {
-        sample.outcome.summary().split(' ').next().unwrap_or("FAILED").to_owned()
+        sample
+            .outcome
+            .summary()
+            .split(' ')
+            .next()
+            .unwrap_or("FAILED")
+            .to_owned()
     }
 }
 
@@ -257,7 +301,14 @@ pub fn compare(row: &SpeedRow) -> Change
     {
         return Change::Pending;
     };
-    match (before.outcome.is_success(), after.outcome.is_success())
+    match (
+        before
+            .outcome
+            .is_success(),
+        after
+            .outcome
+            .is_success(),
+    )
     {
         (false, true) => Change::Fixed,
         (true, false) => Change::Broke,

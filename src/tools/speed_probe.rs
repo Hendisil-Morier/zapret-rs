@@ -76,7 +76,11 @@ pub fn control_target() -> SpeedTarget
 fn secs_field_to_ms(field: Option<&str>) -> u64
 {
     field
-        .and_then(|s| s.trim().parse::<f64>().ok())
+        .and_then(|s| {
+            s.trim()
+                .parse::<f64>()
+                .ok()
+        })
         .filter(|v| v.is_finite() && *v >= 0.0)
         .map_or(0, |secs| (secs * 1000.0).round() as u64)
 }
@@ -86,12 +90,18 @@ fn secs_field_to_ms(field: Option<&str>) -> u64
 /// Missing or malformed fields become `0` rather than failing the whole sample.
 pub fn parse_timing_lines(stdout: &str) -> (u64, u64, u64)
 {
-    let mut lines = stdout.lines().skip(3);
+    let mut lines = stdout
+        .lines()
+        .skip(3);
     let connect_ms = secs_field_to_ms(lines.next());
     let ttfb_ms = secs_field_to_ms(lines.next());
     let bytes_per_sec = lines
         .next()
-        .and_then(|s| s.trim().parse::<f64>().ok())
+        .and_then(|s| {
+            s.trim()
+                .parse::<f64>()
+                .ok()
+        })
         .filter(|v| v.is_finite() && *v >= 0.0)
         .map_or(0, |v| v.round() as u64);
     (connect_ms, ttfb_ms, bytes_per_sec)
@@ -108,22 +118,43 @@ pub fn measure(backend: &CurlProbeBackend, target: &SpeedTarget, ipv: IpFamily) 
 {
     let args = CurlProbeBackend::build_url_args(&target.url, None, ipv, target.timeout, SPEED_WRITE_OUT);
     let start = Instant::now();
-    let output = match backend.unprivileged_command().args(&args).output()
+    let output = match backend
+        .unprivileged_command()
+        .args(&args)
+        .output()
     {
         Ok(out) => out,
         Err(err) =>
         {
             return failed_sample(ProbeOutcome::Failed {
                 code: -1,
-                detail: format!("failed to spawn {}: {err}", backend.curl_bin().display()),
+                detail: format!(
+                    "failed to spawn {}: {err}",
+                    backend
+                        .curl_bin()
+                        .display()
+                ),
             });
         }
     };
-    let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let elapsed_ms = u64::try_from(
+        start
+            .elapsed()
+            .as_millis(),
+    )
+    .unwrap_or(u64::MAX);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let outcome =
-        classify_curl_output(&target.host, output.status.code().unwrap_or(-1), &stdout, &stderr, elapsed_ms);
+    let outcome = classify_curl_output(
+        &target.host,
+        output
+            .status
+            .code()
+            .unwrap_or(-1),
+        &stdout,
+        &stderr,
+        elapsed_ms,
+    );
     if !outcome.is_success()
     {
         return failed_sample(outcome);

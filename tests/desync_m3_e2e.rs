@@ -186,17 +186,37 @@ fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni()
         engine.process_packet_traced(&out_pkt(3, &seg1)),
         (Decision::Drop, zapret_rs::desync::PacketOutcome::Reasm)
     );
-    assert!(sender.borrow().packets.is_empty(), "piece 1 must wait");
+    assert!(
+        sender
+            .borrow()
+            .packets
+            .is_empty(),
+        "piece 1 must wait"
+    );
 
     assert_eq!(
         engine.process_packet_traced(&out_pkt(4, &seg2)),
         (Decision::Drop, zapret_rs::desync::PacketOutcome::Modify(Some("profile #1".to_owned())))
     );
     {
-        let captured = &sender.borrow().packets;
+        let captured = &sender
+            .borrow()
+            .packets;
         assert_eq!(captured.len(), 2, "both delayed segments must flush via sender");
-        assert_eq!(dissect_packet(&captured[0].data, false).ip.expect("ip").ttl, 64);
-        assert_eq!(dissect_packet(&captured[1].data, false).ip.expect("ip").ttl, 33);
+        assert_eq!(
+            dissect_packet(&captured[0].data, false)
+                .ip
+                .expect("ip")
+                .ttl,
+            64
+        );
+        assert_eq!(
+            dissect_packet(&captured[1].data, false)
+                .ip
+                .expect("ip")
+                .ttl,
+            33
+        );
     }
 
     // Non-matching 2-segment ClientHello (`www.google.com` vs `hostlist_domains = ["iana.org"]`)
@@ -214,7 +234,12 @@ fn tcp_tls_client_hello_reassembly_replays_delayed_pieces_with_sni()
         (Decision::Drop, zapret_rs::desync::PacketOutcome::Reasm)
     );
 
-    engine.runtime().lua().globals().set("expected_len", ch.len()).expect("set expected_len");
+    engine
+        .runtime()
+        .lua()
+        .globals()
+        .set("expected_len", ch.len())
+        .expect("set expected_len");
     engine
         .runtime()
         .exec_str(
@@ -266,7 +291,10 @@ fn quic_initial_decrypt_hostlist_match_and_postnat_fix_drop()
     assert_eq!(postnat.len(), udp.len());
     assert_eq!(postnat[8], 1, "postnat fix rewrites ip_ttl = 1");
     assert_eq!(postnat[9], 255, "postnat fix rewrites ip_p = 255");
-    engine.runtime().exec_str("assert(_G.quic_matched == true)").expect("QUIC action ran");
+    engine
+        .runtime()
+        .exec_str("assert(_G.quic_matched == true)")
+        .expect("QUIC action ran");
 }
 
 /// Verifies DNS IN A response populates IPCache so a bare TCP SYN matches a hostlist profile.
@@ -296,7 +324,10 @@ fn dns_a_response_populates_ipcache_for_subsequent_tcp_syn()
 
     let syn = build_tcp4([10, 0, 0, 2], [203, 0, 113, 10], 40000, 80, 1, 0, TH_SYN, &[]);
     assert_eq!(engine.process_packet(&out_pkt(2, &syn)), Decision::Pass);
-    engine.runtime().exec_str("assert(_G.dns_hits == 1)").expect("DNS IPCache hit");
+    engine
+        .runtime()
+        .exec_str("assert(_G.dns_hits == 1)")
+        .expect("DNS IPCache hit");
 }
 
 /// Verifies autohostlist triggers: TCP retrans synthetic RST, HTTP 302 redirect append, and UDP stall append.
@@ -351,10 +382,24 @@ fn autohostlist_tcp_retrans_rst_http_redirect_and_udp_stall()
     {
         assert_eq!(engine.process_packet(&out_pkt(id, &get1)), Decision::Pass);
     }
-    let sent = &sender.borrow().packets;
+    let sent = &sender
+        .borrow()
+        .packets;
     assert_eq!(sent.len(), 1, "retrans_threshold=2 must inject one synthetic RST");
-    assert_eq!(dissect_packet(&sent[0].data, false).tcp.expect("tcp").flags & TH_RST, TH_RST);
-    assert_eq!(sent[0].dst, "10.0.0.2".parse::<IpAddr>().expect("ip"));
+    assert_eq!(
+        dissect_packet(&sent[0].data, false)
+            .tcp
+            .expect("tcp")
+            .flags
+            & TH_RST,
+        TH_RST
+    );
+    assert_eq!(
+        sent[0].dst,
+        "10.0.0.2"
+            .parse::<IpAddr>()
+            .expect("ip")
+    );
 
     // Flow 2: HTTP 302 off-SLD redirect => fail 2/2 promotes blocked.example to disk.
     send_handshake(&engine, c, s, 30002, 80, 6);
@@ -372,7 +417,10 @@ fn autohostlist_tcp_retrans_rst_http_redirect_and_udp_stall()
     send_handshake(&engine, c, s, 30003, 80, 10);
     let req3 = build_tcp4(c, s, 30003, 80, 1001, 2001, TH_ACK | TH_PUSH, get_req);
     assert_eq!(engine.process_packet(&out_pkt(12, &req3)), Decision::Pass);
-    engine.runtime().exec_str("assert((_G.auto_hits or 0) >= 1)").expect("promoted domain hit");
+    engine
+        .runtime()
+        .exec_str("assert((_G.auto_hits or 0) >= 1)")
+        .expect("promoted domain hit");
 
     // UDP stall: 3 outgoing QUIC Initial packets without reply promote www.google.com.
     let udp = build_udp4(c, [142, 250, 1, 1], 49000, 443, &fake_fixture("quic_initial_www_google_com.bin"));

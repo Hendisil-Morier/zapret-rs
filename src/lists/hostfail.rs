@@ -40,7 +40,9 @@ const MULTI_TENANT_PARENTS: &[&str] = &[
 /// Avoids over-broad collapse onto two-label country SLDs (`co.uk`) or multi-tenant CDN/PaaS roots (`github.io`).
 pub fn safe_parent_domain(host: &str) -> Option<&str>
 {
-    if host.parse::<IpAddr>().is_ok()
+    if host
+        .parse::<IpAddr>()
+        .is_ok()
     {
         return None;
     }
@@ -52,7 +54,9 @@ pub fn safe_parent_domain(host: &str) -> Option<&str>
     let two_label = &host[n2_off..];
     if let Some((sld, tld)) = two_label.split_once('.')
         && tld.len() == 2
-        && tld.bytes().all(|b| b.is_ascii_alphabetic())
+        && tld
+            .bytes()
+            .all(|b| b.is_ascii_alphabetic())
         && GENERIC_CCTLD_SLDS.contains(&sld)
     {
         let (n3_off, _) = find_nld(host.as_bytes(), 3)?;
@@ -131,34 +135,45 @@ impl HostFailPool
     /// Returns the number of tracked hostnames in this pool.
     pub fn len(&self) -> usize
     {
-        self.entries.len()
+        self.entries
+            .len()
     }
 
     /// Returns `true` when no failure entries are active.
     pub fn is_empty(&self) -> bool
     {
-        self.entries.is_empty()
+        self.entries
+            .is_empty()
     }
 
     /// Looks up the active counter record for `host` (`HostFailPoolFind`).
     pub fn get(&self, host: &str) -> Option<&HostFailEntry>
     {
-        self.entries.get(host)
+        self.entries
+            .get(host)
     }
 
     /// Removes `host` from active fail counters and any tracked sibling list, returning `true` if present.
     pub fn reset(&mut self, host: &str) -> bool
     {
         if let Some(parent) = safe_parent_domain(host)
-            && let Some(sib) = self.siblings.get_mut(parent)
+            && let Some(sib) = self
+                .siblings
+                .get_mut(parent)
         {
-            sib.subs.retain(|sub| sub != host);
-            if sib.subs.is_empty()
+            sib.subs
+                .retain(|sub| sub != host);
+            if sib
+                .subs
+                .is_empty()
             {
-                self.siblings.remove(parent);
+                self.siblings
+                    .remove(parent);
             }
         }
-        self.entries.remove(host).is_some()
+        self.entries
+            .remove(host)
+            .is_some()
     }
 
     /// Increments the failure count for sanitized `host` with zero cooldown (`record_failure` parity).
@@ -181,45 +196,70 @@ impl HostFailPool
         {
             return 0;
         };
-        if self.entries.get(&clean).is_some_and(|e| now_sec >= e.expire_sec)
+        if self
+            .entries
+            .get(&clean)
+            .is_some_and(|e| now_sec >= e.expire_sec)
         {
-            self.entries.remove(&clean);
+            self.entries
+                .remove(&clean);
         }
-        if let Some(existing) = self.entries.get(&clean)
+        if let Some(existing) = self
+            .entries
+            .get(&clean)
             && cooldown_sec > 0
             && now_sec >= existing.last_fail_sec
             && now_sec.saturating_sub(existing.last_fail_sec) < cooldown_sec
         {
             return 0;
         }
-        if !self.entries.contains_key(&clean) && self.entries.len() >= self.max_entries
+        if !self
+            .entries
+            .contains_key(&clean)
+            && self
+                .entries
+                .len()
+                >= self.max_entries
         {
             self.purge(now_sec);
-            while self.entries.len() >= self.max_entries
+            while self
+                .entries
+                .len()
+                >= self.max_entries
             {
                 let oldest = self
                     .entries
                     .iter()
-                    .min_by(|(ka, va), (kb, vb)| va.expire_sec.cmp(&vb.expire_sec).then_with(|| ka.cmp(kb)))
+                    .min_by(|(ka, va), (kb, vb)| {
+                        va.expire_sec
+                            .cmp(&vb.expire_sec)
+                            .then_with(|| ka.cmp(kb))
+                    })
                     .map(|(k, _)| k.clone());
                 let Some(evict_key) = oldest
                 else
                 {
                     break;
                 };
-                self.entries.remove(&evict_key);
+                self.entries
+                    .remove(&evict_key);
             }
         }
         let expire_sec = now_sec.saturating_add(fail_time_sec);
-        if let Some(entry) = self.entries.get_mut(&clean)
+        if let Some(entry) = self
+            .entries
+            .get_mut(&clean)
         {
-            entry.counter = entry.counter.saturating_add(1);
+            entry.counter = entry
+                .counter
+                .saturating_add(1);
             entry.last_fail_sec = now_sec;
             entry.counter
         }
         else
         {
-            self.entries.insert(clean, HostFailEntry { counter: 1, expire_sec, last_fail_sec: now_sec });
+            self.entries
+                .insert(clean, HostFailEntry { counter: 1, expire_sec, last_fail_sec: now_sec });
             1
         }
     }
@@ -238,14 +278,27 @@ impl HostFailPool
             return None;
         }
         let parent = safe_parent_domain(child_host)?.to_owned();
-        if self.siblings.get(&parent).is_some_and(|s| now_sec >= s.expire_sec)
+        if self
+            .siblings
+            .get(&parent)
+            .is_some_and(|s| now_sec >= s.expire_sec)
         {
-            self.siblings.remove(&parent);
+            self.siblings
+                .remove(&parent);
         }
-        if !self.siblings.contains_key(&parent) && self.siblings.len() >= self.max_entries
+        if !self
+            .siblings
+            .contains_key(&parent)
+            && self
+                .siblings
+                .len()
+                >= self.max_entries
         {
             self.purge(now_sec);
-            if self.siblings.len() >= self.max_entries
+            if self
+                .siblings
+                .len()
+                >= self.max_entries
             {
                 return None;
             }
@@ -255,13 +308,26 @@ impl HostFailPool
             .siblings
             .entry(parent.clone())
             .or_insert_with(|| SiblingFailEntry { subs: Vec::new(), expire_sec });
-        if entry.subs.len() < MAX_SIBLINGS_PER_PARENT && !entry.subs.iter().any(|s| s == child_host)
+        if entry
+            .subs
+            .len()
+            < MAX_SIBLINGS_PER_PARENT
+            && !entry
+                .subs
+                .iter()
+                .any(|s| s == child_host)
         {
-            entry.subs.push(child_host.to_owned());
+            entry
+                .subs
+                .push(child_host.to_owned());
         }
-        if entry.subs.len() as u32 >= sibling_threshold
+        if entry
+            .subs
+            .len() as u32
+            >= sibling_threshold
         {
-            self.siblings.remove(&parent);
+            self.siblings
+                .remove(&parent);
             Some(parent)
         }
         else
@@ -273,8 +339,10 @@ impl HostFailPool
     /// Evicts all expired failure and sibling entries where `now_sec >= expire_sec` (`HostFailPoolPurge`).
     pub fn purge(&mut self, now_sec: i64)
     {
-        self.entries.retain(|_, entry| now_sec < entry.expire_sec);
-        self.siblings.retain(|_, entry| now_sec < entry.expire_sec);
+        self.entries
+            .retain(|_, entry| now_sec < entry.expire_sec);
+        self.siblings
+            .retain(|_, entry| now_sec < entry.expire_sec);
     }
 
     /// Runs [`Self::purge`] at most once per boottime second (`HostFailPoolPurgeRateLimited`).

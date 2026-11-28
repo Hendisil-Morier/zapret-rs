@@ -78,14 +78,16 @@ fn build_nft_command(nft_bin: &Path, mode: SudoMode) -> io::Result<Command>
         {
             let sudo_bin = resolve_trusted_system_bin("sudo")?;
             let mut cmd = Command::new(sudo_bin);
-            cmd.args(["-n", "--"]).arg(trusted_nft);
+            cmd.args(["-n", "--"])
+                .arg(trusted_nft);
             Ok(cmd)
         }
         SudoMode::Interactive =>
         {
             let sudo_bin = resolve_trusted_system_bin("sudo")?;
             let mut cmd = Command::new(sudo_bin);
-            cmd.arg("--").arg(trusted_nft);
+            cmd.arg("--")
+                .arg(trusted_nft);
             Ok(cmd)
         }
     }
@@ -103,18 +105,28 @@ fn run_nft_script(nft_bin: &Path, mode: SudoMode, script: &str) -> Result<(), (i
         .spawn()
         .map_err(|err| (err.kind(), err.to_string()))?;
 
-    if let Some(mut stdin) = child.stdin.take()
+    if let Some(mut stdin) = child
+        .stdin
+        .take()
     {
-        stdin.write_all(script.as_bytes()).map_err(|err| (err.kind(), err.to_string()))?;
+        stdin
+            .write_all(script.as_bytes())
+            .map_err(|err| (err.kind(), err.to_string()))?;
     }
-    let output = child.wait_with_output().map_err(|err| (err.kind(), err.to_string()))?;
-    if output.status.success()
+    let output = child
+        .wait_with_output()
+        .map_err(|err| (err.kind(), err.to_string()))?;
+    if output
+        .status
+        .success()
     {
         Ok(())
     }
     else
     {
-        let err = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let err = String::from_utf8_lossy(&output.stderr)
+            .trim()
+            .to_owned();
         Err((io::ErrorKind::Other, err))
     }
 }
@@ -210,8 +222,14 @@ impl NftFirewallBackend
     /// Formats a multi-line `nft -f -` script installing `bypass` NFQUEUE rules and `fwmark` guard.
     pub fn build_nft_script(qnum: u16, fwmark: u32, tcp_ports: &[u16], udp_ports: &[u16]) -> String
     {
-        let tcp_ranges: Vec<(u16, u16)> = tcp_ports.iter().map(|&p| (p, p)).collect();
-        let udp_ranges: Vec<(u16, u16)> = udp_ports.iter().map(|&p| (p, p)).collect();
+        let tcp_ranges: Vec<(u16, u16)> = tcp_ports
+            .iter()
+            .map(|&p| (p, p))
+            .collect();
+        let udp_ranges: Vec<(u16, u16)> = udp_ports
+            .iter()
+            .map(|&p| (p, p))
+            .collect();
         Self::build_nft_script_ranges(qnum, fwmark, &tcp_ranges, &udp_ranges)
     }
 

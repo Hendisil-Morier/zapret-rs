@@ -58,7 +58,10 @@ impl DnsPreset
     /// Parses a preset name case-insensitively (`cloudflare`, `google`, `quad9`, `adguard`, `auto`).
     pub fn from_name(raw: &str) -> Option<Self>
     {
-        match raw.trim().to_ascii_lowercase().as_str()
+        match raw
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
         {
             "cloudflare" | "cf" | "1.1.1.1" => Some(Self::Cloudflare),
             "google" | "8.8.8.8" => Some(Self::Google),
@@ -134,7 +137,9 @@ pub struct DnsStatus
 /// Parses the default-route interface name from Linux `/proc/net/route` table text.
 pub fn parse_linux_default_iface(route_table: &str) -> Option<String>
 {
-    for line in route_table.lines().skip(1)
+    for line in route_table
+        .lines()
+        .skip(1)
     {
         let mut cols = line.split_whitespace();
         let iface = cols.next()?;
@@ -155,7 +160,9 @@ pub fn parse_resolv_conf_servers(content: &str) -> Vec<String>
         .filter_map(|line| {
             let trimmed = line.trim();
             let rest = trimmed.strip_prefix("nameserver")?;
-            let ip = rest.split_whitespace().next()?;
+            let ip = rest
+                .split_whitespace()
+                .next()?;
             Some(ip.to_owned())
         })
         .collect()
@@ -210,12 +217,18 @@ fn run_cmd_capture(program: &str, args: &[&str]) -> Result<String, String>
         .stderr(Stdio::piped())
         .output()
         .map_err(|err| format!("failed to run {program}: {err}"))?;
-    if out.status.success()
+    if out
+        .status
+        .success()
     {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
-    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_owned();
-    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr)
+        .trim()
+        .to_owned();
+    let stdout = String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .to_owned();
     let msg = if !stderr.is_empty() { stderr } else { stdout };
     Err(format!("{program} failed ({}): {msg}", out.status))
 }
@@ -251,18 +264,27 @@ fn detect_linux_dns_status() -> DnsStatus
         let servers: Vec<String> = text
             .split(':')
             .nth(1)
-            .map(|rhs| rhs.split_whitespace().map(str::to_owned).collect())
+            .map(|rhs| {
+                rhs.split_whitespace()
+                    .map(str::to_owned)
+                    .collect()
+            })
             .unwrap_or_default();
         let dot = run_cmd_capture("resolvectl", &["dnsovertls", &iface])
             .ok()
-            .and_then(|s| s.split(':').nth(1).map(|v| format!("DoT: {}", v.trim())));
+            .and_then(|s| {
+                s.split(':')
+                    .nth(1)
+                    .map(|v| format!("DoT: {}", v.trim()))
+            });
         if !servers.is_empty()
         {
             return DnsStatus { interface: iface, servers, encryption: dot };
         }
     }
-    let servers =
-        fs::read_to_string("/etc/resolv.conf").map(|s| parse_resolv_conf_servers(&s)).unwrap_or_default();
+    let servers = fs::read_to_string("/etc/resolv.conf")
+        .map(|s| parse_resolv_conf_servers(&s))
+        .unwrap_or_default();
     DnsStatus { interface: iface, servers, encryption: None }
 }
 
@@ -273,7 +295,9 @@ fn detect_windows_dns_status() -> DnsStatus
     let ifaces = run_cmd_capture("netsh", &["interface", "show", "interface"])
         .map(|s| parse_windows_connected_interfaces(&s))
         .unwrap_or_default();
-    let Some(iface) = ifaces.into_iter().next()
+    let Some(iface) = ifaces
+        .into_iter()
+        .next()
     else
     {
         return DnsStatus { interface: "none".to_owned(), servers: Vec::new(), encryption: None };
@@ -285,7 +309,9 @@ fn detect_windows_dns_status() -> DnsStatus
         {
             for tok in line.split_whitespace()
             {
-                if tok.parse::<std::net::Ipv4Addr>().is_ok()
+                if tok
+                    .parse::<std::net::Ipv4Addr>()
+                    .is_ok()
                 {
                     servers.push(tok.to_owned());
                 }
@@ -430,8 +456,17 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
 {
-    let argv: Vec<String> = args.into_iter().map(|s| s.into().to_string_lossy().into_owned()).collect();
-    let Some(cmd) = argv.get(1).map(String::as_str)
+    let argv: Vec<String> = args
+        .into_iter()
+        .map(|s| {
+            s.into()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    let Some(cmd) = argv
+        .get(1)
+        .map(String::as_str)
     else
     {
         print_dns_usage();
@@ -445,7 +480,17 @@ where
     if cmd.eq_ignore_ascii_case("status")
     {
         let st = detect_dns_status();
-        let srvs = if st.servers.is_empty() { "none".to_owned() } else { st.servers.join(", ") };
+        let srvs = if st
+            .servers
+            .is_empty()
+        {
+            "none".to_owned()
+        }
+        else
+        {
+            st.servers
+                .join(", ")
+        };
         match st.encryption
         {
             Some(enc) => println!("Interface: {}\nDNS: {} ({enc})", st.interface, srvs),

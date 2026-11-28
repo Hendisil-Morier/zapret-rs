@@ -40,7 +40,9 @@ fn lock_unpoison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T>
 /// Writes one `mdig stats` progress line to `stderr` under `io_mutex`.
 fn write_stats_line(io_mutex: &Mutex<MdigOutputs<'_>>, start: Instant, ct: u64, ct_ok: u64)
 {
-    let secs = start.elapsed().as_secs();
+    let secs = start
+        .elapsed()
+        .as_secs();
     let hh = secs / 3600;
     let mm = (secs / 60) % 60;
     let ss = secs % 60;
@@ -60,7 +62,9 @@ fn try_passthrough_ip(dom: &str, family: MdigFamily) -> Option<Result<String, St
         Some((left, right)) => (left, Some(right)),
         None => (dom, None),
     };
-    let ip = ip_s.parse::<IpAddr>().ok()?;
+    let ip = ip_s
+        .parse::<IpAddr>()
+        .ok()?;
     let allowed = (ip.is_ipv4() && family.allows_v4()) || (ip.is_ipv6() && family.allows_v6());
     if !allowed
     {
@@ -167,8 +171,9 @@ fn process_domain_line(
     io_mutex: &Mutex<MdigOutputs<'_>>,
 ) -> bool
 {
-    let outcome =
-        std::str::from_utf8(raw).ok().and_then(|dom| resolve_utf8_domain(tid, dom, cfg, resolver, io_mutex));
+    let outcome = std::str::from_utf8(raw)
+        .ok()
+        .and_then(|dom| resolve_utf8_domain(tid, dom, cfg, resolver, io_mutex));
     let is_ok = match outcome
     {
         Some(ok) => ok,
@@ -215,7 +220,9 @@ fn worker_loop<R: BufRead>(
         raw.clear();
         let bytes_read = {
             let mut input = lock_unpoison(input_mutex);
-            input.read_until(b'\n', &mut raw).unwrap_or(0)
+            input
+                .read_until(b'\n', &mut raw)
+                .unwrap_or(0)
         };
         if bytes_read == 0
         {
@@ -290,13 +297,21 @@ pub fn run_mdig_resolver<R: BufRead + Send>(
         write_stats_line(&io_mutex, start, ct, ct_ok);
     }
     let mut out = lock_unpoison(&io_mutex);
-    let _ = out.stdout.flush();
-    let _ = out.stderr.flush();
-    if let Some(writer) = out.log_resolved.as_deref_mut()
+    let _ = out
+        .stdout
+        .flush();
+    let _ = out
+        .stderr
+        .flush();
+    if let Some(writer) = out
+        .log_resolved
+        .as_deref_mut()
     {
         let _ = writer.flush();
     }
-    if let Some(writer) = out.log_failed.as_deref_mut()
+    if let Some(writer) = out
+        .log_failed
+        .as_deref_mut()
     {
         let _ = writer.flush();
     }

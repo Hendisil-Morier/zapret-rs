@@ -26,10 +26,18 @@ fn extract_bundled_lua_writes_all_scripts_and_is_idempotent()
     let dir = temp_dir("extract");
     let written = extract_bundled_lua(&dir).expect("extract bundled lua scripts");
     assert_eq!(written.len(), BUNDLED_LUA_SCRIPTS.len());
-    assert!(dir.join("zapret-lib.lua").is_file());
-    assert!(dir.join("zapret-antidpi.lua").is_file());
+    assert!(
+        dir.join("zapret-lib.lua")
+            .is_file()
+    );
+    assert!(
+        dir.join("zapret-antidpi.lua")
+            .is_file()
+    );
 
-    let lib_len = fs::metadata(dir.join("zapret-lib.lua")).expect("metadata").len();
+    let lib_len = fs::metadata(dir.join("zapret-lib.lua"))
+        .expect("metadata")
+        .len();
     assert!(lib_len > 10_000, "embedded zapret-lib.lua unexpectedly small: {lib_len}");
 
     // Second call succeeds without errors and preserves valid script pair discovery.

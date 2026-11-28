@@ -44,7 +44,10 @@ static PROBE_SEQ: AtomicU64 = AtomicU64::new(0);
 /// Resolves the default `--writable` directory path from `TMPDIR` or `std::env::temp_dir()`.
 pub fn resolve_default_writable_dir(tmpdir: Option<&OsStr>) -> PathBuf
 {
-    let base = tmpdir.filter(|val| !val.is_empty()).map(PathBuf::from).unwrap_or_else(env::temp_dir);
+    let base = tmpdir
+        .filter(|val| !val.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(env::temp_dir);
     base.join(DEFAULT_WRITABLE_SUBDIR)
 }
 
@@ -54,7 +57,8 @@ fn probe_dir_writable(dir: &Path) -> Result<(), ProcessError>
     let seq = PROBE_SEQ.fetch_add(1, Ordering::Relaxed);
     let probe_path = dir.join(format!(".zapret_probe_{}_{}", std::process::id(), seq));
     let mut opts = OpenOptions::new();
-    opts.write(true).create_new(true);
+    opts.write(true)
+        .create_new(true);
     #[cfg(unix)]
     opts.custom_flags(libc::O_NOFOLLOW);
     match opts.open(&probe_path)
@@ -73,8 +77,11 @@ fn probe_dir_writable(dir: &Path) -> Result<(), ProcessError>
 #[cfg(unix)]
 fn open_dir_nofollow(path: &Path) -> Result<(OwnedFd, libc::stat), io::Error>
 {
-    let c_path =
-        CString::new(path.as_os_str().as_bytes()).map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
+    let c_path = CString::new(
+        path.as_os_str()
+            .as_bytes(),
+    )
+    .map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
     let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     // SAFETY: `c_path` is a valid NUL-terminated path string and flags require a non-symlink directory.
     let raw_fd = unsafe { libc::open(c_path.as_ptr(), flags) };
@@ -110,7 +117,9 @@ fn try_fchown_dir(fd: &OwnedFd, uid: libc::uid_t) -> bool
 fn create_writable_dir(target: &Path) -> Result<bool, ProcessError>
 {
     #[cfg(unix)]
-    let res = DirBuilder::new().mode(0o755).create(target);
+    let res = DirBuilder::new()
+        .mode(0o755)
+        .create(target);
     #[cfg(not(unix))]
     let res = fs::create_dir(target);
     match res

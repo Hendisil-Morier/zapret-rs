@@ -10,13 +10,19 @@ pub const STRAT_FINDER_NFT_TABLE: &str = "zapret_strat_finder";
 fn fmt_port_exprs(ranges: &[(u16, u16)]) -> Vec<String>
 {
     let mut exprs = Vec::new();
-    let singles: Vec<String> =
-        ranges.iter().filter(|(from, to)| from == to).map(|(from, _)| from.to_string()).collect();
+    let singles: Vec<String> = ranges
+        .iter()
+        .filter(|(from, to)| from == to)
+        .map(|(from, _)| from.to_string())
+        .collect();
     if !singles.is_empty()
     {
         exprs.push(format!("{{ {} }}", singles.join(", ")));
     }
-    for (from, to) in ranges.iter().copied().filter(|(from, to)| from < to)
+    for (from, to) in ranges
+        .iter()
+        .copied()
+        .filter(|(from, to)| from < to)
     {
         exprs.push(format!("{from}-{to}"));
     }

@@ -91,7 +91,9 @@ pub fn register_crypto_functions(lua: &Lua) -> mlua::Result<()>
             let input = require_strict_bytes(&args[3])?.as_bytes();
             let aad = match args.get(4)
             {
-                Some(v) if !v.is_nil() => require_strict_bytes(v)?.as_bytes().to_vec(),
+                Some(v) if !v.is_nil() => require_strict_bytes(v)?
+                    .as_bytes()
+                    .to_vec(),
                 _ => Vec::new(),
             };
             let (out, tag) =
@@ -135,8 +137,10 @@ pub fn register_crypto_functions(lua: &Lua) -> mlua::Result<()>
             match hkdf_sha2(
                 alg,
                 salt.as_deref(),
-                ikm.as_deref().unwrap_or(&[]),
-                info.as_deref().unwrap_or(&[]),
+                ikm.as_deref()
+                    .unwrap_or(&[]),
+                info.as_deref()
+                    .unwrap_or(&[]),
                 okm_usize,
             )
             {

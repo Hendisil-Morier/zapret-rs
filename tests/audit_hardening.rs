@@ -128,7 +128,10 @@ fn tui_daemon_launch_uses_valid_nft_false_flag()
 
     let args = build_daemon_common_args(Path::new("/tmp/nfqws2.toml"), Path::new("/tmp/control.sock"), true);
     let mut full = vec![std::ffi::OsString::from("nfqws2"), "--intercept=0".into()];
-    full.extend(args.iter().cloned());
+    full.extend(
+        args.iter()
+            .cloned(),
+    );
     let parsed = CliArgs::try_parse_from(&full).expect("daemon common args with --nft=false must parse");
     assert_eq!(parsed.nft, Some(false), "--nft=false must parse as Some(false)");
 }
@@ -208,17 +211,22 @@ fn control_line_reader_preserves_partial_frame_across_timed_out_poll()
     {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>
         {
-            match self.0.pop_front()
+            match self
+                .0
+                .pop_front()
             {
                 None => Ok(0),
                 Some(Err(err)) => Err(err),
                 Some(Ok(chunk)) =>
                 {
-                    let n = chunk.len().min(buf.len());
+                    let n = chunk
+                        .len()
+                        .min(buf.len());
                     buf[..n].copy_from_slice(&chunk[..n]);
                     if n < chunk.len()
                     {
-                        self.0.push_front(Ok(chunk[n..].to_vec()));
+                        self.0
+                            .push_front(Ok(chunk[n..].to_vec()));
                     }
                     Ok(n)
                 }
@@ -285,7 +293,11 @@ fn web_ipc_bridge_shutdown_works_through_shared_arc()
 
     let bridge = Arc::new(WebIpcBridge::spawn(None));
     let _extra_ref = Arc::clone(&bridge);
-    assert!(bridge.subscribe_sse().is_some());
+    assert!(
+        bridge
+            .subscribe_sse()
+            .is_some()
+    );
     bridge.shutdown();
     // After shutdown clears sse_clients and sets stop, further snapshot/shutdown calls stay safe.
     let _ = bridge.snapshot();

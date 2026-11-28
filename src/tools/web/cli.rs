@@ -72,10 +72,22 @@ pub struct WebConfig
 /// Executes a parsed [`WebCli`] invocation until interrupted by `SIGINT`/`SIGTERM`.
 pub fn run_web(cli: WebCli) -> Result<(), String>
 {
-    let bind: SocketAddr =
-        cli.bind.parse().map_err(|err| format!("invalid --bind address '{}': {err}", cli.bind))?;
-    let env_token = std::env::var("ZAPRET_WEB_TOKEN").ok().filter(|s| !s.trim().is_empty());
-    let (auth, generated) = WebAuth::new(bind, cli.token.or(env_token), cli.no_auth)?;
+    let bind: SocketAddr = cli
+        .bind
+        .parse()
+        .map_err(|err| format!("invalid --bind address '{}': {err}", cli.bind))?;
+    let env_token = std::env::var("ZAPRET_WEB_TOKEN")
+        .ok()
+        .filter(|s| {
+            !s.trim()
+                .is_empty()
+        });
+    let (auth, generated) = WebAuth::new(
+        bind,
+        cli.token
+            .or(env_token),
+        cli.no_auth,
+    )?;
 
     let cfg = WebConfig {
         bind,
@@ -92,7 +104,11 @@ pub fn run_web(cli: WebCli) -> Result<(), String>
     {
         eprintln!("Pairing passcode: {tok}");
     }
-    else if handle.addr().ip().is_loopback() && cli.no_auth
+    else if handle
+        .addr()
+        .ip()
+        .is_loopback()
+        && cli.no_auth
     {
         eprintln!("Authentication disabled on loopback (--no-auth).");
     }

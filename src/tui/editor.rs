@@ -25,7 +25,10 @@ fn binary_in_path(bin: &str) -> bool
     {
         return false;
     };
-    std::env::split_paths(&paths).any(|dir| dir.join(bin).is_file())
+    std::env::split_paths(&paths).any(|dir| {
+        dir.join(bin)
+            .is_file()
+    })
 }
 
 /// Resolves the user's preferred editor command (`$VISUAL`, `$EDITOR`, then `nvim`/`vim`/`nano`/`vi`).
@@ -35,7 +38,10 @@ pub fn resolve_editor_command() -> Vec<String>
     {
         if let Ok(val) = std::env::var(var)
         {
-            let parts: Vec<String> = val.split_whitespace().map(str::to_owned).collect();
+            let parts: Vec<String> = val
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect();
             if !parts.is_empty()
             {
                 return parts;
@@ -55,7 +61,10 @@ pub fn resolve_editor_command() -> Vec<String>
 /// Builds a minimal, valid starter `nfqws2.toml` used when opening a non-existent config path.
 pub fn build_starter_toml(qnum: u16, fwmark: u32, lua_dir_hint: &str) -> String
 {
-    let hint = (!lua_dir_hint.trim().is_empty()).then(|| PathBuf::from(lua_dir_hint.trim()));
+    let hint = (!lua_dir_hint
+        .trim()
+        .is_empty())
+    .then(|| PathBuf::from(lua_dir_hint.trim()));
     let scripts = resolve_lua_scripts(hint.as_deref()).unwrap_or_default();
     let mut out = format!("# zapret-rs nfqws2.toml configuration\nqnum = {qnum}\nfwmark = 0x{fwmark:08x}\n");
     if !scripts.is_empty()
@@ -63,7 +72,10 @@ pub fn build_starter_toml(qnum: u16, fwmark: u32, lua_dir_hint: &str) -> String
         out.push_str("lua_init = [\n");
         for path in scripts
         {
-            let escaped = path.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
+            let escaped = path
+                .to_string_lossy()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
             out.push_str(&format!("  \"{escaped}\",\n"));
         }
         out.push_str("]\n");
@@ -95,11 +107,13 @@ pub fn spawn_unprivileged_editor(cmd_parts: &[String], path: &Path) -> Result<Ex
         return Err("no editor command configured".to_owned());
     };
     let mut cmd = Command::new(prog);
-    cmd.args(args).arg(path);
+    cmd.args(args)
+        .arg(path);
     #[cfg(target_os = "linux")]
     // SAFETY: `clear_child_privileges` invokes only async-signal-safe `prctl`/`capset` syscalls.
     unsafe {
         cmd.pre_exec(clear_child_privileges);
     }
-    cmd.status().map_err(|err| format!("failed to launch editor '{prog}': {err}"))
+    cmd.status()
+        .map_err(|err| format!("failed to launch editor '{prog}': {err}"))
 }

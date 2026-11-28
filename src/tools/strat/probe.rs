@@ -46,7 +46,9 @@ const MAX_PARALLEL_PROBES: usize = 8;
 /// Formats `timeout` as a locale-independent decimal-second string (`0.2`..=`60`) for `curl`.
 fn format_curl_timeout(timeout: Duration) -> String
 {
-    let ms = timeout.as_millis().clamp(200, 60_000) as u64;
+    let ms = timeout
+        .as_millis()
+        .clamp(200, 60_000) as u64;
     let (secs, frac) = (ms / 1000, ms % 1000);
     if frac == 0
     {
@@ -55,7 +57,8 @@ fn format_curl_timeout(timeout: Duration) -> String
     else
     {
         let s = format!("{secs}.{frac:03}");
-        s.trim_end_matches('0').to_owned()
+        s.trim_end_matches('0')
+            .to_owned()
     }
 }
 
@@ -81,7 +84,9 @@ pub trait ProbeBackend
     /// Executes a batch of independent probes and returns outcomes in matching index order.
     fn probe_batch(&self, reqs: &[ProbeRequest]) -> Vec<ProbeOutcome>
     {
-        reqs.iter().map(|req| self.probe(req)).collect()
+        reqs.iter()
+            .map(|req| self.probe(req))
+            .collect()
     }
 }
 
@@ -125,7 +130,9 @@ impl CurlProbeBackend
     fn cached_ip(&self, domain: &str, port: u16, ipv: IpFamily) -> Option<IpAddr>
     {
         let key = (domain.to_owned(), ipv);
-        if let Ok(guard) = self.resolve_cache.read()
+        if let Ok(guard) = self
+            .resolve_cache
+            .read()
             && let Some(&cached) = guard.get(&key)
         {
             return cached;
@@ -134,12 +141,16 @@ impl CurlProbeBackend
             .to_socket_addrs()
             .ok()
             .and_then(|addrs| {
-                addrs.map(|sa| sa.ip()).find(|ip| {
-                    matches!((ipv, ip), (IpFamily::V4, IpAddr::V4(_)) | (IpFamily::V6, IpAddr::V6(_)))
-                })
+                addrs
+                    .map(|sa| sa.ip())
+                    .find(|ip| {
+                        matches!((ipv, ip), (IpFamily::V4, IpAddr::V4(_)) | (IpFamily::V6, IpAddr::V6(_)))
+                    })
             })
             .filter(|ip| !is_ssrf_blocked_ip(*ip));
-        if let Ok(mut guard) = self.resolve_cache.write()
+        if let Ok(mut guard) = self
+            .resolve_cache
+            .write()
         {
             guard.insert(key, resolved);
         }
@@ -233,50 +244,94 @@ impl ProbeBackend for CurlProbeBackend
     /// Runs `curl --version` unprivileged and checks whether `HTTP3` appears in `Features:`.
     fn supports_http3(&self) -> bool
     {
-        let Ok(out) = self.unprivileged_command().arg("--version").output()
+        let Ok(out) = self
+            .unprivileged_command()
+            .arg("--version")
+            .output()
         else
         {
             return false;
         };
-        if !out.status.success()
+        if !out
+            .status
+            .success()
         {
             return false;
         }
         let text = String::from_utf8_lossy(&out.stdout);
         text.lines()
-            .any(|line| line.starts_with("Features:") && line.split_whitespace().any(|tok| tok == "HTTP3"))
+            .any(|line| {
+                line.starts_with("Features:")
+                    && line
+                        .split_whitespace()
+                        .any(|tok| tok == "HTTP3")
+            })
     }
 
     /// Invokes `curl` unprivileged for `req` (with `--resolve` cache hit when resolved) and classifies the output.
     fn probe(&self, req: &ProbeRequest) -> ProbeOutcome
     {
-        if !req.domain.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
-            || req.domain.starts_with('-')
-            || req.domain.is_empty()
+        if !req
+            .domain
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+            || req
+                .domain
+                .starts_with('-')
+            || req
+                .domain
+                .is_empty()
         {
             return ProbeOutcome::Failed { code: -1, detail: "invalid probe domain name".to_owned() };
         }
         let mut args = Self::build_args(req);
-        if let Some(ip) = self.cached_ip(&req.domain, req.proto.default_port(), req.ipv)
+        if let Some(ip) = self.cached_ip(
+            &req.domain,
+            req.proto
+                .default_port(),
+            req.ipv,
+        )
         {
-            let resolve = format_resolve_arg(&req.domain, req.proto.default_port(), ip);
-            let url_idx = args.len().saturating_sub(1);
+            let resolve = format_resolve_arg(
+                &req.domain,
+                req.proto
+                    .default_port(),
+                ip,
+            );
+            let url_idx = args
+                .len()
+                .saturating_sub(1);
             args.splice(url_idx..url_idx, ["--resolve".to_owned(), resolve]);
         }
         let start = Instant::now();
-        let output = match self.unprivileged_command().args(&args).output()
+        let output = match self
+            .unprivileged_command()
+            .args(&args)
+            .output()
         {
             Ok(out) => out,
             Err(err) =>
             {
                 return ProbeOutcome::Failed {
                     code: -1,
-                    detail: format!("failed to spawn {}: {err}", self.curl_bin.display()),
+                    detail: format!(
+                        "failed to spawn {}: {err}",
+                        self.curl_bin
+                            .display()
+                    ),
                 };
             }
         };
-        let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let exit_code = output.status.code().unwrap_or(-1);
+        let elapsed_ms = u64::try_from(
+            start
+                .elapsed()
+                .as_millis(),
+        )
+        .unwrap_or(u64::MAX);
+        let exit_code = output
+            .status
+            .code()
+            .unwrap_or(-1);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         classify_curl_output(&req.domain, exit_code, &stdout, &stderr, elapsed_ms)
@@ -287,11 +342,16 @@ impl ProbeBackend for CurlProbeBackend
     {
         if reqs.len() <= 1
         {
-            return reqs.iter().map(|r| self.probe(r)).collect();
+            return reqs
+                .iter()
+                .map(|r| self.probe(r))
+                .collect();
         }
         let next = AtomicUsize::new(0);
         let results: Mutex<Vec<Option<ProbeOutcome>>> = Mutex::new(vec![None; reqs.len()]);
-        let workers = reqs.len().min(MAX_PARALLEL_PROBES);
+        let workers = reqs
+            .len()
+            .min(MAX_PARALLEL_PROBES);
         std::thread::scope(|scope| {
             for _ in 0..workers
             {

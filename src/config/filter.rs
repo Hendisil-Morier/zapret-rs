@@ -7,9 +7,14 @@ use crate::config::error::ConfigError;
 pub fn parse_u32_radix(raw: &str) -> Option<u32>
 {
     let trimmed = raw.trim();
-    if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X"))
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
     {
-        if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit())
+        if hex.is_empty()
+            || !hex
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit())
         {
             return None;
         }
@@ -17,11 +22,16 @@ pub fn parse_u32_radix(raw: &str) -> Option<u32>
     }
     else
     {
-        if trimmed.is_empty() || !trimmed.bytes().all(|b| b.is_ascii_digit())
+        if trimmed.is_empty()
+            || !trimmed
+                .bytes()
+                .all(|b| b.is_ascii_digit())
         {
             return None;
         }
-        trimmed.parse::<u32>().ok()
+        trimmed
+            .parse::<u32>()
+            .ok()
     }
 }
 
@@ -29,22 +39,32 @@ pub fn parse_u32_radix(raw: &str) -> Option<u32>
 fn parse_u16_decimal(raw: &str) -> Option<u16>
 {
     let trimmed = raw.trim();
-    if trimmed.is_empty() || !trimmed.bytes().all(|b| b.is_ascii_digit())
+    if trimmed.is_empty()
+        || !trimmed
+            .bytes()
+            .all(|b| b.is_ascii_digit())
     {
         return None;
     }
-    trimmed.parse::<u16>().ok()
+    trimmed
+        .parse::<u16>()
+        .ok()
 }
 
 /// Parses an unsigned 8-bit decimal integer (`type`, `code`, or IP protocol number).
 fn parse_u8_decimal(raw: &str) -> Option<u8>
 {
     let trimmed = raw.trim();
-    if trimmed.is_empty() || !trimmed.bytes().all(|b| b.is_ascii_digit())
+    if trimmed.is_empty()
+        || !trimmed
+            .bytes()
+            .all(|b| b.is_ascii_digit())
     {
         return None;
     }
-    trimmed.parse::<u8>().ok()
+    trimmed
+        .parse::<u8>()
+        .ok()
 }
 
 /// Inclusive TCP/UDP port range filter matching `zapret2`'s `port_filter`.
@@ -117,7 +137,10 @@ impl PortFilter
 /// Returns `true` if `filters` is empty or at least one rule matches `port`.
 pub fn port_filters_match(filters: &[PortFilter], port: u16) -> bool
 {
-    filters.is_empty() || filters.iter().any(|pf| pf.matches(port))
+    filters.is_empty()
+        || filters
+            .iter()
+            .any(|pf| pf.matches(port))
 }
 
 /// Wildcard vs explicit filter mode matching `FLTMODE_*` in `zapret2/nfq2/filter.h`.
@@ -187,7 +210,13 @@ impl IcmpFilter
         {
             FilterMode::Any => true,
             FilterMode::Skip => false,
-            FilterMode::Filter => self.icmp_type == icmp_type && self.code.is_none_or(|c| c == icmp_code),
+            FilterMode::Filter =>
+            {
+                self.icmp_type == icmp_type
+                    && self
+                        .code
+                        .is_none_or(|c| c == icmp_code)
+            }
         }
     }
 }
@@ -195,7 +224,10 @@ impl IcmpFilter
 /// Returns `true` if `filters` is empty or at least one rule matches `(icmp_type, icmp_code)`.
 pub fn icmp_filters_match(filters: &[IcmpFilter], icmp_type: u8, icmp_code: u8) -> bool
 {
-    filters.is_empty() || filters.iter().any(|icf| icf.matches(icmp_type, icmp_code))
+    filters.is_empty()
+        || filters
+            .iter()
+            .any(|icf| icf.matches(icmp_type, icmp_code))
 }
 
 /// IP protocol number filter matching `zapret2`'s `ipp_filter`.
@@ -248,7 +280,10 @@ impl IppFilter
 /// Returns `true` if `filters` is empty or at least one rule matches `proto`.
 pub fn ipp_filters_match(filters: &[IppFilter], proto: u8) -> bool
 {
-    filters.is_empty() || filters.iter().any(|ipp| ipp.matches(proto))
+    filters.is_empty()
+        || filters
+            .iter()
+            .any(|ipp| ipp.matches(proto))
 }
 
 /// Masked firewall mark matcher (`(fwmark & mask) == mark`).

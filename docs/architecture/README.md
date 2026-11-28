@@ -56,6 +56,7 @@ Every `cargo nextest run` execution runs structural enforcement tests in [tests/
 - **Pure facade rule (`mod_rs_files_are_pure_facades`):** Every `src/**/mod.rs` may contain only `pub mod`, `pub use`, `#[cfg(...)]` attributes, and comments.
 - **Panic and test isolation (`src_contains_no_inline_tests_or_unwrap_expect`):** Production code under `src/` cannot contain `#[cfg(test)]`, `#[test]`, `.unwrap(`, or `.expect(`. All tests reside in `tests/`.
 - **Inline keybind guard (`no_inline_keybind_bars_in_tab_panels`):** Renders such as `render_config.rs`, `render_status.rs`, and `inspect_ui.rs` must not duplicate inline `styled_key_hints` rows; global/tab bindings belong in the `?` popup (`src/tui/keybinds.rs`).
+- **Formatting & Clippy thresholds:** [rustfmt.toml](../../rustfmt.toml) wraps multi-step method/field chains onto separate lines (`chain_width = 0`, paired with nightly Allman brace styling), and [clippy.toml](../../clippy.toml) sets `cognitive-complexity-threshold = 15` and `too-many-lines-threshold = 200` alongside the lints in [Cargo.toml](../../Cargo.toml).
 
 ## 4. Deep-Dive Guides & Decision Records
 

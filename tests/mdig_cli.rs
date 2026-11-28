@@ -50,9 +50,22 @@ fn exec_mdig(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, Vec<u8>, String
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn mdig binary");
-    child.stdin.take().expect("piped stdin").write_all(stdin_bytes).expect("write mdig stdin");
-    let output = child.wait_with_output().expect("collect mdig output");
-    (output.status.code(), output.stdout, String::from_utf8_lossy(&output.stderr).into_owned())
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(stdin_bytes)
+        .expect("write mdig stdin");
+    let output = child
+        .wait_with_output()
+        .expect("collect mdig output");
+    (
+        output
+            .status
+            .code(),
+        output.stdout,
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
 }
 
 /// Builds a synthetic RFC 1035 DNS reply packet for testing compressed and uncompressed answers.
@@ -106,8 +119,18 @@ fn dns_make_query_and_parse_reply_roundtrip_a_and_aaaa()
     assert_eq!(&pkt_46[pkt_46.len() - 4..], &[0, DNS_TYPE_A, 0, DNS_CLASS_IN]);
 
     // Root domain produces a 17-byte query packet matching mdig.c.
-    assert_eq!(build_dns_query(".", MdigFamily::Ipv4).expect("root dot").len(), 17);
-    assert_eq!(build_dns_query("", MdigFamily::Ipv4).expect("empty root").len(), 17);
+    assert_eq!(
+        build_dns_query(".", MdigFamily::Ipv4)
+            .expect("root dot")
+            .len(),
+        17
+    );
+    assert_eq!(
+        build_dns_query("", MdigFamily::Ipv4)
+            .expect("empty root")
+            .len(),
+        17
+    );
 
     // Invalid names rejected cleanly.
     let long_label = "a".repeat(64);
@@ -156,7 +179,12 @@ impl MockResolver
     /// Returns how many times `domain` was passed to [`DnsResolver::resolve`].
     fn count(&self, domain: &str) -> usize
     {
-        self.attempts.lock().expect("lock mock map").get(domain).copied().unwrap_or(0)
+        self.attempts
+            .lock()
+            .expect("lock mock map")
+            .get(domain)
+            .copied()
+            .unwrap_or(0)
     }
 }
 
@@ -165,8 +193,13 @@ impl DnsResolver for MockResolver
     fn resolve(&self, domain: &str, family: MdigFamily) -> Result<Vec<IpAddr>, ResolveError>
     {
         let attempt = {
-            let mut map = self.attempts.lock().expect("lock mock map");
-            let entry = map.entry(domain.to_string()).or_insert(0);
+            let mut map = self
+                .attempts
+                .lock()
+                .expect("lock mock map");
+            let entry = map
+                .entry(domain.to_string())
+                .or_insert(0);
             *entry += 1;
             *entry
         };
@@ -263,6 +296,54 @@ fn resolver_passthrough_ip_and_cidr_family_filtering()
     assert!(stderr6.contains("wrong address family 192.0.2.1"));
 }
 
+/// Verifies mock DNS attempt counts and sorted output/log lines for `resolver_multithreaded_eagain_retries_stats_and_logs`.
+fn assert_resolver_retry_outputs(mock: &MockResolver, stdout: &str, resolved: &str, failed: &str)
+{
+    assert_eq!(mock.count("flaky.example"), 3);
+    assert_eq!(mock.count("dead.example"), 3);
+    assert_eq!(mock.count("missing.example"), 1);
+
+    let mut out_lines: Vec<&str> = stdout
+        .lines()
+        .collect();
+    out_lines.sort_unstable();
+    assert_eq!(out_lines, vec!["198.51.100.42", "2001:db8::1", "203.0.113.1", "203.0.113.5"]);
+
+    let mut res_lines: Vec<&str> = resolved
+        .lines()
+        .collect();
+    res_lines.sort_unstable();
+    assert_eq!(res_lines, vec!["203.0.113.5/32", "dual.example", "flaky.example"]);
+
+    // 4 failed non-empty lines: dead.example, missing.example, bad/dom\x01, and non-UTF-8;
+    // blank line increments stats count (8 total) without entering resolved/failed logs.
+    assert_eq!(
+        failed
+            .lines()
+            .count(),
+        4
+    );
+}
+
+/// Verifies expected stderr diagnostics and periodic statistics lines from `run_in_memory`.
+fn assert_resolver_stderr_stats(stderr: &str)
+{
+    for expected in [
+        "invalid domain : bad/dom?",
+        "invalid domain : ??",
+        "EAI_AGAIN",
+        "EAI_NONAME",
+        "] started",
+        "] ended",
+        "domains=8 success=3 error=5",
+        "domains=3 ",
+        "domains=6 ",
+    ]
+    {
+        assert!(stderr.contains(expected), "missing '{expected}' in stderr: {stderr}");
+    }
+}
+
 #[test]
 fn resolver_multithreaded_eagain_retries_stats_and_logs()
 {
@@ -291,35 +372,12 @@ bad/dom\x01
 
     let (started, stdout, stderr, resolved, failed) = run_in_memory(&cfg, &mock, &input);
     assert_eq!(started, 4);
-
-    assert_eq!(mock.count("flaky.example"), 3);
-    assert_eq!(mock.count("dead.example"), 3);
-    assert_eq!(mock.count("missing.example"), 1);
-
-    let mut out_lines: Vec<&str> = stdout.lines().collect();
-    out_lines.sort_unstable();
-    assert_eq!(out_lines, vec!["198.51.100.42", "2001:db8::1", "203.0.113.1", "203.0.113.5"]);
-
-    let mut res_lines: Vec<&str> = resolved.lines().collect();
-    res_lines.sort_unstable();
-    assert_eq!(res_lines, vec!["203.0.113.5/32", "dual.example", "flaky.example"]);
-
-    // 4 failed non-empty lines: dead.example, missing.example, bad/dom\x01, and non-UTF-8;
-    // blank line increments stats count (8 total) without entering resolved/failed logs.
-    assert_eq!(failed.lines().count(), 4);
-    assert!(stderr.contains("invalid domain : bad/dom?"));
-    assert!(stderr.contains("invalid domain : ??"));
-    assert!(stderr.contains("EAI_AGAIN"));
-    assert!(stderr.contains("EAI_NONAME"));
-    assert!(stderr.contains("] started"));
-    assert!(stderr.contains("] ended"));
-    assert!(stderr.contains("domains=8 success=3 error=5"));
-    assert!(stderr.contains("domains=3 "));
-    assert!(stderr.contains("domains=6 "));
+    assert_resolver_retry_outputs(&mock, &stdout, &resolved, &failed);
+    assert_resolver_stderr_stats(&stderr);
 }
 
-#[test]
-fn config_validation_bounds()
+/// Verifies valid boundary values accepted by `MdigConfig::from_options`.
+fn assert_valid_config_bounds()
 {
     let ok = MdigConfig::from_options(Some("46"), Some("100"), Some("1000"), Some("0"), true, Some("-1"))
         .expect("boundary config");
@@ -331,6 +389,12 @@ fn config_validation_bounds()
     let max_delay = MdigConfig::from_options(None, Some("1"), Some("1"), Some("100000"), false, Some("25"))
         .expect("max delay config");
     assert_eq!((max_delay.eagain_delay_ms, max_delay.stats_every), (100_000, 25));
+}
+
+#[test]
+fn config_validation_bounds()
+{
+    assert_valid_config_bounds();
 
     assert!(matches!(
         MdigConfig::from_options(Some("9"), None, None, None, false, None),
@@ -363,8 +427,8 @@ fn config_validation_bounds()
     ));
 }
 
-#[test]
-fn binary_cli_dns_modes_passthrough_and_exit_codes()
+/// Verifies `--version`, `--help`, `--dns-make-query`, and `--dns-parse-query` CLI modes.
+fn assert_cli_dns_query_modes()
 {
     let (code, stdout, _) = exec_mdig(&["--version"], b"");
     assert_eq!(code, Some(0));
@@ -389,8 +453,11 @@ fn binary_cli_dns_modes_passthrough_and_exit_codes()
 
     assert_eq!(exec_mdig(&["--dns-parse-query"], b"").0, Some(10));
     assert_eq!(exec_mdig(&["--dns-parse-query"], b"\x00\x01\x00\x00\x00\x00").0, Some(11));
+}
 
-    // Offline pass-through CLI check with --log-resolved and --log-failed.
+/// Verifies offline CLI pass-through logging, unwritable log paths, and bad CLI bounds.
+fn assert_cli_log_passthrough()
+{
     let tmp = fresh_temp_dir("cli-logs");
     let ok_log = tmp.join("resolved.log");
     let fail_log = tmp.join("failed.log");
@@ -408,19 +475,32 @@ fn binary_cli_dns_modes_passthrough_and_exit_codes()
     );
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let out_str = String::from_utf8_lossy(&stdout);
-    let mut out_lines: Vec<&str> = out_str.lines().collect();
+    let mut out_lines: Vec<&str> = out_str
+        .lines()
+        .collect();
     out_lines.sort_unstable();
     assert_eq!(out_lines, vec!["192.0.2.10", "2001:db8::/64"]);
     assert!(stderr.contains("domains=3 success=2 error=1"));
     let ok_str = fs::read_to_string(&ok_log).expect("read ok log");
-    let mut ok_lines: Vec<&str> = ok_str.lines().collect();
+    let mut ok_lines: Vec<&str> = ok_str
+        .lines()
+        .collect();
     ok_lines.sort_unstable();
     assert_eq!(ok_lines, vec!["192.0.2.10/32", "2001:db8::/64"]);
     assert_eq!(fs::read_to_string(&fail_log).expect("read fail log"), "192.0.2.1/33\n");
 
     // Unwritable log path returns exit code 5; invalid --threads returns exit code 1.
-    let bad_path = tmp.to_string_lossy().into_owned();
+    let bad_path = tmp
+        .to_string_lossy()
+        .into_owned();
     assert_eq!(exec_mdig(&["--log-resolved", &bad_path], b"").0, Some(5));
     assert_eq!(exec_mdig(&["--threads=101"], b"").0, Some(1));
     let _ = fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn binary_cli_dns_modes_passthrough_and_exit_codes()
+{
+    assert_cli_dns_query_modes();
+    assert_cli_log_passthrough();
 }

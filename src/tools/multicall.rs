@@ -50,8 +50,13 @@ pub enum MulticallApplet
 fn normalize_applet_token(raw: &OsStr) -> String
 {
     let lossy = raw.to_string_lossy();
-    let name = Path::new(lossy.as_ref()).file_name().and_then(OsStr::to_str).unwrap_or(lossy.as_ref());
-    let stem = name.strip_suffix(".exe").unwrap_or(name);
+    let name = Path::new(lossy.as_ref())
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or(lossy.as_ref());
+    let stem = name
+        .strip_suffix(".exe")
+        .unwrap_or(name);
     stem.to_ascii_lowercase()
 }
 
@@ -71,7 +76,9 @@ pub fn resolve_argv0_applet(arg0: &OsStr) -> Option<MulticallApplet>
 /// Resolves an explicit first subcommand token (`daemon`, `scan`, `ip2net`, `mdig`, `install`, `uninstall`).
 pub fn resolve_subcommand_applet(arg1: &OsStr) -> Option<MulticallApplet>
 {
-    match arg1.to_string_lossy().as_ref()
+    match arg1
+        .to_string_lossy()
+        .as_ref()
     {
         "daemon" | "nfqws2" => Some(MulticallApplet::Daemon),
         "scan" | "strat-finder" | "strat_finder" => Some(MulticallApplet::Scan),
@@ -91,7 +98,10 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
 {
-    let raw: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    let raw: Vec<OsString> = args
+        .into_iter()
+        .map(Into::into)
+        .collect();
     if let Some(arg0) = raw.first()
         && let Some(applet) = resolve_argv0_applet(arg0)
     {
@@ -114,7 +124,10 @@ where
         };
         let mut forwarded = Vec::with_capacity(raw.len());
         forwarded.push(OsString::from(canonical));
-        forwarded.extend(raw.into_iter().skip(2));
+        forwarded.extend(
+            raw.into_iter()
+                .skip(2),
+        );
         return (applet, forwarded);
     }
     (MulticallApplet::Tui, raw)

@@ -44,13 +44,16 @@ fn c_buf_to_string(buf: &[libc::c_char]) -> String
 {
     // SAFETY: `libc::uname` NUL-terminates every string field inside its fixed-size array.
     let cstr = unsafe { CStr::from_ptr(buf.as_ptr()) };
-    cstr.to_string_lossy().into_owned()
+    cstr.to_string_lossy()
+        .into_owned()
 }
 
 /// Reads wall-clock `(seconds, nanoseconds)` since `UNIX_EPOCH` using `CLOCK_REALTIME` semantics.
 fn realtime_secs_nanos() -> Option<(i64, i64)>
 {
-    let dur = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?;
     Some((dur.as_secs() as i64, i64::from(dur.subsec_nanos())))
 }
 
@@ -159,7 +162,9 @@ fn lua_get_source_ip(lua: &Lua, args: Variadic<Value>) -> mlua::Result<Value>
     };
     match get_source_ip(target)
     {
-        Some(src) => lua.create_string(ip_to_wire_bytes(src)).map(Value::String),
+        Some(src) => lua
+            .create_string(ip_to_wire_bytes(src))
+            .map(Value::String),
         None => Ok(Value::Nil),
     }
 }
@@ -195,8 +200,16 @@ fn lua_get_ifaddrs(lua: &Lua, args: Variadic<Value>) -> mlua::Result<Value>
         {
             info_tbl.raw_set("mtu", mtu)?;
         }
-        let addr_arr = lua.create_table_with_capacity(iface.addrs.len(), 0)?;
-        for (idx, item) in iface.addrs.iter().enumerate()
+        let addr_arr = lua.create_table_with_capacity(
+            iface
+                .addrs
+                .len(),
+            0,
+        )?;
+        for (idx, item) in iface
+            .addrs
+            .iter()
+            .enumerate()
         {
             let entry = lua.create_table_with_capacity(0, 3)?;
             entry.raw_set("addr", lua.create_string(ip_to_wire_bytes(item.addr))?)?;
@@ -215,7 +228,12 @@ fn lua_get_ifaddrs(lua: &Lua, args: Variadic<Value>) -> mlua::Result<Value>
             addr_arr.raw_set(idx + 1, entry)?;
         }
         info_tbl.raw_set("addr", addr_arr)?;
-        tbl.raw_set(iface.name.as_str(), info_tbl)?;
+        tbl.raw_set(
+            iface
+                .name
+                .as_str(),
+            info_tbl,
+        )?;
     }
     Ok(Value::Table(tbl))
 }

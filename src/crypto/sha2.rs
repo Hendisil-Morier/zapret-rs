@@ -129,7 +129,13 @@ impl Sha2Hasher
     fn compress_block(&mut self, block: &[u8; SHA2_BLOCK_LEN])
     {
         let mut w = [0u32; 64];
-        for (dst, &word) in w[..16].iter_mut().zip(block.as_chunks::<4>().0)
+        for (dst, &word) in w[..16]
+            .iter_mut()
+            .zip(
+                block
+                    .as_chunks::<4>()
+                    .0,
+            )
         {
             *dst = u32::from_be_bytes(word);
         }
@@ -161,7 +167,10 @@ impl Sha2Hasher
         }
 
         let delta = [a, b, c, d, e, f, g, h];
-        for (slot, add) in self.state.iter_mut().zip(delta)
+        for (slot, add) in self
+            .state
+            .iter_mut()
+            .zip(delta)
         {
             *slot = slot.wrapping_add(add);
         }
@@ -170,7 +179,9 @@ impl Sha2Hasher
     /// Feeds arbitrary bytes into the running digest state.
     fn update(&mut self, mut data: &[u8])
     {
-        self.total_len = self.total_len.wrapping_add(data.len() as u64);
+        self.total_len = self
+            .total_len
+            .wrapping_add(data.len() as u64);
 
         if self.buf_len > 0
         {
@@ -204,7 +215,9 @@ impl Sha2Hasher
     /// Applies Merkle-Damgard padding, compresses the final block, and returns the raw digest.
     fn finalize(mut self) -> Vec<u8>
     {
-        let bit_len = self.total_len.wrapping_mul(8);
+        let bit_len = self
+            .total_len
+            .wrapping_mul(8);
         self.buf[self.buf_len] = 0x80;
         self.buf_len += 1;
 
@@ -213,7 +226,8 @@ impl Sha2Hasher
             self.buf[self.buf_len..].fill(0);
             let block = self.buf;
             self.compress_block(&block);
-            self.buf.fill(0);
+            self.buf
+                .fill(0);
         }
         else
         {
@@ -230,7 +244,10 @@ impl Sha2Hasher
             HashAlg::Sha256 => 8,
         };
         let mut out = Vec::with_capacity(words * 4);
-        for word in self.state.iter().take(words)
+        for word in self
+            .state
+            .iter()
+            .take(words)
         {
             out.extend_from_slice(&word.to_be_bytes());
         }

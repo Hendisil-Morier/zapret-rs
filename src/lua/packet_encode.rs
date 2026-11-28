@@ -24,7 +24,9 @@ pub fn ipv4_to_lua(lua: &Lua, ip: &Ipv4Header) -> mlua::Result<Table>
     tbl.raw_set("ip_sum", ip.checksum)?;
     tbl.raw_set("ip_src", lua.create_string(ip.src)?)?;
     tbl.raw_set("ip_dst", lua.create_string(ip.dst)?)?;
-    if !ip.options.is_empty()
+    if !ip
+        .options
+        .is_empty()
     {
         tbl.raw_set("options", lua.create_string(&ip.options)?)?;
     }
@@ -36,14 +38,27 @@ pub fn ipv6_to_lua(lua: &Lua, ip6: &Ipv6Header) -> mlua::Result<Table>
 {
     let tbl = lua.create_table_with_capacity(0, 7)?;
     tbl.raw_set("ip6_flow", i64::from(ip6.flow))?;
-    tbl.raw_set("ip6_plen", i64::from(ip6.payload_len.unwrap_or(0)))?;
+    tbl.raw_set(
+        "ip6_plen",
+        i64::from(
+            ip6.payload_len
+                .unwrap_or(0),
+        ),
+    )?;
     tbl.raw_set("ip6_nxt", ip6.next_header)?;
     tbl.raw_set("ip6_hlim", ip6.hop_limit)?;
     tbl.raw_set("ip6_src", lua.create_string(ip6.src)?)?;
     tbl.raw_set("ip6_dst", lua.create_string(ip6.dst)?)?;
 
-    let ext_arr = lua.create_table_with_capacity(ip6.exthdr.len(), 0)?;
-    for (idx, ext) in ip6.exthdr.iter().enumerate()
+    let ext_arr = lua.create_table_with_capacity(
+        ip6.exthdr
+            .len(),
+        0,
+    )?;
+    for (idx, ext) in ip6
+        .exthdr
+        .iter()
+        .enumerate()
     {
         let item = lua.create_table_with_capacity(0, 3)?;
         item.raw_set("type", ext.header_type)?;
@@ -71,8 +86,15 @@ pub fn tcp_to_lua(lua: &Lua, tcp: &TcpHeader) -> mlua::Result<Table>
     tbl.raw_set("th_sum", tcp.checksum)?;
     tbl.raw_set("th_urp", tcp.urgent_ptr)?;
 
-    let opts = lua.create_table_with_capacity(tcp.options.len(), 0)?;
-    for (idx, opt) in tcp.options.iter().enumerate()
+    let opts = lua.create_table_with_capacity(
+        tcp.options
+            .len(),
+        0,
+    )?;
+    for (idx, opt) in tcp
+        .options
+        .iter()
+        .enumerate()
     {
         let entry = lua.create_table_with_capacity(0, 2)?;
         entry.raw_set("kind", opt.kind)?;
@@ -154,7 +176,11 @@ pub fn ip_to_wire_bytes(ip: IpAddr) -> Vec<u8>
 {
     match ip
     {
-        IpAddr::V4(v4) => v4.octets().to_vec(),
-        IpAddr::V6(v6) => v6.octets().to_vec(),
+        IpAddr::V4(v4) => v4
+            .octets()
+            .to_vec(),
+        IpAddr::V6(v6) => v6
+            .octets()
+            .to_vec(),
     }
 }

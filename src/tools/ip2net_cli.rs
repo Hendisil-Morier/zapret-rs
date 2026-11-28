@@ -59,9 +59,12 @@ where
     let family = if cli.ipv6 && !cli.ipv4 { Ip2NetFamily::Ipv6 } else { Ip2NetFamily::Ipv4 };
     let cfg = match Ip2NetConfig::from_options(
         family,
-        cli.prefix_length.as_deref(),
-        cli.v4_threshold.as_deref(),
-        cli.v6_threshold.as_deref(),
+        cli.prefix_length
+            .as_deref(),
+        cli.v4_threshold
+            .as_deref(),
+        cli.v6_threshold
+            .as_deref(),
     )
     {
         Ok(cfg) => cfg,

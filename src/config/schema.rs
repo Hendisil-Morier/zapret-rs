@@ -179,7 +179,8 @@ impl AppConfig
                     load_file_blob(trimmed, &resolved, offset)?
                 }
             };
-            cfg.blobs.insert(trimmed.to_owned(), data);
+            cfg.blobs
+                .insert(trimmed.to_owned(), data);
         }
 
         let mut next_index = 1u32;
@@ -189,7 +190,8 @@ impl AppConfig
             {
                 continue;
             }
-            cfg.profiles.push(build_profile(next_index, raw_profile, base_dir)?);
+            cfg.profiles
+                .push(build_profile(next_index, raw_profile, base_dir)?);
             next_index = next_index.saturating_add(1);
         }
 
@@ -206,6 +208,17 @@ impl AppConfig
     }
 }
 
+/// Copies each matching `Option<T>` scalar field from `$src` into `$dst` when `Some`.
+macro_rules! copy_some_fields
+{
+    ($src:expr => $dst:expr; $($field:ident),+ $(,)?) =>
+    {
+        $(
+            assign_some(&mut $dst.$field, $src.$field);
+        )+
+    };
+}
+
 /// Applies top-level scalar, path, conntrack, ipcache, and L7 disable options from `raw`.
 fn apply_scalar_fields(
     cfg: &mut AppConfig,
@@ -213,76 +226,77 @@ fn apply_scalar_fields(
     base_dir: Option<&Path>,
 ) -> Result<(), ConfigError>
 {
-    if let Some(qnum) = raw.qnum
+    copy_some_fields!(
+        raw => cfg;
+        qnum, fwmark, bind_fix4, bind_fix6, server, debug, intercept, daemon, lua_gc,
+        control_pass_sample, auto_nft,
+    );
+    cfg.pidfile = raw
+        .pidfile
+        .clone()
+        .map(|p| resolve_path(p, base_dir));
+    cfg.chdir = raw
+        .chdir
+        .clone()
+        .map(|p| resolve_path(p, base_dir));
+    cfg.user = raw
+        .user
+        .clone();
+    cfg.uid = raw
+        .uid
+        .clone();
+    if let Some(timeouts) = raw
+        .ctrack_timeouts
+        .as_deref()
     {
-        cfg.qnum = qnum;
+        cfg.conntrack
+            .timeouts = parse_timeouts(timeouts)?;
     }
-    if let Some(fwmark) = raw.fwmark
-    {
-        cfg.fwmark = fwmark;
-    }
-    if let Some(bind_fix4) = raw.bind_fix4
-    {
-        cfg.bind_fix4 = bind_fix4;
-    }
-    if let Some(bind_fix6) = raw.bind_fix6
-    {
-        cfg.bind_fix6 = bind_fix6;
-    }
-    if let Some(server) = raw.server
-    {
-        cfg.server = server;
-    }
-    if let Some(debug) = raw.debug
-    {
-        cfg.debug = debug;
-    }
-    if let Some(intercept) = raw.intercept
-    {
-        cfg.intercept = intercept;
-    }
-    if let Some(daemon) = raw.daemon
-    {
-        cfg.daemon = daemon;
-    }
-    cfg.pidfile = raw.pidfile.clone().map(|p| resolve_path(p, base_dir));
-    cfg.chdir = raw.chdir.clone().map(|p| resolve_path(p, base_dir));
-    cfg.user = raw.user.clone();
-    cfg.uid = raw.uid.clone();
-    if let Some(lua_gc) = raw.lua_gc
-    {
-        cfg.lua_gc = lua_gc;
-    }
-    if let Some(timeouts) = raw.ctrack_timeouts.as_deref()
-    {
-        cfg.conntrack.timeouts = parse_timeouts(timeouts)?;
-    }
-    if let Some(disable) = raw.ctrack_disable
-    {
-        cfg.conntrack.disable = disable;
-    }
-    if let Some(lifetime) = raw.ipcache_lifetime
-    {
-        cfg.ipcache.lifetime_sec = lifetime;
-    }
-    if let Some(hostname) = raw.ipcache_hostname
-    {
-        cfg.ipcache.hostname = hostname;
-    }
-    if !raw.payload_disable.is_empty()
+    assign_some(
+        &mut cfg
+            .conntrack
+            .disable,
+        raw.ctrack_disable,
+    );
+    assign_some(
+        &mut cfg
+            .ipcache
+            .lifetime_sec,
+        raw.ipcache_lifetime,
+    );
+    assign_some(
+        &mut cfg
+            .ipcache
+            .hostname,
+        raw.ipcache_hostname,
+    );
+    if !raw
+        .payload_disable
+        .is_empty()
     {
         cfg.payload_disable = parse_l7_disable_mask(&raw.payload_disable)?;
     }
-    if !raw.reasm_disable.is_empty()
+    if !raw
+        .reasm_disable
+        .is_empty()
     {
         cfg.reasm_disable = parse_l7_disable_mask(&raw.reasm_disable)?;
     }
-    cfg.hostlist_auto_debug = raw.hostlist_auto_debug.clone().map(|p| resolve_path(p, base_dir));
+    cfg.hostlist_auto_debug = raw
+        .hostlist_auto_debug
+        .clone()
+        .map(|p| resolve_path(p, base_dir));
     cfg.writable = match &raw.writable
     {
         Some(RawWritable::Enabled(true)) => Some(WritableDirConfig::Default),
         Some(RawWritable::Enabled(false)) | None => None,
-        Some(RawWritable::Path(path)) if path.as_os_str().is_empty() => Some(WritableDirConfig::Default),
+        Some(RawWritable::Path(path))
+            if path
+                .as_os_str()
+                .is_empty() =>
+        {
+            Some(WritableDirConfig::Default)
+        }
         Some(RawWritable::Path(path)) =>
         {
             Some(WritableDirConfig::Custom(resolve_path(path.clone(), base_dir)))
@@ -295,15 +309,25 @@ fn apply_scalar_fields(
         Some(RawControlSocket::Enabled(false)) => ControlSocketConfig::Disabled,
         Some(RawControlSocket::Path(raw_val)) => parse_control_socket_str(raw_val, base_dir)?,
     };
-    if let Some(sample) = raw.control_pass_sample
-    {
-        cfg.control_pass_sample = sample;
-    }
-    if let Some(auto_nft) = raw.auto_nft
-    {
-        cfg.auto_nft = auto_nft;
-    }
     Ok(())
+}
+
+/// Overwrites `dst` with `src` when `Some`.
+pub(super) fn assign_some<T>(dst: &mut T, src: Option<T>)
+{
+    if let Some(val) = src
+    {
+        *dst = val;
+    }
+}
+
+/// Overwrites `dst` with a cloned `src` value when `src` is `Some`.
+pub(super) fn assign_cloned_some<T: Clone>(dst: &mut Option<T>, src: &Option<T>)
+{
+    if let Some(val) = src
+    {
+        *dst = Some(val.clone());
+    }
 }
 
 /// Parses a string `control_socket` value (`"off"`/`"default"` or path) for CLI and TOML callers.
@@ -319,7 +343,9 @@ pub(super) fn parse_control_socket_str(
             "control_socket path cannot be empty (use \"off\" to disable)".to_owned(),
         ));
     }
-    match trimmed.to_ascii_lowercase().as_str()
+    match trimmed
+        .to_ascii_lowercase()
+        .as_str()
     {
         "off" | "none" | "false" | "0" => Ok(ControlSocketConfig::Disabled),
         "default" | "auto" | "true" | "1" => Ok(ControlSocketConfig::Default),

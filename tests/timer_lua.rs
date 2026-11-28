@@ -67,38 +67,68 @@ fn timer_set_oneshot_and_repeating()
         .expect("script execution succeeded");
 
     let pool = runtime.timer_pool();
-    assert_eq!(pool.borrow().len(), 2);
+    assert_eq!(
+        pool.borrow()
+            .len(),
+        2
+    );
 
     // Initial state before time advances.
     let now = boottime_ms();
     let next1 = TimerPool::run_expired(pool, lua, now);
     assert!(next1.is_some());
-    let t1_count: i32 = lua.globals().get("t1_called").unwrap();
+    let t1_count: i32 = lua
+        .globals()
+        .get("t1_called")
+        .unwrap();
     assert_eq!(t1_count, 0);
 
     // Advance time past t1 deadline (100 ms).
     let next2 = TimerPool::run_expired(pool, lua, now + 150);
     assert!(next2.is_some());
-    let t1_count: i32 = lua.globals().get("t1_called").unwrap();
-    let t1_data: String = lua.globals().get("t1_data").unwrap();
+    let t1_count: i32 = lua
+        .globals()
+        .get("t1_called")
+        .unwrap();
+    let t1_data: String = lua
+        .globals()
+        .get("t1_data")
+        .unwrap();
     assert_eq!(t1_count, 1);
     assert_eq!(t1_data, "hello_data");
 
     // t1 was oneshot, so it should now be removed; t2 remains.
-    assert_eq!(pool.borrow().len(), 1);
-    assert!(pool.borrow().info("t1").is_none());
-    let t2_info = pool.borrow().info("t2").unwrap();
+    assert_eq!(
+        pool.borrow()
+            .len(),
+        1
+    );
+    assert!(
+        pool.borrow()
+            .info("t1")
+            .is_none()
+    );
+    let t2_info = pool
+        .borrow()
+        .info("t2")
+        .unwrap();
     assert_eq!(t2_info.period_ms, 200);
     assert!(!t2_info.oneshot);
 
     // Advance time past t2 deadline (200 ms).
     let _ = TimerPool::run_expired(pool, lua, now + 250);
-    let t2_count: i32 = lua.globals().get("t2_called").unwrap();
+    let t2_count: i32 = lua
+        .globals()
+        .get("t2_called")
+        .unwrap();
     assert_eq!(t2_count, 1);
 
     // Advance time another 200 ms to verify t2 repeats.
     let _ = TimerPool::run_expired(pool, lua, now + 500);
-    let t2_count2: i32 = lua.globals().get("t2_called").unwrap();
+    let t2_count2: i32 = lua
+        .globals()
+        .get("t2_called")
+        .unwrap();
     assert_eq!(t2_count2, 2);
 }
 
@@ -121,18 +151,42 @@ fn timer_argument_and_period_validation()
     assert!(err_type.is_err(), "invalid function type must fail");
 
     // Invalid argc for timer_set (< 3 or > 5).
-    assert!(runtime.exec_str(r#"timer_set("few")"#).is_err());
-    assert!(runtime.exec_str(r#"timer_set("many", function() end, 100, true, "d", "extra")"#).is_err());
+    assert!(
+        runtime
+            .exec_str(r#"timer_set("few")"#)
+            .is_err()
+    );
+    assert!(
+        runtime
+            .exec_str(r#"timer_set("many", function() end, 100, true, "d", "extra")"#)
+            .is_err()
+    );
 
     // Invalid argc for timer_del (must be 1).
-    assert!(runtime.exec_str(r#"timer_del()"#).is_err());
-    assert!(runtime.exec_str(r#"timer_del("a", "b")"#).is_err());
+    assert!(
+        runtime
+            .exec_str(r#"timer_del()"#)
+            .is_err()
+    );
+    assert!(
+        runtime
+            .exec_str(r#"timer_del("a", "b")"#)
+            .is_err()
+    );
 
     // Invalid argc for timer_info (must be 1).
-    assert!(runtime.exec_str(r#"timer_info()"#).is_err());
+    assert!(
+        runtime
+            .exec_str(r#"timer_info()"#)
+            .is_err()
+    );
 
     // Invalid argc for timer_enum (must be 0).
-    assert!(runtime.exec_str(r#"timer_enum("unexpected")"#).is_err());
+    assert!(
+        runtime
+            .exec_str(r#"timer_enum("unexpected")"#)
+            .is_err()
+    );
 }
 
 /// Verifies `timer_info` metadata output and `timer_enum` listing active timers.
@@ -188,14 +242,23 @@ fn timer_del_operation()
         )
         .expect("timer_del script succeeded");
 
-    let del1: bool = lua.globals().get("del_res1").unwrap();
-    let del2: bool = lua.globals().get("del_res2").unwrap();
+    let del1: bool = lua
+        .globals()
+        .get("del_res1")
+        .unwrap();
+    let del2: bool = lua
+        .globals()
+        .get("del_res2")
+        .unwrap();
     assert!(del1, "first timer_del must return true");
     assert!(!del2, "second timer_del must return false");
 
     let now = boottime_ms();
     let _ = TimerPool::run_expired(runtime.timer_pool(), lua, now + 200);
-    let fired: i32 = lua.globals().get("fired").unwrap();
+    let fired: i32 = lua
+        .globals()
+        .get("fired")
+        .unwrap();
     assert_eq!(fired, 0, "deleted timer must never fire");
 }
 
@@ -229,9 +292,15 @@ fn timer_self_deletion_inside_callback()
         let _ = TimerPool::run_expired(pool, lua, current);
     }
 
-    let cycles: i32 = lua.globals().get("cycles").unwrap();
+    let cycles: i32 = lua
+        .globals()
+        .get("cycles")
+        .unwrap();
     assert_eq!(cycles, 3);
-    assert!(pool.borrow().is_empty());
+    assert!(
+        pool.borrow()
+            .is_empty()
+    );
 }
 
 /// Verifies re-entrant recreation where a timer replaces itself with a different period.
@@ -261,19 +330,31 @@ fn timer_recreation_inside_callback()
 
     // First fire at +30 ms: count becomes 1, period changes to 500 ms.
     let _ = TimerPool::run_expired(pool, lua, start + 30);
-    let count1: i32 = lua.globals().get("count").unwrap();
+    let count1: i32 = lua
+        .globals()
+        .get("count")
+        .unwrap();
     assert_eq!(count1, 1);
-    let info = pool.borrow().info("morph").unwrap();
+    let info = pool
+        .borrow()
+        .info("morph")
+        .unwrap();
     assert_eq!(info.period_ms, 500);
 
     // At +100 ms, morph should NOT fire because period was extended to 500 ms.
     let _ = TimerPool::run_expired(pool, lua, start + 100);
-    let count2: i32 = lua.globals().get("count").unwrap();
+    let count2: i32 = lua
+        .globals()
+        .get("count")
+        .unwrap();
     assert_eq!(count2, 1);
 
     // At +600 ms, morph should fire again.
     let _ = TimerPool::run_expired(pool, lua, start + 600);
-    let count3: i32 = lua.globals().get("count").unwrap();
+    let count3: i32 = lua
+        .globals()
+        .get("count")
+        .unwrap();
     assert_eq!(count3, 2);
 }
 
@@ -306,10 +387,21 @@ fn timer_error_deletes_failing_timer()
     let _ = TimerPool::run_expired(pool, lua, now + 30);
 
     // Broken timer must have been deleted due to error.
-    assert!(pool.borrow().info("broken").is_none());
+    assert!(
+        pool.borrow()
+            .info("broken")
+            .is_none()
+    );
     // Healthy timer must have fired and remain active.
-    assert!(pool.borrow().info("healthy").is_some());
-    let healthy_count: i32 = lua.globals().get("healthy_fired").unwrap();
+    assert!(
+        pool.borrow()
+            .info("healthy")
+            .is_some()
+    );
+    let healthy_count: i32 = lua
+        .globals()
+        .get("healthy_fired")
+        .unwrap();
     assert_eq!(healthy_count, 1);
 }
 
@@ -340,7 +432,12 @@ fn no_intercept_loop_execution_and_clean_exit()
 
     // 3 ticks of 15ms should complete in roughly 45-200ms, definitely < 1s.
     assert!(elapsed.as_millis() < 1000);
-    assert!(runtime.timer_pool().borrow().is_empty());
+    assert!(
+        runtime
+            .timer_pool()
+            .borrow()
+            .is_empty()
+    );
 
     // Test early shutdown via stop flag.
     runtime
@@ -354,7 +451,12 @@ fn no_intercept_loop_execution_and_clean_exit()
     stop.store(true, Ordering::Relaxed);
     let start_stop = Instant::now();
     run_no_intercept(runtime.timer_pool(), &runtime, &stop);
-    assert!(start_stop.elapsed().as_millis() < 100);
+    assert!(
+        start_stop
+            .elapsed()
+            .as_millis()
+            < 100
+    );
 }
 
 /// Verifies `do_gc` executes full Lua garbage collection when interval has elapsed.

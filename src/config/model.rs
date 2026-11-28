@@ -137,7 +137,9 @@ impl DesyncProfile
     /// Returns `true` if `input` satisfies mark, L3, L7, and L4 filters on this profile.
     pub fn matches(&self, input: &ProfileMatchInput) -> bool
     {
-        if !self.filter_mark.matches(input.fwmark)
+        if !self
+            .filter_mark
+            .matches(input.fwmark)
         {
             return false;
         }
@@ -258,7 +260,12 @@ impl AppConfig
     /// Enforces cross-field invariants that apply after merging TOML and CLI overrides.
     pub fn validate(&self) -> Result<(), ConfigError>
     {
-        if self.user.is_some() && self.uid.is_some()
+        if self
+            .user
+            .is_some()
+            && self
+                .uid
+                .is_some()
         {
             return Err(ConfigError::Validation(
                 "cannot specify both `user` and `uid` for privilege drop".to_owned(),
@@ -266,11 +273,17 @@ impl AppConfig
         }
         for profile in &self.profiles
         {
-            if let Err(msg) = profile.lists.hostlist_auto_settings.validate()
+            if let Err(msg) = profile
+                .lists
+                .hostlist_auto_settings
+                .validate()
             {
                 return Err(ConfigError::Validation(msg.to_owned()));
             }
-            if profile.lists.hostlist_auto.is_some()
+            if profile
+                .lists
+                .hostlist_auto
+                .is_some()
             {
                 if self.server
                 {
@@ -278,7 +291,9 @@ impl AppConfig
                         "autohostlist is not supported in server mode".to_owned(),
                     ));
                 }
-                if self.conntrack.disable
+                if self
+                    .conntrack
+                    .disable
                 {
                     return Err(ConfigError::Validation(
                         "autohostlist is not supported when conntrack is disabled".to_owned(),

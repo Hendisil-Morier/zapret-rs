@@ -56,26 +56,59 @@ fn reentrant_rawsend_dissect_and_stashed_ctx_invalidation()
     let engine = DesyncEngine::with_sender(&cfg, sender_trait).expect("engine with mock sender should init");
 
     let raw = build_ipv4_tcp(41234, 443, b"tls_hello");
-    let lua_expected = engine.runtime().lua().create_string(&raw).expect("Lua byte string");
-    engine.runtime().lua().globals().set("expected_raw", lua_expected).expect("set expected_raw");
+    let lua_expected = engine
+        .runtime()
+        .lua()
+        .create_string(&raw)
+        .expect("Lua byte string");
+    engine
+        .runtime()
+        .lua()
+        .globals()
+        .set("expected_raw", lua_expected)
+        .expect("set expected_raw");
 
     let pkt = QueuedPacket { packet_id: 30, mark: 0, ifin: None, ifout: Some("wlan0"), payload: &raw };
     assert_eq!(engine.process_packet(&pkt), Decision::Drop);
 
-    let captured = &sender.borrow().packets;
+    let captured = &sender
+        .borrow()
+        .packets;
     assert_eq!(captured.len(), 1);
-    assert_eq!(captured[0].dst, "93.184.216.34".parse::<IpAddr>().expect("valid IPv4 dst"));
+    assert_eq!(
+        captured[0].dst,
+        "93.184.216.34"
+            .parse::<IpAddr>()
+            .expect("valid IPv4 dst")
+    );
     assert_eq!(captured[0].fwmark, 0x4000_0010);
-    assert_eq!(captured[0].ifout.as_deref(), Some("wlan0"));
+    assert_eq!(
+        captured[0]
+            .ifout
+            .as_deref(),
+        Some("wlan0")
+    );
     let sent_dis = dissect_packet(&captured[0].data, false);
-    assert_eq!(sent_dis.ip.as_ref().expect("ip").ttl, 1);
+    assert_eq!(
+        sent_dis
+            .ip
+            .as_ref()
+            .expect("ip")
+            .ttl,
+        1
+    );
 
     // Calling raw_packet on the leaked ctx after return must error with "ctx is invalid".
     let leaked_err = engine
         .runtime()
         .exec_str("raw_packet(_G.leaked_ctx)")
         .expect_err("leaked ctx must be invalidated after action returns");
-    assert!(leaked_err.to_string().contains("ctx is invalid"), "unexpected error: {leaked_err}");
+    assert!(
+        leaked_err
+            .to_string()
+            .contains("ctx is invalid"),
+        "unexpected error: {leaked_err}"
+    );
 }
 
 /// Verifies `zapret2/lua/zapret-lib.lua`'s `desync_orchestrator_example` with `execution_plan` and cutoffs.
@@ -142,7 +175,12 @@ fn zapret_lib_orchestrator_runs_execution_plan_once_and_allows_cutoffs()
         panic!("expected Decision::Replace from orchestrated replay");
     };
     let dis_80 = dissect_packet(&mod_80, false);
-    assert_eq!(dis_80.payload.as_deref(), Some(b"ORCH_DONE".as_slice()));
+    assert_eq!(
+        dis_80
+            .payload
+            .as_deref(),
+        Some(b"ORCH_DONE".as_slice())
+    );
 
     engine
         .runtime()
@@ -160,9 +198,16 @@ fn zapret_lib_orchestrator_runs_execution_plan_once_and_allows_cutoffs()
         QueuedPacket { packet_id: 41, mark: 0, ifin: None, ifout: Some("eth0"), payload: &raw_8080 };
     assert_eq!(engine.process_packet(&pkt_8080), Decision::Pass);
 
-    let nil_err =
-        engine.runtime().exec_str("lua_cutoff(nil)").expect_err("lua_cutoff(nil) must reject missing ctx");
-    assert!(nil_err.to_string().contains("missing ctx"), "unexpected error: {nil_err}");
+    let nil_err = engine
+        .runtime()
+        .exec_str("lua_cutoff(nil)")
+        .expect_err("lua_cutoff(nil) must reject missing ctx");
+    assert!(
+        nil_err
+            .to_string()
+            .contains("missing ctx"),
+        "unexpected error: {nil_err}"
+    );
 }
 
 /// Verifies missing desync functions fail startup and runtime/verdict errors degrade to `Decision::Pass`.

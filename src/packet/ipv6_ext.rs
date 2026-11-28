@@ -168,7 +168,10 @@ pub fn find_ipv6_exthdr(raw: &[u8], target_proto: u8) -> Option<usize>
     let walk = walk_ipv6_exthdrs(raw);
     walk.exthdrs
         .iter()
-        .zip(walk.offsets.iter())
+        .zip(
+            walk.offsets
+                .iter(),
+        )
         .find(|(ext, _)| ext.header_type == target_proto)
         .map(|(_, &offset)| offset)
 }

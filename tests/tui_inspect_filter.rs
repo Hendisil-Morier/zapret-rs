@@ -106,7 +106,11 @@ fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter()
         None,
     ));
 
-    assert_eq!(insp.visible_packets().len(), 3);
+    assert_eq!(
+        insp.visible_packets()
+            .len(),
+        3
+    );
     assert!(send_key(&mut insp, KeyCode::Char('/')).is_some());
     assert!(insp.filter_editing);
 
@@ -115,11 +119,19 @@ fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter()
         send_key(&mut insp, KeyCode::Char(ch));
     }
     assert_eq!(insp.filter_query, "port:443");
-    assert_eq!(insp.visible_packets().len(), 2);
+    assert_eq!(
+        insp.visible_packets()
+            .len(),
+        2
+    );
 
     send_key(&mut insp, KeyCode::Enter);
     assert!(!insp.filter_editing);
-    assert_eq!(insp.visible_packets().len(), 2);
+    assert_eq!(
+        insp.visible_packets()
+            .len(),
+        2
+    );
 
     // Combine query with VerdictFilter (`f` -> DesyncOnly).
     send_key(&mut insp, KeyCode::Char('f'));
@@ -132,8 +144,15 @@ fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter()
     send_key(&mut insp, KeyCode::Char('/'));
     send_key(&mut insp, KeyCode::Esc);
     assert!(!insp.filter_editing);
-    assert!(insp.filter_query.is_empty());
-    assert_eq!(insp.visible_packets().len(), 2);
+    assert!(
+        insp.filter_query
+            .is_empty()
+    );
+    assert_eq!(
+        insp.visible_packets()
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -148,18 +167,34 @@ fn app_state_guards_global_keys_during_filter_editing_and_renders_query_in_title
 
     // Enter `/` filter edit mode and type characters that collide with global bindings (`q`, `t`, `?`, `1`).
     assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)), AppAction::None);
-    assert!(state.inspector.filter_editing);
+    assert!(
+        state
+            .inspector
+            .filter_editing
+    );
     for ch in "qt?1".chars()
     {
         assert_eq!(state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)), AppAction::None);
     }
     assert_eq!(state.tab, ActiveTab::Run);
     assert!(!state.help_open);
-    assert_eq!(state.inspector.filter_query, "qt?1");
+    assert_eq!(
+        state
+            .inspector
+            .filter_query,
+        "qt?1"
+    );
 
     let backend = TestBackend::new(120, 32);
     let mut term = Terminal::new(backend).expect("terminal");
-    term.draw(|f| draw_app(f, &state)).expect("draw");
-    let rendered: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+    term.draw(|f| draw_app(f, &state))
+        .expect("draw");
+    let rendered: String = term
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect();
     assert!(rendered.contains("/: qt?1_"), "expected active filter cursor in title");
 }

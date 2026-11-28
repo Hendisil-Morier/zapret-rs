@@ -19,6 +19,7 @@ As `zapret-rs` expanded from a CLI packet daemon into a multi-applet binary cont
    - Non-exempt production files under `src/` stay at or below `450` logical code lines (`MAX_SRC_CODE_LINES`), and integration tests under `tests/` stay at or below `500` (`MAX_TEST_CODE_LINES`), excluding blank lines, comments, and lone `{`/`}` brace lines (exempting `src/config/blobs.rs`).
    - Every `src/**/mod.rs` file must be a pure facade containing only `pub mod`, `pub use`, `#[cfg(...)]` gates, and comments.
    - Zero `#[cfg(test)]`, `#[test]`, `.unwrap(`, or `.expect(` calls are permitted inside `src/`.
+3. Pair structural hygiene with [clippy.toml](../../clippy.toml) (`cognitive-complexity-threshold = 15`, `too-many-lines-threshold = 200` to accommodate per-line method chains) and [rustfmt.toml](../../rustfmt.toml) (`chain_width = 0`).
 
 ## Alternatives Considered
 
@@ -35,5 +36,5 @@ As `zapret-rs` expanded from a CLI packet daemon into a multi-applet binary cont
 ## Consequences
 
 - Every subsystem exposes explicit error variants aggregated into `ZapretError` ([src/error.rs](../../src/error.rs)) using `?` propagation rather than `.unwrap()`/`.expect()`.
-- Non-trivial additions that push a file near `450` logical code lines naturally decompose along domain seams (for example, separating `toml_splice.rs`, `app_config_import.rs`, `app_config_save.rs`, `settings_tab.rs`, and `settings_actions.rs`).
+- Non-trivial additions that push a file near `450` logical code lines naturally decompose along domain seams (for example, separating `profile_exec.rs`, `catalog_rules.rs`, `mouse_tabs.rs`, `render_run.rs`, `render_finder_form.rs`, `state_finder_keys.rs`, and Tab 7's `settings_tab.rs`/`settings_actions.rs`).
 - All unit and integration tests reside cleanly under `tests/` against public or `pub(crate)` APIs.

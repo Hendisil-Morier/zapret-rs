@@ -71,7 +71,10 @@ impl HttpRequest
     pub fn header(&self, name: &str) -> Option<&str>
     {
         let target = name.to_ascii_lowercase();
-        self.headers.iter().find(|(k, _)| k == &target).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(k, _)| k == &target)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -141,7 +144,9 @@ fn read_header_block<R: Read>(
                 let prev_len = buf.len();
                 buf.extend_from_slice(&chunk[..n]);
                 let search_from = prev_len.saturating_sub(3);
-                if let Some(rel) = buf[search_from..].windows(4).position(|w| w == b"\r\n\r\n")
+                if let Some(rel) = buf[search_from..]
+                    .windows(4)
+                    .position(|w| w == b"\r\n\r\n")
                 {
                     let head_end = search_from + rel + 4;
                     if head_end > MAX_HEADER_BYTES
@@ -173,7 +178,9 @@ pub fn read_http_request<R: Read>(reader: &mut R) -> Result<Option<HttpRequest>,
     let head_str = std::str::from_utf8(&raw_buf[..head_len])
         .map_err(|_| HttpReadError::BadRequest("non-UTF8 HTTP headers".to_owned()))?;
     let mut lines = head_str.split("\r\n");
-    let req_line = lines.next().unwrap_or("");
+    let req_line = lines
+        .next()
+        .unwrap_or("");
     let mut req_parts = req_line.split_whitespace();
     let (Some(method_s), Some(target), Some(proto), None) =
         (req_parts.next(), req_parts.next(), req_parts.next(), req_parts.next())
@@ -206,8 +213,12 @@ pub fn read_http_request<R: Read>(reader: &mut R) -> Result<Option<HttpRequest>,
         {
             return Err(HttpReadError::BadRequest("malformed HTTP header line".to_owned()));
         };
-        let key = k.trim().to_ascii_lowercase();
-        let val = v.trim().to_owned();
+        let key = k
+            .trim()
+            .to_ascii_lowercase();
+        let val = v
+            .trim()
+            .to_owned();
         if key == "host"
         {
             if seen_host
@@ -216,7 +227,10 @@ pub fn read_http_request<R: Read>(reader: &mut R) -> Result<Option<HttpRequest>,
             }
             seen_host = true;
         }
-        if key == "transfer-encoding" && val.to_ascii_lowercase().contains("chunked")
+        if key == "transfer-encoding"
+            && val
+                .to_ascii_lowercase()
+                .contains("chunked")
         {
             return Err(HttpReadError::UnsupportedEncoding);
         }
@@ -237,7 +251,9 @@ pub fn read_http_request<R: Read>(reader: &mut R) -> Result<Option<HttpRequest>,
     if content_len > 0
     {
         let already = &raw_buf[head_len..];
-        let copy_len = already.len().min(content_len);
+        let copy_len = already
+            .len()
+            .min(content_len);
         body[..copy_len].copy_from_slice(&already[..copy_len]);
         let mut offset = copy_len;
         while offset < content_len

@@ -46,9 +46,22 @@ fn port_filter_parses_ranges_negations_and_rejects_invalid()
     assert!(port_filters_match(&[single, range], 85));
     assert!(!port_filters_match(&[single, range], 25));
 
-    assert!(matches!(PortFilter::parse("90-80"), Err(ConfigError::InvalidPortFilter(_))));
-    assert!(matches!(PortFilter::parse("70000"), Err(ConfigError::InvalidPortFilter(_))));
-    assert!(matches!(PortFilter::parse(""), Err(ConfigError::InvalidPortFilter(_))));
+    for bad in ["90-80", "70000", ""]
+    {
+        assert!(matches!(PortFilter::parse(bad), Err(ConfigError::InvalidPortFilter(_))));
+    }
+}
+
+/// Verifies `IppFilter` parsing and invalid error rejection.
+fn assert_ipp_filters()
+{
+    let ipp_any = IppFilter::parse("*").expect("*");
+    let ipp_skip = IppFilter::skip();
+    let gre = IppFilter::parse("47").expect("47");
+    assert!(ipp_any.matches(6) && !ipp_skip.matches(47) && gre.matches(47) && !gre.matches(50));
+    assert!(ipp_filters_match(&[ipp_skip, gre], 47));
+    assert!(matches!(IppFilter::parse("256"), Err(ConfigError::InvalidIppFilter(_))));
+    assert!(matches!(IppFilter::parse("abc"), Err(ConfigError::InvalidIppFilter(_))));
 }
 
 /// Verifies `IcmpFilter` and `IppFilter` parsing and matching.
@@ -68,17 +81,11 @@ fn icmp_and_ipp_filters_match_and_reject_invalid()
     assert!(icmp_filters_match(&[], 8, 0));
     assert!(icmp_filters_match(&[skip, frag], 3, 4));
     assert!(!icmp_filters_match(&[IcmpFilter::skip()], 8, 0));
-    assert!(matches!(IcmpFilter::parse("256"), Err(ConfigError::InvalidIcmpFilter(_))));
-    assert!(matches!(IcmpFilter::parse("3:256"), Err(ConfigError::InvalidIcmpFilter(_))));
-    assert!(matches!(IcmpFilter::parse("3:4:5"), Err(ConfigError::InvalidIcmpFilter(_))));
-
-    let ipp_any = IppFilter::parse("*").expect("*");
-    let ipp_skip = IppFilter::skip();
-    let gre = IppFilter::parse("47").expect("47");
-    assert!(ipp_any.matches(6) && !ipp_skip.matches(47) && gre.matches(47) && !gre.matches(50));
-    assert!(ipp_filters_match(&[ipp_skip, gre], 47));
-    assert!(matches!(IppFilter::parse("256"), Err(ConfigError::InvalidIppFilter(_))));
-    assert!(matches!(IppFilter::parse("abc"), Err(ConfigError::InvalidIppFilter(_))));
+    for bad in ["256", "3:256", "3:4:5"]
+    {
+        assert!(matches!(IcmpFilter::parse(bad), Err(ConfigError::InvalidIcmpFilter(_))));
+    }
+    assert_ipp_filters();
 }
 
 /// Verifies `MarkFilter` exact and masked fwmark matching.
@@ -103,6 +110,56 @@ fn mark_filter_handles_hex_decimal_and_masks()
     assert!(matches!(MarkFilter::parse("1/2/3"), Err(ConfigError::InvalidMarkFilter(_))));
 }
 
+/// Verifies compound `s1<d1`, `n1-n5`, and rejected `PacketRange` syntax strings.
+fn assert_compound_and_invalid_packet_ranges()
+{
+    let s1_lt_d1 = PacketRange::parse("s1<d1").expect("s1<d1");
+    assert_eq!(
+        s1_lt_d1
+            .from
+            .mode,
+        PacketPosMode::RelSeq
+    );
+    assert_eq!(
+        s1_lt_d1
+            .to
+            .mode,
+        PacketPosMode::DataPacketNum
+    );
+    assert!(s1_lt_d1.upper_cutoff);
+
+    let n1_n5 = PacketRange::parse("n1-n5").expect("n1-n5");
+    assert_eq!(
+        (
+            n1_n5
+                .from
+                .mode
+                .as_char(),
+            n1_n5
+                .from
+                .pos
+        ),
+        ('n', 1)
+    );
+    assert_eq!(
+        (
+            n1_n5
+                .to
+                .mode
+                .as_char(),
+            n1_n5
+                .to
+                .pos
+        ),
+        ('n', 5)
+    );
+
+    for bad in ["d1", "z1-z2", ""]
+    {
+        assert!(matches!(PacketRange::parse(bad), Err(ConfigError::InvalidPacketRange(_))));
+    }
+}
+
 /// Verifies `PacketRange` syntax variants match `zapret2/nfq2/filter.c`.
 #[test]
 fn packet_range_parses_endpoints_and_rejects_malformed()
@@ -112,32 +169,46 @@ fn packet_range_parses_endpoints_and_rejects_malformed()
 
     let to_d1_inc = PacketRange::parse("-d1").expect("-d1");
     assert_eq!(to_d1_inc.from, PacketPos::ALWAYS);
-    assert_eq!(to_d1_inc.to.mode, PacketPosMode::DataPacketNum);
-    assert_eq!(to_d1_inc.to.pos, 1);
+    assert_eq!(
+        to_d1_inc
+            .to
+            .mode,
+        PacketPosMode::DataPacketNum
+    );
+    assert_eq!(
+        to_d1_inc
+            .to
+            .pos,
+        1
+    );
     assert!(!to_d1_inc.upper_cutoff);
 
     let to_d1_exc = PacketRange::parse("<d1").expect("<d1");
     assert!(to_d1_exc.upper_cutoff);
-    assert_eq!(to_d1_exc.to.pos, 1);
+    assert_eq!(
+        to_d1_exc
+            .to
+            .pos,
+        1
+    );
 
     let from_s1 = PacketRange::parse("s1-").expect("s1-");
-    assert_eq!(from_s1.from.mode, PacketPosMode::RelSeq);
-    assert_eq!(from_s1.from.pos, 1);
+    assert_eq!(
+        from_s1
+            .from
+            .mode,
+        PacketPosMode::RelSeq
+    );
+    assert_eq!(
+        from_s1
+            .from
+            .pos,
+        1
+    );
     assert_eq!(from_s1.to, PacketPos::ALWAYS);
     assert!(!from_s1.upper_cutoff);
 
-    let s1_lt_d1 = PacketRange::parse("s1<d1").expect("s1<d1");
-    assert_eq!(s1_lt_d1.from.mode, PacketPosMode::RelSeq);
-    assert_eq!(s1_lt_d1.to.mode, PacketPosMode::DataPacketNum);
-    assert!(s1_lt_d1.upper_cutoff);
-
-    let n1_n5 = PacketRange::parse("n1-n5").expect("n1-n5");
-    assert_eq!((n1_n5.from.mode.as_char(), n1_n5.from.pos), ('n', 1));
-    assert_eq!((n1_n5.to.mode.as_char(), n1_n5.to.pos), ('n', 5));
-
-    assert!(matches!(PacketRange::parse("d1"), Err(ConfigError::InvalidPacketRange(_))));
-    assert!(matches!(PacketRange::parse("z1-z2"), Err(ConfigError::InvalidPacketRange(_))));
-    assert!(matches!(PacketRange::parse(""), Err(ConfigError::InvalidPacketRange(_))));
+    assert_compound_and_invalid_packet_ranges();
 }
 
 /// Verifies L7 protocol and payload bitmask parsing and `known`/`all` matching rules.
@@ -179,7 +250,11 @@ fn default_hex_and_file_blobs_load_accurately()
     let quic = &defaults["fake_default_quic"];
     assert_eq!(quic.len(), FAKE_QUIC_DEFAULT_LEN);
     assert_eq!(quic[0], 0x40);
-    assert!(quic[1..].iter().all(|&b| b == 0));
+    assert!(
+        quic[1..]
+            .iter()
+            .all(|&b| b == 0)
+    );
 
     let parsed = parse_hex_blob("custom", "0xdeAdBeEf").expect("valid hex blob");
     assert_eq!(parsed, vec![0xDE, 0xAD, 0xBE, 0xEF]);
@@ -213,13 +288,14 @@ fn l7_disable_mask_and_ctrack_timeouts_parse_and_validate()
     assert!(l7_payload_matches(L7Payload::QuicInitial, subset));
     assert!(!l7_payload_matches(L7Payload::TlsClientHello, subset));
 
-    let three = parse_timeouts("10:20:30").expect("3-part S:E:F keeps default udp timeout");
-    assert_eq!((three.syn, three.established, three.fin, three.udp), (10, 20, 30, 60));
+    for (raw, exp) in [("10:20:30", (10, 20, 30, 60)), ("5:15:25:35", (5, 15, 25, 35))]
+    {
+        let parsed = parse_timeouts(raw).expect("valid ctrack timeout");
+        assert_eq!((parsed.syn, parsed.established, parsed.fin, parsed.udp), exp);
+    }
 
-    let four = parse_timeouts("5:15:25:35").expect("4-part S:E:F:U overrides udp timeout");
-    assert_eq!((four.syn, four.established, four.fin, four.udp), (5, 15, 25, 35));
-
-    assert!(matches!(parse_timeouts("10:20"), Err(ConfigError::Validation(_))));
-    assert!(matches!(parse_timeouts("1:2:3:4:5"), Err(ConfigError::Validation(_))));
-    assert!(matches!(parse_timeouts("1:bad:3"), Err(ConfigError::Validation(_))));
+    for bad in ["10:20", "1:2:3:4:5", "1:bad:3"]
+    {
+        assert!(matches!(parse_timeouts(bad), Err(ConfigError::Validation(_))));
+    }
 }

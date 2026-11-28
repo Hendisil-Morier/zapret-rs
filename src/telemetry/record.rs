@@ -177,11 +177,15 @@ pub fn build_packet_record(seq: u64, pkt: &QueuedPacket<'_>, outcome: &PacketOut
         PacketOutcome::Modify(prof) => (PacketVerdict::Modify, prof.clone()),
         PacketOutcome::Desync(prof) => (PacketVerdict::Desync, prof.clone()),
     };
-    let (direction, iface) = if let Some(out) = pkt.ifout.filter(|s| !s.is_empty())
+    let (direction, iface) = if let Some(out) = pkt
+        .ifout
+        .filter(|s| !s.is_empty())
     {
         ("OUT".to_owned(), out.to_owned())
     }
-    else if let Some(inn) = pkt.ifin.filter(|s| !s.is_empty())
+    else if let Some(inn) = pkt
+        .ifin
+        .filter(|s| !s.is_empty())
     {
         ("IN".to_owned(), inn.to_owned())
     }
@@ -191,7 +195,10 @@ pub fn build_packet_record(seq: u64, pkt: &QueuedPacket<'_>, outcome: &PacketOut
     };
 
     let dis = dissect_packet(pkt.payload, false);
-    let payload = dis.payload.as_deref().unwrap_or(&[]);
+    let payload = dis
+        .payload
+        .as_deref()
+        .unwrap_or(&[]);
     let (src_ip, dst_ip, ttl) = if let Some(ip4) = &dis.ip
     {
         (Ipv4Addr::from(ip4.src).to_string(), Ipv4Addr::from(ip4.dst).to_string(), ip4.ttl)
@@ -233,7 +240,17 @@ pub fn build_packet_record(seq: u64, pkt: &QueuedPacket<'_>, outcome: &PacketOut
     }
     else
     {
-        ("IP".to_owned(), src_ip, dst_ip, None, format!("{}B raw", pkt.payload.len()))
+        (
+            "IP".to_owned(),
+            src_ip,
+            dst_ip,
+            None,
+            format!(
+                "{}B raw",
+                pkt.payload
+                    .len()
+            ),
+        )
     };
     if let Some(ref prof) = profile
     {
@@ -241,7 +258,9 @@ pub fn build_packet_record(seq: u64, pkt: &QueuedPacket<'_>, outcome: &PacketOut
     }
 
     let preview_src = if payload.is_empty() { pkt.payload } else { payload };
-    let preview_len = preview_src.len().min(MAX_PAYLOAD_PREVIEW);
+    let preview_len = preview_src
+        .len()
+        .min(MAX_PAYLOAD_PREVIEW);
 
     PacketRecord {
         seq,

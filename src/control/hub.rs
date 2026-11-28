@@ -130,13 +130,16 @@ impl TelemetryHub
     /// Returns `true` when at least one authenticated client is currently subscribed.
     pub fn has_subscribers(&self) -> bool
     {
-        self.subscriber_count.load(Ordering::Relaxed) > 0
+        self.subscriber_count
+            .load(Ordering::Relaxed)
+            > 0
     }
 
     /// Returns the configured PASS packet sampling divisor (`0` disables PASS records).
     pub fn pass_sample_rate(&self) -> u64
     {
-        self.pass_sample_rate.load(Ordering::Relaxed)
+        self.pass_sample_rate
+            .load(Ordering::Relaxed)
     }
 
     /// Returns `true` if the hot path should build and publish a record for `verdict`.
@@ -155,19 +158,25 @@ impl TelemetryHub
         {
             return false;
         }
-        self.pass_seen.fetch_add(1, Ordering::Relaxed).is_multiple_of(sample)
+        self.pass_seen
+            .fetch_add(1, Ordering::Relaxed)
+            .is_multiple_of(sample)
     }
 
     /// Attempts to queue `record` for subscribed clients without ever blocking the caller.
     pub fn publish_packet(&self, record: PacketRecord)
     {
-        let _ = self.pkt_tx.try_send(record);
+        let _ = self
+            .pkt_tx
+            .try_send(record);
     }
 
     /// Replaces the tracked profile list in status responses after a live config reload.
     pub fn set_profile_names(&self, names: Vec<String>)
     {
-        if let Ok(mut guard) = self.meta.write()
+        if let Ok(mut guard) = self
+            .meta
+            .write()
         {
             guard.profile_names = names;
         }
@@ -176,10 +185,14 @@ impl TelemetryHub
     /// Builds a consistent [`DaemonStatus`] combining current metadata and atomic counters.
     pub fn status_snapshot(&self) -> DaemonStatus
     {
-        let meta = match self.meta.read()
+        let meta = match self
+            .meta
+            .read()
         {
             Ok(guard) => guard.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
+            Err(poisoned) => poisoned
+                .into_inner()
+                .clone(),
         };
         DaemonStatus {
             version: meta.version,
@@ -197,7 +210,9 @@ impl TelemetryHub
     /// Enqueues a [`ControlCommand`] toward the packet loop without waiting on completion.
     pub fn try_send_command(&self, cmd: ControlCommand) -> Result<(), String>
     {
-        match self.cmd_tx.try_send(cmd)
+        match self
+            .cmd_tx
+            .try_send(cmd)
         {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => Err("daemon command queue is full".to_owned()),
@@ -208,33 +223,46 @@ impl TelemetryHub
     /// Pops one pending [`ControlCommand`] for non-blocking execution in `next_loop_timeout`.
     pub fn try_recv_command(&self) -> Option<ControlCommand>
     {
-        self.cmd_rx.lock().ok()?.try_recv().ok()
+        self.cmd_rx
+            .lock()
+            .ok()?
+            .try_recv()
+            .ok()
     }
 
     /// Takes the packet receiver once for the control server's fanout thread.
     pub(crate) fn take_packet_receiver(&self) -> Option<Receiver<PacketRecord>>
     {
-        self.pkt_rx.lock().ok()?.take()
+        self.pkt_rx
+            .lock()
+            .ok()?
+            .take()
     }
 
     /// Registers or updates one subscriber sink and synchronizes `subscriber_count`.
     pub(crate) fn add_subscriber(&self, sink: SubscriberSink)
     {
-        if let Ok(mut guard) = self.subscribers.lock()
+        if let Ok(mut guard) = self
+            .subscribers
+            .lock()
         {
             guard.retain(|item| item.id != sink.id);
             guard.push(sink);
-            self.subscriber_count.store(guard.len(), Ordering::Relaxed);
+            self.subscriber_count
+                .store(guard.len(), Ordering::Relaxed);
         }
     }
 
     /// Removes subscriber `id` and clears `subscriber_count` when none remain.
     pub(crate) fn remove_subscriber(&self, id: u64)
     {
-        if let Ok(mut guard) = self.subscribers.lock()
+        if let Ok(mut guard) = self
+            .subscribers
+            .lock()
         {
             guard.retain(|item| item.id != id);
-            self.subscriber_count.store(guard.len(), Ordering::Relaxed);
+            self.subscriber_count
+                .store(guard.len(), Ordering::Relaxed);
         }
     }
 
@@ -242,14 +270,18 @@ impl TelemetryHub
     pub(crate) fn broadcast(&self, msg: &Response, is_pass_packet: bool)
     {
         let mut dropped_hooks = Vec::new();
-        if let Ok(mut guard) = self.subscribers.lock()
+        if let Ok(mut guard) = self
+            .subscribers
+            .lock()
         {
             guard.retain(|sink| {
                 if is_pass_packet && sink.pass_sample_rate == Some(0)
                 {
                     return true;
                 }
-                match sink.tx.try_send(msg.clone())
+                match sink
+                    .tx
+                    .try_send(msg.clone())
                 {
                     Ok(()) => true,
                     Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) =>
@@ -259,7 +291,8 @@ impl TelemetryHub
                     }
                 }
             });
-            self.subscriber_count.store(guard.len(), Ordering::Relaxed);
+            self.subscriber_count
+                .store(guard.len(), Ordering::Relaxed);
         }
         for hook in dropped_hooks
         {

@@ -93,7 +93,9 @@ fn inheritable_cap_active(cap: u32) -> bool
         return false;
     }
     let bit = 1u32 << cap;
-    capget_current().map(|d| (d[0].permitted & bit) != 0 && (d[0].inheritable & bit) != 0).unwrap_or(false)
+    capget_current()
+        .map(|d| (d[0].permitted & bit) != 0 && (d[0].inheritable & bit) != 0)
+        .unwrap_or(false)
 }
 
 /// Returns `true` when Linux `PR_GET_NO_NEW_PRIVS` is active (blocking setuid helpers like `sudo`).
@@ -132,7 +134,11 @@ fn read_cap_last_cap() -> i32
 {
     fs::read_to_string("/proc/sys/kernel/cap_last_cap")
         .ok()
-        .and_then(|s| s.trim().parse::<i32>().ok())
+        .and_then(|s| {
+            s.trim()
+                .parse::<i32>()
+                .ok()
+        })
         .filter(|&n| n >= 0)
         .unwrap_or(DEFAULT_CAP_LAST_CAP)
 }

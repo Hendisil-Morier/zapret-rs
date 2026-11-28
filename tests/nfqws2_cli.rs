@@ -50,19 +50,32 @@ impl ChildGuard
     /// Returns the OS process identifier of the guarded child.
     fn id(&self) -> u32
     {
-        self.child.as_ref().expect("child present").id()
+        self.child
+            .as_ref()
+            .expect("child present")
+            .id()
     }
 
     /// Polls `try_wait` up to `timeout`, checking non-exit when `should_be_running` matters.
     fn try_wait(&mut self) -> Option<ExitStatus>
     {
-        self.child.as_mut().expect("child present").try_wait().expect("try_wait child")
+        self.child
+            .as_mut()
+            .expect("child present")
+            .try_wait()
+            .expect("try_wait child")
     }
 
     /// Reads and drains any piped stderr stream captured from the child process.
     fn take_stderr_output(&mut self) -> String
     {
-        let Some(mut stderr) = self.child.as_mut().and_then(|c| c.stderr.take())
+        let Some(mut stderr) = self
+            .child
+            .as_mut()
+            .and_then(|c| {
+                c.stderr
+                    .take()
+            })
         else
         {
             return String::new();
@@ -75,11 +88,16 @@ impl ChildGuard
     /// Waits up to `timeout` for the child process to exit, panicking on timeout.
     fn wait_bounded(mut self, timeout: Duration) -> ExitStatus
     {
-        let mut child = self.child.take().expect("child present");
+        let mut child = self
+            .child
+            .take()
+            .expect("child present");
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline
         {
-            if let Some(status) = child.try_wait().expect("poll child exit")
+            if let Some(status) = child
+                .try_wait()
+                .expect("poll child exit")
             {
                 return status;
             }
@@ -96,7 +114,9 @@ impl Drop for ChildGuard
     /// Kills and reaps any still-owned child process on early test failure or panic.
     fn drop(&mut self)
     {
-        if let Some(mut child) = self.child.take()
+        if let Some(mut child) = self
+            .child
+            .take()
         {
             let _ = child.kill();
             let _ = child.wait();
@@ -115,7 +135,9 @@ fn send_signal(pid: u32, sig: libc::c_int)
 /// Polls `pidfile` until it contains `expected_pid`, or aborts with child exit diagnostics.
 fn wait_for_pidfile(pidfile: &Path, child: &mut ChildGuard, timeout: Duration)
 {
-    let expected = child.id().to_string();
+    let expected = child
+        .id()
+        .to_string();
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline
     {
@@ -144,35 +166,72 @@ fn cli_version_and_dry_run_validate_config_and_reject_bad_inputs()
     fs::write(&lua_path, "function noop() end\n").expect("write lua");
     fs::write(
         &toml_path,
-        format!("qnum = 250\nlua_init = [\"{}\"]\n", lua_path.to_string_lossy().replace('\\', "\\\\")),
+        format!(
+            "qnum = 250\nlua_init = [\"{}\"]\n",
+            lua_path
+                .to_string_lossy()
+                .replace('\\', "\\\\")
+        ),
     )
     .expect("write config.toml");
 
-    let ver = daemon_cmd().arg("--version").output().expect("run --version");
-    assert!(ver.status.success());
+    let ver = daemon_cmd()
+        .arg("--version")
+        .output()
+        .expect("run --version");
+    assert!(
+        ver.status
+            .success()
+    );
     assert!(String::from_utf8_lossy(&ver.stdout).contains("nfqws2"));
 
     let dry = daemon_cmd()
-        .args(["--config", toml_path.to_str().expect("utf8"), "--dry-run"])
+        .args([
+            "--config",
+            toml_path
+                .to_str()
+                .expect("utf8"),
+            "--dry-run",
+        ])
         .output()
         .expect("run --dry-run");
-    assert!(dry.status.success(), "dry-run stderr: {}", String::from_utf8_lossy(&dry.stderr));
+    assert!(
+        dry.status
+            .success(),
+        "dry-run stderr: {}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
     assert!(String::from_utf8_lossy(&dry.stdout).contains("configuration verified"));
 
     let missing_lua = daemon_cmd()
         .args(["--dry-run", "--lua-init=@/nonexistent_zapret_script.lua"])
         .output()
         .expect("run missing lua-init");
-    assert!(!missing_lua.status.success());
+    assert!(
+        !missing_lua
+            .status
+            .success()
+    );
 
     let bad_user = daemon_cmd()
         .args(["--dry-run", "--user", "no_such_zapret_user_99999"])
         .output()
         .expect("run invalid user");
-    assert!(!bad_user.status.success());
+    assert!(
+        !bad_user
+            .status
+            .success()
+    );
 
-    let bad_uid = daemon_cmd().args(["--dry-run", "--uid", "abc:def"]).output().expect("run invalid uid");
-    assert!(!bad_uid.status.success());
+    let bad_uid = daemon_cmd()
+        .args(["--dry-run", "--uid", "abc:def"])
+        .output()
+        .expect("run invalid uid");
+    assert!(
+        !bad_uid
+            .status
+            .success()
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -192,7 +251,8 @@ fn cli_intercept_zero_loads_zapret_lib_and_runs_inline_lua()
         .expect("run nfqws2 --intercept=0");
 
     assert!(
-        out.status.success(),
+        out.status
+            .success(),
         "nfqws2 exited with {}; stderr={}",
         out.status,
         String::from_utf8_lossy(&out.stderr)
@@ -216,7 +276,9 @@ fn cli_intercept_zero_executes_timers_and_removes_pidfile()
         .args([
             "--intercept=0",
             "--pidfile",
-            pidfile.to_str().expect("utf8 pidfile"),
+            pidfile
+                .to_str()
+                .expect("utf8 pidfile"),
             "--lua-init",
             r#"timer_set("once", function(name) DLOG_CONDUP("fired:" .. name) end, 20, true)"#,
         ])
@@ -224,7 +286,12 @@ fn cli_intercept_zero_executes_timers_and_removes_pidfile()
         .expect("run timer --intercept=0");
 
     assert!(start.elapsed() < Duration::from_secs(2));
-    assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status
+            .success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(String::from_utf8_lossy(&out.stdout).contains("LUA: fired:once"));
     assert!(!pidfile.exists(), "pidfile must be cleaned up automatically after exit");
 
@@ -242,7 +309,9 @@ fn cli_sighup_is_nonfatal_and_sigterm_exits_cleanly_without_pidfile_leak()
         .args([
             "--intercept=0",
             "--pidfile",
-            pidfile.to_str().expect("utf8 pidfile"),
+            pidfile
+                .to_str()
+                .expect("utf8 pidfile"),
             "--lua-init",
             r#"timer_set("hold", function() end, 10000, false)"#,
         ])
@@ -257,7 +326,12 @@ fn cli_sighup_is_nonfatal_and_sigterm_exits_cleanly_without_pidfile_leak()
 
     send_signal(pid, libc::SIGHUP);
     std::thread::sleep(Duration::from_millis(80));
-    assert!(child.try_wait().is_none(), "SIGHUP must not terminate nfqws2");
+    assert!(
+        child
+            .try_wait()
+            .is_none(),
+        "SIGHUP must not terminate nfqws2"
+    );
 
     send_signal(pid, libc::SIGTERM);
     let status = child.wait_bounded(Duration::from_secs(2));
@@ -278,7 +352,9 @@ fn cli_sigint_exits_cleanly_without_pidfile_leak()
         .args([
             "--intercept=0",
             "--pidfile",
-            pidfile.to_str().expect("utf8 pidfile"),
+            pidfile
+                .to_str()
+                .expect("utf8 pidfile"),
             "--lua-init",
             r#"timer_set("hold", function() end, 10000, false)"#,
         ])
@@ -305,19 +381,44 @@ fn cli_chdir_resolves_relative_lua_init_script()
     fs::write(dir.join("rel.lua"), r#"DLOG_CONDUP("chdir_ok")"#).expect("write rel.lua");
 
     let out = daemon_cmd()
-        .args(["--intercept=0", "--chdir", dir.to_str().expect("utf8 dir"), "--lua-init=@rel.lua"])
+        .args([
+            "--intercept=0",
+            "--chdir",
+            dir.to_str()
+                .expect("utf8 dir"),
+            "--lua-init=@rel.lua",
+        ])
         .output()
         .expect("run nfqws2 --chdir");
 
-    assert!(out.status.success());
+    assert!(
+        out.status
+            .success()
+    );
     assert!(String::from_utf8_lossy(&out.stdout).contains("LUA: chdir_ok"));
 
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// Verifies UID/GID parsing, `getpwnam_r` account lookup, and [`PidFileGuard`] RAII teardown.
-#[test]
-fn runtime_identity_parsing_and_pidfile_guard_cleanup()
+/// Verifies [`PidFileGuard`] writes current PID and removes the file upon drop.
+fn verify_pidfile_guard_cleanup()
+{
+    let dir = fresh_temp_dir("pidguard");
+    let pid_path = dir.join("guard.pid");
+    {
+        let mut guard = PidFileGuard::create(&pid_path).expect("create guard");
+        guard
+            .write_current_pid()
+            .expect("write pid");
+        let text = fs::read_to_string(guard.path()).expect("read guard pidfile");
+        assert_eq!(text, std::process::id().to_string());
+    }
+    assert!(!pid_path.exists(), "PidFileGuard drop must remove pidfile");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Verifies numeric `uid[:gid,...]` parsing and rejection cases.
+fn assert_uid_spec_parsing()
 {
     let uid_only = parse_uid_spec("1000").expect("uid only parses");
     assert_eq!(uid_only.uid, 1000);
@@ -330,23 +431,25 @@ fn runtime_identity_parsing_and_pidfile_guard_cleanup()
 
     assert!(matches!(parse_uid_spec("1000:"), Err(ProcessError::InvalidUidSpec(_))));
     assert!(matches!(parse_uid_spec("abc"), Err(ProcessError::InvalidUidSpec(_))));
+}
+
+/// Verifies UID/GID parsing, `getpwnam_r` account lookup, and [`PidFileGuard`] RAII teardown.
+#[test]
+fn runtime_identity_parsing_and_pidfile_guard_cleanup()
+{
+    assert_uid_spec_parsing();
 
     let root = resolve_user_spec("root").expect("root exists in /etc/passwd");
     assert_eq!(root.uid, 0);
-    assert_eq!(root.user.as_deref(), Some("root"));
+    assert_eq!(
+        root.user
+            .as_deref(),
+        Some("root")
+    );
     assert!(matches!(resolve_user_spec("no_such_zapret_user_99999"), Err(ProcessError::UserLookup(_))));
     assert!(matches!(resolve_identity(Some("root"), Some("0")), Err(ProcessError::UserLookup(_))));
 
-    let dir = fresh_temp_dir("pidguard");
-    let pid_path = dir.join("guard.pid");
-    {
-        let mut guard = PidFileGuard::create(&pid_path).expect("create guard");
-        guard.write_current_pid().expect("write pid");
-        let text = fs::read_to_string(guard.path()).expect("read guard pidfile");
-        assert_eq!(text, std::process::id().to_string());
-    }
-    assert!(!pid_path.exists(), "PidFileGuard drop must remove pidfile");
-    let _ = fs::remove_dir_all(&dir);
+    verify_pidfile_guard_cleanup();
 }
 
 /// Verifies live NFQUEUE bind, `--pidfile` write, and clean `SIGTERM` shutdown inside a privileged namespace.
@@ -358,7 +461,14 @@ fn live_nfqueue_daemon_starts_and_exits_on_sigterm()
     let pidfile = dir.join("live.pid");
 
     let raw_child = daemon_cmd()
-        .args(["--qnum", "299", "--pidfile", pidfile.to_str().expect("utf8 pidfile")])
+        .args([
+            "--qnum",
+            "299",
+            "--pidfile",
+            pidfile
+                .to_str()
+                .expect("utf8 pidfile"),
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -382,10 +492,21 @@ fn cli_dry_run_validates_lists_and_accepts_m3_flags()
     let bad_cfg = dir.join("missing-list.toml");
     fs::write(&bad_cfg, "[[profiles]]\nhostlist = [\"does-not-exist.txt\"]\n").expect("write bad");
     let fail = daemon_cmd()
-        .args(["--dry-run", "--config", bad_cfg.to_str().expect("utf8")])
+        .args([
+            "--dry-run",
+            "--config",
+            bad_cfg
+                .to_str()
+                .expect("utf8"),
+        ])
         .output()
         .expect("run bad dry-run");
-    assert!(!fail.status.success(), "missing hostlist must fail dry-run");
+    assert!(
+        !fail
+            .status
+            .success(),
+        "missing hostlist must fail dry-run"
+    );
 
     let hl = dir.join("hosts.txt");
     let good_cfg = dir.join("valid-m3.toml");
@@ -395,7 +516,9 @@ fn cli_dry_run_validates_lists_and_accepts_m3_flags()
         .args([
             "--dry-run",
             "--config",
-            good_cfg.to_str().expect("utf8"),
+            good_cfg
+                .to_str()
+                .expect("utf8"),
             "--ctrack-timeouts=10:20:30",
             "--ipcache-hostname=1",
             "--payload-disable=dns_query",
@@ -404,5 +527,10 @@ fn cli_dry_run_validates_lists_and_accepts_m3_flags()
         .output()
         .expect("run valid m3 dry-run");
     let _ = fs::remove_dir_all(&dir);
-    assert!(ok.status.success(), "valid M3 dry-run failed: {}", String::from_utf8_lossy(&ok.stderr));
+    assert!(
+        ok.status
+            .success(),
+        "valid M3 dry-run failed: {}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
 }

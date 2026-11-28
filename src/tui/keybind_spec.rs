@@ -37,7 +37,9 @@ impl KeyBind
             {
                 break;
             }
-            match prefix.to_ascii_lowercase().as_str()
+            match prefix
+                .to_ascii_lowercase()
+                .as_str()
             {
                 "ctrl" | "control" | "c" => modifiers |= KeyModifiers::CONTROL,
                 "alt" | "meta" | "m" => modifiers |= KeyModifiers::ALT,
@@ -65,15 +67,28 @@ impl KeyBind
     {
         if self.code == KeyCode::BackTab
         {
-            let clean = !event.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+            let clean = !event
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
             return clean
                 && (event.code == KeyCode::BackTab
-                    || (event.code == KeyCode::Tab && event.modifiers.contains(KeyModifiers::SHIFT)));
+                    || (event.code == KeyCode::Tab
+                        && event
+                            .modifiers
+                            .contains(KeyModifiers::SHIFT)));
         }
-        let ctrl_match =
-            event.modifiers.contains(KeyModifiers::CONTROL) == self.modifiers.contains(KeyModifiers::CONTROL);
-        let alt_match =
-            event.modifiers.contains(KeyModifiers::ALT) == self.modifiers.contains(KeyModifiers::ALT);
+        let ctrl_match = event
+            .modifiers
+            .contains(KeyModifiers::CONTROL)
+            == self
+                .modifiers
+                .contains(KeyModifiers::CONTROL);
+        let alt_match = event
+            .modifiers
+            .contains(KeyModifiers::ALT)
+            == self
+                .modifiers
+                .contains(KeyModifiers::ALT);
         if !ctrl_match || !alt_match
         {
             return false;
@@ -82,7 +97,9 @@ impl KeyBind
         {
             (KeyCode::Char(expected), KeyCode::Char(actual)) =>
             {
-                if self.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                if self
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                 {
                     expected.eq_ignore_ascii_case(&actual)
                 }
@@ -103,15 +120,21 @@ impl KeyBind
             return "Shift+Tab".to_owned();
         }
         let mut out = String::new();
-        if self.modifiers.contains(KeyModifiers::CONTROL)
+        if self
+            .modifiers
+            .contains(KeyModifiers::CONTROL)
         {
             out.push_str("Ctrl+");
         }
-        if self.modifiers.contains(KeyModifiers::ALT)
+        if self
+            .modifiers
+            .contains(KeyModifiers::ALT)
         {
             out.push_str("Alt+");
         }
-        if self.modifiers.contains(KeyModifiers::SHIFT)
+        if self
+            .modifiers
+            .contains(KeyModifiers::SHIFT)
         {
             out.push_str("Shift+");
         }
@@ -129,36 +152,58 @@ impl KeyList
     /// Builds a [`KeyList`] from canonical key specification strings (ignoring invalid entries only if unreachable).
     pub(crate) fn from_specs(specs: &[&str]) -> Self
     {
-        Self(specs.iter().filter_map(|s| KeyBind::parse(s).ok()).collect())
+        Self(
+            specs
+                .iter()
+                .filter_map(|s| KeyBind::parse(s).ok())
+                .collect(),
+        )
     }
 
     /// Returns `true` when any configured key in this list matches `event`.
     pub fn contains(&self, event: KeyEvent) -> bool
     {
-        self.0.iter().any(|k| k.matches(event))
+        self.0
+            .iter()
+            .any(|k| k.matches(event))
     }
 
     /// Formats all bound keys separated by `'/'` (`"unbound"` when empty).
     pub fn joined_label(&self) -> String
     {
-        if self.0.is_empty()
+        if self
+            .0
+            .is_empty()
         {
             return "unbound".to_owned();
         }
-        self.0.iter().map(|k| k.format_label()).collect::<Vec<_>>().join("/")
+        self.0
+            .iter()
+            .map(|k| k.format_label())
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     /// Returns only the primary (first) key label, or `"unbound"` when empty.
     pub fn primary_label(&self) -> String
     {
-        self.0.first().map_or_else(|| "unbound".to_owned(), |k| k.format_label())
+        self.0
+            .first()
+            .map_or_else(|| "unbound".to_owned(), |k| k.format_label())
     }
 
     /// Formats distinct labels from `self` followed by `other`, joined with `'/'`.
     pub fn combine_labels(&self, other: &Self) -> String
     {
         let mut labels: Vec<String> = Vec::new();
-        for kb in self.0.iter().chain(other.0.iter())
+        for kb in self
+            .0
+            .iter()
+            .chain(
+                other
+                    .0
+                    .iter(),
+            )
         {
             let lbl = kb.format_label();
             if !labels.contains(&lbl)
@@ -174,13 +219,20 @@ impl Serialize for KeyList
 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error>
     {
-        if self.0.len() == 1
+        if self
+            .0
+            .len()
+            == 1
         {
             serializer.serialize_str(&self.0[0].format_label())
         }
         else
         {
-            let items: Vec<String> = self.0.iter().map(|k| k.format_label()).collect();
+            let items: Vec<String> = self
+                .0
+                .iter()
+                .map(|k| k.format_label())
+                .collect();
             items.serialize(serializer)
         }
     }
@@ -223,13 +275,23 @@ impl fmt::Display for KeyList
 /// Resolves a key name token or single printable Unicode scalar into a [`KeyCode`].
 fn parse_key_token(token: &str) -> Option<KeyCode>
 {
-    if token.chars().count() == 1
+    if token
+        .chars()
+        .count()
+        == 1
     {
-        let ch = token.chars().next()?;
+        let ch = token
+            .chars()
+            .next()?;
         return Some(if ch == ' ' { KeyCode::Char(' ') } else { KeyCode::Char(ch) });
     }
     let lower = token.to_ascii_lowercase();
-    if let Some(num) = lower.strip_prefix('f').and_then(|s| s.parse::<u8>().ok())
+    if let Some(num) = lower
+        .strip_prefix('f')
+        .and_then(|s| {
+            s.parse::<u8>()
+                .ok()
+        })
         && (1..=12).contains(&num)
     {
         return Some(KeyCode::F(num));

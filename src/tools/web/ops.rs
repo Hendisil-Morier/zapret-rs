@@ -87,7 +87,9 @@ struct SpeedRow
 /// Resolves the managed `nfqws2.toml` path from CLI flags or platform defaults.
 pub fn resolve_managed_config_path(cfg: &WebConfig) -> PathBuf
 {
-    cfg.config.clone().unwrap_or_else(default_output_config_path)
+    cfg.config
+        .clone()
+        .unwrap_or_else(default_output_config_path)
 }
 
 /// Resolves the sibling `autohostlist.txt` path alongside `config_path`.
@@ -103,7 +105,9 @@ fn read_config_json(path: &Path) -> serde_json::Value
 {
     let exists = path.is_file();
     let toml = std::fs::read_to_string(path).unwrap_or_default();
-    let (valid, error, profiles) = if toml.trim().is_empty()
+    let (valid, error, profiles) = if toml
+        .trim()
+        .is_empty()
     {
         (true, None, 0)
     }
@@ -111,7 +115,13 @@ fn read_config_json(path: &Path) -> serde_json::Value
     {
         match AppConfig::from_toml_str(&toml, path.parent())
         {
-            Ok(parsed) => (true, None, parsed.profiles.len()),
+            Ok(parsed) => (
+                true,
+                None,
+                parsed
+                    .profiles
+                    .len(),
+            ),
             Err(err) => (false, Some(err.to_string()), 0),
         }
     };
@@ -146,9 +156,20 @@ fn save_config_toml(
     cfg: &WebConfig,
 ) -> Result<serde_json::Value, (u16, String)>
 {
-    let config_dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
-    validate_web_toml_paths(toml_text, config_dir, cfg.lua_dir.as_deref())
-        .map_err(|err| bad_request("", err))?;
+    let config_dir = path
+        .parent()
+        .filter(|p| {
+            !p.as_os_str()
+                .is_empty()
+        })
+        .unwrap_or_else(|| Path::new("."));
+    validate_web_toml_paths(
+        toml_text,
+        config_dir,
+        cfg.lua_dir
+            .as_deref(),
+    )
+    .map_err(|err| bad_request("", err))?;
     let parsed = AppConfig::from_toml_str(toml_text, Some(config_dir))
         .map_err(|err| bad_request("invalid config TOML", err))?;
     write_config_nofollow(path, toml_text).map_err(|err| write_failed(path, err))?;
@@ -177,8 +198,13 @@ fn save_config_toml(
 /// Reads and filters autohostlist paths strictly confined to `config_path`'s parent directory.
 fn confined_autohostlist_paths(cfg: &AppConfig, config_path: &Path) -> Vec<PathBuf>
 {
-    let config_dir =
-        config_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let config_dir = config_path
+        .parent()
+        .filter(|p| {
+            !p.as_os_str()
+                .is_empty()
+        })
+        .unwrap_or_else(|| Path::new("."));
     configured_autohostlist_paths(cfg)
         .into_iter()
         .filter(|p| is_confined_to_config_dir(p, config_dir))
@@ -190,18 +216,28 @@ fn read_domains_json(config_path: &Path) -> serde_json::Value
 {
     let toml = std::fs::read_to_string(config_path).unwrap_or_default();
     let parsed = AppConfig::from_toml_str(&toml, config_path.parent()).ok();
-    let exclude_domains = parsed.as_ref().map_or_else(Vec::new, extract_exclude_domains);
-    let hostlist_domains = parsed.as_ref().map_or_else(Vec::new, extract_hostlist_domains);
-    let auto_paths = parsed.as_ref().map_or_else(Vec::new, |c| confined_autohostlist_paths(c, config_path));
+    let exclude_domains = parsed
+        .as_ref()
+        .map_or_else(Vec::new, extract_exclude_domains);
+    let hostlist_domains = parsed
+        .as_ref()
+        .map_or_else(Vec::new, extract_hostlist_domains);
+    let auto_paths = parsed
+        .as_ref()
+        .map_or_else(Vec::new, |c| confined_autohostlist_paths(c, config_path));
     let autohostlist_enabled = !auto_paths.is_empty();
-    let autohostlist_path =
-        auto_paths.first().cloned().unwrap_or_else(|| resolve_autohostlist_path(config_path));
+    let autohostlist_path = auto_paths
+        .first()
+        .cloned()
+        .unwrap_or_else(|| resolve_autohostlist_path(config_path));
     let mut autohostlist_domains = Vec::new();
     for p in &auto_paths
     {
         for line in read_hostlist_lines(p)
         {
-            if !autohostlist_domains.iter().any(|d: &String| d.eq_ignore_ascii_case(&line))
+            if !autohostlist_domains
+                .iter()
+                .any(|d: &String| d.eq_ignore_ascii_case(&line))
             {
                 autohostlist_domains.push(line);
             }
@@ -223,13 +259,18 @@ fn mutate_domain_list(
     ipc: &WebIpcBridge,
 ) -> Result<serde_json::Value, (u16, String)>
 {
-    let add = match payload.action.as_str()
+    let add = match payload
+        .action
+        .as_str()
     {
         "add" => true,
         "remove" => false,
         other => return Err((400, format!("unsupported domain action '{other}'"))),
     };
-    let target_list = payload.list.as_deref().unwrap_or("exclude");
+    let target_list = payload
+        .list
+        .as_deref()
+        .unwrap_or("exclude");
     match target_list
     {
         "exclude" =>
@@ -239,7 +280,9 @@ fn mutate_domain_list(
             let updated = mutate_exclude_domains_toml(&current, &payload.domain, add, config_path.parent())
                 .map_err(|err| bad_request("", err))?;
             write_config_nofollow(config_path, &updated).map_err(|err| write_failed(config_path, err))?;
-            let reloaded = ipc.send_command(&Request::ReloadConfig { toml: updated }).is_ok();
+            let reloaded = ipc
+                .send_command(&Request::ReloadConfig { toml: updated })
+                .is_ok();
             let domains = AppConfig::from_toml_str(
                 &std::fs::read_to_string(config_path).unwrap_or_default(),
                 config_path.parent(),
@@ -269,7 +312,9 @@ fn mutate_domain_list(
             };
             let domains =
                 mutate_hostlist_file(auto_path, &payload.domain, add).map_err(|e| bad_request("", e))?;
-            let reloaded = ipc.send_command(&Request::ReloadLists).is_ok();
+            let reloaded = ipc
+                .send_command(&Request::ReloadLists)
+                .is_ok();
             Ok(serde_json::json!({
                 "ok": true,
                 "list": "auto",
@@ -285,8 +330,12 @@ fn mutate_domain_list(
 fn run_speed_probe(payload: &SpeedRequestPayload) -> Vec<SpeedRow>
 {
     let backend = CurlProbeBackend::default();
-    let mut targets: Vec<_> =
-        payload.domains.iter().filter_map(|d| parse_clean_domain(d)).map(|d| domain_target(&d)).collect();
+    let mut targets: Vec<_> = payload
+        .domains
+        .iter()
+        .filter_map(|d| parse_clean_domain(d))
+        .map(|d| domain_target(&d))
+        .collect();
     if payload.include_control
     {
         targets.push(control_target());
@@ -297,8 +346,12 @@ fn run_speed_probe(payload: &SpeedRequestPayload) -> Vec<SpeedRow>
             let sample = measure(&backend, &target, IpFamily::V4);
             SpeedRow {
                 label: target.label,
-                ok: sample.outcome.is_success(),
-                summary: sample.outcome.summary(),
+                ok: sample
+                    .outcome
+                    .is_success(),
+                summary: sample
+                    .outcome
+                    .summary(),
                 connect_ms: sample.connect_ms,
                 ttfb_ms: sample.ttfb_ms,
                 bytes_per_sec: sample.bytes_per_sec,
@@ -418,7 +471,11 @@ pub fn handle_ops_route(
 ) -> bool
 {
     let config_path = resolve_managed_config_path(cfg);
-    match (&req.method, req.path.as_str())
+    match (
+        &req.method,
+        req.path
+            .as_str(),
+    )
     {
         (HttpMethod::Get, "/api/config") =>
         {

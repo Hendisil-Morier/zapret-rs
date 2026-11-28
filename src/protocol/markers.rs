@@ -87,14 +87,24 @@ pub fn posmarker_parse(s: &str) -> Option<ProtoPos>
         return Some(ProtoPos { pos, marker: PosMarker::Abs });
     }
 
-    let split_idx = s.find(['+', '-']).unwrap_or(s.len());
+    let split_idx = s
+        .find(['+', '-'])
+        .unwrap_or(s.len());
     if split_idx >= MAX_MARKER_TOKEN_LEN
     {
         return None;
     }
     let marker = posmarker_from_name(&s[..split_idx])?;
     let rest = &s[split_idx..];
-    let pos = if rest.is_empty() { 0 } else { rest.parse::<i16>().ok()? };
+    let pos = if rest.is_empty()
+    {
+        0
+    }
+    else
+    {
+        rest.parse::<i16>()
+            .ok()?
+    };
     Some(ProtoPos { pos, marker })
 }
 
@@ -120,7 +130,9 @@ pub fn posmarker_list_parse(s: &str, max_count: usize) -> Option<Vec<ProtoPos>>
 /// Bounds-checks `offset` against `[0, sz)` matching `CheckPos` in `protocol.c:182`.
 pub fn check_pos(sz: usize, offset: isize) -> Option<usize>
 {
-    usize::try_from(offset).ok().filter(|&off| off < sz)
+    usize::try_from(offset)
+        .ok()
+        .filter(|&off| off < sz)
 }
 
 /// Resolves protocol-independent markers (`PM_ABS` with positive or from-end offsets).
@@ -174,7 +186,9 @@ pub fn host_pos(
         _ => return None,
     };
 
-    let offset = isize::try_from(base).ok()?.checked_add(isize::from(pos))?;
+    let offset = isize::try_from(base)
+        .ok()?
+        .checked_add(isize::from(pos))?;
     check_pos(data.len(), offset)
 }
 
@@ -192,8 +206,10 @@ pub fn resolve_pos(data: &[u8], l7payload: L7Payload, sp: ProtoPos) -> Option<us
 /// Resolves, sorts ascending, and deduplicates multiple [`ProtoPos`] markers (`ResolveMultiPos`).
 pub fn resolve_multi_pos(data: &[u8], l7payload: L7Payload, markers: &[ProtoPos]) -> Vec<usize>
 {
-    let mut positions: Vec<usize> =
-        markers.iter().filter_map(|&marker| resolve_pos(data, l7payload, marker)).collect();
+    let mut positions: Vec<usize> = markers
+        .iter()
+        .filter_map(|&marker| resolve_pos(data, l7payload, marker))
+        .collect();
     positions.sort_unstable();
     positions.dedup();
     positions

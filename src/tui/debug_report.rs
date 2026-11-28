@@ -24,8 +24,14 @@ const MAX_REPORT_CONFIG_LINES: usize = 120;
 /// Formats a single [`crate::tui::speed::SpeedRow`] for both Tab 5 details and exported reports.
 fn format_speed_row(row: &crate::tui::speed::SpeedRow) -> String
 {
-    let before = row.before.as_ref().map_or_else(|| "pending".to_owned(), describe_sample);
-    let after = row.after.as_ref().map_or_else(|| "pending".to_owned(), describe_sample);
+    let before = row
+        .before
+        .as_ref()
+        .map_or_else(|| "pending".to_owned(), describe_sample);
+    let after = row
+        .after
+        .as_ref()
+        .map_or_else(|| "pending".to_owned(), describe_sample);
     let result = match compare(row)
     {
         Change::Pending => "pending".to_owned(),
@@ -40,31 +46,58 @@ fn format_speed_row(row: &crate::tui::speed::SpeedRow) -> String
 /// Formats one [`crate::tools::TargetScanResult`] for both Tab 5 details and exported reports.
 fn format_finder_target(t: &crate::tools::TargetScanResult) -> String
 {
-    let best = t.matches.first().map_or_else(
-        || if t.skipped_unblocked { "unblocked".to_owned() } else { "none".to_owned() },
-        |m| format!("{} ({} ms)", m.strategy.id, m.latency_ms),
-    );
+    let best = t
+        .matches
+        .first()
+        .map_or_else(
+            || if t.skipped_unblocked { "unblocked".to_owned() } else { "none".to_owned() },
+            |m| {
+                format!(
+                    "{} ({} ms)",
+                    m.strategy
+                        .id,
+                    m.latency_ms
+                )
+            },
+        );
     format!(
         "{} ({}/{}): baseline={} tested={} matches={} best={best}",
         t.domain,
-        t.proto.as_str(),
-        t.ipv.as_str(),
-        t.baseline.summary(),
+        t.proto
+            .as_str(),
+        t.ipv
+            .as_str(),
+        t.baseline
+            .summary(),
         t.tested_count,
-        t.matches.len()
+        t.matches
+            .len()
     )
 }
 
 /// Builds the live Tab 5 (`Status`) component row summarizing Tab 1 (`Strategy Finder`) state.
 pub(crate) fn check_finder_summary(state: &AppState) -> ComponentCheck
 {
-    if state.finder.targets.is_empty()
+    if state
+        .finder
+        .targets
+        .is_empty()
     {
-        let (health, summary) = match &state.finder.status
+        let (health, summary) = match &state
+            .finder
+            .status
         {
             FinderStatus::Scanning => (
                 ComponentHealth::Ok,
-                format!("Scanning ({}/{})", state.finder.progress_done, state.finder.progress_total),
+                format!(
+                    "Scanning ({}/{})",
+                    state
+                        .finder
+                        .progress_done,
+                    state
+                        .finder
+                        .progress_total
+                ),
             ),
             FinderStatus::Error(err) => (ComponentHealth::Err, format!("Error: {err}")),
             FinderStatus::Idle | FinderStatus::Done =>
@@ -80,19 +113,46 @@ pub(crate) fn check_finder_summary(state: &AppState) -> ComponentCheck
                 .to_owned(),
         };
     }
-    let matched = state.finder.targets.iter().filter(|t| !t.matches.is_empty()).count();
-    let blocked_none =
-        state.finder.targets.iter().filter(|t| !t.skipped_unblocked && t.matches.is_empty()).count();
+    let matched = state
+        .finder
+        .targets
+        .iter()
+        .filter(|t| {
+            !t.matches
+                .is_empty()
+        })
+        .count();
+    let blocked_none = state
+        .finder
+        .targets
+        .iter()
+        .filter(|t| {
+            !t.skipped_unblocked
+                && t.matches
+                    .is_empty()
+        })
+        .count();
     let health = if blocked_none > 0 && matched == 0 { ComponentHealth::Warn } else { ComponentHealth::Ok };
-    let details: Vec<String> = state.finder.targets.iter().map(format_finder_target).collect();
+    let details: Vec<String> = state
+        .finder
+        .targets
+        .iter()
+        .map(format_finder_target)
+        .collect();
     ComponentCheck {
         name: "Strategy Scan",
         health,
         summary: format!(
             "{} target(s) | {} matched, {} profile(s)",
-            state.finder.targets.len(),
+            state
+                .finder
+                .targets
+                .len(),
             matched,
-            state.finder.cover.len()
+            state
+                .finder
+                .cover
+                .len()
         ),
         detail: details.join("; "),
     }
@@ -101,8 +161,14 @@ pub(crate) fn check_finder_summary(state: &AppState) -> ComponentCheck
 /// Builds the live Tab 5 (`Status`) component row summarizing Tab 4 (`Speed Test`) results.
 pub(crate) fn check_speed_summary(state: &AppState) -> ComponentCheck
 {
-    let phase = state.speed.phase.label();
-    if state.speed.rows.is_empty()
+    let phase = state
+        .speed
+        .phase
+        .label();
+    if state
+        .speed
+        .rows
+        .is_empty()
     {
         return ComponentCheck {
             name: "Speed Test",
@@ -113,8 +179,15 @@ pub(crate) fn check_speed_summary(state: &AppState) -> ComponentCheck
         };
     }
     let (mut fixed, mut broke, mut blocked, mut compared) = (0usize, 0usize, 0usize, 0usize);
-    let mut details = Vec::with_capacity(state.speed.rows.len());
-    for row in &state.speed.rows
+    let mut details = Vec::with_capacity(
+        state
+            .speed
+            .rows
+            .len(),
+    );
+    for row in &state
+        .speed
+        .rows
     {
         match compare(row)
         {
@@ -133,7 +206,10 @@ pub(crate) fn check_speed_summary(state: &AppState) -> ComponentCheck
         health,
         summary: format!(
             "{phase} | {} row(s): {fixed} fixed, {compared} compared, {blocked} blocked, {broke} broke",
-            state.speed.rows.len()
+            state
+                .speed
+                .rows
+                .len()
         ),
         detail: details.join("; "),
     }
@@ -143,14 +219,26 @@ pub(crate) fn check_speed_summary(state: &AppState) -> ComponentCheck
 fn append_speed_section(out: &mut String, state: &AppState)
 {
     let _ = writeln!(out, "=== Speed Test Results ===");
-    let _ = writeln!(out, "Phase       : {}", state.speed.phase.label());
-    if state.speed.rows.is_empty()
+    let _ = writeln!(
+        out,
+        "Phase       : {}",
+        state
+            .speed
+            .phase
+            .label()
+    );
+    if state
+        .speed
+        .rows
+        .is_empty()
     {
         let _ = writeln!(out, "(no speed test run yet)");
         let _ = writeln!(out);
         return;
     }
-    for row in &state.speed.rows
+    for row in &state
+        .speed
+        .rows
     {
         let _ = writeln!(out, "- {}", format_speed_row(row));
     }
@@ -161,37 +249,75 @@ fn append_speed_section(out: &mut String, state: &AppState)
 fn append_finder_section(out: &mut String, state: &AppState)
 {
     let _ = writeln!(out, "=== Strategy Finder Results ===");
-    let domains = if state.finder.domains_input.trim().is_empty()
+    let domains = if state
+        .finder
+        .domains_input
+        .trim()
+        .is_empty()
     {
         "(none)"
     }
     else
     {
-        state.finder.domains_input.trim()
+        state
+            .finder
+            .domains_input
+            .trim()
     };
-    let _ = writeln!(out, "Status      : {:?}", state.finder.status);
+    let _ = writeln!(
+        out,
+        "Status      : {:?}",
+        state
+            .finder
+            .status
+    );
     let _ = writeln!(out, "Targets     : {domains}");
-    let _ = writeln!(out, "Mode        : {:?} / {:?}", state.finder.ip_mode, state.finder.level);
-    if state.finder.targets.is_empty() && state.finder.cover.is_empty()
+    let _ = writeln!(
+        out,
+        "Mode        : {:?} / {:?}",
+        state
+            .finder
+            .ip_mode,
+        state
+            .finder
+            .level
+    );
+    if state
+        .finder
+        .targets
+        .is_empty()
+        && state
+            .finder
+            .cover
+            .is_empty()
     {
         let _ = writeln!(out, "(no completed strategy results yet)");
         let _ = writeln!(out);
         return;
     }
-    for t in &state.finder.targets
+    for t in &state
+        .finder
+        .targets
     {
         let _ = writeln!(out, "- {}", format_finder_target(t));
     }
-    if !state.finder.cover.is_empty()
+    if !state
+        .finder
+        .cover
+        .is_empty()
     {
         let _ = writeln!(out, "Covered Profiles:");
-        for p in &state.finder.cover
+        for p in &state
+            .finder
+            .cover
         {
             let _ = writeln!(
                 out,
                 "  - {}: domains=[{}] avg={} ms",
-                p.strategy.id,
-                p.domains.join(", "),
+                p.strategy
+                    .id,
+                p.domains
+                    .join(", "),
                 p.avg_latency_ms
             );
         }
@@ -203,18 +329,30 @@ fn append_finder_section(out: &mut String, state: &AppState)
 fn append_config_section(out: &mut String, state: &AppState)
 {
     let _ = writeln!(out, "=== Active Config (nfqws2.toml) ===");
-    if state.config.active_toml.trim().is_empty()
+    if state
+        .config
+        .active_toml
+        .trim()
+        .is_empty()
     {
         let _ = writeln!(out, "(empty / not loaded)");
         let _ = writeln!(out);
         return;
     }
-    if let Some(err) = &state.config.toml_error
+    if let Some(err) = &state
+        .config
+        .toml_error
     {
         let _ = writeln!(out, "Parse Error : {err}");
     }
-    let lines: Vec<&str> = state.config.active_toml.lines().collect();
-    for line in lines.iter().take(MAX_REPORT_CONFIG_LINES)
+    let lines: Vec<&str> = state
+        .config
+        .active_toml
+        .lines()
+        .collect();
+    for line in lines
+        .iter()
+        .take(MAX_REPORT_CONFIG_LINES)
     {
         let _ = writeln!(out, "{line}");
     }
@@ -229,7 +367,9 @@ fn append_config_section(out: &mut String, state: &AppState)
 fn append_log_tail<'a>(out: &mut String, title: &str, lines: impl ExactSizeIterator<Item = &'a String>)
 {
     let _ = writeln!(out, "=== {title} ===");
-    let skip = lines.len().saturating_sub(MAX_REPORT_LOG_LINES);
+    let skip = lines
+        .len()
+        .saturating_sub(MAX_REPORT_LOG_LINES);
     for line in lines.skip(skip)
     {
         let _ = writeln!(out, "{line}");
@@ -247,21 +387,74 @@ pub fn format_debug_report(state: &AppState) -> String
     let _ = writeln!(out, "=== zapret-rs Debug Report ===");
     let _ = writeln!(out, "Version     : {}", env!("CARGO_PKG_VERSION"));
     let _ = writeln!(out, "OS / Arch   : {} / {}", std::env::consts::OS, std::env::consts::ARCH);
-    let _ = writeln!(out, "Executable  : {}", state.status.exe_path);
+    let _ = writeln!(
+        out,
+        "Executable  : {}",
+        state
+            .status
+            .exe_path
+    );
     let _ = writeln!(
         out,
         "UID / Privs : {} / {}",
-        state.status.uid,
-        if state.status.has_net_caps { "OK" } else { "MISSING" }
+        state
+            .status
+            .uid,
+        if state
+            .status
+            .has_net_caps
+        {
+            "OK"
+        }
+        else
+        {
+            "MISSING"
+        }
     );
-    let _ = writeln!(out, "Config Path : {}", state.finder.output_path);
-    let _ = writeln!(out, "Lua Dir     : {}", state.finder.lua_dir_input);
-    let _ = writeln!(out, "DNS Preset  : {}", state.status.dns_preset.label());
-    let _ = writeln!(out, "Run Status  : {:?}", state.run.status);
-    if let Some(meta) = &state.run.remote_meta
+    let _ = writeln!(
+        out,
+        "Config Path : {}",
+        state
+            .finder
+            .output_path
+    );
+    let _ = writeln!(
+        out,
+        "Lua Dir     : {}",
+        state
+            .finder
+            .lua_dir_input
+    );
+    let _ = writeln!(
+        out,
+        "DNS Preset  : {}",
+        state
+            .status
+            .dns_preset
+            .label()
+    );
+    let _ = writeln!(
+        out,
+        "Run Status  : {:?}",
+        state
+            .run
+            .status
+    );
+    if let Some(meta) = &state
+        .run
+        .remote_meta
     {
-        let profiles =
-            if meta.profile_names.is_empty() { "(none)".to_owned() } else { meta.profile_names.join(", ") };
+        let profiles = if meta
+            .profile_names
+            .is_empty()
+        {
+            "(none)".to_owned()
+        }
+        else
+        {
+            meta.profile_names
+                .join(", ")
+        };
         let _ = writeln!(
             out,
             "Daemon Info : pid={} ver={} qnum={} intercept={} profiles=[{profiles}]",
@@ -291,9 +484,23 @@ pub fn format_debug_report(state: &AppState) -> String
     append_speed_section(&mut out, state);
     append_finder_section(&mut out, state);
     append_config_section(&mut out, state);
-    append_log_tail(&mut out, "Recent Live Scan Log", state.finder.logs.iter());
+    append_log_tail(
+        &mut out,
+        "Recent Live Scan Log",
+        state
+            .finder
+            .logs
+            .iter(),
+    );
     let _ = writeln!(out);
-    append_log_tail(&mut out, "Recent Daemon Log", state.run.logs.iter());
+    append_log_tail(
+        &mut out,
+        "Recent Daemon Log",
+        state
+            .run
+            .logs
+            .iter(),
+    );
     if let Some((_, passcode)) = &state.web_status
         && !passcode.is_empty()
         && !passcode.starts_with("none")
@@ -308,14 +515,21 @@ pub fn debug_report_path(output_path: &str) -> PathBuf
 {
     let cfg = expand_tilde(output_path);
     cfg.parent()
-        .filter(|p| !p.as_os_str().is_empty())
+        .filter(|p| {
+            !p.as_os_str()
+                .is_empty()
+        })
         .map_or_else(|| PathBuf::from("zapret-rs-debug.txt"), |p| p.join("zapret-rs-debug.txt"))
 }
 
 /// Writes [`format_debug_report`] to `zapret-rs-debug.txt` without following symlinks.
 pub fn export_debug_report(state: &AppState) -> Result<PathBuf, String>
 {
-    let dest = debug_report_path(&state.finder.output_path);
+    let dest = debug_report_path(
+        &state
+            .finder
+            .output_path,
+    );
     let content = format_debug_report(state);
     write_config_nofollow(&dest, &content)
         .map_err(|err| format!("failed to write {}: {err}", dest.display()))?;

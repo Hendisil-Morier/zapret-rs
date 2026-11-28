@@ -17,14 +17,24 @@ use zapret_rs::tools::{
 fn raw_http(addr: SocketAddr, request: &str) -> (u16, String)
 {
     let mut stream = TcpStream::connect(addr).expect("connect to web server");
-    stream.write_all(request.as_bytes()).expect("write HTTP request");
+    stream
+        .write_all(request.as_bytes())
+        .expect("write HTTP request");
     let mut resp = String::new();
-    stream.read_to_string(&mut resp).expect("read HTTP response");
+    stream
+        .read_to_string(&mut resp)
+        .expect("read HTTP response");
     let status = resp
         .lines()
         .next()
-        .and_then(|l| l.split_whitespace().nth(1))
-        .and_then(|code| code.parse::<u16>().ok())
+        .and_then(|l| {
+            l.split_whitespace()
+                .nth(1)
+        })
+        .and_then(|code| {
+            code.parse::<u16>()
+                .ok()
+        })
         .expect("HTTP status code");
     (status, resp)
 }
@@ -46,7 +56,9 @@ fn web_auth_refuses_no_auth_on_non_loopback_and_signs_cookies()
     assert!(req_auth.verify_token(&tok));
     assert!(!req_auth.verify_token("wrong-token"));
 
-    let cookie = req_auth.issue_session_cookie(1000).expect("issued cookie");
+    let cookie = req_auth
+        .issue_session_cookie(1000)
+        .expect("issued cookie");
     assert!(req_auth.verify_session_value(&cookie, 1005));
     assert!(!req_auth.verify_session_value(&cookie, 1000 + 20 * 3600), "expired cookie rejected");
     let tampered = format!("{cookie}x");
@@ -73,7 +85,9 @@ fn http_parser_enforces_header_and_body_bounds()
 #[test]
 fn web_server_enforces_cookie_login_csrf_and_logout_over_tcp()
 {
-    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let bind: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("secret-pass-42".to_owned()), false).expect("auth");
     let mut srv =
         start_web_server(WebConfig { bind, auth, control_socket: None, config: None, lua_dir: None })
@@ -110,12 +124,24 @@ fn web_server_enforces_cookie_login_csrf_and_logout_over_tcp()
     );
     let (status, resp) = raw_http(addr, &req_ok);
     assert_eq!(status, 200);
-    let set_cookie =
-        resp.lines().find(|l| l.to_ascii_lowercase().starts_with("set-cookie:")).expect("Set-Cookie header");
+    let set_cookie = resp
+        .lines()
+        .find(|l| {
+            l.to_ascii_lowercase()
+                .starts_with("set-cookie:")
+        })
+        .expect("Set-Cookie header");
     assert!(set_cookie.contains(SESSION_COOKIE_NAME));
     assert!(set_cookie.contains("HttpOnly"));
     assert!(set_cookie.contains("SameSite=Strict"));
-    let cookie_pair = set_cookie.split_once(':').expect(":").1.split(';').next().expect("pair").trim();
+    let cookie_pair = set_cookie
+        .split_once(':')
+        .expect(":")
+        .1
+        .split(';')
+        .next()
+        .expect("pair")
+        .trim();
 
     // Authenticated request succeeds with session cookie or bearer header.
     let authed_req =
@@ -145,8 +171,14 @@ fn multicall_dispatches_web_subcommand_and_cli_help()
     assert_eq!(args.len(), 3);
 
     let bin = env!("CARGO_BIN_EXE_zapret-rs");
-    let help = Command::new(bin).args(["web", "--help"]).output().expect("run web --help");
-    assert!(help.status.success());
+    let help = Command::new(bin)
+        .args(["web", "--help"])
+        .output()
+        .expect("run web --help");
+    assert!(
+        help.status
+            .success()
+    );
     let stdout = String::from_utf8_lossy(&help.stdout);
     assert!(stdout.contains("--bind"));
     assert!(stdout.contains("--token"));
@@ -155,13 +187,19 @@ fn multicall_dispatches_web_subcommand_and_cli_help()
         .args(["web", "--bind", "0.0.0.0:8787", "--no-auth"])
         .output()
         .expect("run insecure web args");
-    assert!(!fail.status.success());
+    assert!(
+        !fail
+            .status
+            .success()
+    );
 }
 
 #[test]
 fn web_server_serves_self_contained_assets_without_external_cdn()
 {
-    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let bind: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("asset-pass".to_owned()), false).expect("auth");
     let mut srv =
         start_web_server(WebConfig { bind, auth, control_socket: None, config: None, lua_dir: None })
@@ -192,7 +230,9 @@ fn web_server_serves_self_contained_assets_without_external_cdn()
 #[test]
 fn web_server_blocks_dns_rebinding_cross_origin_and_rate_limits_login()
 {
-    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let bind: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .expect("loopback");
     let (auth, _) = WebAuth::new(bind, None, true).expect("no-auth loopback");
     let mut srv_noauth =
         start_web_server(WebConfig { bind, auth, control_socket: None, config: None, lua_dir: None })

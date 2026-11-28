@@ -96,37 +96,51 @@ impl AttachedDaemon
     /// Sends one [`Request`] over the active control socket connection.
     pub fn send_command(&self, req: &Request) -> Result<(), String>
     {
-        let mut stream = self.writer.lock().map_err(|_| "control socket writer lock poisoned".to_owned())?;
+        let mut stream = self
+            .writer
+            .lock()
+            .map_err(|_| "control socket writer lock poisoned".to_owned())?;
         write_message(&mut *stream, req).map_err(|err| format!("failed to send control request: {err}"))
     }
 
     /// Polls one non-`PASS` packet record without blocking.
     pub fn try_recv_desync(&self) -> Option<PacketRecord>
     {
-        self.desync_rx.try_recv().ok()
+        self.desync_rx
+            .try_recv()
+            .ok()
     }
 
     /// Polls one `PASS` packet record without blocking.
     pub fn try_recv_packet(&self) -> Option<PacketRecord>
     {
-        self.pkt_rx.try_recv().ok()
+        self.pkt_rx
+            .try_recv()
+            .ok()
     }
 
     /// Polls one remote lifecycle or command event without blocking.
     pub fn try_recv_event(&self) -> Option<RemoteEvent>
     {
-        self.ev_rx.try_recv().ok()
+        self.ev_rx
+            .try_recv()
+            .ok()
     }
 
     /// Signals the reader thread to exit, wakes any blocked socket read, and joins it.
     pub fn detach(&mut self)
     {
-        self.stop.store(true, Ordering::Release);
-        if let Ok(stream) = self.writer.lock()
+        self.stop
+            .store(true, Ordering::Release);
+        if let Ok(stream) = self
+            .writer
+            .lock()
         {
             let _ = stream.shutdown(Shutdown::Both);
         }
-        if let Some(handle) = self.join.take()
+        if let Some(handle) = self
+            .join
+            .take()
         {
             let _ = handle.join();
         }
@@ -145,7 +159,9 @@ impl Drop for AttachedDaemon
 /// Probes candidate paths and returns the first live non-symlink control endpoint.
 pub fn detect_control_socket(configured: Option<&Path>) -> Option<PathBuf>
 {
-    control_socket_candidates(configured).into_iter().find(|candidate| is_live_control_socket(candidate))
+    control_socket_candidates(configured)
+        .into_iter()
+        .find(|candidate| is_live_control_socket(candidate))
 }
 
 /// Connects to `socket_path`, validates protocol `hello`, queries `status`, subscribes, and starts streaming.
@@ -159,15 +175,22 @@ pub fn connect_remote_daemon(
     let _ = stream.set_read_timeout(Some(CONNECT_TIMEOUT));
     let _ = stream.set_write_timeout(Some(CONNECT_TIMEOUT));
 
-    let writer_stream = stream.try_clone().map_err(|err| format!("failed to clone control socket: {err}"))?;
+    let writer_stream = stream
+        .try_clone()
+        .map_err(|err| format!("failed to clone control socket: {err}"))?;
     let mut reader = LineReader::new(BufReader::new(stream));
 
     let daemon_version = perform_hello(&mut reader)?;
     let status = fetch_initial_status(&mut reader)?;
-    status.counters.store_into(&counters);
+    status
+        .counters
+        .store_into(&counters);
     send_subscribe(&mut reader)?;
 
-    let _ = reader.get_ref().get_ref().set_read_timeout(Some(READER_POLL_TIMEOUT));
+    let _ = reader
+        .get_ref()
+        .get_ref()
+        .set_read_timeout(Some(READER_POLL_TIMEOUT));
 
     let meta = RemoteDaemonMeta {
         socket_path,
@@ -208,8 +231,13 @@ pub fn connect_remote_daemon(
 /// Executes the `hello` handshake and translates version skew into a clear user message.
 fn perform_hello(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<String, String>
 {
-    write_message(reader.get_mut().get_mut(), &Request::Hello { version: CONTROL_PROTOCOL_VERSION })
-        .map_err(|err| format!("failed sending hello: {err}"))?;
+    write_message(
+        reader
+            .get_mut()
+            .get_mut(),
+        &Request::Hello { version: CONTROL_PROTOCOL_VERSION },
+    )
+    .map_err(|err| format!("failed sending hello: {err}"))?;
     match reader.read_message::<Response>()
     {
         Ok(Some(Response::HelloOk { version, daemon_version })) =>
@@ -236,8 +264,13 @@ fn perform_hello(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<St
 /// Sends `status` and reads the daemon's [`DaemonStatus`] reply.
 fn fetch_initial_status(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<DaemonStatus, String>
 {
-    write_message(reader.get_mut().get_mut(), &Request::Status)
-        .map_err(|err| format!("failed requesting status: {err}"))?;
+    write_message(
+        reader
+            .get_mut()
+            .get_mut(),
+        &Request::Status,
+    )
+    .map_err(|err| format!("failed requesting status: {err}"))?;
     match reader.read_message::<Response>()
     {
         Ok(Some(Response::Status(st))) => Ok(st),
@@ -251,8 +284,13 @@ fn fetch_initial_status(reader: &mut LineReader<BufReader<ControlStream>>) -> Re
 /// Sends `subscribe` and awaits the initial acknowledgment before starting the reader thread.
 fn send_subscribe(reader: &mut LineReader<BufReader<ControlStream>>) -> Result<(), String>
 {
-    write_message(reader.get_mut().get_mut(), &Request::Subscribe { pass_sample_rate: None })
-        .map_err(|err| format!("failed subscribing to telemetry: {err}"))?;
+    write_message(
+        reader
+            .get_mut()
+            .get_mut(),
+        &Request::Subscribe { pass_sample_rate: None },
+    )
+    .map_err(|err| format!("failed subscribing to telemetry: {err}"))?;
     match reader.read_message::<Response>()
     {
         Ok(Some(Response::Ack { op, .. })) if op == "subscribe" => Ok(()),
@@ -294,7 +332,8 @@ fn run_remote_reader(
                 }
                 Response::Status(st) =>
                 {
-                    st.counters.store_into(&counters);
+                    st.counters
+                        .store_into(&counters);
                     let _ = ev_tx.try_send(RemoteEvent::StatusUpdated(Box::new(st)));
                 }
                 Response::Ack { op, message } =>

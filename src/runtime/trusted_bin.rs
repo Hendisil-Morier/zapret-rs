@@ -68,9 +68,11 @@ pub fn validate_trusted_bin_path(path: &Path) -> io::Result<PathBuf>
     let mut comps = path.components();
     if let (Some(Component::Normal(name)), None) = (comps.next(), comps.next())
     {
-        let bare = name.to_str().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "executable name is not valid UTF-8")
-        })?;
+        let bare = name
+            .to_str()
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "executable name is not valid UTF-8")
+            })?;
         return resolve_trusted_system_bin(bare);
     }
 
@@ -98,7 +100,9 @@ pub fn validate_trusted_bin_path(path: &Path) -> io::Result<PathBuf>
 #[cfg(unix)]
 fn is_under_trusted_system_dir(path: &Path) -> bool
 {
-    TRUSTED_SYSTEM_BIN_DIRS.iter().any(|dir| path.starts_with(Path::new(dir)))
+    TRUSTED_SYSTEM_BIN_DIRS
+        .iter()
+        .any(|dir| path.starts_with(Path::new(dir)))
 }
 
 /// Verifies `candidate` resolves to a regular, executable, non-group/world-writable binary
@@ -109,12 +113,14 @@ fn validate_unix_candidate(candidate: &Path, allow_overflow_uid: bool) -> io::Re
     /// Unix file permission mode inspection trait.
     use std::os::unix::fs::PermissionsExt as _;
 
-    let parent = candidate.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("missing parent directory for '{}'", candidate.display()),
-        )
-    })?;
+    let parent = candidate
+        .parent()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("missing parent directory for '{}'", candidate.display()),
+            )
+        })?;
     let parent_meta = fs::metadata(parent)?;
     if !parent_meta.is_dir()
     {
@@ -154,7 +160,11 @@ fn validate_unix_candidate(candidate: &Path, allow_overflow_uid: bool) -> io::Re
     while let Some(dir) = ancestor
     {
         let dir_meta = fs::metadata(dir)?;
-        if (dir_meta.permissions().mode() & 0o002) != 0
+        if (dir_meta
+            .permissions()
+            .mode()
+            & 0o002)
+            != 0
         {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -190,7 +200,9 @@ fn check_safe_owner_and_mode(
         ));
     }
 
-    let mode = meta.permissions().mode();
+    let mode = meta
+        .permissions()
+        .mode();
     if (mode & 0o022) != 0
     {
         return Err(io::Error::new(

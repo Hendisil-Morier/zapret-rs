@@ -32,6 +32,8 @@ pub mod keybinds;
 pub mod modal;
 /// Mouse click and scroll wheel hit-testing aligned to the `ratatui` panel layouts.
 pub mod mouse;
+/// Per-tab mouse click and wheel scroll handlers shared with [`mouse`].
+pub(crate) mod mouse_tabs;
 /// Centered plain-text input modal for Blacklist, Auto Hostlist, and Web UI actions.
 pub mod prompt_modal;
 /// Control socket auto-detection and remote daemon telemetry client for Tab 2 attach mode.
@@ -42,8 +44,12 @@ pub mod render;
 pub mod render_config;
 /// Strategy Finder Tab 1 panel widgets extracted to keep renderer modules focused.
 pub mod render_finder;
+/// Strategy Finder Tab 1 setup-form widgets and horizontal text window helpers.
+pub(crate) mod render_finder_form;
 /// Auto Hostlist & Blacklist Tab 6 panel renderer.
 pub mod render_hostlist;
+/// Tab 2 (`Run nfqws2`) controller, metric cards, and shared log list widgets.
+pub(crate) mod render_run;
 /// Centralized Settings Tab 7 (`config.toml`, theme, keybinds) widget renderer.
 pub mod render_settings;
 /// Before/after Speed Test Tab 4 table and status card renderer.
@@ -64,8 +70,10 @@ pub mod speed;
 pub mod speed_runner;
 /// Mutable TUI application state and pure keyboard/event transitions.
 pub mod state;
-/// Strategy Finder form editing, scan config builder, and event handlers for [`AppState`].
+/// Strategy Finder form config, scan events, and hover state methods for [`AppState`].
 pub mod state_finder;
+/// Strategy Finder form navigation, field activation, text editing, and key handlers.
+pub(crate) mod state_finder_keys;
 /// Global hotkeys shared by every tab (help, quit, tab switching, panel focus, themes).
 pub mod state_global;
 /// Tab 2 (Run) and Tab 3 (Config) keyboard handlers for [`AppState`].

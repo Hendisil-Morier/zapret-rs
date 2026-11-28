@@ -4,6 +4,18 @@ All notable changes to `zapret-rs` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-11-28
+
+### Changed
+
+- **Formatting, Complexity & Clone Gates (`rustfmt.toml`, `clippy.toml`, `.jscpd.json`):** Added `chain_width = 0` to [rustfmt.toml](rustfmt.toml) so multi-step field/method chains wrap onto one call per line across the workspace, introduced [clippy.toml](clippy.toml) with `cognitive-complexity-threshold = 15` and `too-many-lines-threshold = 200`, and added [.jscpd.json](.jscpd.json) targeting `src/`.
+- **Worker, Config & TLS Helper Extraction (`src/tui/workers.rs`, `src/config/`, `src/protocol/tls_mod.rs`):** Deduplicated `ActiveScan`/`ActiveDaemon` shutdown (`shutdown_worker_handle`) and live catcher loops (`run_live_catcher`) in `src/tui/workers.rs`, consolidated repetitive `if let Some` option assignments behind `assign_some`, `assign_cloned_some`, and `copy_some_fields!` across `src/config/schema.rs`, `src/config/profile_schema.rs`, and `src/config/cli.rs`, and extracted `apply_sni_override` and `apply_rnd_sni` from `apply_sni_mods` in `src/protocol/tls_mod.rs`.
+- **Module Decomposition for Logical Line Caps:** Extracted `src/desync/profile_exec.rs` (`DesyncEngine` profile action runner), `src/tools/strat/catalog_rules.rs` (`StrategySpec` catalog expansion rules), `src/tui/mouse_tabs.rs` (Tab 1–4 mouse routing), `src/tui/render_run.rs` (Tab 2 controller/telemetry cards and shared log widget), `src/tui/render_finder_form.rs` (Tab 1 setup form and `windowed_text`), `src/tui/state_finder_keys.rs` (Tab 1 navigation, toggles, and text cursor editing), and `tests/tui_inspector.rs` (split from `tests/tui_app.rs`) alongside helper splits across integration tests.
+
+### Docs
+
+- Updated [README.md](README.md) and architecture/ADR docs under `docs/` to reflect `clippy.toml`, `rustfmt.toml` (`chain_width = 0`), and the decomposed module layout.
+
 ## [2.0.0] - 2026-11-28
 
 ### Added

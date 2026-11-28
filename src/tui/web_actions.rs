@@ -43,12 +43,25 @@ pub fn resolve_web_bind(mode: &str) -> &'static str
 fn encode_base64(bytes: &[u8]) -> String
 {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    let mut out = String::with_capacity(
+        bytes
+            .len()
+            .div_ceil(3)
+            * 4,
+    );
     for chunk in bytes.chunks(3)
     {
         let b0 = u32::from(chunk[0]);
-        let b1 = u32::from(*chunk.get(1).unwrap_or(&0));
-        let b2 = u32::from(*chunk.get(2).unwrap_or(&0));
+        let b1 = u32::from(
+            *chunk
+                .get(1)
+                .unwrap_or(&0),
+        );
+        let b2 = u32::from(
+            *chunk
+                .get(2)
+                .unwrap_or(&0),
+        );
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(TABLE[((n >> 18) & 63) as usize] as char);
         out.push(TABLE[((n >> 12) & 63) as usize] as char);
@@ -71,11 +84,15 @@ fn run_clipboard_tool(program: &str, args: &[&str], text: &str) -> bool
     {
         return false;
     };
-    if let Some(mut stdin) = child.stdin.take()
+    if let Some(mut stdin) = child
+        .stdin
+        .take()
     {
         let _ = stdin.write_all(text.as_bytes());
     }
-    child.wait().is_ok_and(|st| st.success())
+    child
+        .wait()
+        .is_ok_and(|st| st.success())
 }
 
 /// Copies `text` via terminal OSC 52 and native OS clipboard utilities (`wl-copy`/`xclip`/`xsel`).
@@ -86,7 +103,10 @@ pub fn copy_to_clipboard(text: &str) -> Result<&'static str, String>
     {
         let b64 = encode_base64(text.as_bytes());
         let mut out = io::stdout().lock();
-        if write!(out, "\x1b]52;c;{b64}\x07").is_ok() && out.flush().is_ok()
+        if write!(out, "\x1b]52;c;{b64}\x07").is_ok()
+            && out
+                .flush()
+                .is_ok()
         {
             osc52_ok = true;
         }
@@ -144,7 +164,9 @@ pub fn open_url_in_browser(url: &str) -> Result<(), String>
 /// Copies active Web UI passcode (or URL when no passcode) and updates the footer banner.
 pub fn copy_web_passcode(state: &mut AppState)
 {
-    let Some((url, passcode)) = state.web_status.as_ref()
+    let Some((url, passcode)) = state
+        .web_status
+        .as_ref()
     else
     {
         return;
@@ -160,12 +182,16 @@ pub fn copy_web_passcode(state: &mut AppState)
 /// Opens the active Web UI URL in a browser, copies the pairing passcode, and updates the banner.
 pub fn open_web_ui(state: &mut AppState)
 {
-    let Some((url, passcode)) = state.web_status.clone()
+    let Some((url, passcode)) = state
+        .web_status
+        .clone()
     else
     {
         return;
     };
-    let clip = (!passcode.starts_with("none")).then(|| copy_to_clipboard(&passcode).ok()).flatten();
+    let clip = (!passcode.starts_with("none"))
+        .then(|| copy_to_clipboard(&passcode).ok())
+        .flatten();
     state.status_banner = match open_url_in_browser(&url)
     {
         Ok(()) => match clip
@@ -181,7 +207,9 @@ pub fn open_web_ui(state: &mut AppState)
 fn format_web_url(addr: SocketAddr) -> String
 {
     let port = addr.port();
-    if !addr.ip().is_unspecified()
+    if !addr
+        .ip()
+        .is_unspecified()
     {
         return match addr
         {
@@ -189,16 +217,18 @@ fn format_web_url(addr: SocketAddr) -> String
             SocketAddr::V6(v6) => format!("http://[{}]:{port}", v6.ip()),
         };
     }
-    let probed = ["1.1.1.1:80", "192.168.1.1:80", "10.0.0.1:80"].into_iter().find_map(|probe| {
-        UdpSocket::bind("0.0.0.0:0")
-            .and_then(|sock| {
-                sock.connect(probe)?;
-                sock.local_addr()
-            })
-            .ok()
-            .map(|local| local.ip())
-            .filter(|ip| !ip.is_unspecified())
-    });
+    let probed = ["1.1.1.1:80", "192.168.1.1:80", "10.0.0.1:80"]
+        .into_iter()
+        .find_map(|probe| {
+            UdpSocket::bind("0.0.0.0:0")
+                .and_then(|sock| {
+                    sock.connect(probe)?;
+                    sock.local_addr()
+                })
+                .ok()
+                .map(|local| local.ip())
+                .filter(|ip| !ip.is_unspecified())
+        });
     match probed
     {
         Some(ip) if ip.is_ipv6() => format!("http://[{ip}]:{port}"),
@@ -211,12 +241,40 @@ fn format_web_url(addr: SocketAddr) -> String
 pub fn launch_web_ui(state: &mut AppState, bind: SocketAddr) -> Result<ActiveWebUi, String>
 {
     let (auth, token) = WebAuth::new(bind, None, false)?;
-    let cfg_path =
-        (!state.finder.output_path.trim().is_empty()).then(|| expand_tilde(&state.finder.output_path));
-    let lua_dir =
-        (!state.finder.lua_dir_input.trim().is_empty()).then(|| expand_tilde(&state.finder.lua_dir_input));
-    let control_socket =
-        state.run.control_socket_override.clone().or_else(|| state.run.detected_socket.clone());
+    let cfg_path = (!state
+        .finder
+        .output_path
+        .trim()
+        .is_empty())
+    .then(|| {
+        expand_tilde(
+            &state
+                .finder
+                .output_path,
+        )
+    });
+    let lua_dir = (!state
+        .finder
+        .lua_dir_input
+        .trim()
+        .is_empty())
+    .then(|| {
+        expand_tilde(
+            &state
+                .finder
+                .lua_dir_input,
+        )
+    });
+    let control_socket = state
+        .run
+        .control_socket_override
+        .clone()
+        .or_else(|| {
+            state
+                .run
+                .detected_socket
+                .clone()
+        });
     let cfg = WebConfig { bind, auth, control_socket, config: cfg_path, lua_dir };
     let handle = start_web_server(cfg)?;
     let url = format_web_url(handle.addr());
@@ -235,7 +293,9 @@ pub fn stop_web_ui(state: &mut AppState, web_ui: &mut Option<ActiveWebUi>)
         state.web_status = None;
         return;
     };
-    active.handle.shutdown();
+    active
+        .handle
+        .shutdown();
     state.web_status = None;
     state.refresh_status_checks();
     state.status_banner = "Stopped Web UI".to_owned();
@@ -249,7 +309,11 @@ pub(crate) fn commit_updated_toml(
     label: &str,
 ) -> Result<Request, String>
 {
-    let cfg_path = expand_tilde(&state.finder.output_path);
+    let cfg_path = expand_tilde(
+        &state
+            .finder
+            .output_path,
+    );
     write_config_nofollow(&cfg_path, &updated_toml)
         .map_err(|err| format!("failed to write {}: {err}", cfg_path.display()))?;
     state.set_active_toml(updated_toml.clone());
@@ -267,11 +331,17 @@ pub fn apply_prompt_offline(state: &mut AppState)
 /// Appends a clean domain from `raw_input` to configured autohostlist files and queues list reload.
 fn submit_add_autohostlist(state: &mut AppState, raw_input: &str) -> Result<Option<Request>, String>
 {
-    if state.config.autohostlist_paths.is_empty()
+    if state
+        .config
+        .autohostlist_paths
+        .is_empty()
     {
         return Err("Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first)".to_owned());
     }
-    for path in state.config.autohostlist_paths.clone()
+    for path in state
+        .config
+        .autohostlist_paths
+        .clone()
     {
         mutate_hostlist_file(&path, raw_input, true)?;
     }
@@ -289,14 +359,26 @@ fn submit_launch_web_ui(
 ) -> Result<(), String>
 {
     let bind_str = resolve_web_bind(raw_input);
-    let addr: SocketAddr =
-        bind_str.parse().map_err(|err| format!("invalid bind address {bind_str}: {err}"))?;
+    let addr: SocketAddr = bind_str
+        .parse()
+        .map_err(|err| format!("invalid bind address {bind_str}: {err}"))?;
     let active = launch_web_ui(state, addr)?;
-    let g = &state.keybinds.global;
-    let open_lbl = g.open_web_ui.primary_label();
-    let copy_lbl = g.copy_web_passcode.primary_label();
-    let stop_lbl = g.web_ui.primary_label();
-    let clip_note = if !active.passcode.starts_with("none") && copy_to_clipboard(&active.passcode).is_ok()
+    let g = &state
+        .keybinds
+        .global;
+    let open_lbl = g
+        .open_web_ui
+        .primary_label();
+    let copy_lbl = g
+        .copy_web_passcode
+        .primary_label();
+    let stop_lbl = g
+        .web_ui
+        .primary_label();
+    let clip_note = if !active
+        .passcode
+        .starts_with("none")
+        && copy_to_clipboard(&active.passcode).is_ok()
     {
         "copied".to_owned()
     }
@@ -314,7 +396,8 @@ fn submit_launch_web_ui(
     ));
     if let Some(mut prev) = web_ui.replace(active)
     {
-        prev.handle.shutdown();
+        prev.handle
+            .shutdown();
     }
     Ok(())
 }
@@ -322,16 +405,37 @@ fn submit_launch_web_ui(
 /// Executes the confirmed Tab 3 domain list or Web UI modal action and returns any reload request.
 pub(crate) fn submit_prompt_modal(state: &mut AppState, web_ui: &mut Option<ActiveWebUi>) -> Option<Request>
 {
-    let (kind, raw_input) = state.prompt_modal.as_ref().map(|m| (m.kind, m.input.trim().to_owned()))?;
+    let (kind, raw_input) = state
+        .prompt_modal
+        .as_ref()
+        .map(|m| {
+            (
+                m.kind,
+                m.input
+                    .trim()
+                    .to_owned(),
+            )
+        })?;
 
     let outcome: Result<Option<Request>, String> = match kind
     {
         PromptKind::BlacklistDomain =>
         {
-            let cfg_path = expand_tilde(&state.finder.output_path);
-            let source_toml = if !state.config.active_toml.trim().is_empty()
+            let cfg_path = expand_tilde(
+                &state
+                    .finder
+                    .output_path,
+            );
+            let source_toml = if !state
+                .config
+                .active_toml
+                .trim()
+                .is_empty()
             {
-                state.config.active_toml.clone()
+                state
+                    .config
+                    .active_toml
+                    .clone()
             }
             else
             {
@@ -357,7 +461,9 @@ pub(crate) fn submit_prompt_modal(state: &mut AppState, web_ui: &mut Option<Acti
         }
         Err(err) =>
         {
-            if let Some(modal) = state.prompt_modal.as_mut()
+            if let Some(modal) = state
+                .prompt_modal
+                .as_mut()
             {
                 modal.error = Some(err);
             }

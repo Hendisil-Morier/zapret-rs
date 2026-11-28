@@ -54,8 +54,9 @@ pub fn parse_uid_spec(spec: &str) -> Result<IdentitySpec, ProcessError>
                 {
                     return Err(ProcessError::InvalidUidSpec(spec.to_owned()));
                 }
-                let gid =
-                    item.parse::<libc::gid_t>().map_err(|_| ProcessError::InvalidUidSpec(spec.to_owned()))?;
+                let gid = item
+                    .parse::<libc::gid_t>()
+                    .map_err(|_| ProcessError::InvalidUidSpec(spec.to_owned()))?;
                 parsed.push(gid);
             }
             (uid_str, parsed)
@@ -63,7 +64,9 @@ pub fn parse_uid_spec(spec: &str) -> Result<IdentitySpec, ProcessError>
         None => (trimmed, vec![DEFAULT_UNPRIVILEGED_GID]),
     };
 
-    let uid = uid_part.parse::<libc::uid_t>().map_err(|_| ProcessError::InvalidUidSpec(spec.to_owned()))?;
+    let uid = uid_part
+        .parse::<libc::uid_t>()
+        .map_err(|_| ProcessError::InvalidUidSpec(spec.to_owned()))?;
 
     Ok(IdentitySpec { uid, user: None, gids })
 }
@@ -97,7 +100,8 @@ pub fn resolve_user_spec(username: &str) -> Result<IdentitySpec, ProcessError>
             libc::getpwnam_r(
                 c_user.as_ptr(),
                 &raw mut pwd,
-                buf.as_mut_ptr().cast::<libc::c_char>(),
+                buf.as_mut_ptr()
+                    .cast::<libc::c_char>(),
                 buf.len(),
                 &raw mut result,
             )
@@ -164,7 +168,9 @@ pub fn drop_privileges_for(
     preserve_nft_ambient: bool,
 ) -> Result<(), ProcessError>
 {
-    if id.gids.is_empty()
+    if id
+        .gids
+        .is_empty()
     {
         return Err(ProcessError::PrivilegeDrop {
             step: "gids",
@@ -203,7 +209,14 @@ pub fn drop_privileges_for(
     else
     {
         // SAFETY: `id.gids` stays valid across `setgroups` with exact length `id.gids.len()`.
-        if unsafe { libc::setgroups(id.gids.len() as _, id.gids.as_ptr()) } < 0
+        if unsafe {
+            libc::setgroups(
+                id.gids
+                    .len() as _,
+                id.gids
+                    .as_ptr(),
+            )
+        } < 0
         {
             return Err(ProcessError::PrivilegeDrop {
                 step: "setgroups",
@@ -238,12 +251,22 @@ pub fn drop_sudo_root_if_needed() -> Result<Option<(u32, u32)>, ProcessError>
     {
         return Ok(None);
     }
-    let Some(uid) = std::env::var("SUDO_UID").ok().and_then(|s| s.parse::<u32>().ok())
+    let Some(uid) = std::env::var("SUDO_UID")
+        .ok()
+        .and_then(|s| {
+            s.parse::<u32>()
+                .ok()
+        })
     else
     {
         return Ok(None);
     };
-    let Some(gid) = std::env::var("SUDO_GID").ok().and_then(|s| s.parse::<u32>().ok())
+    let Some(gid) = std::env::var("SUDO_GID")
+        .ok()
+        .and_then(|s| {
+            s.parse::<u32>()
+                .ok()
+        })
     else
     {
         return Ok(None);
@@ -252,7 +275,9 @@ pub fn drop_sudo_root_if_needed() -> Result<Option<(u32, u32)>, ProcessError>
     {
         return Ok(None);
     }
-    let user = std::env::var("SUDO_USER").ok().filter(|s| !s.is_empty());
+    let user = std::env::var("SUDO_USER")
+        .ok()
+        .filter(|s| !s.is_empty());
     let id = IdentitySpec { uid, gids: vec![gid], user };
     drop_privileges(&id, true)?;
     Ok(Some((uid, gid)))
@@ -301,17 +326,31 @@ impl PidFileGuard
     /// Writes `std::process::id()` to the pre-opened PID file, flushes it, and closes the handle.
     pub fn write_current_pid(&mut self) -> Result<(), ProcessError>
     {
-        let Some(mut file) = self.file.take()
+        let Some(mut file) = self
+            .file
+            .take()
         else
         {
             return Err(ProcessError::PidFile {
-                path: self.path.clone(),
+                path: self
+                    .path
+                    .clone(),
                 source: std::io::Error::other("PID file handle already closed"),
             });
         };
-        write!(file, "{}", std::process::id())
-            .map_err(|source| ProcessError::PidFile { path: self.path.clone(), source })?;
-        file.flush().map_err(|source| ProcessError::PidFile { path: self.path.clone(), source })?;
+        write!(file, "{}", std::process::id()).map_err(|source| ProcessError::PidFile {
+            path: self
+                .path
+                .clone(),
+            source,
+        })?;
+        file.flush()
+            .map_err(|source| ProcessError::PidFile {
+                path: self
+                    .path
+                    .clone(),
+                source,
+            })?;
         Ok(())
     }
 
@@ -327,7 +366,8 @@ impl Drop for PidFileGuard
     /// Closes any unwritten handle and removes the PID file best-effort when leaving scope.
     fn drop(&mut self)
     {
-        self.file.take();
+        self.file
+            .take();
         let _ = std::fs::remove_file(&self.path);
     }
 }

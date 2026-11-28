@@ -67,8 +67,14 @@ pub fn build_windivert_filter_ranges(tcp_ranges: &[(u16, u16)], udp_ranges: &[(u
 /// Builds a WinDivert `NETWORK`-layer filter expression targeting `tcp_ports` and `udp_ports`.
 pub fn build_windivert_filter(tcp_ports: &[u16], udp_ports: &[u16]) -> String
 {
-    let tcp_ranges: Vec<(u16, u16)> = tcp_ports.iter().map(|&p| (p, p)).collect();
-    let udp_ranges: Vec<(u16, u16)> = udp_ports.iter().map(|&p| (p, p)).collect();
+    let tcp_ranges: Vec<(u16, u16)> = tcp_ports
+        .iter()
+        .map(|&p| (p, p))
+        .collect();
+    let udp_ranges: Vec<(u16, u16)> = udp_ports
+        .iter()
+        .map(|&p| (p, p))
+        .collect();
     build_windivert_filter_ranges(&tcp_ranges, &udp_ranges)
 }
 

@@ -40,7 +40,9 @@ pub enum WebAuth
 /// Returns current UNIX epoch seconds (`0` only if system clock precedes `1970-01-01`).
 pub fn unix_now_secs() -> u64
 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 /// Encodes `bytes` as lowercase hexadecimal text cleanly without external dependencies.
@@ -62,7 +64,10 @@ fn const_time_eq(a: &[u8], b: &[u8]) -> bool
     {
         return false;
     }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.iter()
+        .zip(b)
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 /// Generates a phone-friendly 16-hex-char pairing passcode (`xxxx-xxxx-xxxx-xxxx`) via OS CSPRNG.
@@ -76,7 +81,9 @@ fn generate_pairing_token() -> String
 /// Parses `"Bearer <token>"` case-insensitively on scheme from an HTTP `Authorization` header.
 fn parse_bearer_token(header: &str) -> Option<&str>
 {
-    let (scheme, token) = header.trim().split_once(char::is_whitespace)?;
+    let (scheme, token) = header
+        .trim()
+        .split_once(char::is_whitespace)?;
     if scheme.eq_ignore_ascii_case("bearer")
     {
         let trimmed = token.trim();
@@ -93,7 +100,9 @@ fn extract_cookie<'a>(cookie_header: &'a str, name: &str) -> Option<&'a str>
 {
     for part in cookie_header.split(';')
     {
-        if let Some((k, v)) = part.trim().split_once('=')
+        if let Some((k, v)) = part
+            .trim()
+            .split_once('=')
             && k.trim() == name
         {
             return Some(v.trim());
@@ -115,7 +124,9 @@ impl WebAuth
     {
         if no_auth
         {
-            if !bind.ip().is_loopback()
+            if !bind
+                .ip()
+                .is_loopback()
             {
                 return Err(format!(
                     "refusing --no-auth on non-loopback address {bind}; omit --no-auth or pass --token"
@@ -128,7 +139,9 @@ impl WebAuth
         {
             Some(tok) =>
             {
-                let trimmed = tok.trim().to_owned();
+                let trimmed = tok
+                    .trim()
+                    .to_owned();
                 if trimmed.is_empty()
                 {
                     return Err("web auth token must not be empty".to_owned());
@@ -166,7 +179,12 @@ impl WebAuth
         {
             return true;
         };
-        let digest = sha2_hash(HashAlg::Sha256, candidate.trim().as_bytes());
+        let digest = sha2_hash(
+            HashAlg::Sha256,
+            candidate
+                .trim()
+                .as_bytes(),
+        );
         const_time_eq(&digest, token_digest)
     }
 
@@ -247,23 +265,32 @@ impl WebAuth
     pub fn passes_csrf_guard(req: &HttpRequest) -> bool
     {
         if let Some(ct) = req.header("content-type")
-            && ct.to_ascii_lowercase().starts_with("application/json")
+            && ct
+                .to_ascii_lowercase()
+                .starts_with("application/json")
         {
             return true;
         }
-        req.header("x-zapret-action").is_some()
+        req.header("x-zapret-action")
+            .is_some()
     }
 
     /// Rejects cross-site `Origin`/`Sec-Fetch-Site` headers and DNS-rebinding `Host` headers
     /// (especially critical on loopback listeners where `--no-auth` may be active).
     pub fn passes_host_and_origin_guard(req: &HttpRequest, bind_addr: SocketAddr) -> bool
     {
-        let Some(raw_host) = req.header("host").map(str::trim).filter(|h| !h.is_empty())
+        let Some(raw_host) = req
+            .header("host")
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
         else
         {
             return false;
         };
-        if raw_host.chars().any(char::is_whitespace) || raw_host.contains('/')
+        if raw_host
+            .chars()
+            .any(char::is_whitespace)
+            || raw_host.contains('/')
         {
             return false;
         }
@@ -272,26 +299,37 @@ impl WebAuth
         {
             return false;
         }
-        if bind_addr.ip().is_loopback() && !is_loopback_hostname(host_name, bind_addr)
+        if bind_addr
+            .ip()
+            .is_loopback()
+            && !is_loopback_hostname(host_name, bind_addr)
         {
             return false;
         }
-        if let Some(sfs) = req.header("sec-fetch-site").map(str::trim)
+        if let Some(sfs) = req
+            .header("sec-fetch-site")
+            .map(str::trim)
             && req.method == crate::tools::web::http::HttpMethod::Post
             && !sfs.eq_ignore_ascii_case("same-origin")
             && !sfs.eq_ignore_ascii_case("none")
         {
             return false;
         }
-        if let Some(origin) = req.header("origin").map(str::trim)
+        if let Some(origin) = req
+            .header("origin")
+            .map(str::trim)
         {
-            let Some(after_scheme) =
-                origin.strip_prefix("http://").or_else(|| origin.strip_prefix("https://"))
+            let Some(after_scheme) = origin
+                .strip_prefix("http://")
+                .or_else(|| origin.strip_prefix("https://"))
             else
             {
                 return false;
             };
-            let origin_auth = after_scheme.split('/').next().unwrap_or("");
+            let origin_auth = after_scheme
+                .split('/')
+                .next()
+                .unwrap_or("");
             if !origin_auth.eq_ignore_ascii_case(raw_host)
                 && !extract_authority_host(origin_auth).eq_ignore_ascii_case(host_name)
             {
@@ -307,11 +345,16 @@ fn extract_authority_host(authority: &str) -> &str
 {
     if let Some(rest) = authority.strip_prefix('[')
     {
-        rest.split(']').next().unwrap_or("")
+        rest.split(']')
+            .next()
+            .unwrap_or("")
     }
     else
     {
-        authority.split(':').next().unwrap_or("")
+        authority
+            .split(':')
+            .next()
+            .unwrap_or("")
     }
 }
 
@@ -321,7 +364,10 @@ fn is_loopback_hostname(host: &str, bind_addr: SocketAddr) -> bool
     host.eq_ignore_ascii_case("localhost")
         || host == "127.0.0.1"
         || host == "::1"
-        || host == bind_addr.ip().to_string()
+        || host
+            == bind_addr
+                .ip()
+                .to_string()
 }
 
 /// Sliding-window failed `/api/login` attempt limiter preventing online passcode brute-forcing.
@@ -349,7 +395,9 @@ impl LoginRateLimiter
     /// Returns `Ok(())` if login attempts are allowed at `now_secs`, else `Err(retry_after_secs)`.
     pub fn check_allowed(&self, now_secs: u64) -> Result<(), u64>
     {
-        let guard = match self.state.lock()
+        let guard = match self
+            .state
+            .lock()
         {
             Ok(g) => g,
             Err(p) => p.into_inner(),
@@ -360,7 +408,9 @@ impl LoginRateLimiter
     /// Records a failed passcode attempt and triggers a 30s lockout after 5 failures within 60s.
     pub fn record_failure(&self, now_secs: u64)
     {
-        let mut guard = match self.state.lock()
+        let mut guard = match self
+            .state
+            .lock()
         {
             Ok(g) => g,
             Err(p) => p.into_inner(),
@@ -370,7 +420,9 @@ impl LoginRateLimiter
             guard.window_started = now_secs;
             guard.failures = 0;
         }
-        guard.failures = guard.failures.saturating_add(1);
+        guard.failures = guard
+            .failures
+            .saturating_add(1);
         if guard.failures >= 5
         {
             guard.locked_until = now_secs.saturating_add(30);
@@ -380,7 +432,9 @@ impl LoginRateLimiter
     /// Resets failure counters after a successful passcode verification.
     pub fn record_success(&self)
     {
-        let mut guard = match self.state.lock()
+        let mut guard = match self
+            .state
+            .lock()
         {
             Ok(g) => g,
             Err(p) => p.into_inner(),

@@ -17,20 +17,39 @@ use crate::packet::types::{IcmpHeader, Ipv4Header, Ipv6Header, TcpHeader, UdpHea
 /// Reconstructs a wire-format IPv4 header with zero-padded options and a valid IPv4 header checksum.
 pub fn reconstruct_ipv4_header(ip: &Ipv4Header) -> PEResult<Vec<u8>>
 {
-    if ip.options.len() > MAX_IP4_OPTIONS_LEN
+    if ip
+        .options
+        .len()
+        > MAX_IP4_OPTIONS_LEN
     {
-        return Err(PacketError::OptionsTooLong(ip.options.len()));
+        return Err(PacketError::OptionsTooLong(
+            ip.options
+                .len(),
+        ));
     }
-    let padded_opt_len = (ip.options.len() + 3) & !3;
+    let padded_opt_len = (ip
+        .options
+        .len()
+        + 3)
+        & !3;
     let total_hdr_len = IP_BASE_LEN + padded_opt_len;
     let ihl = (total_hdr_len / 4) as u8;
 
     let mut buf = Vec::with_capacity(total_hdr_len);
     buf.push(0x40 | (ihl & 0x0F));
     buf.push(ip.tos);
-    buf.extend_from_slice(&ip.total_len.to_be_bytes());
-    buf.extend_from_slice(&ip.id.to_be_bytes());
-    buf.extend_from_slice(&ip.frag_off.to_be_bytes());
+    buf.extend_from_slice(
+        &ip.total_len
+            .to_be_bytes(),
+    );
+    buf.extend_from_slice(
+        &ip.id
+            .to_be_bytes(),
+    );
+    buf.extend_from_slice(
+        &ip.frag_off
+            .to_be_bytes(),
+    );
     buf.push(ip.ttl);
     buf.push(ip.protocol);
     buf.extend_from_slice(&0u16.to_be_bytes());
@@ -46,9 +65,22 @@ pub fn reconstruct_ipv4_header(ip: &Ipv4Header) -> PEResult<Vec<u8>>
 /// Reconstructs a wire-format IPv6 base header plus extension headers, updating `Next Header` links unless `preserve_next` is true.
 pub fn reconstruct_ipv6_header(ip6: &Ipv6Header, last_proto: u8, preserve_next: bool) -> PEResult<Vec<u8>>
 {
-    let mut buf = Vec::with_capacity(IP6_BASE_LEN + ip6.exthdr.len() * 8);
-    buf.extend_from_slice(&ip6.flow.to_be_bytes());
-    buf.extend_from_slice(&ip6.payload_len.unwrap_or(0).to_be_bytes());
+    let mut buf = Vec::with_capacity(
+        IP6_BASE_LEN
+            + ip6
+                .exthdr
+                .len()
+                * 8,
+    );
+    buf.extend_from_slice(
+        &ip6.flow
+            .to_be_bytes(),
+    );
+    buf.extend_from_slice(
+        &ip6.payload_len
+            .unwrap_or(0)
+            .to_be_bytes(),
+    );
     buf.push(ip6.next_header);
     buf.push(ip6.hop_limit);
     buf.extend_from_slice(&ip6.src);
@@ -58,7 +90,9 @@ pub fn reconstruct_ipv6_header(ip6: &Ipv6Header, last_proto: u8, preserve_next: 
 
     for ext in &ip6.exthdr
     {
-        let data_len = ext.data.len();
+        let data_len = ext
+            .data
+            .len();
         if data_len < 6
         {
             return Err(PacketError::InvalidExtHeader);
@@ -103,7 +137,9 @@ pub fn reconstruct_ipv6_header(ip6: &Ipv6Header, last_proto: u8, preserve_next: 
         buf[last_next_offset] = last_proto;
     }
 
-    if ip6.payload_len.is_none()
+    if ip6
+        .payload_len
+        .is_none()
     {
         let plen =
             u16::try_from(buf.len() - IP6_BASE_LEN).map_err(|_| PacketError::PayloadTooLarge(buf.len()))?;
@@ -131,7 +167,10 @@ pub fn reconstruct_tcp_header(tcp: &TcpHeader) -> PEResult<Vec<u8>>
             }
             kind =>
             {
-                let data = opt.data.as_deref().unwrap_or(&[]);
+                let data = opt
+                    .data
+                    .as_deref()
+                    .unwrap_or(&[]);
                 let opt_len = 2 + data.len();
                 if opt_buf.len() + opt_len > MAX_TCP_OPTIONS_LEN
                 {
@@ -155,15 +194,36 @@ pub fn reconstruct_tcp_header(tcp: &TcpHeader) -> PEResult<Vec<u8>>
     let data_offset = (total_len / 4) as u8;
 
     let mut buf = Vec::with_capacity(total_len);
-    buf.extend_from_slice(&tcp.s_port.to_be_bytes());
-    buf.extend_from_slice(&tcp.d_port.to_be_bytes());
-    buf.extend_from_slice(&tcp.seq.to_be_bytes());
-    buf.extend_from_slice(&tcp.ack.to_be_bytes());
+    buf.extend_from_slice(
+        &tcp.s_port
+            .to_be_bytes(),
+    );
+    buf.extend_from_slice(
+        &tcp.d_port
+            .to_be_bytes(),
+    );
+    buf.extend_from_slice(
+        &tcp.seq
+            .to_be_bytes(),
+    );
+    buf.extend_from_slice(
+        &tcp.ack
+            .to_be_bytes(),
+    );
     buf.push((data_offset << 4) | (tcp.reserved & 0x0F));
     buf.push(tcp.flags);
-    buf.extend_from_slice(&tcp.window.to_be_bytes());
-    buf.extend_from_slice(&tcp.checksum.to_be_bytes());
-    buf.extend_from_slice(&tcp.urgent_ptr.to_be_bytes());
+    buf.extend_from_slice(
+        &tcp.window
+            .to_be_bytes(),
+    );
+    buf.extend_from_slice(
+        &tcp.checksum
+            .to_be_bytes(),
+    );
+    buf.extend_from_slice(
+        &tcp.urgent_ptr
+            .to_be_bytes(),
+    );
     buf.extend_from_slice(&opt_buf);
 
     Ok(buf)
@@ -173,10 +233,22 @@ pub fn reconstruct_tcp_header(tcp: &TcpHeader) -> PEResult<Vec<u8>>
 pub fn reconstruct_udp_header(udp: &UdpHeader) -> [u8; UDP_BASE_LEN]
 {
     let mut buf = [0u8; UDP_BASE_LEN];
-    buf[0..2].copy_from_slice(&udp.s_port.to_be_bytes());
-    buf[2..4].copy_from_slice(&udp.d_port.to_be_bytes());
-    buf[4..6].copy_from_slice(&udp.len.to_be_bytes());
-    buf[6..8].copy_from_slice(&udp.checksum.to_be_bytes());
+    buf[0..2].copy_from_slice(
+        &udp.s_port
+            .to_be_bytes(),
+    );
+    buf[2..4].copy_from_slice(
+        &udp.d_port
+            .to_be_bytes(),
+    );
+    buf[4..6].copy_from_slice(
+        &udp.len
+            .to_be_bytes(),
+    );
+    buf[6..8].copy_from_slice(
+        &udp.checksum
+            .to_be_bytes(),
+    );
     buf
 }
 
@@ -186,7 +258,15 @@ pub fn reconstruct_icmp_header(icmp: &IcmpHeader) -> [u8; ICMP_BASE_LEN]
     let mut buf = [0u8; ICMP_BASE_LEN];
     buf[0] = icmp.icmp_type;
     buf[1] = icmp.icmp_code;
-    buf[2..4].copy_from_slice(&icmp.checksum.to_be_bytes());
-    buf[4..8].copy_from_slice(&icmp.data.to_be_bytes());
+    buf[2..4].copy_from_slice(
+        &icmp
+            .checksum
+            .to_be_bytes(),
+    );
+    buf[4..8].copy_from_slice(
+        &icmp
+            .data
+            .to_be_bytes(),
+    );
     buf
 }

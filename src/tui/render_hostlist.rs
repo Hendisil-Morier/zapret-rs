@@ -41,23 +41,47 @@ struct DomainColumnView<'a>
 fn build_hostlist_header<'a>(state: &AppState, auto_count: usize, black_count: usize) -> Line<'a>
 {
     let t = &state.theme;
-    if state.hostlist.filter_editing
+    if state
+        .hostlist
+        .filter_editing
     {
         return Line::from(vec![
-            Span::styled(" Filter: ", Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
             Span::styled(
-                format!("{}_", state.hostlist.filter),
-                Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+                " Filter: ",
+                Style::default()
+                    .fg(t.accent_bright)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(
+                    "{}_",
+                    state
+                        .hostlist
+                        .filter
+                ),
+                Style::default()
+                    .fg(t.text)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("   (Enter keeps filter, Esc clears)", Style::default().fg(t.muted)),
         ]);
     }
-    if !state.hostlist.filter.is_empty()
+    if !state
+        .hostlist
+        .filter
+        .is_empty()
     {
         return Line::from(vec![
             Span::styled(
-                format!(" Filter: \"{}\"  ", state.hostlist.filter),
-                Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD),
+                format!(
+                    " Filter: \"{}\"  ",
+                    state
+                        .hostlist
+                        .filter
+                ),
+                Style::default()
+                    .fg(t.warn_bright)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("Auto: {auto_count}  Blacklist: {black_count}"),
@@ -65,8 +89,17 @@ fn build_hostlist_header<'a>(state: &AppState, auto_count: usize, black_count: u
             ),
         ]);
     }
-    let focus_label =
-        if state.hostlist.focus == HostlistFocus::AutoHostlist { "Auto Hostlist" } else { "Blacklist" };
+    let focus_label = if state
+        .hostlist
+        .focus
+        == HostlistFocus::AutoHostlist
+    {
+        "Auto Hostlist"
+    }
+    else
+    {
+        "Blacklist"
+    };
     Line::from(vec![
         Span::styled(
             format!(" Auto Hostlist: {auto_count}   Blacklist: {black_count}   Focus: {focus_label}"),
@@ -85,9 +118,16 @@ pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
         .constraints([Constraint::Length(3), Constraint::Min(8)])
         .split(area);
 
-    let auto_items = state.hostlist.filtered_auto(&state.config);
-    let black_items = state.hostlist.filtered_blacklist(&state.config);
-    let auto_on = !state.config.autohostlist_paths.is_empty();
+    let auto_items = state
+        .hostlist
+        .filtered_auto(&state.config);
+    let black_items = state
+        .hostlist
+        .filtered_blacklist(&state.config);
+    let auto_on = !state
+        .config
+        .autohostlist_paths
+        .is_empty();
 
     let header_line = build_hostlist_header(state, auto_items.len(), black_items.len());
     let bar = Paragraph::new(header_line).block(panel_block(
@@ -99,7 +139,16 @@ pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
         {
             " Auto Hostlist (off) & Blacklist Manager "
         },
-        if state.hostlist.filter_editing { t.accent_bright } else { t.frame },
+        if state
+            .hostlist
+            .filter_editing
+        {
+            t.accent_bright
+        }
+        else
+        {
+            t.frame
+        },
         t.info,
     ));
     frame.render_widget(bar, rows[0]);
@@ -128,7 +177,10 @@ pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
     {
         "Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist)"
     }
-    else if state.config.autohostlist_entries.is_empty()
+    else if state
+        .config
+        .autohostlist_entries
+        .is_empty()
     {
         "No learned domains yet — press 'a' to add or wait for live failures"
     }
@@ -142,20 +194,36 @@ pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
             area: cols[0],
             title: &auto_title,
             items: &auto_items,
-            selected: state.hostlist.auto_sel,
-            focused: state.hostlist.focus == HostlistFocus::AutoHostlist,
+            selected: state
+                .hostlist
+                .auto_sel,
+            focused: state
+                .hostlist
+                .focus
+                == HostlistFocus::AutoHostlist,
             empty_msg: auto_empty,
             accent: t.ok_bright,
         },
         state,
     );
 
-    let black_empty = if state.config.exclude_entries.is_empty()
+    let black_empty = if state
+        .config
+        .exclude_entries
+        .is_empty()
     {
         format!(
             "No excluded domains - press '{}' to blacklist or '{}' on Auto Hostlist",
-            state.keybinds.hostlist.add_blacklist.primary_label(),
-            state.keybinds.hostlist.move_entry.joined_label()
+            state
+                .keybinds
+                .hostlist
+                .add_blacklist
+                .primary_label(),
+            state
+                .keybinds
+                .hostlist
+                .move_entry
+                .joined_label()
         )
     }
     else
@@ -168,8 +236,13 @@ pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
             area: cols[1],
             title: &format!(" Blacklist ({}) ", black_items.len()),
             items: &black_items,
-            selected: state.hostlist.blacklist_sel,
-            focused: state.hostlist.focus == HostlistFocus::Blacklist,
+            selected: state
+                .hostlist
+                .blacklist_sel,
+            focused: state
+                .hostlist
+                .focus
+                == HostlistFocus::Blacklist,
             empty_msg: &black_empty,
             accent: t.warn_bright,
         },
@@ -182,7 +255,9 @@ fn draw_domain_column(frame: &mut Frame, view: &DomainColumnView<'_>, state: &Ap
 {
     let t = &state.theme;
     let border = if view.focused { t.accent_bright } else { t.frame };
-    if view.items.is_empty()
+    if view
+        .items
+        .is_empty()
     {
         let p = Paragraph::new(Line::from(Span::styled(
             format!("  {}", view.empty_msg),
@@ -194,8 +269,18 @@ fn draw_domain_column(frame: &mut Frame, view: &DomainColumnView<'_>, state: &Ap
         return;
     }
 
-    let capacity = usize::from(view.area.height.saturating_sub(2)).max(1);
-    let (start, end) = visible_window(view.items.len(), view.selected, capacity);
+    let capacity = usize::from(
+        view.area
+            .height
+            .saturating_sub(2),
+    )
+    .max(1);
+    let (start, end) = visible_window(
+        view.items
+            .len(),
+        view.selected,
+        capacity,
+    );
     let rows: Vec<ListItem> = (start..end)
         .map(|idx| {
             let domain = view.items[idx];
@@ -214,11 +299,16 @@ fn draw_domain_column(frame: &mut Frame, view: &DomainColumnView<'_>, state: &Ap
             };
             let style = if is_sel && view.focused
             {
-                Style::default().fg(Color::Black).bg(t.accent_bright).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(t.accent_bright)
+                    .add_modifier(Modifier::BOLD)
             }
             else if is_sel
             {
-                Style::default().fg(view.accent).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(view.accent)
+                    .add_modifier(Modifier::BOLD)
             }
             else
             {

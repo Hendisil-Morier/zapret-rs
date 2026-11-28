@@ -51,7 +51,8 @@ impl TempWorkspace
     /// Returns a child file path inside this temporary workspace.
     fn path(&self, name: &str) -> PathBuf
     {
-        self.0.join(name)
+        self.0
+            .join(name)
     }
 }
 
@@ -70,20 +71,28 @@ fn write_multi_member_gzip(path: &Path, chunks: &[&[u8]])
     for chunk in chunks
     {
         let mut enc = GzEncoder::new(Vec::new(), Compression::default());
-        enc.write_all(chunk).expect("write gzip chunk");
-        combined.extend_from_slice(&enc.finish().expect("finish gzip chunk"));
+        enc.write_all(chunk)
+            .expect("write gzip chunk");
+        combined.extend_from_slice(
+            &enc.finish()
+                .expect("finish gzip chunk"),
+        );
     }
     std::fs::write(path, combined).expect("write gzip fixture");
 }
 
-/// Verifies comment skipping, flag matching (`^`/`!`), `no_match_subdomains`, exclude-before-include, and reload resilience.
-#[test]
-fn hostlist_flags_suffixes_gzip_and_reload_resilience()
+/// Verifies in-memory `HostlistPool` token filtering and flag (`^`/`!`) lookup rules.
+fn assert_hostlist_pool_flags()
 {
-    assert_eq!(parse_list_line_token("  # comment"), None);
-    assert_eq!(parse_list_line_token("\t; comment"), None);
-    assert_eq!(parse_list_line_token("// slash comment"), None);
-    assert_eq!(parse_list_line_token("  Example.COM # inline"), Some("Example.COM"));
+    for (raw, exp) in [
+        ("  # comment", None),
+        ("\t; comment", None),
+        ("// slash comment", None),
+        ("  Example.COM # inline", Some("Example.COM")),
+    ]
+    {
+        assert_eq!(parse_list_line_token(raw), exp);
+    }
 
     let mut pool = HostlistPool::new();
     for line in [
@@ -99,16 +108,26 @@ fn hostlist_flags_suffixes_gzip_and_reload_resilience()
         assert!(pool.add_raw_line(line));
     }
 
-    assert_eq!(pool.search("exactonly.org", false), HostlistSearchResult::Matched);
-    assert_eq!(pool.search("sub.exactonly.org", false), HostlistSearchResult::NotFound);
-    assert_eq!(pool.search("a.parent.org", false), HostlistSearchResult::Matched);
-    assert_eq!(pool.search("sub.blocked.parent.org", false), HostlistSearchResult::Exempted);
-    // `^!` exempts only the exact hostname, allowing child subdomains to match parent `exempt.net`.
-    assert_eq!(pool.search("strict.exempt.net", false), HostlistSearchResult::Exempted);
-    assert_eq!(pool.search("a.strict.exempt.net", false), HostlistSearchResult::Matched);
-    // IP literals disable subdomain traversal (`no_match_subdomains = true`).
-    assert_eq!(pool.search("10.20.30.40", true), HostlistSearchResult::Matched);
-    assert_eq!(pool.search("99.10.20.30", true), HostlistSearchResult::NotFound);
+    for (host, no_sub, exp) in [
+        ("exactonly.org", false, HostlistSearchResult::Matched),
+        ("sub.exactonly.org", false, HostlistSearchResult::NotFound),
+        ("a.parent.org", false, HostlistSearchResult::Matched),
+        ("sub.blocked.parent.org", false, HostlistSearchResult::Exempted),
+        ("strict.exempt.net", false, HostlistSearchResult::Exempted),
+        ("a.strict.exempt.net", false, HostlistSearchResult::Matched),
+        ("10.20.30.40", true, HostlistSearchResult::Matched),
+        ("99.10.20.30", true, HostlistSearchResult::NotFound),
+    ]
+    {
+        assert_eq!(pool.search(host, no_sub), exp);
+    }
+}
+
+/// Verifies comment skipping, flag matching (`^`/`!`), `no_match_subdomains`, exclude-before-include, and reload resilience.
+#[test]
+fn hostlist_flags_suffixes_gzip_and_reload_resilience()
+{
+    assert_hostlist_pool_flags();
 
     // File loading: concatenated multi-member `.gz` hostlist + corrupt `.gz` error + deleted resilience.
     let ws = TempWorkspace::new("zapret_rs_hl");
@@ -116,13 +135,25 @@ fn hostlist_flags_suffixes_gzip_and_reload_resilience()
     write_multi_member_gzip(&gz_path, &[b"# m1\nALPHA.org\n", b"^beta.com\n"]);
 
     let inc_file = Rc::new(RefCell::new(HostlistFile::from_path(gz_path.clone())));
-    inc_file.borrow_mut().load_initial().expect("initial gz load");
-    assert_eq!(inc_file.borrow().pool.len(), 2);
+    inc_file
+        .borrow_mut()
+        .load_initial()
+        .expect("initial gz load");
+    assert_eq!(
+        inc_file
+            .borrow()
+            .pool
+            .len(),
+        2
+    );
 
     let ex_path = ws.path("exclude.txt");
     std::fs::write(&ex_path, "excluded.alpha.org\n").expect("write exclude");
     let ex_file = Rc::new(RefCell::new(HostlistFile::from_path(ex_path)));
-    ex_file.borrow_mut().load_initial().expect("initial exclude");
+    ex_file
+        .borrow_mut()
+        .load_initial()
+        .expect("initial exclude");
 
     let empty_auto = Rc::new(RefCell::new(HostlistFile::inline()));
     let col = HostlistCollection {
@@ -133,7 +164,13 @@ fn hostlist_flags_suffixes_gzip_and_reload_resilience()
         exclude: vec![Rc::clone(&ex_file)],
     };
     col.ensure_autolists_non_empty();
-    assert!(empty_auto.borrow().pool.search(EMPTY_AUTOLIST_SENTINEL, false) == HostlistSearchResult::Matched);
+    assert!(
+        empty_auto
+            .borrow()
+            .pool
+            .search(EMPTY_AUTOLIST_SENTINEL, false)
+            == HostlistSearchResult::Matched
+    );
 
     assert_eq!(
         col.check("www.alpha.org", false, false),
@@ -146,7 +183,12 @@ fn hostlist_flags_suffixes_gzip_and_reload_resilience()
 
     // Removing the backing file keeps in-memory entries intact across reload checks.
     std::fs::remove_file(&gz_path).expect("remove gz");
-    assert!(!inc_file.borrow_mut().reload_if_changed().expect("missing stays ok"));
+    assert!(
+        !inc_file
+            .borrow_mut()
+            .reload_if_changed()
+            .expect("missing stays ok")
+    );
     assert_eq!(
         col.check("www.alpha.org", false, false),
         HostlistCheckOutcome { matched: true, excluded: false }
@@ -156,53 +198,85 @@ fn hostlist_flags_suffixes_gzip_and_reload_resilience()
     let bad_gz = ws.path("bad.gz");
     std::fs::write(&bad_gz, [0x1F, 0x8B, 0x08, 0xFF, 0x00]).expect("write corrupt gz");
     let mut bad_file = HostlistFile::from_path(bad_gz);
-    assert!(bad_file.load_initial().is_err());
+    assert!(
+        bad_file
+            .load_initial()
+            .is_err()
+    );
+}
+
+/// Verifies standalone IPv4 and IPv6 CIDR parsing edge cases.
+fn assert_cidr_parsing()
+{
+    assert_eq!(parse_cidr4("192.168.1.5"), Some((Ipv4Addr::new(192, 168, 1, 5), 32)));
+    assert_eq!(parse_cidr4("10.0.0.0/8"), Some((Ipv4Addr::new(10, 0, 0, 0), 8)));
+    assert_eq!(parse_cidr4("10.0.0.0/33"), None);
+    assert_eq!(
+        parse_cidr6("2001:db8::/32")
+            .expect("valid v6 cidr")
+            .0,
+        "2001:db8::"
+            .parse::<Ipv6Addr>()
+            .expect("v6")
+    );
+}
+
+/// Verifies disjoint IPv4/IPv6 CIDR parsing and prefix tree coalescing on `IpSet`.
+fn assert_ipset_prefix_tree()
+{
+    assert_cidr_parsing();
+
+    let mut set = IpSet::new();
+    assert!(set.add_raw_line("10.0.0.1/32") && set.len_v4() == 1);
+    assert!(set.add_raw_line("10.0.0.0/24") && set.len_v4() == 1);
+    assert!(set.add_raw_line("10.0.0.128/25") && set.len_v4() == 1);
+    assert!(set.contains(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 255))));
+    assert!(!set.contains(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 0))));
+    assert!(!set.add_raw_line("not-an-ip-subnet"));
+
+    assert!(set.add_raw_line("2001:db8::/32"));
+    assert!(
+        set.contains(
+            "2001:db8::dead:beef"
+                .parse()
+                .expect("v6")
+        )
+    );
+    assert!(
+        !set.contains(
+            "2001:db9::1"
+                .parse()
+                .expect("v6")
+        )
+    );
+
+    let mut any_v4 = IpSet::new();
+    assert!(any_v4.add_v4(Ipv4Addr::UNSPECIFIED, 0));
+    assert!(any_v4.contains(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7))));
 }
 
 /// Verifies disjoint IPv4/IPv6 CIDR coalescing, boundary bits, gzip ipsets, and dual-IP checks.
 #[test]
 fn ipset_disjoint_prefix_tree_gzip_and_dual_ip_checks()
 {
-    assert_eq!(parse_cidr4("192.168.1.5"), Some((Ipv4Addr::new(192, 168, 1, 5), 32)));
-    assert_eq!(parse_cidr4("10.0.0.0/8"), Some((Ipv4Addr::new(10, 0, 0, 0), 8)));
-    assert_eq!(parse_cidr4("10.0.0.0/33"), None);
-    assert_eq!(
-        parse_cidr6("2001:db8::/32").expect("valid v6 cidr").0,
-        "2001:db8::".parse::<Ipv6Addr>().expect("v6")
-    );
-
-    let mut set = IpSet::new();
-    assert!(set.add_raw_line("10.0.0.1/32"));
-    assert_eq!(set.len_v4(), 1);
-    assert!(set.add_raw_line("10.0.0.0/24"));
-    // Broader `/24` subsumes the earlier `/32`, leaving one disjoint prefix.
-    assert_eq!(set.len_v4(), 1);
-    assert!(set.add_raw_line("10.0.0.128/25"));
-    // Narrower `/25` is already covered by `/24`, keeping length 1.
-    assert_eq!(set.len_v4(), 1);
-    assert!(set.contains(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 255))));
-    assert!(!set.contains(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 0))));
-    assert!(!set.add_raw_line("not-an-ip-subnet"));
-
-    assert!(set.add_raw_line("2001:db8::/32"));
-    assert!(set.contains("2001:db8::dead:beef".parse().expect("v6")));
-    assert!(!set.contains("2001:db9::1".parse().expect("v6")));
-
-    // Test `/0` full match guard against shift overflow.
-    let mut any_v4 = IpSet::new();
-    assert!(any_v4.add_v4(Ipv4Addr::UNSPECIFIED, 0));
-    assert!(any_v4.contains(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7))));
+    assert_ipset_prefix_tree();
 
     let ws = TempWorkspace::new("zapret_rs_ips");
     let inc_gz = ws.path("ips.gz");
     write_multi_member_gzip(&inc_gz, &[b"; header comment\n192.0.2.0/24\nbadline\n2001:db8::/32\n"]);
     let inc_file = Rc::new(RefCell::new(IpsetFile::from_path(inc_gz)));
-    inc_file.borrow_mut().load_initial().expect("load gz ipset");
+    inc_file
+        .borrow_mut()
+        .load_initial()
+        .expect("load gz ipset");
 
     let ex_plain = ws.path("ips_ex.txt");
     std::fs::write(&ex_plain, "192.0.2.99/32\n").expect("write ex ipset");
     let ex_file = Rc::new(RefCell::new(IpsetFile::from_path(ex_plain)));
-    ex_file.borrow_mut().load_initial().expect("load ex ipset");
+    ex_file
+        .borrow_mut()
+        .load_initial()
+        .expect("load ex ipset");
 
     let ips = IpsetCollection { include: vec![Rc::clone(&inc_file)], exclude: vec![Rc::clone(&ex_file)] };
 
@@ -260,12 +334,28 @@ fn assert_tcp_udp_autohost_triggers(settings: &AutoHostlistSettings, fail_pool: 
     let mut entry = CtrackEntry::new(None).expect("entry");
     entry.hostname = Some("newblocked.org".to_owned());
     entry.hostname_ah_check = true;
-    entry.pos.ipproto = IPPROTO_TCP;
-    entry.pos.state = ConnState::Established;
-    entry.pos.client.seq0 = 1000;
-    entry.pos.client.seq_last = 1001;
-    entry.pos.client.pos = 1200;
-    entry.pos.client.uppos_prev = 1300; // `uppos_prev >= pos` => retransmission
+    entry
+        .pos
+        .ipproto = IPPROTO_TCP;
+    entry
+        .pos
+        .state = ConnState::Established;
+    entry
+        .pos
+        .client
+        .seq0 = 1000;
+    entry
+        .pos
+        .client
+        .seq_last = 1001;
+    entry
+        .pos
+        .client
+        .pos = 1200;
+    entry
+        .pos
+        .client
+        .uppos_prev = 1300; // `uppos_prev >= pos` => retransmission
     assert_eq!(check_tcp_retrans_trigger(&mut entry, settings), None);
     assert_eq!(check_tcp_retrans_trigger(&mut entry, settings), Some(true));
     assert_eq!(entry.req_retrans_counter, RETRANS_COUNTER_STOP);
@@ -273,18 +363,34 @@ fn assert_tcp_udp_autohost_triggers(settings: &AutoHostlistSettings, fail_pool: 
     // Sequence beyond `retrans_maxseq` ends failure tracking cleanly (`Some(false)` reset).
     let mut seq_far = CtrackEntry::new(None).expect("entry");
     seq_far.hostname_ah_check = true;
-    seq_far.pos.ipproto = IPPROTO_TCP;
-    seq_far.pos.state = ConnState::Established;
-    seq_far.pos.client.seq0 = 1000;
-    seq_far.pos.client.seq_last = 1000 + settings.retrans_maxseq + 1;
+    seq_far
+        .pos
+        .ipproto = IPPROTO_TCP;
+    seq_far
+        .pos
+        .state = ConnState::Established;
+    seq_far
+        .pos
+        .client
+        .seq0 = 1000;
+    seq_far
+        .pos
+        .client
+        .seq_last = 1000 + settings.retrans_maxseq + 1;
     assert_eq!(check_tcp_retrans_trigger(&mut seq_far, settings), Some(false));
     assert_eq!(seq_far.req_retrans_counter, RETRANS_COUNTER_STOP);
 
     let mut inc_entry = CtrackEntry::new(None).expect("entry");
     inc_entry.hostname = Some("example.com".to_owned());
     inc_entry.hostname_ah_check = true;
-    inc_entry.pos.server.seq0 = 5000;
-    inc_entry.pos.server.seq_last = 5001;
+    inc_entry
+        .pos
+        .server
+        .seq0 = 5000;
+    inc_entry
+        .pos
+        .server
+        .seq_last = 5001;
     let redir = b"HTTP/1.1 302 Found\r\nLocation: http://warning.isp.net/block\r\n\r\n";
     assert_eq!(
         check_tcp_incoming_trigger(&mut inc_entry, 0, Some(redir), L7Payload::HttpReply, settings),
@@ -292,8 +398,14 @@ fn assert_tcp_udp_autohost_triggers(settings: &AutoHostlistSettings, fail_pool: 
     );
     let mut rst_entry = CtrackEntry::new(None).expect("entry");
     rst_entry.hostname_ah_check = true;
-    rst_entry.pos.server.seq0 = 5000;
-    rst_entry.pos.server.seq_last = 5001;
+    rst_entry
+        .pos
+        .server
+        .seq0 = 5000;
+    rst_entry
+        .pos
+        .server
+        .seq_last = 5001;
     assert_eq!(
         check_tcp_incoming_trigger(&mut rst_entry, TH_RST, None, L7Payload::Empty, settings),
         Some(true)
@@ -303,10 +415,37 @@ fn assert_tcp_udp_autohost_triggers(settings: &AutoHostlistSettings, fail_pool: 
     udp_entry.hostname = Some("quic.example.com".to_owned());
     udp_entry.hostname_ah_check = true;
     let mut tpos = CtrackPositions { ipproto: IPPROTO_UDP, ..CtrackPositions::default() };
-    tpos.client.pcounter = 3;
-    tpos.server.pcounter = 1;
+    tpos.client
+        .pcounter = 3;
+    tpos.server
+        .pcounter = 1;
     assert_eq!(check_udp_trigger(&mut udp_entry, &tpos, settings), Some(true));
     fail_pool.record_failure("quic.example.com", 10, 300);
+}
+
+/// Verifies fixed deadline failure windows and rate-limited purge on `HostFailPool`.
+fn assert_host_fail_pool_window() -> HostFailPool
+{
+    let mut fail_pool = HostFailPool::new();
+    assert_eq!(fail_pool.record_failure("blocked.example", 10, 100), 1);
+    assert_eq!(
+        fail_pool
+            .get("blocked.example")
+            .expect("present")
+            .expire_sec,
+        110
+    );
+    assert_eq!(fail_pool.record_failure("blocked.example", 10, 105), 2);
+    assert_eq!(
+        fail_pool
+            .get("blocked.example")
+            .expect("present")
+            .expire_sec,
+        110
+    );
+    fail_pool.purge_rate_limited(110);
+    assert!(fail_pool.is_empty());
+    fail_pool
 }
 
 /// Verifies `HostFailPool` fixed failure windows, autolist self-append without reload storm, and TCP/UDP triggers.
@@ -326,23 +465,23 @@ fn autohostlist_fail_pool_append_and_tcp_udp_triggers()
         sibling_threshold: 2,
         confirm_block: false,
     };
-    assert!(settings.validate().is_ok());
+    assert!(
+        settings
+            .validate()
+            .is_ok()
+    );
 
-    let mut fail_pool = HostFailPool::new();
-    assert_eq!(fail_pool.record_failure("blocked.example", 10, 100), 1);
-    assert_eq!(fail_pool.get("blocked.example").expect("present").expire_sec, 110);
-    // Failure window deadline stays fixed at `110` instead of sliding on second failure at `105`.
-    assert_eq!(fail_pool.record_failure("blocked.example", 10, 105), 2);
-    assert_eq!(fail_pool.get("blocked.example").expect("present").expire_sec, 110);
-    fail_pool.purge_rate_limited(110);
-    assert!(fail_pool.is_empty());
+    let mut fail_pool = assert_host_fail_pool_window();
 
     let ws = TempWorkspace::new("zapret_rs_auto");
     let auto_path = ws.path("auto.txt");
     let dbg_path = ws.path("auto-debug.log");
     std::fs::write(&auto_path, "!exempt.example\n").expect("seed autolist");
     let autolist_file = Rc::new(RefCell::new(HostlistFile::from_path(auto_path.clone())));
-    autolist_file.borrow_mut().load_initial().expect("load auto");
+    autolist_file
+        .borrow_mut()
+        .load_initial()
+        .expect("load auto");
 
     let hostlists = HostlistCollection {
         include: vec![HostlistRef { file: Rc::clone(&autolist_file), is_autolist: true }],
@@ -372,7 +511,9 @@ fn autohostlist_fail_pool_append_and_tcp_udp_triggers()
     }
 
     // `newblocked.org` hits threshold 2 => appended, added to pool, `mod_sig` refreshed (no reload).
-    for (idx, t) in [210, 211].into_iter().enumerate()
+    for (idx, t) in [210, 211]
+        .into_iter()
+        .enumerate()
     {
         let mut ctx = AutoHostlistRecordCtx {
             settings: &settings,
@@ -392,9 +533,22 @@ fn autohostlist_fail_pool_append_and_tcp_udp_triggers()
             if idx == 0 { AutoHostlistAction::FailCounted(1) } else { AutoHostlistAction::AddedToList }
         );
     }
-    assert!(!autolist_file.borrow_mut().reload_if_changed().expect("sig refreshed"));
-    assert!(std::fs::read_to_string(&auto_path).expect("auto content").contains("newblocked.org\n"));
-    assert!(std::fs::read_to_string(&dbg_path).expect("debug log").contains("adding to"));
+    assert!(
+        !autolist_file
+            .borrow_mut()
+            .reload_if_changed()
+            .expect("sig refreshed")
+    );
+    assert!(
+        std::fs::read_to_string(&auto_path)
+            .expect("auto content")
+            .contains("newblocked.org\n")
+    );
+    assert!(
+        std::fs::read_to_string(&dbg_path)
+            .expect("debug log")
+            .contains("adding to")
+    );
 
     assert_tcp_udp_autohost_triggers(&settings, &mut fail_pool);
     assert_eq!(

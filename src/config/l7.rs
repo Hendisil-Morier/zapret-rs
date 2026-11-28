@@ -62,7 +62,14 @@ pub fn parse_l7_payload_mask(items: &[String]) -> Result<u64, ConfigError>
 /// Parses `--payload-disable` / `--reasm-disable` lists (`empty` => [`L7_PAYLOAD_NONE_MASK`], `"all"` => `0`).
 pub fn parse_l7_disable_mask(items: &[String]) -> Result<u64, ConfigError>
 {
-    let has_tokens = items.iter().flat_map(|entry| entry.split(',')).any(|token| !token.trim().is_empty());
+    let has_tokens = items
+        .iter()
+        .flat_map(|entry| entry.split(','))
+        .any(|token| {
+            !token
+                .trim()
+                .is_empty()
+        });
     if !has_tokens
     {
         return Ok(L7_PAYLOAD_NONE_MASK);

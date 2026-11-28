@@ -78,7 +78,9 @@ impl GhashTable
     fn mul(&self, x: [u8; 16]) -> [u8; 16]
     {
         let mut z = 0u128;
-        for &byte in x.iter().rev()
+        for &byte in x
+            .iter()
+            .rev()
         {
             let rem_lo = (z as usize) & 0x0f;
             z = (z >> 4) ^ (u128::from(LAST4_RED[rem_lo]) << 112) ^ self.0[(byte & 0x0f) as usize];
@@ -94,7 +96,9 @@ fn ghash_update(state: &mut [u8; 16], table: &GhashTable, data: &[u8])
 {
     for chunk in data.chunks(16)
     {
-        for (slot, &byte) in state.iter_mut().zip(chunk.iter())
+        for (slot, &byte) in state
+            .iter_mut()
+            .zip(chunk.iter())
         {
             *slot ^= byte;
         }
@@ -161,7 +165,9 @@ pub fn aes_gcm_crypt(
     {
         inc32(&mut ctr);
         let ectr = aes.encrypt_block(&ctr);
-        for (idx, &in_byte) in chunk.iter().enumerate()
+        for (idx, &in_byte) in chunk
+            .iter()
+            .enumerate()
         {
             let out_byte = in_byte ^ ectr[idx];
             out.push(out_byte);
@@ -172,12 +178,22 @@ pub fn aes_gcm_crypt(
     }
 
     let mut len_block = [0u8; 16];
-    len_block[..8].copy_from_slice(&(aad.len() as u64).wrapping_mul(8).to_be_bytes());
-    len_block[8..16].copy_from_slice(&(input.len() as u64).wrapping_mul(8).to_be_bytes());
+    len_block[..8].copy_from_slice(
+        &(aad.len() as u64)
+            .wrapping_mul(8)
+            .to_be_bytes(),
+    );
+    len_block[8..16].copy_from_slice(
+        &(input.len() as u64)
+            .wrapping_mul(8)
+            .to_be_bytes(),
+    );
     ghash_update(&mut ghash_state, &ghash, &len_block);
 
     let mut tag = base_ectr;
-    for (slot, &gh) in tag.iter_mut().zip(ghash_state.iter())
+    for (slot, &gh) in tag
+        .iter_mut()
+        .zip(ghash_state.iter())
     {
         *slot ^= gh;
     }

@@ -40,10 +40,19 @@ fn exec_ip2net(args: &[&str], stdin_bytes: &[u8]) -> (Option<i32>, String, Strin
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn ip2net binary");
-    child.stdin.take().expect("piped stdin").write_all(stdin_bytes).expect("write ip2net stdin");
-    let output = child.wait_with_output().expect("collect ip2net output");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(stdin_bytes)
+        .expect("write ip2net stdin");
+    let output = child
+        .wait_with_output()
+        .expect("collect ip2net output");
     (
-        output.status.code(),
+        output
+            .status
+            .code(),
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )
@@ -176,15 +185,9 @@ bad:ipv6:line
     );
 }
 
-#[test]
-fn option_parsers_validate_bounds_and_flag_order()
+/// Asserts invalid `ip2net` option inputs produce typed validation errors.
+fn assert_invalid_ip2net_options()
 {
-    assert_eq!(parse_prefix_length("24", Ip2NetFamily::Ipv4).expect("single prefix v4"), (8, 8));
-    assert_eq!(parse_prefix_length("22-30", Ip2NetFamily::Ipv4).expect("range v4"), (2, 10));
-    assert_eq!(parse_prefix_length("56-64", Ip2NetFamily::Ipv6).expect("range v6"), (64, 72));
-    assert_eq!(parse_v4_threshold("3/4").expect("3/4"), (3, 4));
-    assert_eq!(parse_v6_threshold("5").expect("5"), 5);
-
     for bad in ["0", "30-22", "32", "22-32", "abc", "22-24-30"]
     {
         assert!(
@@ -210,6 +213,18 @@ fn option_parsers_validate_bounds_and_flag_order()
             "expected InvalidV6Threshold for '{bad}'"
         );
     }
+}
+
+#[test]
+fn option_parsers_validate_bounds_and_flag_order()
+{
+    assert_eq!(parse_prefix_length("24", Ip2NetFamily::Ipv4).expect("single prefix v4"), (8, 8));
+    assert_eq!(parse_prefix_length("22-30", Ip2NetFamily::Ipv4).expect("range v4"), (2, 10));
+    assert_eq!(parse_prefix_length("56-64", Ip2NetFamily::Ipv6).expect("range v6"), (64, 72));
+    assert_eq!(parse_v4_threshold("3/4").expect("3/4"), (3, 4));
+    assert_eq!(parse_v6_threshold("5").expect("5"), 5);
+
+    assert_invalid_ip2net_options();
 
     // Prefix length 56-64 only valid once family=Ipv6 is resolved regardless of flag order.
     let cfg = Ip2NetConfig::from_options(Ip2NetFamily::Ipv6, Some("56-64"), None, Some("2"))

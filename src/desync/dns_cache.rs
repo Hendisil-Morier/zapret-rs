@@ -58,7 +58,9 @@ fn dns_extract_qname<'a>(packet: &'a [u8], cursor: &'a [u8]) -> Option<(String, 
 /// Parses a DNS IN A/AAAA response packet and records `hostname -> IP` entries in `ipcache`.
 pub fn feed_dns_response(payload: &[u8], ipcache: &RefCell<IpCache>, now_sec: i64) -> bool
 {
-    if !ipcache.borrow().cache_hostname()
+    if !ipcache
+        .borrow()
+        .cache_hostname()
     {
         return true;
     }

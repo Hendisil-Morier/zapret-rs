@@ -63,7 +63,8 @@ where
         fix_l4(&ip_bytes, &mut l4_mut, &pl_bytes).map_err(mlua::Error::external)?;
         lua.create_string(&l4_mut)
     })?;
-    lua.globals().set(name, f)
+    lua.globals()
+        .set(name, f)
 }
 
 /// Registers packet and individual header dissection Lua globals (`dissect*`).
@@ -74,8 +75,9 @@ fn register_dissect_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Result<
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc_range("dissect", &args, 1, 2)?;
             let raw = require_strict_bytes(&args[0])?.as_bytes();
-            let no_payload_check =
-                args.get(1).is_some_and(|v| !matches!(v, Value::Nil | Value::Boolean(false)));
+            let no_payload_check = args
+                .get(1)
+                .is_some_and(|v| !matches!(v, Value::Nil | Value::Boolean(false)));
             let dis = dissect_packet(&raw, no_payload_check);
             dissect_to_lua(lua, &dis)
         })?,
@@ -194,7 +196,9 @@ fn register_reconstruct_functions(lua: &Lua, globals: &mlua::Table) -> mlua::Res
             };
             let ip6 = lua_to_ipv6(lua, tbl)?;
             let opts = parse_reconstruct_opts(lua, args.get(1))?;
-            let last_proto = opts.ip6_last_proto.unwrap_or(IPPROTO_NONE);
+            let last_proto = opts
+                .ip6_last_proto
+                .unwrap_or(IPPROTO_NONE);
             let bytes = reconstruct_ipv6_header(&ip6, last_proto, opts.ip6_preserve_next)
                 .map_err(mlua::Error::external)?;
             lua.create_string(&bytes)
@@ -278,11 +282,13 @@ fn register_checksum_and_ip_functions(lua: &Lua, globals: &mlua::Table) -> mlua:
             let bytes = require_strict_bytes(&args[0])?.as_bytes();
             if let Ok(octets) = <[u8; 4]>::try_from(bytes.as_ref())
             {
-                lua.create_string(Ipv4Addr::from(octets).to_string()).map(Value::String)
+                lua.create_string(Ipv4Addr::from(octets).to_string())
+                    .map(Value::String)
             }
             else if let Ok(octets) = <[u8; 16]>::try_from(bytes.as_ref())
             {
-                lua.create_string(Ipv6Addr::from(octets).to_string()).map(Value::String)
+                lua.create_string(Ipv6Addr::from(octets).to_string())
+                    .map(Value::String)
             }
             else
             {
@@ -303,11 +309,13 @@ fn register_checksum_and_ip_functions(lua: &Lua, globals: &mlua::Table) -> mlua:
             };
             if let Ok(v4) = s.parse::<Ipv4Addr>()
             {
-                lua.create_string(v4.octets()).map(Value::String)
+                lua.create_string(v4.octets())
+                    .map(Value::String)
             }
             else if let Ok(v6) = s.parse::<Ipv6Addr>()
             {
-                lua.create_string(v6.octets()).map(Value::String)
+                lua.create_string(v6.octets())
+                    .map(Value::String)
             }
             else
             {

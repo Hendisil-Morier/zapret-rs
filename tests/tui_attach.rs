@@ -29,7 +29,10 @@ use zapret_rs::tui::{
 
 fn temp_dir_path(label: &str) -> PathBuf
 {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_tui_attach_{label}_{}_{nanos}", std::process::id()));
     fs::create_dir_all(&dir).expect("create temp dir");
     dir
@@ -44,8 +47,12 @@ fn render_to_string(state: &AppState, width: u16, height: u16) -> String
 {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test terminal");
-    terminal.draw(|f| draw_app(f, state)).expect("draw frame");
-    let buf = terminal.backend().buffer();
+    terminal
+        .draw(|f| draw_app(f, state))
+        .expect("draw frame");
+    let buf = terminal
+        .backend()
+        .buffer();
     let mut out = String::new();
     for y in 0..height
     {
@@ -90,7 +97,9 @@ fn await_and_verify_attached_stream(attached: &mut AttachedDaemon, hub: &Telemet
         {
             got_reasm |= rec.verdict == PacketVerdict::Reasm;
             got_desync |= rec.verdict == PacketVerdict::Desync;
-            state.inspector.push(rec);
+            state
+                .inspector
+                .push(rec);
         }
         thread::sleep(Duration::from_millis(10));
     }
@@ -104,8 +113,8 @@ fn await_and_verify_attached_stream(attached: &mut AttachedDaemon, hub: &Telemet
     assert!(screen.contains("[?] Keys"));
 }
 
-/// Verifies Tab 2/3 attached key actions and `ConfirmStopDaemon` modal popup flow.
-fn verify_attached_key_actions_and_stop(attached: &AttachedDaemon, hub: &TelemetryHub, state: &mut AppState)
+/// Verifies attached help overlay, Tab 3 config push, and Tab 2 reload/detach actions.
+fn verify_attached_tabs_and_help(state: &mut AppState)
 {
     state.handle_key(key(KeyCode::Char('?')));
     let help_screen = render_to_string(state, 120, 36);
@@ -123,19 +132,34 @@ fn verify_attached_key_actions_and_stop(attached: &AttachedDaemon, hub: &Telemet
 
     assert_eq!(state.handle_key(key(KeyCode::Char('l'))), AppAction::ReloadRemoteLists);
     assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::DetachDaemon);
+}
+
+/// Verifies Tab 2/3 attached key actions and `ConfirmStopDaemon` modal popup flow.
+fn verify_attached_key_actions_and_stop(attached: &AttachedDaemon, hub: &TelemetryHub, state: &mut AppState)
+{
+    verify_attached_tabs_and_help(state);
 
     assert_eq!(state.handle_key(key(KeyCode::Char('S'))), AppAction::None);
-    let modal = state.modal.as_ref().expect("'S' must open ConfirmStopDaemon popup");
+    let modal = state
+        .modal
+        .as_ref()
+        .expect("'S' must open ConfirmStopDaemon popup");
     assert_eq!(modal.purpose, ModalPurpose::ConfirmStopDaemon);
     assert!(render_to_string(state, 120, 36).contains("Confirm Stop Daemon"));
     assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
-    assert!(state.modal.is_none());
+    assert!(
+        state
+            .modal
+            .is_none()
+    );
 
     assert_eq!(state.handle_key(key(KeyCode::Char('S'))), AppAction::None);
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitModal);
     state.modal = None;
 
-    attached.send_command(&Request::Stop).expect("send stop");
+    attached
+        .send_command(&Request::Stop)
+        .expect("send stop");
     let cmd_deadline = Instant::now() + Duration::from_secs(2);
     let mut saw_stop = false;
     while Instant::now() < cmd_deadline
@@ -157,8 +181,12 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect()
     let dir = temp_dir_path("attach");
     let sock = dir.join("control.sock");
     let daemon_counters = Arc::new(PacketCounters::default());
-    daemon_counters.total.store(10, Ordering::Relaxed);
-    daemon_counters.desynced.store(2, Ordering::Relaxed);
+    daemon_counters
+        .total
+        .store(10, Ordering::Relaxed);
+    daemon_counters
+        .desynced
+        .store(2, Ordering::Relaxed);
 
     let meta = DaemonStatusMeta {
         version: "1.0.1".to_owned(),
@@ -176,15 +204,31 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect()
     assert_eq!(detect_control_socket(Some(&sock)), Some(sock.clone()));
 
     let mut state = AppState::new(None, None, false);
-    state.status.has_net_caps = false; // Unprivileged TUI can attach without caps.
+    state
+        .status
+        .has_net_caps = false; // Unprivileged TUI can attach without caps.
     state.tab = ActiveTab::Run;
 
-    let (mut attached, rmeta) =
-        connect_remote_daemon(sock.clone(), Arc::clone(&state.run.counters)).expect("attach");
+    let (mut attached, rmeta) = connect_remote_daemon(
+        sock.clone(),
+        Arc::clone(
+            &state
+                .run
+                .counters,
+        ),
+    )
+    .expect("attach");
     assert_eq!(rmeta.pid, 99123);
     assert_eq!(rmeta.qnum, 205);
     state.set_attached(rmeta);
-    assert_eq!(state.run.counters.snapshot().0, 10);
+    assert_eq!(
+        state
+            .run
+            .counters
+            .snapshot()
+            .0,
+        10
+    );
 
     await_and_verify_attached_stream(&mut attached, &hub, &mut state);
     verify_attached_key_actions_and_stop(&attached, &hub, &mut state);
@@ -204,9 +248,21 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect()
     }
     assert!(saw_dc.is_some(), "reader must report Disconnected when server shuts down");
     state.set_detached("[error] control connection lost".to_owned(), "Control connection lost".to_owned());
-    assert_eq!(state.run.status, RunStatus::Stopped);
-    assert!(state.run.auto_reattach, "unexpected disconnect keeps auto_reattach enabled");
-    state.run.detected_socket = Some(sock.clone());
+    assert_eq!(
+        state
+            .run
+            .status,
+        RunStatus::Stopped
+    );
+    assert!(
+        state
+            .run
+            .auto_reattach,
+        "unexpected disconnect keeps auto_reattach enabled"
+    );
+    state
+        .run
+        .detected_socket = Some(sock.clone());
     state.handle_key(key(KeyCode::Char('?')));
     let detected_help = render_to_string(&state, 120, 36);
     assert!(detected_help.contains("[r] Attach"));
@@ -224,8 +280,14 @@ fn attach_reports_readable_error_on_protocol_version_mismatch()
     let listener = UnixListener::bind(&sock).expect("bind fake server");
 
     let srv_thread = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept");
-        let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+        let (mut stream, _) = listener
+            .accept()
+            .expect("accept");
+        let mut reader = BufReader::new(
+            stream
+                .try_clone()
+                .expect("clone"),
+        );
         let req: Option<Request> = read_message(&mut reader).expect("read hello");
         assert!(matches!(req, Some(Request::Hello { version: CONTROL_PROTOCOL_VERSION })));
         write_message(
@@ -239,10 +301,14 @@ fn attach_reports_readable_error_on_protocol_version_mismatch()
     });
 
     let counters = Arc::new(PacketCounters::default());
-    let err = connect_remote_daemon(sock, counters).err().expect("version mismatch must fail");
+    let err = connect_remote_daemon(sock, counters)
+        .err()
+        .expect("version mismatch must fail");
     assert!(err.contains("mismatch") && err.contains("99"), "got unreadable error: {err}");
 
-    srv_thread.join().expect("fake server join");
+    srv_thread
+        .join()
+        .expect("fake server join");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -250,7 +316,12 @@ fn attach_reports_readable_error_on_protocol_version_mismatch()
 fn app_state_enables_auto_attach_by_default_and_clears_pending_caps_action_on_esc()
 {
     let mut state = AppState::new(None, None, false);
-    assert!(state.run.auto_reattach, "TUI must auto-attach active daemon sockets by default");
+    assert!(
+        state
+            .run
+            .auto_reattach,
+        "TUI must auto-attach active daemon sockets by default"
+    );
     state.open_caps_modal_for(Some(zapret_rs::tui::types::PostCapsAction::StartScan));
     assert_eq!(state.pending_caps_action, Some(zapret_rs::tui::types::PostCapsAction::StartScan));
     state.handle_key(key(KeyCode::Esc));
@@ -265,18 +336,44 @@ fn attached_clear_zeros_visible_counters_against_baseline()
 
     let mut state = AppState::new(None, None, false);
     state.tab = ActiveTab::Run;
-    state.run.status = RunStatus::Attached;
-    state.run.counters.total.store(10, Ordering::Relaxed);
-    state.run.counters.passed.store(7, Ordering::Relaxed);
-    state.run.counters.desynced.store(3, Ordering::Relaxed);
+    state
+        .run
+        .status = RunStatus::Attached;
+    state
+        .run
+        .counters
+        .total
+        .store(10, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .passed
+        .store(7, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .desynced
+        .store(3, Ordering::Relaxed);
     assert_eq!(state.visible_counters(), (10, 7, 0, 0, 3));
 
     state.handle_key(key(KeyCode::Char('c')));
     assert_eq!(state.visible_counters(), (0, 0, 0, 0, 0));
 
     // Subsequent remote counter snapshots increment relative to the cleared baseline.
-    state.run.counters.total.store(12, Ordering::Relaxed);
-    state.run.counters.passed.store(8, Ordering::Relaxed);
-    state.run.counters.desynced.store(4, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .total
+        .store(12, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .passed
+        .store(8, Ordering::Relaxed);
+    state
+        .run
+        .counters
+        .desynced
+        .store(4, Ordering::Relaxed);
     assert_eq!(state.visible_counters(), (2, 1, 0, 0, 1));
 }

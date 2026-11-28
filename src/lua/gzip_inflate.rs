@@ -65,7 +65,10 @@ fn pump_decompress(
     {
         if out.capacity() - out.len() < MIN_OUTPUT_SPARE
         {
-            let target = out.len().saturating_add(INFLATE_GROWTH).min(cap_limit);
+            let target = out
+                .len()
+                .saturating_add(INFLATE_GROWTH)
+                .min(cap_limit);
             if target > out.capacity()
             {
                 out.reserve(target - out.len());
@@ -232,7 +235,8 @@ impl GzipInflater
     {
         if (flg & F_HCRC) != 0
         {
-            self.header_crc.update(bytes);
+            self.header_crc
+                .update(bytes);
         }
     }
 
@@ -312,7 +316,10 @@ impl GzipInflater
                 *len += 1;
                 if *len == 2
                 {
-                    if u16::from_le_bytes(*buf) != (self.header_crc.sum() as u16)
+                    if u16::from_le_bytes(*buf)
+                        != (self
+                            .header_crc
+                            .sum() as u16)
                     {
                         return None;
                     }
@@ -352,7 +359,14 @@ impl GzipInflater
                     }
                     let crc_exp = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
                     let size_exp = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-                    if crc_exp != self.body_crc.sum() || size_exp != self.body_crc.amount()
+                    if crc_exp
+                        != self
+                            .body_crc
+                            .sum()
+                        || size_exp
+                            != self
+                                .body_crc
+                                .amount()
                     {
                         return None;
                     }
@@ -449,13 +463,17 @@ impl InflateStream
             };
             if prev.is_some() && self.inflate_inner(&[first], &mut out)?
             {
-                self.remaining_output = self.remaining_output.saturating_sub(out.len());
+                self.remaining_output = self
+                    .remaining_output
+                    .saturating_sub(out.len());
                 return Some((out, true));
             }
         }
 
         let eof = self.inflate_inner(input, &mut out)?;
-        self.remaining_output = self.remaining_output.saturating_sub(out.len());
+        self.remaining_output = self
+            .remaining_output
+            .saturating_sub(out.len());
         Some((out, eof))
     }
 

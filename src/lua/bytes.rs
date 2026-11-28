@@ -21,10 +21,15 @@ where
         {
             return Err(mlua::Error::external("string lengths must be the same"));
         }
-        let out: Vec<u8> = b1.iter().zip(b2.iter()).map(|(&x, &y)| op(x, y)).collect();
+        let out: Vec<u8> = b1
+            .iter()
+            .zip(b2.iter())
+            .map(|(&x, &y)| op(x, y))
+            .collect();
         lua.create_string(&out)
     })?;
-    lua.globals().set(name, f)
+    lua.globals()
+        .set(name, f)
 }
 
 /// Decodes one ASCII hex digit into `0..=15`, or `None` if invalid.
@@ -69,7 +74,9 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()>
                 return Err(mlua::Error::external("brandom_az: invalid arg"));
             }
             let mut rng = rand::rng();
-            let buf: Vec<u8> = (0..len as usize).map(|_| rng.random_range(b'a'..=b'z')).collect();
+            let buf: Vec<u8> = (0..len as usize)
+                .map(|_| rng.random_range(b'a'..=b'z'))
+                .collect();
             lua.create_string(&buf)
         })?,
     )?;
@@ -120,12 +127,16 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()>
         lua.create_function(|lua, args: Variadic<Value>| {
             check_argc("parse_hex", &args, 1)?;
             let raw = require_strict_bytes(&args[0])?.as_bytes();
-            if !raw.len().is_multiple_of(2)
+            if !raw
+                .len()
+                .is_multiple_of(2)
             {
                 return Ok(Value::Nil);
             }
             let mut out = Vec::with_capacity(raw.len() / 2);
-            for &[b_hi, b_lo] in raw.as_chunks::<2>().0
+            for &[b_hi, b_lo] in raw
+                .as_chunks::<2>()
+                .0
             {
                 let Some(hi) = decode_hex_nibble(b_hi)
                 else
@@ -139,7 +150,8 @@ pub fn register_bytes_functions(lua: &Lua) -> mlua::Result<()>
                 };
                 out.push((hi << 4) | lo);
             }
-            lua.create_string(&out).map(Value::String)
+            lua.create_string(&out)
+                .map(Value::String)
         })?,
     )?;
 

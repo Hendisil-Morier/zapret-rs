@@ -39,15 +39,16 @@ pub const fn is_tcp_synack(flags: u8) -> bool
 /// Extracts the RFC 7323 TCP window scale factor (`0..=14`) if option kind `3` is present.
 pub(crate) fn extract_tcp_scale(opts: &[TcpOption]) -> Option<u8>
 {
-    opts.iter().find_map(|opt| {
-        if opt.kind == TCP_KIND_SCALE
-            && let Some(data) = &opt.data
-            && data.len() == 1
-        {
-            return Some(data[0].min(TCP_MAX_WINDOW_SCALE));
-        }
-        None
-    })
+    opts.iter()
+        .find_map(|opt| {
+            if opt.kind == TCP_KIND_SCALE
+                && let Some(data) = &opt.data
+                && data.len() == 1
+            {
+                return Some(data[0].min(TCP_MAX_WINDOW_SCALE));
+            }
+            None
+        })
 }
 
 /// Extracts the 16-bit TCP MSS option value if option kind `2` is present, otherwise `0`.
@@ -172,7 +173,11 @@ impl CtrackEntry
     /// Re-initializes all state (used when a new `SYN` or mismatched `SYN-ACK` reuses a 5-tuple).
     pub fn reinit(&mut self, lua: Option<&Lua>) -> mlua::Result<()>
     {
-        *self = Self::with_budget(lua, self.budget.clone())?;
+        *self = Self::with_budget(
+            lua,
+            self.budget
+                .clone(),
+        )?;
         if let Some(l) = lua
         {
             l.expire_registry_values();
@@ -219,12 +224,15 @@ impl CtrackEntry
     pub fn try_start_reasm(&mut self, target_size: usize, seq_start: u32) -> bool
     {
         self.clear_reasm();
-        if !self.budget.try_reserve(target_size)
+        if !self
+            .budget
+            .try_reserve(target_size)
         {
             return false;
         }
         self.reasm_reserved = target_size;
-        self.reasm_client.init(target_size, seq_start);
+        self.reasm_client
+            .init(target_size, seq_start);
         true
     }
 
@@ -233,26 +241,38 @@ impl CtrackEntry
     {
         if self.reasm_reserved > 0
         {
-            self.budget.release(self.reasm_reserved);
+            self.budget
+                .release(self.reasm_reserved);
             self.reasm_reserved = 0;
         }
-        self.reasm_client.clear();
+        self.reasm_client
+            .clear();
     }
 
     /// Appends one delayed packet snapshot unless queue count or global byte budget is exhausted.
     pub fn push_delayed(&mut self, pkt: DelayedPacket) -> bool
     {
-        if self.delayed.len() >= RAW_PACKET_QUEUE_DELAYED_MAX
+        if self
+            .delayed
+            .len()
+            >= RAW_PACKET_QUEUE_DELAYED_MAX
         {
             return false;
         }
-        let pkt_bytes = pkt.raw.len();
-        if !self.budget.try_reserve(pkt_bytes)
+        let pkt_bytes = pkt
+            .raw
+            .len();
+        if !self
+            .budget
+            .try_reserve(pkt_bytes)
         {
             return false;
         }
-        self.delayed_reserved = self.delayed_reserved.saturating_add(pkt_bytes);
-        self.delayed.push_back(pkt);
+        self.delayed_reserved = self
+            .delayed_reserved
+            .saturating_add(pkt_bytes);
+        self.delayed
+            .push_back(pkt);
         true
     }
 
@@ -261,7 +281,8 @@ impl CtrackEntry
     {
         if self.delayed_reserved > 0
         {
-            self.budget.release(self.delayed_reserved);
+            self.budget
+                .release(self.delayed_reserved);
             self.delayed_reserved = 0;
         }
         std::mem::take(&mut self.delayed)

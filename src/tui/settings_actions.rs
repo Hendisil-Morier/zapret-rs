@@ -24,17 +24,28 @@ pub(crate) fn save_app_config_from_settings(state: &mut AppState)
 {
     match save_settings_surgically(
         &state.app_config_path,
-        &state.finder.output_path,
-        &state.finder.lua_dir_input,
-        state.finder.no_nft,
-        state.run.control_socket_override.as_deref(),
+        &state
+            .finder
+            .output_path,
+        &state
+            .finder
+            .lua_dir_input,
+        state
+            .finder
+            .no_nft,
+        state
+            .run
+            .control_socket_override
+            .as_deref(),
         state.theme,
         &state.keybinds,
     )
     {
         Ok(msg) =>
         {
-            state.settings.dirty = false;
+            state
+                .settings
+                .dirty = false;
             state.status_banner = msg;
         }
         Err(err) => state.status_banner = format!("Save config.toml failed: {err}"),
@@ -44,7 +55,9 @@ pub(crate) fn save_app_config_from_settings(state: &mut AppState)
 /// Reloads `state.app_config_path` from disk and applies theme, keybinds, and path defaults live.
 pub(crate) fn reload_app_config_from_disk(state: &mut AppState)
 {
-    let path = state.app_config_path.clone();
+    let path = state
+        .app_config_path
+        .clone();
     let text = match std::fs::read_to_string(&path)
     {
         Ok(t) => t,
@@ -62,7 +75,11 @@ pub(crate) fn reload_app_config_from_disk(state: &mut AppState)
             state.keybinds = resolved.keybinds;
             if let Some(p) = resolved.nfqws2_config
             {
-                state.finder.output_path = p.display().to_string();
+                state
+                    .finder
+                    .output_path = p
+                    .display()
+                    .to_string();
                 if let Ok(nfq) = std::fs::read_to_string(&p)
                 {
                     state.set_active_toml(nfq);
@@ -70,11 +87,21 @@ pub(crate) fn reload_app_config_from_disk(state: &mut AppState)
             }
             if let Some(lua) = resolved.lua_dir
             {
-                state.finder.lua_dir_input = lua.display().to_string();
+                state
+                    .finder
+                    .lua_dir_input = lua
+                    .display()
+                    .to_string();
             }
-            state.finder.no_nft = resolved.no_nft;
-            state.run.control_socket_override = resolved.control_socket;
-            state.settings.dirty = false;
+            state
+                .finder
+                .no_nft = resolved.no_nft;
+            state
+                .run
+                .control_socket_override = resolved.control_socket;
+            state
+                .settings
+                .dirty = false;
             state.status_banner = format!("Reloaded {}", path.display());
         }
         Err(err) => state.status_banner = format!("Reload failed: {err}"),
@@ -85,20 +112,50 @@ pub(crate) fn reload_app_config_from_disk(state: &mut AppState)
 pub(crate) fn edit_app_config_in_editor(state: &mut AppState, session: &mut TerminalSession)
 {
     let resolved = ResolvedAppConfig {
-        app_config_path: state.app_config_path.clone(),
-        nfqws2_config: Some(expand_tilde(&state.finder.output_path)),
-        lua_dir: (!state.finder.lua_dir_input.is_empty()).then(|| expand_tilde(&state.finder.lua_dir_input)),
-        no_nft: state.finder.no_nft,
-        control_socket: state.run.control_socket_override.clone(),
+        app_config_path: state
+            .app_config_path
+            .clone(),
+        nfqws2_config: Some(expand_tilde(
+            &state
+                .finder
+                .output_path,
+        )),
+        lua_dir: (!state
+            .finder
+            .lua_dir_input
+            .is_empty())
+        .then(|| {
+            expand_tilde(
+                &state
+                    .finder
+                    .lua_dir_input,
+            )
+        }),
+        no_nft: state
+            .finder
+            .no_nft,
+        control_socket: state
+            .run
+            .control_socket_override
+            .clone(),
         theme: state.theme,
-        keybinds: state.keybinds.clone(),
+        keybinds: state
+            .keybinds
+            .clone(),
     };
-    if let Some(err) = ensure_default_app_config_file(&resolved, &state.finder.lua_dir_input)
+    if let Some(err) = ensure_default_app_config_file(
+        &resolved,
+        &state
+            .finder
+            .lua_dir_input,
+    )
     {
         state.status_banner = err;
         return;
     }
-    let path = state.app_config_path.clone();
+    let path = state
+        .app_config_path
+        .clone();
     let editor_cmd = resolve_editor_command();
     match session.suspend_for(|| spawn_unprivileged_editor(&editor_cmd, &path))
     {
@@ -127,35 +184,58 @@ pub(crate) fn handle_settings_mouse(
 
     if cols[0].contains(pos)
     {
-        state.settings.focus = SettingsFocus::Options;
+        state
+            .settings
+            .focus = SettingsFocus::Options;
         if let Some(dir) = scroll_dir
         {
-            state.settings.move_selection(if dir < 0 { -1 } else { 1 });
+            state
+                .settings
+                .move_selection(if dir < 0 { -1 } else { 1 });
         }
         else if is_left && pos.y > cols[0].y && pos.y + 1 < cols[0].bottom()
         {
             let row = usize::from(pos.y - (cols[0].y + 1));
             if row < SettingRow::ALL.len()
             {
-                state.settings.option_sel = row;
+                state
+                    .settings
+                    .option_sel = row;
             }
         }
     }
     else if cols[1].contains(pos)
     {
-        state.settings.focus = SettingsFocus::Keybinds;
+        state
+            .settings
+            .focus = SettingsFocus::Keybinds;
         if let Some(dir) = scroll_dir
         {
-            state.settings.move_selection(if dir < 0 { -3 } else { 3 });
+            state
+                .settings
+                .move_selection(if dir < 0 { -3 } else { 3 });
         }
         else if is_left && pos.y > cols[1].y + 1 && pos.y + 1 < cols[1].bottom()
         {
-            let cap = usize::from(cols[1].height.saturating_sub(3)).max(1);
-            let (start, end) = visible_window(KEYBIND_ENTRIES.len(), state.settings.keybind_sel, cap);
+            let cap = usize::from(
+                cols[1]
+                    .height
+                    .saturating_sub(3),
+            )
+            .max(1);
+            let (start, end) = visible_window(
+                KEYBIND_ENTRIES.len(),
+                state
+                    .settings
+                    .keybind_sel,
+                cap,
+            );
             let idx = start + usize::from(pos.y - (cols[1].y + 2));
             if idx < end
             {
-                state.settings.keybind_sel = idx;
+                state
+                    .settings
+                    .keybind_sel = idx;
             }
         }
     }

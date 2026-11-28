@@ -51,7 +51,9 @@ impl Drop for IfAddrsGuard
     /// Releases the linked list allocated by `libc::getifaddrs`.
     fn drop(&mut self)
     {
-        if !self.head.is_null()
+        if !self
+            .head
+            .is_null()
         {
             // SAFETY: `self.head` was returned by a successful `libc::getifaddrs` call.
             unsafe { libc::freeifaddrs(self.head) };
@@ -68,8 +70,11 @@ pub fn get_source_ip(target: IpAddr) -> Option<IpAddr>
         IpAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
     };
     let sock = UdpSocket::bind(bind_addr).ok()?;
-    sock.connect((target, 65535)).ok()?;
-    sock.local_addr().ok().map(|local| local.ip())
+    sock.connect((target, 65535))
+        .ok()?;
+    sock.local_addr()
+        .ok()
+        .map(|local| local.ip())
 }
 
 /// Converts a raw `libc::sockaddr` pointer into an IPv4 or IPv6 [`IpAddr`].
@@ -87,13 +92,20 @@ fn sockaddr_to_ip(sa: *const libc::sockaddr) -> Option<IpAddr>
         {
             // SAFETY: `sa_family == AF_INET` guarantees a `libc::sockaddr_in` struct.
             let sin = unsafe { &*(sa.cast::<libc::sockaddr_in>()) };
-            Some(IpAddr::V4(Ipv4Addr::from(sin.sin_addr.s_addr.to_ne_bytes())))
+            Some(IpAddr::V4(Ipv4Addr::from(
+                sin.sin_addr
+                    .s_addr
+                    .to_ne_bytes(),
+            )))
         }
         libc::AF_INET6 =>
         {
             // SAFETY: `sa_family == AF_INET6` guarantees a `libc::sockaddr_in6` struct.
             let sin6 = unsafe { &*(sa.cast::<libc::sockaddr_in6>()) };
-            Some(IpAddr::V6(Ipv6Addr::from(sin6.sin6_addr.s6_addr)))
+            Some(IpAddr::V6(Ipv6Addr::from(
+                sin6.sin6_addr
+                    .s6_addr,
+            )))
         }
         _ => None,
     }
@@ -111,7 +123,9 @@ fn query_interface_mtu(ioctl_fd: Option<&OwnedFd>, ifname: &str) -> Option<i32>
 
     // SAFETY: Zeroed `libc::ifreq` is valid for all union members before writing `ifr_name`.
     let mut ifr: libc::ifreq = unsafe { std::mem::zeroed() };
-    for (idx, &byte) in name_bytes.iter().enumerate()
+    for (idx, &byte) in name_bytes
+        .iter()
+        .enumerate()
     {
         ifr.ifr_name[idx] = byte as libc::c_char;
     }
@@ -121,7 +135,10 @@ fn query_interface_mtu(ioctl_fd: Option<&OwnedFd>, ifname: &str) -> Option<i32>
     if rc == 0
     {
         // SAFETY: Successful `SIOCGIFMTU` initializes `ifr.ifr_ifru.ifru_mtu`.
-        Some(unsafe { ifr.ifr_ifru.ifru_mtu })
+        Some(unsafe {
+            ifr.ifr_ifru
+                .ifru_mtu
+        })
     }
     else
     {
@@ -156,11 +173,15 @@ pub fn get_ifaddrs() -> std::io::Result<Vec<InterfaceInfo>>
         // SAFETY: `cur` is a non-null node in the linked list owned by `_guard`.
         let entry = unsafe { &*cur };
         if let Some(addr) = sockaddr_to_ip(entry.ifa_addr)
-            && !entry.ifa_name.is_null()
+            && !entry
+                .ifa_name
+                .is_null()
         {
             // SAFETY: `ifa_name` is a non-null NUL-terminated C string from `getifaddrs`.
             let c_name = unsafe { CStr::from_ptr(entry.ifa_name) };
-            let name = c_name.to_string_lossy().into_owned();
+            let name = c_name
+                .to_string_lossy()
+                .into_owned();
             if !name.is_empty()
             {
                 let info_idx = if let Some(&existing) = index_by_name.get(&name)
@@ -169,11 +190,13 @@ pub fn get_ifaddrs() -> std::io::Result<Vec<InterfaceInfo>>
                 }
                 else
                 {
-                    let ifindex = CString::new(name.as_str()).ok().and_then(|cn| {
-                        // SAFETY: `cn` is a valid NUL-terminated interface name string.
-                        let idx = unsafe { libc::if_nametoindex(cn.as_ptr()) };
-                        if idx != 0 { Some(idx) } else { None }
-                    });
+                    let ifindex = CString::new(name.as_str())
+                        .ok()
+                        .and_then(|cn| {
+                            // SAFETY: `cn` is a valid NUL-terminated interface name string.
+                            let idx = unsafe { libc::if_nametoindex(cn.as_ptr()) };
+                            if idx != 0 { Some(idx) } else { None }
+                        });
                     let mtu = query_interface_mtu(ioctl_fd.as_ref(), &name);
                     let pos = interfaces.len();
                     interfaces.push(InterfaceInfo {
@@ -202,7 +225,9 @@ pub fn get_ifaddrs() -> std::io::Result<Vec<InterfaceInfo>>
                     (None, None)
                 };
 
-                interfaces[info_idx].addrs.push(InterfaceAddr { addr, netmask, broadcast, dst });
+                interfaces[info_idx]
+                    .addrs
+                    .push(InterfaceAddr { addr, netmask, broadcast, dst });
             }
         }
         cur = entry.ifa_next;

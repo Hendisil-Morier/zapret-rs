@@ -148,7 +148,14 @@ fn desync_table_fields_blob_substitution_and_verdict_precedence()
     "##;
     let cfg = AppConfig::from_toml_str(toml, None).expect("valid TOML config");
     let engine = DesyncEngine::new(&cfg).expect("engine should initialize");
-    assert_eq!(engine.runtime().config().qnum, u32::from(cfg.qnum), "runtime mirrors queue number");
+    assert_eq!(
+        engine
+            .runtime()
+            .config()
+            .qnum,
+        u32::from(cfg.qnum),
+        "runtime mirrors queue number"
+    );
     assert_eq!(DEFAULT_MSS, 1220);
 
     let raw = build_ipv4_tcp(44444, 443, b"client_hello_bytes");
@@ -161,7 +168,13 @@ fn desync_table_fields_blob_substitution_and_verdict_precedence()
         panic!("expected Decision::Replace from MODIFY + PASS");
     };
     let dis = dissect_packet(&modified, false);
-    assert_eq!(dis.ip.as_ref().expect("ip").ttl, 9);
+    assert_eq!(
+        dis.ip
+            .as_ref()
+            .expect("ip")
+            .ttl,
+        9
+    );
 
     // Pure `aggregate_verdict` truth table checks including VERDICT_PRESERVE_NEXT.
     assert_eq!(aggregate_verdict(VERDICT_PASS, VERDICT_MODIFY), VERDICT_MODIFY);
@@ -222,11 +235,22 @@ fn verdict_modify_reconstructs_checksums_and_preserves_ipv6_next()
         panic!("expected Decision::Replace for IPv4 tamper");
     };
     let dis_v4 = dissect_packet(&mod_v4, false);
-    let ip = dis_v4.ip.as_ref().expect("ip");
-    let tcp = dis_v4.tcp.as_ref().expect("tcp");
+    let ip = dis_v4
+        .ip
+        .as_ref()
+        .expect("ip");
+    let tcp = dis_v4
+        .tcp
+        .as_ref()
+        .expect("tcp");
     assert_eq!(ip.ttl, 7);
     assert_eq!(tcp.window, 4321);
-    assert_eq!(dis_v4.payload.as_deref(), Some(b"MODIFIED_PAYLOAD".as_slice()));
+    assert_eq!(
+        dis_v4
+            .payload
+            .as_deref(),
+        Some(b"MODIFIED_PAYLOAD".as_slice())
+    );
     assert_eq!(
         ip.checksum,
         ipv4_header_checksum(&mod_v4[..dis_v4.l3_len]).expect("valid ipv4 header"),

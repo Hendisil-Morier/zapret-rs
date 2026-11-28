@@ -32,7 +32,10 @@ impl Default for ConntrackConfig
 /// Parses `--ctrack-timeouts` in `S:E:F[:U]` colon-delimited seconds format.
 pub fn parse_timeouts(raw: &str) -> Result<ConntrackTimeouts, ConfigError>
 {
-    let parts: Vec<&str> = raw.trim().split(':').collect();
+    let parts: Vec<&str> = raw
+        .trim()
+        .split(':')
+        .collect();
     if !(3..=4).contains(&parts.len())
     {
         return Err(ConfigError::Validation(format!(
@@ -47,11 +50,13 @@ pub fn parse_timeouts(raw: &str) -> Result<ConntrackTimeouts, ConfigError>
                 "invalid ctrack timeouts '{raw}' (empty timeout component)"
             )));
         }
-        trimmed.parse::<u32>().map_err(|_| {
-            ConfigError::Validation(format!(
-                "invalid ctrack timeouts '{raw}' (non-integer component '{trimmed}')"
-            ))
-        })
+        trimmed
+            .parse::<u32>()
+            .map_err(|_| {
+                ConfigError::Validation(format!(
+                    "invalid ctrack timeouts '{raw}' (non-integer component '{trimmed}')"
+                ))
+            })
     };
 
     Ok(ConntrackTimeouts {

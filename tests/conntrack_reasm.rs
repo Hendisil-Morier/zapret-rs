@@ -1,9 +1,16 @@
 //! Integration tests for bidirectional conntrack, stream reassembly, and `PacketRange` evaluation.
 
+/// Shared interior mutability wrappers for inspecting conntrack entries.
+use std::cell::RefCell;
+/// Reference-counted handles returned by `ConntrackPool::feed`.
+use std::rc::Rc;
+
 /// Packet range evaluator under test.
 use zapret_rs::config::PacketRange;
-/// Conntrack pool, position structs, timeouts, and stream reassembler under test.
-use zapret_rs::conntrack::{ConnState, ConntrackPool, ConntrackTimeouts, CtrackPosition, StreamReassembler};
+/// Conntrack pool, entries, position structs, timeouts, and stream reassembler under test.
+use zapret_rs::conntrack::{
+    ConnState, ConntrackPool, ConntrackTimeouts, CtrackEntry, CtrackPosition, StreamReassembler,
+};
 /// Packet constants for building synthetic TCP/UDP flows.
 use zapret_rs::packet::constants::{
     IPPROTO_TCP, IPPROTO_UDP, TCP_KIND_MSS, TCP_KIND_SCALE, TH_ACK, TH_FIN, TH_PUSH, TH_SYN,
@@ -104,38 +111,65 @@ fn build_udp4_pkt(from_server: bool, payload: &[u8]) -> Vec<u8>
     reconstruct_packet(&dis, &ReconstructOptions::default()).expect("valid synthetic UDP packet")
 }
 
-/// Verifies TCP SYN/SYN-ACK/ESTABLISHED/FIN transitions, scale capping, wrapping sequences, and re-init.
-#[test]
-fn conntrack_tcp_lifecycle_options_wraparound_and_reinit()
+/// Verifies TCP SYN + SYN-ACK + Established transitions and shifted `winsize_calc`.
+fn verify_syn_handshake_and_wrap(
+    pool: &mut ConntrackPool,
+    t0: MonotonicTime,
+    syn_seq: u32,
+    srv_seq0: u32,
+) -> (Rc<RefCell<CtrackEntry>>, DissectedPacket)
 {
-    let mut pool = ConntrackPool::new(ConntrackTimeouts::default());
-    let t0 = MonotonicTime { sec: 100, nsec: 500_000_000 };
-
-    // Mid-stream PSH+ACK without prior SYN returns None.
     let mid =
         dissect_packet(&build_tcp4_pkt(false, 100, 200, TH_ACK | TH_PUSH, 1024, vec![], b"hi", 64), false);
-    assert!(pool.feed(None, &mid, t0).expect("feed ok").is_none());
+    assert!(
+        pool.feed(None, &mid, t0)
+            .expect("feed ok")
+            .is_none()
+    );
 
-    // Client SYN near u32::MAX with scale > 14 (clamped to 14) and MSS=1460.
-    let syn_seq = 0xFFFF_FF00u32;
     let syn_opts = vec![
         TcpOption { kind: TCP_KIND_MSS, data: Some(vec![0x05, 0xB4]) },
         TcpOption { kind: TCP_KIND_SCALE, data: Some(vec![20]) },
     ];
     let syn = dissect_packet(&build_tcp4_pkt(false, syn_seq, 0, TH_SYN, 1000, syn_opts, &[], 64), false);
-    let (entry_rc, rev) = pool.feed(None, &syn, t0).expect("feed ok").expect("tracked");
+    let (entry_rc, rev) = pool
+        .feed(None, &syn, t0)
+        .expect("feed ok")
+        .expect("tracked");
     assert!(!rev);
     {
         let e = entry_rc.borrow();
-        assert_eq!(e.pos.state, ConnState::Syn);
-        assert_eq!(e.pos.client.scale, 14);
-        assert_eq!(e.pos.client.mss, 1460);
-        assert_eq!(e.pos.client.winsize_calc, 1000);
-        assert_eq!(e.pos.client.seq0, syn_seq);
+        assert_eq!(
+            e.pos
+                .state,
+            ConnState::Syn
+        );
+        assert_eq!(
+            e.pos
+                .client
+                .scale,
+            14
+        );
+        assert_eq!(
+            e.pos
+                .client
+                .mss,
+            1460
+        );
+        assert_eq!(
+            e.pos
+                .client
+                .winsize_calc,
+            1000
+        );
+        assert_eq!(
+            e.pos
+                .client
+                .seq0,
+            syn_seq
+        );
     }
 
-    // Server SYN-ACK establishes server scale/mss and preserves Syn unshifted winsize_calc.
-    let srv_seq0 = 5000u32;
     let sa_opts = vec![
         TcpOption { kind: TCP_KIND_MSS, data: Some(vec![0x05, 0x78]) },
         TcpOption { kind: TCP_KIND_SCALE, data: Some(vec![7]) },
@@ -144,17 +178,46 @@ fn conntrack_tcp_lifecycle_options_wraparound_and_reinit()
         &build_tcp4_pkt(true, srv_seq0, syn_seq.wrapping_add(1), TH_SYN | TH_ACK, 512, sa_opts, &[], 52),
         false,
     );
-    let (_, rev_sa) = pool.feed(None, &synack, t0).expect("feed ok").expect("tracked");
+    let (_, rev_sa) = pool
+        .feed(None, &synack, t0)
+        .expect("feed ok")
+        .expect("tracked");
     assert!(rev_sa);
 
-    // Client ACK moves state -> Established and shifts client winsize_calc << 14.
     let ack = dissect_packet(
         &build_tcp4_pkt(false, syn_seq.wrapping_add(1), srv_seq0 + 1, TH_ACK, 100, vec![], &[], 64),
         false,
     );
-    pool.feed(None, &ack, t0).expect("feed ok").expect("tracked");
-    assert_eq!(entry_rc.borrow().pos.state, ConnState::Established);
-    assert_eq!(entry_rc.borrow().pos.client.winsize_calc, 100u32 << 14);
+    pool.feed(None, &ack, t0)
+        .expect("feed ok")
+        .expect("tracked");
+    assert_eq!(
+        entry_rc
+            .borrow()
+            .pos
+            .state,
+        ConnState::Established
+    );
+    assert_eq!(
+        entry_rc
+            .borrow()
+            .pos
+            .client
+            .winsize_calc,
+        100u32 << 14
+    );
+    (entry_rc, synack)
+}
+
+/// Verifies TCP SYN/SYN-ACK/ESTABLISHED/FIN transitions, scale capping, wrapping sequences, and re-init.
+#[test]
+fn conntrack_tcp_lifecycle_options_wraparound_and_reinit()
+{
+    let mut pool = ConntrackPool::new(ConntrackTimeouts::default());
+    let t0 = MonotonicTime { sec: 100, nsec: 500_000_000 };
+    let syn_seq = 0xFFFF_FF00u32;
+    let srv_seq0 = 5000u32;
+    let (entry_rc, synack) = verify_syn_handshake_and_wrap(&mut pool, t0, syn_seq, srv_seq0);
 
     // First client data chunk (300 bytes) wraps past 32-bit zero; followed by identical retransmit.
     let data = dissect_packet(
@@ -170,14 +233,49 @@ fn conntrack_tcp_lifecycle_options_wraparound_and_reinit()
         ),
         false,
     );
-    pool.feed(None, &data, t0).expect("feed ok");
-    assert!(!entry_rc.borrow().pos.client.is_retransmission());
-    assert_eq!(entry_rc.borrow().pos.client.rel_pos(), 301);
+    pool.feed(None, &data, t0)
+        .expect("feed ok");
+    assert!(
+        !entry_rc
+            .borrow()
+            .pos
+            .client
+            .is_retransmission()
+    );
+    assert_eq!(
+        entry_rc
+            .borrow()
+            .pos
+            .client
+            .rel_pos(),
+        301
+    );
 
-    pool.feed(None, &data, t0).expect("feed ok");
-    assert!(entry_rc.borrow().pos.client.is_retransmission());
-    assert_eq!(entry_rc.borrow().pos.client.pdcounter, 2);
-    assert_eq!(entry_rc.borrow().pos.client.pbcounter, 600);
+    pool.feed(None, &data, t0)
+        .expect("feed ok");
+    assert!(
+        entry_rc
+            .borrow()
+            .pos
+            .client
+            .is_retransmission()
+    );
+    assert_eq!(
+        entry_rc
+            .borrow()
+            .pos
+            .client
+            .pdcounter,
+        2
+    );
+    assert_eq!(
+        entry_rc
+            .borrow()
+            .pos
+            .client
+            .pbcounter,
+        600
+    );
 
     // Jump > 2 GiB sets sticky rseq_over_2g; FIN transitions state -> Fin; new SYN reinits.
     let far = dissect_packet(
@@ -193,18 +291,48 @@ fn conntrack_tcp_lifecycle_options_wraparound_and_reinit()
         ),
         false,
     );
-    pool.feed(None, &far, t0).expect("feed ok");
-    assert!(entry_rc.borrow().pos.client.rseq_over_2g);
-    assert_eq!(entry_rc.borrow().pos.state, ConnState::Fin);
+    pool.feed(None, &far, t0)
+        .expect("feed ok");
+    assert!(
+        entry_rc
+            .borrow()
+            .pos
+            .client
+            .rseq_over_2g
+    );
+    assert_eq!(
+        entry_rc
+            .borrow()
+            .pos
+            .state,
+        ConnState::Fin
+    );
 
     let resyn = dissect_packet(&build_tcp4_pkt(false, 42, 0, TH_SYN, 100, vec![], &[], 64), false);
-    pool.feed(None, &resyn, t0).expect("feed ok");
-    assert!(!entry_rc.borrow().pos.client.rseq_over_2g);
-    assert_eq!(entry_rc.borrow().pos.client.pcounter, 1);
+    pool.feed(None, &resyn, t0)
+        .expect("feed ok");
+    assert!(
+        !entry_rc
+            .borrow()
+            .pos
+            .client
+            .rseq_over_2g
+    );
+    assert_eq!(
+        entry_rc
+            .borrow()
+            .pos
+            .client
+            .pcounter,
+        1
+    );
 
     // SYN-ACK-first creation creates reversed entry keeping client in src/sport.
     let mut pool2 = ConntrackPool::default();
-    let (_, rev2) = pool2.feed(None, &synack, t0).expect("ok").expect("synack creates");
+    let (_, rev2) = pool2
+        .feed(None, &synack, t0)
+        .expect("ok")
+        .expect("synack creates");
     assert!(rev2);
 }
 
@@ -217,13 +345,35 @@ fn conntrack_udp_double_search_drop_and_purge_timeouts()
     let u0 = dissect_packet(&build_udp4_pkt(false, b"ping"), false);
     let u1 = dissect_packet(&build_udp4_pkt(true, b"pong42"), false);
 
-    let (e_rc, rev0) = pool.feed(None, &u0, MonotonicTime { sec: 100, nsec: 0 }).expect("ok").expect("udp");
+    let (e_rc, rev0) = pool
+        .feed(None, &u0, MonotonicTime { sec: 100, nsec: 0 })
+        .expect("ok")
+        .expect("udp");
     assert!(!rev0);
-    let (_, rev1) = pool.feed(None, &u1, MonotonicTime { sec: 102, nsec: 0 }).expect("ok").expect("udp rev");
+    let (_, rev1) = pool
+        .feed(None, &u1, MonotonicTime { sec: 102, nsec: 0 })
+        .expect("ok")
+        .expect("udp rev");
     assert!(rev1);
-    assert_eq!(e_rc.borrow().pos.client.pbcounter, 4);
-    assert_eq!(e_rc.borrow().pos.server.pbcounter, 6);
-    assert!(pool.double_search(&u1).expect("found").1);
+    assert_eq!(
+        e_rc.borrow()
+            .pos
+            .client
+            .pbcounter,
+        4
+    );
+    assert_eq!(
+        e_rc.borrow()
+            .pos
+            .server
+            .pbcounter,
+        6
+    );
+    assert!(
+        pool.double_search(&u1)
+            .expect("found")
+            .1
+    );
 
     // Rate-limited purge skips before purge_interval elapses, then evicts once past udp=15s.
     assert_eq!(pool.purge_rate_limited(105), 0);
@@ -232,10 +382,15 @@ fn conntrack_udp_double_search_drop_and_purge_timeouts()
     assert!(pool.is_empty());
 
     // Explicit cutoff flag evicts even before timeout; drop_conn works from reverse side.
-    let (e2, _) = pool.feed(None, &u0, MonotonicTime { sec: 200, nsec: 0 }).expect("ok").expect("udp2");
-    e2.borrow_mut().cutoff = true;
+    let (e2, _) = pool
+        .feed(None, &u0, MonotonicTime { sec: 200, nsec: 0 })
+        .expect("ok")
+        .expect("udp2");
+    e2.borrow_mut()
+        .cutoff = true;
     assert_eq!(pool.purge_now(200), 1);
-    pool.feed(None, &u0, MonotonicTime { sec: 200, nsec: 0 }).expect("ok");
+    pool.feed(None, &u0, MonotonicTime { sec: 200, nsec: 0 })
+        .expect("ok");
     assert!(pool.drop_conn(&u1));
     assert!(pool.is_empty());
 }
@@ -281,13 +436,33 @@ fn packet_range_evaluates_counters_seq_exclusive_and_overflow()
     assert!(!inc.check_pos_cutoff(Some(&pos)));
     assert!(exc.check_pos_cutoff(Some(&pos)));
 
-    assert!(PacketRange::parse("n3-n3").expect("n3").check_pos_range(Some(&pos)));
-    assert!(PacketRange::parse("b100-b200").expect("b").check_pos_range(Some(&pos)));
-    assert!(PacketRange::parse("s50-p150").expect("s-p").check_pos_range(Some(&pos)));
+    assert!(
+        PacketRange::parse("n3-n3")
+            .expect("n3")
+            .check_pos_range(Some(&pos))
+    );
+    assert!(
+        PacketRange::parse("b100-b200")
+            .expect("b")
+            .check_pos_range(Some(&pos))
+    );
+    assert!(
+        PacketRange::parse("s50-p150")
+            .expect("s-p")
+            .check_pos_range(Some(&pos))
+    );
 
     let over = CtrackPosition { rseq_over_2g: true, ..pos };
-    assert!(!PacketRange::parse("s0-s100").expect("s").check_pos_range(Some(&over)));
-    assert!(PacketRange::parse("s0-s100").expect("s").check_pos_cutoff(Some(&over)));
+    assert!(
+        !PacketRange::parse("s0-s100")
+            .expect("s")
+            .check_pos_range(Some(&over))
+    );
+    assert!(
+        PacketRange::parse("s0-s100")
+            .expect("s")
+            .check_pos_cutoff(Some(&over))
+    );
 
     // Without conntrack: only a..a avoids cutoff and matches range.
     assert!(PacketRange::ALWAYS.check_pos_range(None));

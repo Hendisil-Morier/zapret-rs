@@ -92,8 +92,15 @@ const fn hex_nibble(byte: u8) -> Option<u8>
 pub fn parse_hex_blob(name: &str, raw: &str) -> Result<Vec<u8>, ConfigError>
 {
     let trimmed = raw.trim();
-    let hex = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")).unwrap_or(trimmed);
-    if hex.is_empty() || !hex.is_ascii() || !hex.len().is_multiple_of(2)
+    let hex = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    if hex.is_empty()
+        || !hex.is_ascii()
+        || !hex
+            .len()
+            .is_multiple_of(2)
     {
         return Err(ConfigError::InvalidBlob {
             name: name.to_owned(),
@@ -108,7 +115,9 @@ pub fn parse_hex_blob(name: &str, raw: &str) -> Result<Vec<u8>, ConfigError>
             detail: format!("hex blob size {byte_len} exceeds {MAX_BLOB_SIZE} bytes"),
         });
     }
-    let (pairs, _) = hex.as_bytes().as_chunks::<2>();
+    let (pairs, _) = hex
+        .as_bytes()
+        .as_chunks::<2>();
     let mut out = Vec::with_capacity(byte_len);
     for &[hi, lo] in pairs
     {

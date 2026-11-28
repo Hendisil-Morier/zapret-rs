@@ -27,7 +27,12 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>)
     {
         panic!("failed to read directory {}", dir.display());
     };
-    let mut paths: Vec<PathBuf> = entries.map(|res| res.expect("readable dir entry").path()).collect();
+    let mut paths: Vec<PathBuf> = entries
+        .map(|res| {
+            res.expect("readable dir entry")
+                .path()
+        })
+        .collect();
     paths.sort();
 
     for path in paths
@@ -79,7 +84,9 @@ fn check_line_limits(
     for path in files
     {
         let rel = rel_path(root, &path);
-        if exemptions.iter().any(|&(exempt, _)| exempt == rel)
+        if exemptions
+            .iter()
+            .any(|&(exempt, _)| exempt == rel)
         {
             continue;
         }
@@ -100,7 +107,11 @@ fn no_monolithic_rust_files()
 
     for &(rel, reason) in DECLARATIVE_EXEMPTIONS
     {
-        assert!(root.join(rel).is_file(), "stale declarative exemption '{rel}' ({reason}) no longer exists");
+        assert!(
+            root.join(rel)
+                .is_file(),
+            "stale declarative exemption '{rel}' ({reason}) no longer exists"
+        );
     }
 
     let mut violations = Vec::new();
@@ -133,7 +144,9 @@ fn mod_rs_files_are_pure_facades()
         let content = fs::read_to_string(&path).expect("UTF-8 mod.rs file");
         let mut in_pub_use = false;
 
-        for (idx, raw_line) in content.lines().enumerate()
+        for (idx, raw_line) in content
+            .lines()
+            .enumerate()
         {
             let trimmed = raw_line.trim();
             if trimmed.is_empty()
@@ -193,9 +206,14 @@ fn src_contains_no_inline_tests_or_unwrap_expect()
     {
         let rel = rel_path(root, &path);
         let content = fs::read_to_string(&path).expect("UTF-8 Rust source file");
-        for (idx, raw_line) in content.lines().enumerate()
+        for (idx, raw_line) in content
+            .lines()
+            .enumerate()
         {
-            let code = raw_line.split("//").next().unwrap_or("");
+            let code = raw_line
+                .split("//")
+                .next()
+                .unwrap_or("");
             for token in FORBIDDEN_IN_SRC
             {
                 if code.contains(token)
@@ -229,9 +247,14 @@ fn no_inline_keybind_bars_in_tab_panels()
     for rel in checked
     {
         let content = fs::read_to_string(root.join(rel)).expect("UTF-8 Rust source file");
-        for (idx, line) in content.lines().enumerate()
+        for (idx, line) in content
+            .lines()
+            .enumerate()
         {
-            let code = line.split("//").next().unwrap_or("");
+            let code = line
+                .split("//")
+                .next()
+                .unwrap_or("");
             if code.contains("styled_key_hints(") || code.contains("styled_key_hints_owned(")
             {
                 violations

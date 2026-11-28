@@ -12,13 +12,23 @@ pub(crate) fn update_root_scalars(
     control_socket: Option<&Path>,
 ) -> String
 {
-    let lines: Vec<&str> = doc.lines().collect();
+    let lines: Vec<&str> = doc
+        .lines()
+        .collect();
     let first_hdr = first_header_line(&lines).unwrap_or(lines.len());
     let desired: [(&str, Option<String>); 4] = [
         ("nfqws2_config", (!nfqws2_config.is_empty()).then(|| toml_str(nfqws2_config))),
         ("lua_dir", lua_dir.map(toml_str)),
         ("no_nft", no_nft.then(|| "true".to_owned())),
-        ("control_socket", control_socket.map(|p| toml_str(&p.display().to_string()))),
+        (
+            "control_socket",
+            control_socket.map(|p| {
+                toml_str(
+                    &p.display()
+                        .to_string(),
+                )
+            }),
+        ),
     ];
 
     let mut out_lines: Vec<String> = Vec::with_capacity(lines.len() + 4);
@@ -26,7 +36,9 @@ pub(crate) fn update_root_scalars(
     for &line in &lines[..first_hdr]
     {
         let mut handled = false;
-        for (idx, (key, val)) in desired.iter().enumerate()
+        for (idx, (key, val)) in desired
+            .iter()
+            .enumerate()
         {
             if matches_root_assignment(line, key)
             {
@@ -44,13 +56,20 @@ pub(crate) fn update_root_scalars(
             out_lines.push(line.to_owned());
         }
     }
-    for (idx, (key, val)) in desired.iter().enumerate()
+    for (idx, (key, val)) in desired
+        .iter()
+        .enumerate()
     {
         if !seen[idx]
             && let Some(rendered_val) = val
         {
-            let insert_at =
-                out_lines.iter().rposition(|l| !l.trim().is_empty()).map_or(out_lines.len(), |i| i + 1);
+            let insert_at = out_lines
+                .iter()
+                .rposition(|l| {
+                    !l.trim()
+                        .is_empty()
+                })
+                .map_or(out_lines.len(), |i| i + 1);
             out_lines.insert(insert_at, format!("{key} = {rendered_val}"));
         }
     }
@@ -69,12 +88,16 @@ pub(crate) fn update_root_scalars(
 /// Replaces all `[header]` / `[[header]]` sections matching `pred` with `replacement` in place.
 pub(crate) fn replace_sections<F: Fn(&str) -> bool>(doc: &str, pred: F, replacement: Option<&str>) -> String
 {
-    let lines: Vec<&str> = doc.lines().collect();
+    let lines: Vec<&str> = doc
+        .lines()
+        .collect();
     let mut spans: Vec<(usize, usize)> = Vec::new();
     let (mut ml_dq, mut ml_sq) = (false, false);
     let mut active_start: Option<usize> = None;
 
-    for (idx, &line) in lines.iter().enumerate()
+    for (idx, &line) in lines
+        .iter()
+        .enumerate()
     {
         if !ml_dq
             && !ml_sq
@@ -104,7 +127,9 @@ pub(crate) fn replace_sections<F: Fn(&str) -> bool>(doc: &str, pred: F, replacem
         {
             return doc.to_owned();
         };
-        let mut out = doc.trim_end().to_owned();
+        let mut out = doc
+            .trim_end()
+            .to_owned();
         if !out.is_empty()
         {
             out.push_str("\n\n");
@@ -116,7 +141,9 @@ pub(crate) fn replace_sections<F: Fn(&str) -> bool>(doc: &str, pred: F, replacem
 
     let first_start = spans[0].0;
     let mut out_lines: Vec<String> = Vec::with_capacity(lines.len());
-    for (idx, &line) in lines.iter().enumerate()
+    for (idx, &line) in lines
+        .iter()
+        .enumerate()
     {
         if idx == first_start
             && let Some(block) = replacement
@@ -126,7 +153,9 @@ pub(crate) fn replace_sections<F: Fn(&str) -> bool>(doc: &str, pred: F, replacem
                 out_lines.push(b_line.to_owned());
             }
         }
-        if spans.iter().any(|&(s, e)| idx >= s && idx < e)
+        if spans
+            .iter()
+            .any(|&(s, e)| idx >= s && idx < e)
         {
             continue;
         }
@@ -137,7 +166,9 @@ pub(crate) fn replace_sections<F: Fn(&str) -> bool>(doc: &str, pred: F, replacem
     {
         out = out.replace("\n\n\n", "\n\n");
     }
-    let out = out.trim_end().to_owned();
+    let out = out
+        .trim_end()
+        .to_owned();
     if out.is_empty() { String::new() } else { format!("{out}\n") }
 }
 
@@ -156,14 +187,17 @@ fn matches_root_assignment(line: &str, key: &str) -> bool
     {
         return false;
     };
-    rest.trim_start().starts_with('=')
+    rest.trim_start()
+        .starts_with('=')
 }
 
 /// Finds the first top-level `[section]` header line index outside multiline TOML strings.
 fn first_header_line(lines: &[&str]) -> Option<usize>
 {
     let (mut ml_dq, mut ml_sq) = (false, false);
-    for (idx, &line) in lines.iter().enumerate()
+    for (idx, &line) in lines
+        .iter()
+        .enumerate()
     {
         if !ml_dq && !ml_sq && parse_header_name(line).is_some()
         {
@@ -203,11 +237,17 @@ fn parse_header_name(line: &str) -> Option<String>
     }
     let inner = if let Some(s) = trimmed.strip_prefix("[[")
     {
-        s.split("]]").next()?.trim()
+        s.split("]]")
+            .next()?
+            .trim()
     }
     else
     {
-        trimmed.strip_prefix('[')?.split(']').next()?.trim()
+        trimmed
+            .strip_prefix('[')?
+            .split(']')
+            .next()?
+            .trim()
     };
     (!inner.is_empty()).then(|| inner.to_owned())
 }

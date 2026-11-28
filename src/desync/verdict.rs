@@ -53,11 +53,15 @@ pub const fn aggregate_verdict(v1: u8, v2: u8) -> u8
 /// Returns `true` if `icmp_type` is an ICMPv4 or ICMPv6 error carrying an embedded IP packet.
 pub(crate) fn is_icmp_error_with_attached_ip(dis: &DissectedPacket, icmp_type: u8) -> bool
 {
-    if dis.ip.is_some()
+    if dis
+        .ip
+        .is_some()
     {
         matches!(icmp_type, ICMP_DEST_UNREACH | ICMP_TIME_EXCEEDED | ICMP_PARAMETERPROB | ICMP_REDIRECT)
     }
-    else if dis.ip6.is_some()
+    else if dis
+        .ip6
+        .is_some()
     {
         matches!(icmp_type, ICMP6_DST_UNREACH | ICMP6_PACKET_TOO_BIG | ICMP6_TIME_EXCEEDED | ICMP6_PARAM_PROB)
     }
@@ -70,9 +74,17 @@ pub(crate) fn is_icmp_error_with_attached_ip(dis: &DissectedPacket, icmp_type: u
 /// Assigns baseline [`L7Payload`] tags (`empty`, `unknown`, `ipv4`, `ipv6`, `icmp`).
 pub fn classify_baseline_payload(dis: &DissectedPacket) -> L7Payload
 {
-    if dis.tcp.is_some() || dis.udp.is_some()
+    if dis
+        .tcp
+        .is_some()
+        || dis
+            .udp
+            .is_some()
     {
-        if dis.payload.as_deref().is_some_and(|p| !p.is_empty())
+        if dis
+            .payload
+            .as_deref()
+            .is_some_and(|p| !p.is_empty())
         {
             L7Payload::Unknown
         }
@@ -84,14 +96,20 @@ pub fn classify_baseline_payload(dis: &DissectedPacket) -> L7Payload
     else if let Some(icmp) = &dis.icmp
     {
         if is_icmp_error_with_attached_ip(dis, icmp.icmp_type)
-            && let Some(attached) = dis.payload.as_deref()
+            && let Some(attached) = dis
+                .payload
+                .as_deref()
         {
             let inner = dissect_packet(attached, true);
-            if inner.ip.is_some()
+            if inner
+                .ip
+                .is_some()
             {
                 return L7Payload::Ipv4;
             }
-            if inner.ip6.is_some()
+            if inner
+                .ip6
+                .is_some()
             {
                 return L7Payload::Ipv6;
             }
@@ -155,14 +173,22 @@ impl Drop for SessionCtxGuard<'_>
     /// Resets per-packet context fields when profile evaluation finishes.
     fn drop(&mut self)
     {
-        let mut state = self.0.borrow_mut();
+        let mut state = self
+            .0
+            .borrow_mut();
         state.valid = false;
         state.cancel = false;
         state.profile = None;
         state.ctrack = None;
-        state.raw_packet.clear();
-        state.func.clear();
-        state.instance.clear();
+        state
+            .raw_packet
+            .clear();
+        state
+            .func
+            .clear();
+        state
+            .instance
+            .clear();
     }
 }
 
@@ -177,7 +203,9 @@ impl Drop for ValidCtxGuard<'_>
     /// Marks `ctx` invalid so Lua cannot reuse a stashed context reference after returning.
     fn drop(&mut self)
     {
-        self.0.borrow_mut().valid = false;
+        self.0
+            .borrow_mut()
+            .valid = false;
     }
 }
 
@@ -189,7 +217,20 @@ pub(crate) fn extract_pos_for_side(
 {
     let entry_rc = ctrack?;
     let entry = entry_rc.borrow();
-    Some(if b_reverse { entry.pos.server } else { entry.pos.client })
+    Some(
+        if b_reverse
+        {
+            entry
+                .pos
+                .server
+        }
+        else
+        {
+            entry
+                .pos
+                .client
+        },
+    )
 }
 
 /// Extracts either source (`from_src = true`) or destination (`from_src = false`) IP from `dis`.
@@ -201,7 +242,9 @@ pub(crate) fn extract_endpoint_ip(dis: &DissectedPacket, from_src: bool) -> Opti
     }
     else
     {
-        dis.ip6.as_ref().map(|ip6| IpAddr::V6(Ipv6Addr::from(if from_src { ip6.src } else { ip6.dst })))
+        dis.ip6
+            .as_ref()
+            .map(|ip6| IpAddr::V6(Ipv6Addr::from(if from_src { ip6.src } else { ip6.dst })))
     }
 }
 
@@ -219,11 +262,27 @@ pub(crate) fn ct_new_postnat_fix(
 {
     let first_tracked = ctrack.is_some_and(|rc| {
         let entry = rc.borrow();
-        let pcounter = if server { entry.pos.server.pcounter } else { entry.pos.client.pcounter };
+        let pcounter = if server
+        {
+            entry
+                .pos
+                .server
+                .pcounter
+        }
+        else
+        {
+            entry
+                .pos
+                .client
+                .pcounter
+        };
         pcounter == 1
     });
     let stateless_syn = ctrack.is_none()
-        && dis.tcp.as_ref().is_some_and(|tcp| is_tcp_syn(tcp.flags) || is_tcp_synack(tcp.flags));
+        && dis
+            .tcp
+            .as_ref()
+            .is_some_and(|tcp| is_tcp_syn(tcp.flags) || is_tcp_synack(tcp.flags));
 
     if !(first_tracked || stateless_syn)
     {
@@ -231,13 +290,19 @@ pub(crate) fn ct_new_postnat_fix(
     }
 
     let mut mod_pkt = raw_pkt.to_vec();
-    if dis.ip.is_some() && mod_pkt.len() >= IP_BASE_LEN
+    if dis
+        .ip
+        .is_some()
+        && mod_pkt.len() >= IP_BASE_LEN
     {
         mod_pkt[8] = 1;
         mod_pkt[9] = 255;
         return Decision::Replace(mod_pkt);
     }
-    if dis.ip6.is_some() && mod_pkt.len() >= IP6_BASE_LEN
+    if dis
+        .ip6
+        .is_some()
+        && mod_pkt.len() >= IP6_BASE_LEN
     {
         mod_pkt[6] = 255;
         mod_pkt[7] = 1;
@@ -271,7 +336,10 @@ pub(crate) fn is_instance_cut_off(
     incoming: bool,
 ) -> bool
 {
-    ctrack.is_some_and(|rc| rc.borrow().is_instance_cutoff(instance, profile_n, incoming))
+    ctrack.is_some_and(|rc| {
+        rc.borrow()
+            .is_instance_cutoff(instance, profile_n, incoming)
+    })
 }
 
 /// Returns `true` when `action` satisfies instance cutoff, directional range, and payload filters.
@@ -302,11 +370,15 @@ pub(crate) fn all_actions_cut_off(
     incoming: bool,
 ) -> bool
 {
-    profile.actions.iter().zip(instances.iter()).all(|(action, instance)| {
-        let inst_cut = is_instance_cut_off(ctrack, instance, profile.index, incoming);
-        let range = if incoming { action.in_range } else { action.out_range };
-        inst_cut || range.check_pos_cutoff(pos_opt)
-    })
+    profile
+        .actions
+        .iter()
+        .zip(instances.iter())
+        .all(|(action, instance)| {
+            let inst_cut = is_instance_cut_off(ctrack, instance, profile.index, incoming);
+            let range = if incoming { action.in_range } else { action.out_range };
+            inst_cut || range.check_pos_cutoff(pos_opt)
+        })
 }
 
 /// Returns `true` when at least one profile action passes instance cutoff, range, and payload checks.
@@ -319,9 +391,13 @@ pub(crate) fn any_action_runnable(
     l7payload: L7Payload,
 ) -> bool
 {
-    profile.actions.iter().zip(instances.iter()).any(|(action, instance)| {
-        action_is_runnable(action, profile.index, instance, ctrack, pos_opt, incoming, l7payload)
-    })
+    profile
+        .actions
+        .iter()
+        .zip(instances.iter())
+        .any(|(action, instance)| {
+            action_is_runnable(action, profile.index, instance, ctrack, pos_opt, incoming, l7payload)
+        })
 }
 
 /// Arms `ctx.valid`, invokes a single Lua action callback, and clears `ctx.valid` before returning.
@@ -338,14 +414,23 @@ pub(crate) fn invoke_action_callback(
     {
         let mut state = ctx_state.borrow_mut();
         state.func_n = func_n;
-        state.func.clear();
-        state.func.push_str(func_name);
-        state.instance.clear();
-        state.instance.push_str(instance);
+        state
+            .func
+            .clear();
+        state
+            .func
+            .push_str(func_name);
+        state
+            .instance
+            .clear();
+        state
+            .instance
+            .push_str(instance);
         state.valid = true;
     }
     let _valid_guard = ValidCtxGuard(ctx_state);
-    func.call::<MultiValue>((ctx_ud.clone(), desync_tbl.clone())).map_err(|e| format!("LUA ERROR: {e}"))
+    func.call::<MultiValue>((ctx_ud.clone(), desync_tbl.clone()))
+        .map_err(|e| format!("LUA ERROR: {e}"))
 }
 
 /// Resolves an aggregated Lua `VERDICT_*` bitmask into an NFQUEUE [`Decision`].

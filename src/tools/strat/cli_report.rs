@@ -13,10 +13,34 @@ fn json_quote(raw: &str) -> String
 pub fn format_report_json(report: &ScanReport) -> String
 {
     let mut out = format!("{{\n  \"interrupted\": {},\n  \"targets\": [\n", report.interrupted);
-    for (i, t) in report.targets.iter().enumerate()
+    for (i, t) in report
+        .targets
+        .iter()
+        .enumerate()
     {
-        let sep = if i + 1 < report.targets.len() { "," } else { "" };
-        let best = t.matches.first().map_or_else(|| "null".to_owned(), |m| json_quote(&m.strategy.id));
+        let sep = if i + 1
+            < report
+                .targets
+                .len()
+        {
+            ","
+        }
+        else
+        {
+            ""
+        };
+        let best = t
+            .matches
+            .first()
+            .map_or_else(
+                || "null".to_owned(),
+                |m| {
+                    json_quote(
+                        &m.strategy
+                            .id,
+                    )
+                },
+            );
         out.push_str(&format!(
             "    {{\"domain\": {}, \"proto\": {}, \"ipv\": {}, \"baseline\": {}, \"skipped_unblocked\": {}, \"tested\": {}, \"matches\": {}, \"best\": {}}}{sep}\n",
             json_quote(&t.domain), json_quote(t.proto.as_str()), json_quote(t.ipv.as_str()),
@@ -24,14 +48,35 @@ pub fn format_report_json(report: &ScanReport) -> String
         ));
     }
     out.push_str("  ],\n  \"cover\": [\n");
-    for (i, c) in report.cover.iter().enumerate()
+    for (i, c) in report
+        .cover
+        .iter()
+        .enumerate()
     {
-        let sep = if i + 1 < report.cover.len() { "," } else { "" };
-        let doms: Vec<String> = c.domains.iter().map(|d| json_quote(d)).collect();
+        let sep = if i + 1
+            < report
+                .cover
+                .len()
+        {
+            ","
+        }
+        else
+        {
+            ""
+        };
+        let doms: Vec<String> = c
+            .domains
+            .iter()
+            .map(|d| json_quote(d))
+            .collect();
         out.push_str(&format!(
             "    {{\"strategy\": {}, \"weight\": {}, \"avg_latency_ms\": {}, \"domains\": [{}]}}{sep}\n",
-            json_quote(&c.strategy.id),
-            c.strategy.weight,
+            json_quote(
+                &c.strategy
+                    .id
+            ),
+            c.strategy
+                .weight,
             c.avg_latency_ms,
             doms.join(", "),
         ));
@@ -52,17 +97,28 @@ pub fn print_report_summary(report: &ScanReport)
     {
         if t.skipped_unblocked
         {
-            println!("- {} ({}/{}): reachable directly [{}]", t.domain, t.proto, t.ipv, t.baseline.summary());
+            println!(
+                "- {} ({}/{}): reachable directly [{}]",
+                t.domain,
+                t.proto,
+                t.ipv,
+                t.baseline
+                    .summary()
+            );
         }
-        else if let Some(best) = t.matches.first()
+        else if let Some(best) = t
+            .matches
+            .first()
         {
             println!(
                 "- {} ({}/{}): {} working (best: {}, {} ms; tested {})",
                 t.domain,
                 t.proto,
                 t.ipv,
-                t.matches.len(),
-                best.strategy.id,
+                t.matches
+                    .len(),
+                best.strategy
+                    .id,
                 best.latency_ms,
                 t.tested_count
             );
@@ -74,22 +130,33 @@ pub fn print_report_summary(report: &ScanReport)
                 t.domain,
                 t.proto,
                 t.ipv,
-                t.baseline.summary(),
+                t.baseline
+                    .summary(),
                 t.tested_count
             );
         }
     }
-    if !report.cover.is_empty()
+    if !report
+        .cover
+        .is_empty()
     {
-        println!("\nSelected minimal profile set ({}):", report.cover.len());
+        println!(
+            "\nSelected minimal profile set ({}):",
+            report
+                .cover
+                .len()
+        );
         for c in &report.cover
         {
             println!(
                 "  * {} (weight {}, avg {} ms) -> {}",
-                c.strategy.id,
-                c.strategy.weight,
+                c.strategy
+                    .id,
+                c.strategy
+                    .weight,
                 c.avg_latency_ms,
-                c.domains.join(", ")
+                c.domains
+                    .join(", ")
             );
         }
     }

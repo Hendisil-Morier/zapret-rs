@@ -44,7 +44,13 @@ pub(crate) fn send_delayed_queue(
         {
             continue;
         };
-        let _ = tx.send(dst, pkt.fwmark | desync_fwmark, pkt.ifout.as_deref(), &pkt.raw);
+        let _ = tx.send(
+            dst,
+            pkt.fwmark | desync_fwmark,
+            pkt.ifout
+                .as_deref(),
+            &pkt.raw,
+        );
     }
 }
 
@@ -64,20 +70,43 @@ pub(crate) fn reasm_client_start(
         return false;
     }
     if proto == IPPROTO_TCP
-        && entry.pos.server.pcounter > 0
-        && usize::try_from(entry.pos.server.winsize_calc).unwrap_or(usize::MAX) < target_size
+        && entry
+            .pos
+            .server
+            .pcounter
+            > 0
+        && usize::try_from(
+            entry
+                .pos
+                .server
+                .winsize_calc,
+        )
+        .unwrap_or(usize::MAX)
+            < target_size
     {
         return false;
     }
 
-    let seq_start = if proto == IPPROTO_TCP { entry.pos.client.seq_last } else { 0 };
+    let seq_start = if proto == IPPROTO_TCP
+    {
+        entry
+            .pos
+            .client
+            .seq_last
+    }
+    else
+    {
+        0
+    };
     entry.reasm_client_payload = payload_kind;
     if !entry.try_start_reasm(target_size, seq_start)
     {
         entry.reasm_client_payload = L7Payload::Unknown;
         return false;
     }
-    if !entry.reasm_client.feed(seq_start, data)
+    if !entry
+        .reasm_client
+        .feed(seq_start, data)
     {
         entry.clear_reasm();
         entry.reasm_client_payload = L7Payload::Unknown;
@@ -103,19 +132,31 @@ pub(crate) fn reasm_client_feed(
 
     let (ok, failed_queue) = {
         let mut entry = entry_rc.borrow_mut();
-        if entry.reasm_client.is_empty()
+        if entry
+            .reasm_client
+            .is_empty()
         {
             return false;
         }
         let seq = if proto == IPPROTO_TCP
         {
-            entry.pos.client.seq_last
+            entry
+                .pos
+                .client
+                .seq_last
         }
         else
         {
-            u32::try_from(entry.reasm_client.size_present()).unwrap_or(u32::MAX)
+            u32::try_from(
+                entry
+                    .reasm_client
+                    .size_present(),
+            )
+            .unwrap_or(u32::MAX)
         };
-        if entry.reasm_client.feed(seq, data)
+        if entry
+            .reasm_client
+            .feed(seq, data)
         {
             (true, None)
         }
@@ -149,7 +190,9 @@ pub(crate) fn reasm_client_stop(
     };
     let leftover = {
         let mut entry = entry_rc.borrow_mut();
-        if !entry.reasm_client.is_empty()
+        if !entry
+            .reasm_client
+            .is_empty()
         {
             entry.clear_reasm();
             entry.reasm_client_payload = L7Payload::Unknown;
@@ -198,19 +241,33 @@ pub(crate) fn replay_delayed_queue<F>(
     let mut offset = 0usize;
     let mut seq0 = 0u32;
 
-    for (idx, pkt) in delayed.into_iter().enumerate()
+    for (idx, pkt) in delayed
+        .into_iter()
+        .enumerate()
     {
-        let is_tcp_seq = pkt.tpos.ipproto == IPPROTO_TCP;
+        let is_tcp_seq = pkt
+            .tpos
+            .ipproto
+            == IPPROTO_TCP;
         if is_tcp_seq
         {
             if idx == 0
             {
-                seq0 = pkt.tpos.client.seq_last;
+                seq0 = pkt
+                    .tpos
+                    .client
+                    .seq_last;
                 offset = 0;
             }
             else
             {
-                offset = usize::try_from(pkt.tpos.client.seq_last.wrapping_sub(seq0)).unwrap_or(0);
+                offset = usize::try_from(
+                    pkt.tpos
+                        .client
+                        .seq_last
+                        .wrapping_sub(seq0),
+                )
+                .unwrap_or(0);
             }
         }
 
@@ -223,11 +280,23 @@ pub(crate) fn replay_delayed_queue<F>(
             {
                 Decision::Replace(mod_bytes) =>
                 {
-                    let _ = tx.send(dst, pkt.fwmark | desync_fwmark, pkt.ifout.as_deref(), &mod_bytes);
+                    let _ = tx.send(
+                        dst,
+                        pkt.fwmark | desync_fwmark,
+                        pkt.ifout
+                            .as_deref(),
+                        &mod_bytes,
+                    );
                 }
                 Decision::Pass =>
                 {
-                    let _ = tx.send(dst, pkt.fwmark | desync_fwmark, pkt.ifout.as_deref(), &pkt.raw);
+                    let _ = tx.send(
+                        dst,
+                        pkt.fwmark | desync_fwmark,
+                        pkt.ifout
+                            .as_deref(),
+                        &pkt.raw,
+                    );
                 }
                 Decision::Drop =>
                 {}
@@ -236,7 +305,10 @@ pub(crate) fn replay_delayed_queue<F>(
 
         if !is_tcp_seq
         {
-            let payload_len = dis.payload.as_ref().map_or(0, Vec::len);
+            let payload_len = dis
+                .payload
+                .as_ref()
+                .map_or(0, Vec::len);
             offset = offset.saturating_add(payload_len);
         }
     }
@@ -247,7 +319,15 @@ pub(crate) fn clone_reasm_bytes(entry: Option<&Rc<RefCell<CtrackEntry>>>) -> Opt
 {
     let rc = entry?;
     let guard = rc.borrow();
-    (!guard.reasm_client.is_empty()).then(|| guard.reasm_client.data().to_vec())
+    (!guard
+        .reasm_client
+        .is_empty())
+    .then(|| {
+        guard
+            .reasm_client
+            .data()
+            .to_vec()
+    })
 }
 
 /// Replays `delayed` through `engine` and flushes/clears `reasm_client` (`replay_queue` + `reasm_client_fin`).
@@ -269,8 +349,12 @@ pub(crate) fn replay_and_finish(
         let qpkt = QueuedPacket {
             packet_id,
             mark: dpkt.fwmark,
-            ifin: dpkt.ifin.as_deref(),
-            ifout: dpkt.ifout.as_deref(),
+            ifin: dpkt
+                .ifin
+                .as_deref(),
+            ifout: dpkt
+                .ifout
+                .as_deref(),
             payload: &dpkt.raw,
         };
         engine.process_packet_play(&rctx, &qpkt, replay_now)

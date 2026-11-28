@@ -112,7 +112,9 @@ fn push_port_interval(out: &mut BTreeSet<(u16, u16)>, pf: &crate::config::PortFi
     {
         return;
     }
-    let from = pf.from.max(1);
+    let from = pf
+        .from
+        .max(1);
     if from > pf.to || (from == 1 && pf.to == u16::MAX)
     {
         return;
@@ -127,9 +129,14 @@ fn merge_port_intervals(intervals: BTreeSet<(u16, u16)>) -> Vec<(u16, u16)>
     for (from, to) in intervals
     {
         if let Some(last) = merged.last_mut()
-            && from <= last.1.saturating_add(1)
+            && from
+                <= last
+                    .1
+                    .saturating_add(1)
         {
-            last.1 = last.1.max(to);
+            last.1 = last
+                .1
+                .max(to);
         }
         else
         {
@@ -180,7 +187,9 @@ fn expand_intervals(intervals: Vec<(u16, u16)>) -> Vec<u16>
             }
         }
     }
-    ports.into_iter().collect()
+    ports
+        .into_iter()
+        .collect()
 }
 
 /// Collects deduplicated TCP and UDP ports referenced by `cfg.profiles` (defaults to `80`/`443`).

@@ -43,11 +43,21 @@ impl CountersSnapshot
     pub fn store_into(&self, target: &PacketCounters)
     {
         use std::sync::atomic::Ordering;
-        target.total.store(self.total, Ordering::Relaxed);
-        target.passed.store(self.passed, Ordering::Relaxed);
-        target.reassembled.store(self.reassembled, Ordering::Relaxed);
-        target.modified.store(self.modified, Ordering::Relaxed);
-        target.desynced.store(self.desynced, Ordering::Relaxed);
+        target
+            .total
+            .store(self.total, Ordering::Relaxed);
+        target
+            .passed
+            .store(self.passed, Ordering::Relaxed);
+        target
+            .reassembled
+            .store(self.reassembled, Ordering::Relaxed);
+        target
+            .modified
+            .store(self.modified, Ordering::Relaxed);
+        target
+            .desynced
+            .store(self.desynced, Ordering::Relaxed);
     }
 }
 

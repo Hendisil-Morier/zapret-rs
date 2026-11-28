@@ -91,16 +91,26 @@ fn incoming_dpi_triggers_cover_rseq0_rst_tls_alert_early_fin_451_and_meta_refres
     // 1. Forged `TH_RST` at exact `server.seq0` (`rseq == 0`), while `SYN+ACK` at `rseq == 0` stays `None`.
     let mut synack_entry = CtrackEntry::new(None).expect("entry");
     synack_entry.hostname_ah_check = true;
-    synack_entry.pos.server.seq0 = 7000;
-    synack_entry.pos.server.seq_last = 7000;
+    synack_entry
+        .pos
+        .server
+        .seq0 = 7000;
+    synack_entry
+        .pos
+        .server
+        .seq_last = 7000;
     assert_eq!(
         check_tcp_incoming_trigger(&mut synack_entry, TH_SYN | TH_ACK, None, L7Payload::Empty, &settings),
         None
     );
     let mut rst0 = CtrackEntry::new(None).expect("entry");
     rst0.hostname_ah_check = true;
-    rst0.pos.server.seq0 = 7000;
-    rst0.pos.server.seq_last = 7000;
+    rst0.pos
+        .server
+        .seq0 = 7000;
+    rst0.pos
+        .server
+        .seq_last = 7000;
     assert_eq!(check_tcp_incoming_trigger(&mut rst0, TH_RST, None, L7Payload::Empty, &settings), Some(true));
 
     // 2. Plaintext TLS Fatal Alert (`0x15 0x03 0x03 0x00 0x02 0x02 0x28`), ignoring warning/ciphertext alerts.
@@ -114,8 +124,14 @@ fn incoming_dpi_triggers_cover_rseq0_rst_tls_alert_early_fin_451_and_meta_refres
     let mut tls_alert_entry = CtrackEntry::new(None).expect("entry");
     tls_alert_entry.hostname_ah_check = true;
     tls_alert_entry.l7proto = L7Proto::Tls;
-    tls_alert_entry.pos.server.seq0 = 7000;
-    tls_alert_entry.pos.server.seq_last = 7001;
+    tls_alert_entry
+        .pos
+        .server
+        .seq0 = 7000;
+    tls_alert_entry
+        .pos
+        .server
+        .seq_last = 7001;
     assert_eq!(
         check_tcp_incoming_trigger(
             &mut tls_alert_entry,
@@ -131,10 +147,22 @@ fn incoming_dpi_triggers_cover_rseq0_rst_tls_alert_early_fin_451_and_meta_refres
     let mut fin_entry = CtrackEntry::new(None).expect("entry");
     fin_entry.hostname_ah_check = true;
     fin_entry.l7proto = L7Proto::Tls;
-    fin_entry.pos.client.pdcounter = 1;
-    fin_entry.pos.server.pdcounter = 0;
-    fin_entry.pos.server.seq0 = 7000;
-    fin_entry.pos.server.seq_last = 7001;
+    fin_entry
+        .pos
+        .client
+        .pdcounter = 1;
+    fin_entry
+        .pos
+        .server
+        .pdcounter = 0;
+    fin_entry
+        .pos
+        .server
+        .seq0 = 7000;
+    fin_entry
+        .pos
+        .server
+        .seq_last = 7001;
     assert_eq!(
         check_tcp_incoming_trigger(&mut fin_entry, TH_FIN | TH_ACK, None, L7Payload::Empty, &settings),
         Some(true)
@@ -143,10 +171,22 @@ fn incoming_dpi_triggers_cover_rseq0_rst_tls_alert_early_fin_451_and_meta_refres
     let mut normal_fin = CtrackEntry::new(None).expect("entry");
     normal_fin.hostname_ah_check = true;
     normal_fin.l7proto = L7Proto::Tls;
-    normal_fin.pos.client.pdcounter = 1;
-    normal_fin.pos.server.pdcounter = 1;
-    normal_fin.pos.server.seq0 = 7000;
-    normal_fin.pos.server.seq_last = 7001;
+    normal_fin
+        .pos
+        .client
+        .pdcounter = 1;
+    normal_fin
+        .pos
+        .server
+        .pdcounter = 1;
+    normal_fin
+        .pos
+        .server
+        .seq0 = 7000;
+    normal_fin
+        .pos
+        .server
+        .seq_last = 7001;
     assert_eq!(
         check_tcp_incoming_trigger(&mut normal_fin, TH_FIN | TH_ACK, None, L7Payload::Empty, &settings),
         None
@@ -162,21 +202,40 @@ fn incoming_dpi_triggers_cover_rseq0_rst_tls_alert_early_fin_451_and_meta_refres
     assert!(!http_reply_looks_like_dpi_block(meta_same, "www.example.com", false));
 }
 
-/// Verifies burst cooldown coalescing and public-suffix-safe sibling subdomain promotion.
-#[test]
-fn cooldown_coalesces_parallel_bursts_and_siblings_promote_safely()
+/// Asserts expected promoted and preserved domains in `auto_path`.
+fn assert_autohostlist_contents(auto_path: &std::path::Path)
+{
+    let content = std::fs::read_to_string(auto_path).expect("read autolist");
+    assert!(content.contains("single.example\n"));
+    assert!(content.contains("multi.example\n"));
+    assert!(!content.contains("\nexempt.example\n"));
+    assert!(!content.contains("github.io\n"));
+}
+
+/// Asserts public-suffix-safe parent extraction across sample hosts and IPs.
+fn assert_safe_parent_domains()
 {
     assert_eq!(safe_parent_domain("cdn1.blocked.example"), Some("blocked.example"));
     assert_eq!(safe_parent_domain("cdn1.blocked.co.uk"), Some("blocked.co.uk"));
     assert_eq!(safe_parent_domain("blocked.co.uk"), None);
     assert_eq!(safe_parent_domain("user1.github.io"), None);
     assert_eq!(safe_parent_domain("192.0.2.1"), None);
+}
+
+/// Verifies burst cooldown coalescing and public-suffix-safe sibling subdomain promotion.
+#[test]
+fn cooldown_coalesces_parallel_bursts_and_siblings_promote_safely()
+{
+    assert_safe_parent_domains();
 
     let dir = clean_temp_dir("cooldown-sib");
     let auto_path = dir.join("auto.txt");
     std::fs::write(&auto_path, "!exempt.example\n").expect("seed auto");
     let autolist = Rc::new(RefCell::new(HostlistFile::from_path(auto_path.clone())));
-    autolist.borrow_mut().load_initial().expect("load auto");
+    autolist
+        .borrow_mut()
+        .load_initial()
+        .expect("load auto");
     let hostlists = HostlistCollection {
         include: vec![HostlistRef { file: Rc::clone(&autolist), is_autolist: true }],
         exclude: Vec::new(),
@@ -223,21 +282,23 @@ fn cooldown_coalesces_parallel_bursts_and_siblings_promote_safely()
     assert_eq!(record("a.github.io", 400), AutoHostlistAction::FailCounted(1));
     assert_eq!(record("b.github.io", 400), AutoHostlistAction::FailCounted(1));
 
-    let content = std::fs::read_to_string(&auto_path).expect("read autolist");
+    assert_autohostlist_contents(&auto_path);
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(content.contains("single.example\n"));
-    assert!(content.contains("multi.example\n"));
-    assert!(!content.contains("\nexempt.example\n"));
-    assert!(!content.contains("github.io\n"));
 }
 
 /// Spawns a single-shot TCP server replying with a static byte slice after reading ClientHello.
 fn spawn_canned_tcp_responder(payload: &'static [u8], accept_count: usize) -> (u16, thread::JoinHandle<()>)
 {
     let srv = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
-    let port = srv.local_addr().expect("addr").port();
+    let port = srv
+        .local_addr()
+        .expect("addr")
+        .port();
     let handle = thread::spawn(move || {
-        for mut s in srv.incoming().take(accept_count).flatten()
+        for mut s in srv
+            .incoming()
+            .take(accept_count)
+            .flatten()
         {
             let mut discard = [0u8; 1024];
             let _ = s.read(&mut discard);
@@ -281,7 +342,10 @@ fn background_active_confirmation_verifies_tls_and_http_blocks_and_healthy_origi
 
     // Closed port returns `None` (`Inconclusive`) instead of misclassifying offline reachability.
     let closed_srv = TcpListener::bind(("127.0.0.1", 0)).expect("ephemeral");
-    let closed_port = closed_srv.local_addr().expect("addr").port();
+    let closed_port = closed_srv
+        .local_addr()
+        .expect("addr")
+        .port();
     drop(closed_srv);
     assert_eq!(
         probe_endpoint_for_dpi(loopback, closed_port, "down.example", false, L7Proto::Tls, 0, timeout),

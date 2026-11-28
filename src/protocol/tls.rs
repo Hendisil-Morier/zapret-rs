@@ -247,7 +247,9 @@ pub fn tls_find_ext(data: &[u8], ext_type: u16, partial_ok: bool) -> Option<(usi
         return None;
     }
     let rec_len = tls_record_len(data)?;
-    let bounded = &data[..data.len().min(rec_len)];
+    let bounded = &data[..data
+        .len()
+        .min(rec_len)];
     let (rel_off, ext_len) = tls_find_ext_in_handshake(&bounded[5..], ext_type, partial_ok)?;
     Some((5 + rel_off, ext_len))
 }
@@ -306,7 +308,9 @@ pub fn tls_pos(marker: PosMarker, pos: i16, data: &[u8]) -> Option<usize>
             let (ext_off, ext_len) = tls_find_ext(data, TLS_EXT_SERVER_NAME, true)?;
             if marker == PosMarker::SniExt
             {
-                let offset = isize::try_from(ext_off).ok()?.checked_add(isize::from(pos))?;
+                let offset = isize::try_from(ext_off)
+                    .ok()?
+                    .checked_add(isize::from(pos))?;
                 check_pos(data.len(), offset)
             }
             else
@@ -320,7 +324,9 @@ pub fn tls_pos(marker: PosMarker, pos: i16, data: &[u8]) -> Option<usize>
         PosMarker::ExtLen =>
         {
             let ext_len_off = tls_find_ext_len(data)?;
-            let offset = isize::try_from(ext_len_off).ok()?.checked_add(isize::from(pos))?;
+            let offset = isize::try_from(ext_len_off)
+                .ok()?
+                .checked_add(isize::from(pos))?;
             check_pos(data.len(), offset)
         }
         _ => any_proto_pos(marker, pos, data.len()),

@@ -36,8 +36,12 @@ fn register_resolve_range_and_tls(lua: &Lua, globals: &mlua::Table) -> mlua::Res
             let data = require_strict_bytes(&args[0])?;
             let sl7payload = require_strict_str(&args[1])?;
             let smarkers = require_strict_str(&args[2])?;
-            let strict = args.get(3).is_some_and(is_truthy);
-            let zero_based = args.get(4).is_some_and(is_truthy);
+            let strict = args
+                .get(3)
+                .is_some_and(is_truthy);
+            let zero_based = args
+                .get(4)
+                .is_some_and(is_truthy);
 
             let l7payload = parse_payload_type(&sl7payload)?;
             let markers =
@@ -55,7 +59,9 @@ fn register_resolve_range_and_tls(lua: &Lua, globals: &mlua::Table) -> mlua::Res
                 return Ok(Value::Nil);
             }
 
-            let Some(last_idx) = bytes.len().checked_sub(1)
+            let Some(last_idx) = bytes
+                .len()
+                .checked_sub(1)
             else
             {
                 return Ok(Value::Nil);
@@ -88,7 +94,9 @@ fn register_resolve_range_and_tls(lua: &Lua, globals: &mlua::Table) -> mlua::Res
 
             let spec = FakeTlsMod::parse_list(&modlist)
                 .ok_or_else(|| mlua::Error::external(format!("invalid tls mod list : '{modlist}'")))?;
-            let payload_borrowed = payload.as_ref().map(|s| s.as_bytes());
+            let payload_borrowed = payload
+                .as_ref()
+                .map(|s| s.as_bytes());
             let fake_bytes = fake_tls.as_bytes();
 
             match tls_mod(&spec, payload_borrowed.as_deref(), &fake_bytes)
@@ -114,7 +122,9 @@ pub fn register_protocol_functions(lua: &Lua) -> mlua::Result<()>
             let data = require_strict_bytes(&args[0])?;
             let sl7payload = require_strict_str(&args[1])?;
             let smarker = require_strict_str(&args[2])?;
-            let zero_based = args.get(3).is_some_and(is_truthy);
+            let zero_based = args
+                .get(3)
+                .is_some_and(is_truthy);
 
             let l7payload = parse_payload_type(&sl7payload)?;
             let marker = posmarker_parse(&smarker)
@@ -135,7 +145,9 @@ pub fn register_protocol_functions(lua: &Lua) -> mlua::Result<()>
             let data = require_strict_bytes(&args[0])?;
             let sl7payload = require_strict_str(&args[1])?;
             let smarkers = require_strict_str(&args[2])?;
-            let zero_based = args.get(3).is_some_and(is_truthy);
+            let zero_based = args
+                .get(3)
+                .is_some_and(is_truthy);
 
             let l7payload = parse_payload_type(&sl7payload)?;
             let markers = posmarker_list_parse(&smarkers, MAX_MULTI_POS_MARKERS)
@@ -143,7 +155,9 @@ pub fn register_protocol_functions(lua: &Lua) -> mlua::Result<()>
 
             let positions = resolve_multi_pos(&data.as_bytes(), l7payload, &markers);
             let tbl = lua.create_table_with_capacity(positions.len(), 0)?;
-            for (idx, pos) in positions.into_iter().enumerate()
+            for (idx, pos) in positions
+                .into_iter()
+                .enumerate()
             {
                 tbl.raw_set(idx + 1, to_lua_pos(pos, zero_based)?)?;
             }

@@ -61,7 +61,13 @@ fn read_mtime_parts(meta: &std::fs::Metadata) -> (i64, i64)
 #[cfg(not(unix))]
 fn read_mtime_parts(meta: &std::fs::Metadata) -> (i64, i64)
 {
-    match meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+    match meta
+        .modified()
+        .ok()
+        .and_then(|t| {
+            t.duration_since(UNIX_EPOCH)
+                .ok()
+        })
     {
         Some(dur) => (i64::try_from(dur.as_secs()).unwrap_or(i64::MAX), i64::from(dur.subsec_nanos())),
         None => (0, 0),
@@ -78,12 +84,17 @@ pub fn file_is_readable(path: &Path) -> bool
 pub fn parse_list_line_token(line: &str) -> Option<&str>
 {
     let trimmed = line.trim_start_matches([' ', '\t']);
-    let first = trimmed.as_bytes().first().copied()?;
+    let first = trimmed
+        .as_bytes()
+        .first()
+        .copied()?;
     if matches!(first, b'#' | b';' | b'/' | b'\r' | b'\n' | b'\0')
     {
         return None;
     }
-    let end = trimmed.find([' ', '\t', '\r', '\n', '\0']).unwrap_or(trimmed.len());
+    let end = trimmed
+        .find([' ', '\t', '\r', '\n', '\0'])
+        .unwrap_or(trimmed.len());
     let token = &trimmed[..end];
     (!token.is_empty()).then_some(token)
 }
@@ -217,7 +228,10 @@ pub(crate) fn reload_cached_list<T>(
 /// Appends one hostname/token line to an autohostlist file (`append_to_list_file` in `helpers.c:157`).
 pub fn append_to_list_file(path: &Path, entry: &str) -> std::io::Result<()>
 {
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
     writeln!(file, "{entry}")
 }
 
@@ -254,13 +268,22 @@ fn format_debug_timestamp() -> String
 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or_else(|_| "0".to_owned(), |dur| dur.as_secs().to_string())
+        .map_or_else(
+            |_| "0".to_owned(),
+            |dur| {
+                dur.as_secs()
+                    .to_string()
+            },
+        )
 }
 
 /// Appends one local-time stamped debug line to `--hostlist-auto-debug` (`LOG_APPEND` in `params.c:254`).
 pub fn append_timestamped_debug_log(path: &Path, message: &str) -> std::io::Result<()>
 {
     let ts = format_debug_timestamp();
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
     writeln!(file, "{ts} : {message}")
 }

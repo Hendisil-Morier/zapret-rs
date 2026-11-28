@@ -109,20 +109,37 @@ impl ProbeOutcome
 /// Extracts the normalized lowercase host (without port or IPv6 brackets) from an HTTP URL.
 fn extract_url_host(url: &str) -> Option<String>
 {
-    let rest = url.trim().strip_prefix("http://").or_else(|| url.trim().strip_prefix("https://"))?;
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let rest = url
+        .trim()
+        .strip_prefix("http://")
+        .or_else(|| {
+            url.trim()
+                .strip_prefix("https://")
+        })?;
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    let host_port = authority
+        .rsplit('@')
+        .next()
+        .unwrap_or(authority);
     if host_port.is_empty()
     {
         return None;
     }
     let host = if let Some(v6) = host_port.strip_prefix('[')
     {
-        v6.split(']').next().unwrap_or("")
+        v6.split(']')
+            .next()
+            .unwrap_or("")
     }
     else
     {
-        host_port.split(':').next().unwrap_or("")
+        host_port
+            .split(':')
+            .next()
+            .unwrap_or("")
     };
     if host.is_empty() { None } else { Some(host.to_ascii_lowercase()) }
 }
@@ -138,15 +155,22 @@ pub fn is_spoof_redirect(domain: &str, location: &str) -> bool
     {
         return false;
     };
-    let origin = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+    let origin = domain
+        .trim()
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
     let target = target_host.trim_end_matches('.');
     if target == origin || target.ends_with(&format!(".{origin}")) || origin.ends_with(&format!(".{target}"))
     {
         return false;
     }
     // Also allow sibling subdomains sharing the same registrable second-level suffix (e.g., `m.foo.com` <-> `www.foo.com`).
-    let orig_parts: Vec<&str> = origin.split('.').collect();
-    let targ_parts: Vec<&str> = target.split('.').collect();
+    let orig_parts: Vec<&str> = origin
+        .split('.')
+        .collect();
+    let targ_parts: Vec<&str> = target
+        .split('.')
+        .collect();
     if orig_parts.len() >= 2 && targ_parts.len() >= 2
     {
         let orig_tail = &orig_parts[orig_parts.len() - 2..];
@@ -171,11 +195,25 @@ pub fn classify_curl_output(
     if exit_code == 0
     {
         let mut lines = stdout.lines();
-        let http_code = lines.next().and_then(|s| s.trim().parse::<u16>().ok()).unwrap_or(0);
-        let redirect_url = lines.next().unwrap_or("").trim();
+        let http_code = lines
+            .next()
+            .and_then(|s| {
+                s.trim()
+                    .parse::<u16>()
+                    .ok()
+            })
+            .unwrap_or(0);
+        let redirect_url = lines
+            .next()
+            .unwrap_or("")
+            .trim();
         let latency_ms = lines
             .next()
-            .and_then(|s| s.trim().parse::<f64>().ok())
+            .and_then(|s| {
+                s.trim()
+                    .parse::<f64>()
+                    .ok()
+            })
             .filter(|t| t.is_finite() && *t >= 0.0)
             .map_or(fallback_elapsed_ms, |secs| (secs * 1000.0).round() as u64);
 
@@ -212,7 +250,12 @@ pub fn classify_curl_output(
         7 if stderr_low.contains("reset") || stderr_low.contains("refused") => ProbeOutcome::TcpReset,
         other => ProbeOutcome::Failed {
             code: other,
-            detail: stderr.lines().next().unwrap_or("").trim().to_owned(),
+            detail: stderr
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_owned(),
         },
     }
 }

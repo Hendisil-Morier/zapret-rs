@@ -27,7 +27,9 @@ pub(crate) fn finalize_ipv4_packet(buf: &mut Vec<u8>, l3_len: usize) -> PEResult
             return Err(PacketError::InvalidFragment);
         }
         let frag_len = iplen - l3_len;
-        if frag_start.checked_add(frag_len).is_none_or(|end| end > buf.len())
+        if frag_start
+            .checked_add(frag_len)
+            .is_none_or(|end| end > buf.len())
         {
             return Err(PacketError::InvalidFragment);
         }

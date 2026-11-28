@@ -88,23 +88,34 @@ impl BridgeShared
     /// Appends one packet into the bounded recent-packet ring.
     fn push_packet(&mut self, rec: PacketRecord)
     {
-        if self.packet_ring.len() >= MAX_RECENT_PACKETS
+        if self
+            .packet_ring
+            .len()
+            >= MAX_RECENT_PACKETS
         {
-            self.packet_ring.pop_front();
+            self.packet_ring
+                .pop_front();
         }
-        self.packet_ring.push_back(rec);
-        self.snapshot.recent_packets = self.packet_ring.iter().cloned().collect();
+        self.packet_ring
+            .push_back(rec);
+        self.snapshot
+            .recent_packets = self
+            .packet_ring
+            .iter()
+            .cloned()
+            .collect();
     }
 
     /// Formats one SSE frame and sends it non-blockingly to live subscribers, pruning dead ones.
     fn broadcast(&mut self, event: &str, json_body: &str)
     {
         let frame = format!("event: {event}\ndata: {json_body}\n\n");
-        self.sse_clients.retain(|tx| match tx.try_send(frame.clone())
-        {
-            Ok(()) | Err(TrySendError::Full(_)) => true,
-            Err(TrySendError::Disconnected(_)) => false,
-        });
+        self.sse_clients
+            .retain(|tx| match tx.try_send(frame.clone())
+            {
+                Ok(()) | Err(TrySendError::Full(_)) => true,
+                Err(TrySendError::Disconnected(_)) => false,
+            });
     }
 
     /// Emits a full serialized `status` event reflecting the current snapshot.
@@ -151,14 +162,22 @@ impl WebIpcBridge
     /// Returns a cloned snapshot of daemon connection state, counters, and recent packets.
     pub fn snapshot(&self) -> WebStatusSnapshot
     {
-        self.shared.lock().map(|g| g.snapshot.clone()).unwrap_or_default()
+        self.shared
+            .lock()
+            .map(|g| {
+                g.snapshot
+                    .clone()
+            })
+            .unwrap_or_default()
     }
 
     /// Broadcasts one custom SSE `event` + JSON payload across all active subscribers.
     pub fn emit_event(&self, event: &str, value: &impl serde::Serialize)
     {
         if let Ok(json) = serde_json::to_string(value)
-            && let Ok(mut guard) = self.shared.lock()
+            && let Ok(mut guard) = self
+                .shared
+                .lock()
         {
             guard.broadcast(event, &json);
         }
@@ -167,26 +186,48 @@ impl WebIpcBridge
     /// Registers one SSE client queue if under [`MAX_SSE_CLIENTS`], returning `None` when full.
     pub fn subscribe_sse(&self) -> Option<(WebStatusSnapshot, Receiver<String>)>
     {
-        let mut guard = self.shared.lock().ok()?;
+        let mut guard = self
+            .shared
+            .lock()
+            .ok()?;
         guard
             .sse_clients
             .retain(|tx| !matches!(tx.try_send(String::new()), Err(TrySendError::Disconnected(_))));
-        if guard.sse_clients.len() >= MAX_SSE_CLIENTS
+        if guard
+            .sse_clients
+            .len()
+            >= MAX_SSE_CLIENTS
         {
             return None;
         }
         let (tx, rx) = mpsc::sync_channel(SSE_CLIENT_QUEUE_CAP);
-        guard.sse_clients.push(tx);
-        Some((guard.snapshot.clone(), rx))
+        guard
+            .sse_clients
+            .push(tx);
+        Some((
+            guard
+                .snapshot
+                .clone(),
+            rx,
+        ))
     }
 
     /// Sends one control [`Request`] and waits up to [`COMMAND_ACK_TIMEOUT`] for `Ack` or `Error`.
     pub fn send_command(&self, req: &Request) -> Result<Option<String>, String>
     {
-        let _cmd_guard = self.cmd_lock.lock().map_err(|_| "command lock poisoned".to_owned())?;
+        let _cmd_guard = self
+            .cmd_lock
+            .lock()
+            .map_err(|_| "command lock poisoned".to_owned())?;
         let (writer, ack_rx) = {
-            let mut guard = self.shared.lock().map_err(|_| "IPC state lock poisoned".to_owned())?;
-            let Some(writer) = guard.writer.as_ref().map(Arc::clone)
+            let mut guard = self
+                .shared
+                .lock()
+                .map_err(|_| "IPC state lock poisoned".to_owned())?;
+            let Some(writer) = guard
+                .writer
+                .as_ref()
+                .map(Arc::clone)
             else
             {
                 return Err("daemon control socket is not connected".to_owned());
@@ -197,12 +238,16 @@ impl WebIpcBridge
         };
 
         let send_res = {
-            let mut stream = writer.lock().map_err(|_| "control writer poisoned".to_owned())?;
+            let mut stream = writer
+                .lock()
+                .map_err(|_| "control writer poisoned".to_owned())?;
             write_message(&mut *stream, req).map_err(|err| format!("control send failed: {err}"))
         };
         if let Err(err) = send_res
         {
-            if let Ok(mut guard) = self.shared.lock()
+            if let Ok(mut guard) = self
+                .shared
+                .lock()
             {
                 guard.pending_cmd = None;
             }
@@ -214,7 +259,9 @@ impl WebIpcBridge
             Ok(reply) => reply,
             Err(_) =>
             {
-                if let Ok(mut guard) = self.shared.lock()
+                if let Ok(mut guard) = self
+                    .shared
+                    .lock()
                 {
                     guard.pending_cmd = None;
                 }
@@ -226,17 +273,26 @@ impl WebIpcBridge
     /// Requests immediate stop and joins the background IPC thread even when shared via `Arc`.
     pub fn shutdown(&self)
     {
-        self.stop.store(true, Ordering::Release);
-        if let Ok(mut guard) = self.shared.lock()
+        self.stop
+            .store(true, Ordering::Release);
+        if let Ok(mut guard) = self
+            .shared
+            .lock()
         {
-            if let Some(writer) = guard.writer.take()
+            if let Some(writer) = guard
+                .writer
+                .take()
                 && let Ok(stream) = writer.lock()
             {
                 let _ = stream.shutdown(Shutdown::Both);
             }
-            guard.sse_clients.clear();
+            guard
+                .sse_clients
+                .clear();
         }
-        if let Ok(mut handle_guard) = self.join.lock()
+        if let Ok(mut handle_guard) = self
+            .join
+            .lock()
             && let Some(handle) = handle_guard.take()
         {
             let _ = handle.join();
@@ -263,10 +319,14 @@ fn connect_and_stream(sock: &Path, shared: &Arc<Mutex<BridgeShared>>, stop: &Ato
 
     write_message(&mut stream, &Request::Hello { version: CONTROL_PROTOCOL_VERSION })
         .map_err(|err| format!("hello send failed: {err}"))?;
-    let reader_raw = stream.try_clone().map_err(|err| format!("clone stream failed: {err}"))?;
+    let reader_raw = stream
+        .try_clone()
+        .map_err(|err| format!("clone stream failed: {err}"))?;
     let mut reader = LineReader::new(BufReader::new(reader_raw));
 
-    match reader.read_message::<Response>().map_err(|err| format!("hello read failed: {err}"))?
+    match reader
+        .read_message::<Response>()
+        .map_err(|err| format!("hello read failed: {err}"))?
     {
         Some(Response::HelloOk { version, .. }) if version == CONTROL_PROTOCOL_VERSION =>
         {}
@@ -275,26 +335,41 @@ fn connect_and_stream(sock: &Path, shared: &Arc<Mutex<BridgeShared>>, stop: &Ato
     }
 
     write_message(&mut stream, &Request::Status).map_err(|err| format!("status send failed: {err}"))?;
-    let initial_status =
-        match reader.read_message::<Response>().map_err(|err| format!("status read failed: {err}"))?
-        {
-            Some(Response::Status(s)) => s,
-            Some(Response::Error { message, .. }) => return Err(message),
-            other => return Err(format!("unexpected status reply: {other:?}")),
-        };
+    let initial_status = match reader
+        .read_message::<Response>()
+        .map_err(|err| format!("status read failed: {err}"))?
+    {
+        Some(Response::Status(s)) => s,
+        Some(Response::Error { message, .. }) => return Err(message),
+        other => return Err(format!("unexpected status reply: {other:?}")),
+    };
 
     write_message(&mut stream, &Request::Subscribe { pass_sample_rate: Some(20) })
         .map_err(|err| format!("subscribe failed: {err}"))?;
-    let _ = reader.get_ref().get_ref().set_read_timeout(Some(READER_POLL_TIMEOUT));
+    let _ = reader
+        .get_ref()
+        .get_ref()
+        .set_read_timeout(Some(READER_POLL_TIMEOUT));
 
     let writer = Arc::new(Mutex::new(stream));
     if let Ok(mut guard) = shared.lock()
     {
         guard.writer = Some(Arc::clone(&writer));
-        guard.snapshot.connected = true;
-        guard.snapshot.socket_path = Some(sock.display().to_string());
-        guard.snapshot.error = None;
-        guard.snapshot.daemon = Some(initial_status);
+        guard
+            .snapshot
+            .connected = true;
+        guard
+            .snapshot
+            .socket_path = Some(
+            sock.display()
+                .to_string(),
+        );
+        guard
+            .snapshot
+            .error = None;
+        guard
+            .snapshot
+            .daemon = Some(initial_status);
         guard.broadcast_status();
     }
 
@@ -325,12 +400,16 @@ fn handle_daemon_message(msg: Response, shared: &Arc<Mutex<BridgeShared>>, write
     {
         Response::Status(status) =>
         {
-            guard.snapshot.daemon = Some(status);
+            guard
+                .snapshot
+                .daemon = Some(status);
             guard.broadcast_status();
         }
         Response::Counters(counters) =>
         {
-            if let Some(d) = &mut guard.snapshot.daemon
+            if let Some(d) = &mut guard
+                .snapshot
+                .daemon
             {
                 d.counters = counters;
             }
@@ -349,7 +428,9 @@ fn handle_daemon_message(msg: Response, shared: &Arc<Mutex<BridgeShared>>, write
         }
         Response::Ack { op, message } =>
         {
-            if let Some(tx) = guard.pending_cmd.take()
+            if let Some(tx) = guard
+                .pending_cmd
+                .take()
             {
                 let _ = tx.send(Ok(message.clone()));
             }
@@ -365,13 +446,17 @@ fn handle_daemon_message(msg: Response, shared: &Arc<Mutex<BridgeShared>>, write
         }
         Response::Error { message, .. } =>
         {
-            if let Some(tx) = guard.pending_cmd.take()
+            if let Some(tx) = guard
+                .pending_cmd
+                .take()
             {
                 let _ = tx.send(Err(message.clone()));
             }
             else
             {
-                guard.snapshot.error = Some(message);
+                guard
+                    .snapshot
+                    .error = Some(message);
                 guard.broadcast_status();
             }
         }
@@ -388,15 +473,29 @@ fn mark_disconnected(shared: &Arc<Mutex<BridgeShared>>, err_msg: Option<String>)
     {
         return;
     };
-    let changed = guard.snapshot.connected || guard.snapshot.error != err_msg;
+    let changed = guard
+        .snapshot
+        .connected
+        || guard
+            .snapshot
+            .error
+            != err_msg;
     guard.writer = None;
-    if let Some(tx) = guard.pending_cmd.take()
+    if let Some(tx) = guard
+        .pending_cmd
+        .take()
     {
         let _ = tx.send(Err("daemon connection closed".to_owned()));
     }
-    guard.snapshot.connected = false;
-    guard.snapshot.daemon = None;
-    guard.snapshot.error = err_msg;
+    guard
+        .snapshot
+        .connected = false;
+    guard
+        .snapshot
+        .daemon = None;
+    guard
+        .snapshot
+        .error = err_msg;
     if changed
     {
         guard.broadcast_status();

@@ -6,17 +6,19 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, Paragraph, Tabs, Wrap},
+    widgets::{Paragraph, Tabs},
 };
 
-/// Live packet inspector table and detail overlay renderers.
-use crate::tui::inspect_ui::{draw_packet_detail_modal, draw_packet_inspector};
+/// Live packet detail modal overlay renderer.
+use crate::tui::inspect_ui::draw_packet_detail_modal;
 /// Tab 3 Config & Diagnostics rendering helper.
 use crate::tui::render_config::draw_config_tab;
 /// Tab 1 Strategy Finder rendering helper.
 use crate::tui::render_finder::draw_finder_tab;
 /// Tab 6 interactive Auto Hostlist and Blacklist rendering helper.
 use crate::tui::render_hostlist::draw_hostlist_tab;
+/// Tab 2 (`Run nfqws2`) rendering helper.
+use crate::tui::render_run::draw_run_tab;
 /// Tab 7 Settings rendering helper.
 use crate::tui::render_settings::draw_settings_tab;
 /// Tab 4 Speed Test rendering helper.
@@ -25,12 +27,10 @@ use crate::tui::render_speed::draw_speed_tab;
 use crate::tui::render_status::draw_status_tab;
 /// Application state rendered into the terminal frame.
 use crate::tui::state::AppState;
-/// Shared panel border helpers, `[key]` badge styling, log tagging, and syntax highlighters.
-use crate::tui::theme::{log_line_spans, panel_block, status_banner_color, styled_key_hints_owned};
-/// Configurable TUI color palette.
-use crate::tui::theme_config::Theme;
-/// Navigation tabs, panel focus selectors, and live daemon/scan lifecycle statuses.
-use crate::tui::types::{ActiveTab, FinderStatus, RunFocus, RunStatus};
+/// Shared panel border helpers, `[key]` badge styling, and status banner colors.
+use crate::tui::theme::{panel_block, status_banner_color, styled_key_hints_owned};
+/// Navigation tabs and live daemon/scan lifecycle statuses.
+use crate::tui::types::{ActiveTab, FinderStatus, RunStatus};
 /// Floating capability-grant, `sudo`, stop-confirm, domain list prompt, and `?` overlays.
 use crate::tui::{keybinds::draw_keybinds_modal, modal::draw_auth_modal, prompt_modal::draw_prompt_modal};
 
@@ -55,8 +55,12 @@ pub fn draw_app(frame: &mut Frame, state: &AppState)
     }
     draw_footer(frame, chunks[2], state);
     if state.tab == ActiveTab::Run
-        && state.inspector.detail_open
-        && let Some(rec) = state.inspector.selected_record()
+        && state
+            .inspector
+            .detail_open
+        && let Some(rec) = state
+            .inspector
+            .selected_record()
     {
         draw_packet_detail_modal(frame, rec, &state.theme);
     }
@@ -90,7 +94,9 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState)
             Line::from(vec![
                 Span::styled(
                     spec.num_prefix,
-                    Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(t.warn_bright)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(label, Style::default().fg(t.info)),
             ])
@@ -99,338 +105,121 @@ fn draw_header(frame: &mut Frame, area: Rect, state: &AppState)
     let tabs = Tabs::new(tab_titles)
         .divider("|")
         .block(panel_block(format!(" zapret-rs v{} ", env!("CARGO_PKG_VERSION")), t.frame, t.accent_bright))
-        .select(state.tab.index())
-        .highlight_style(Style::default().fg(Color::Black).bg(t.accent_bright).add_modifier(Modifier::BOLD));
+        .select(
+            state
+                .tab
+                .index(),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(t.accent_bright)
+                .add_modifier(Modifier::BOLD),
+        );
     frame.render_widget(tabs, cols[0]);
 
-    let (cap_txt, cap_col) =
-        if state.status.has_net_caps { ("CAPS OK", t.ok_bright) } else { ("NO CAPS", t.warn_bright) };
-    let (act_txt, act_col, badge_border) = if state.finder.status == FinderStatus::Scanning
+    let (cap_txt, cap_col) = if state
+        .status
+        .has_net_caps
+    {
+        ("CAPS OK", t.ok_bright)
+    }
+    else
+    {
+        ("NO CAPS", t.warn_bright)
+    };
+    let (act_txt, act_col, badge_border) = if state
+        .finder
+        .status
+        == FinderStatus::Scanning
     {
         ("SCANNING", t.special_bright, t.special)
     }
     else
     {
-        match state.run.status
+        match state
+            .run
+            .status
         {
             RunStatus::Running => ("RUNNING", t.ok_bright, t.ok),
             RunStatus::Attached => ("ATTACHED", t.accent_bright, t.accent),
-            _ => ("IDLE", t.muted, if state.status.has_net_caps { t.frame } else { t.warn }),
+            _ => (
+                "IDLE",
+                t.muted,
+                if state
+                    .status
+                    .has_net_caps
+                {
+                    t.frame
+                }
+                else
+                {
+                    t.warn
+                },
+            ),
         }
     };
-    let uid_col = if state.status.uid == 0 { t.err_bright } else { t.text };
-    let badge = Paragraph::new(Line::from(vec![
-        Span::styled(" UID:", Style::default().fg(t.info)),
-        Span::styled(
-            format!("{}", state.status.uid),
-            Style::default().fg(uid_col).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("|", Style::default().fg(t.muted)),
-        Span::styled(cap_txt, Style::default().fg(cap_col).add_modifier(Modifier::BOLD)),
-        Span::styled("|", Style::default().fg(t.muted)),
-        Span::styled(act_txt, Style::default().fg(act_col).add_modifier(Modifier::BOLD)),
-    ]))
-    .block(panel_block(" Status ", badge_border, t.info));
-    frame.render_widget(badge, cols[1]);
-}
-
-/// Builds styled spans for comma-separated profile names or a muted fallback label.
-fn profile_spans(profiles: &[String], empty_hint: &'static str, t: &Theme) -> Vec<Span<'static>>
-{
-    if profiles.is_empty()
+    let uid_col = if state
+        .status
+        .uid
+        == 0
     {
-        return vec![Span::styled(empty_hint, Style::default().fg(t.muted))];
-    }
-    let mut spans = Vec::with_capacity(profiles.len() * 2);
-    for (idx, name) in profiles.iter().enumerate()
-    {
-        if idx > 0
-        {
-            spans.push(Span::styled(", ", Style::default().fg(t.muted)));
-        }
-        spans.push(Span::styled(
-            name.clone(),
-            Style::default().fg(t.special_bright).add_modifier(Modifier::BOLD),
-        ));
-    }
-    spans
-}
-
-/// Formats the Tab 2 Web UI status row shared between local and remote-attached views.
-fn web_ui_controller_line(state: &AppState, key_style: Style) -> Line<'static>
-{
-    let (t, g) = (&state.theme, &state.keybinds.global);
-    match &state.web_status
-    {
-        Some((url, passcode)) =>
-        {
-            let chips = format!(
-                "  [{}] Open  [{}] Copy  [{}] Stop",
-                g.open_web_ui.primary_label(),
-                g.copy_web_passcode.primary_label(),
-                g.web_ui.primary_label()
-            );
-            Line::from(vec![
-                Span::styled("Web UI        : ", key_style),
-                Span::styled(
-                    url.clone(),
-                    Style::default().fg(t.ok_bright).add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-                ),
-                Span::styled("  passcode: ", Style::default().fg(t.muted)),
-                Span::styled(
-                    passcode.clone(),
-                    Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(chips, Style::default().fg(t.info)),
-            ])
-        }
-        None => Line::from(vec![
-            Span::styled("Web UI        : ", key_style),
-            Span::styled(
-                format!("Off (press '{}' to start LAN / localhost UI)", g.web_ui.primary_label()),
-                Style::default().fg(t.muted),
-            ),
-        ]),
-    }
-}
-
-/// Formats controller summary lines for Tab 2 based on local vs remote-attached mode.
-fn run_controller_lines(state: &AppState) -> Vec<Line<'static>>
-{
-    let t = &state.theme;
-    let key_style = Style::default().fg(t.info);
-    let mut lines = if state.run.status == RunStatus::Attached
-        && let Some(meta) = &state.run.remote_meta
-    {
-        let cfg_span = match meta.config_path.as_deref()
-        {
-            Some(p) => Span::styled(p.to_owned(), Style::default().fg(t.accent_bright)),
-            None => Span::styled("(daemon defaults / CLI args)", Style::default().fg(t.muted)),
-        };
-        let mut prof_line =
-            vec![Span::styled(format!("Profiles ({})  : ", meta.profile_names.len()), key_style)];
-        prof_line.extend(profile_spans(&meta.profile_names, "none (pass-through)", t));
-        vec![
-            Line::from(vec![
-                Span::styled("Engine Status : ", key_style),
-                Span::styled("ATTACHED ", Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
-                Span::styled(
-                    format!("(PID {}, qnum {}, ", meta.pid, meta.qnum),
-                    Style::default().fg(t.warn_bright),
-                ),
-                Span::styled(
-                    format!("socket {})", meta.socket_path.display()),
-                    Style::default().fg(t.subtle),
-                ),
-            ]),
-            Line::from(vec![Span::styled("Config Path   : ", key_style), cfg_span]),
-            Line::from(prof_line),
-            Line::from(vec![
-                Span::styled("nftables Mode : ", key_style),
-                Span::styled("daemon-managed ", Style::default().fg(t.ok_bright)),
-                Span::styled(format!("(fwmark 0x{:08x})", meta.fwmark), Style::default().fg(t.warn_bright)),
-            ]),
-        ]
+        t.err_bright
     }
     else
     {
-        let (st_text, st_color) = match &state.run.status
-        {
-            RunStatus::Running => ("RUNNING".to_owned(), t.ok_bright),
-            RunStatus::Attached => ("ATTACHED".to_owned(), t.accent_bright),
-            RunStatus::Stopped => match &state.run.detected_socket
-            {
-                Some(sock) => (
-                    format!("STOPPED (daemon socket found at {}; press 'r' to attach)", sock.display()),
-                    t.warn_bright,
-                ),
-                None => ("STOPPED".to_owned(), t.warn_bright),
-            },
-            RunStatus::Error(e) => (format!("ERROR: {e}"), t.err_bright),
-        };
-        let mut prof_line =
-            vec![Span::styled(format!("Profiles ({})  : ", state.config.parsed_profiles.len()), key_style)];
-        prof_line.extend(profile_spans(
-            &state.config.parsed_profiles,
-            "none loaded (run Strategy Finder or press 'l' to load config file)",
-            t,
-        ));
-        let (nft_text, nft_col) = if state.finder.no_nft
-        {
-            ("manual (--no-nft)", t.warn_bright)
-        }
-        else
-        {
-            ("managed (auto cleanup on stop)", t.ok_bright)
-        };
-        vec![
-            Line::from(vec![
-                Span::styled("Engine Status : ", key_style),
-                Span::styled(st_text, Style::default().fg(st_color).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("Config Path   : ", key_style),
-                Span::styled(state.finder.output_path.clone(), Style::default().fg(t.accent_bright)),
-            ]),
-            Line::from(prof_line),
-            Line::from(vec![
-                Span::styled("nftables Mode : ", key_style),
-                Span::styled(nft_text, Style::default().fg(nft_col)),
-            ]),
-        ]
+        t.text
     };
-    lines.push(web_ui_controller_line(state, key_style));
-    lines
-}
-
-/// Computes exact Tab 2 controller card height shared by renderer and mouse hit-testing.
-pub(crate) fn run_controller_height(state: &AppState, width: u16) -> u16
-{
-    let ctrl_lines = run_controller_lines(state);
-    let inner_w = usize::from(width.saturating_sub(2)).max(1);
-    let ctrl_wrapped: usize = ctrl_lines.iter().map(|l| l.width().max(1).div_ceil(inner_w)).sum();
-    u16::try_from(ctrl_wrapped + 2).unwrap_or(8).clamp(6, 9)
-}
-
-/// Renders Tab 2: active config summary, live packet telemetry cards, and daemon log.
-fn draw_run_tab(frame: &mut Frame, area: Rect, state: &AppState)
-{
-    let t = &state.theme;
-    let ctrl_lines = run_controller_lines(state);
-    let ctrl_h = run_controller_height(state, area.width);
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(ctrl_h),
-            Constraint::Length(3),
-            Constraint::Min(6),
-            Constraint::Length(5),
-        ])
-        .split(area);
-
-    let ctrl_border = match state.run.status
-    {
-        RunStatus::Running => t.ok,
-        RunStatus::Attached => t.accent,
-        RunStatus::Error(_) => t.err,
-        RunStatus::Stopped => t.frame,
-    };
-    let ctrl_title = if cfg!(windows) { " Live WinDivert Controller " } else { " Live nfqws2 Controller " };
-    let info = Paragraph::new(ctrl_lines).wrap(Wrap { trim: true }).block(panel_block(
-        ctrl_title,
-        ctrl_border,
-        t.accent_bright,
-    ));
-    frame.render_widget(info, rows[0]);
-
-    let (total, passed, reasm, modified, desynced) = state.visible_counters();
-    let metric_cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(20),
-            Constraint::Percentage(20),
-            Constraint::Percentage(20),
-            Constraint::Percentage(20),
-            Constraint::Percentage(20),
-        ])
-        .split(rows[1]);
-    for (idx, (title, val, val_col, border_col)) in [
-        (" Total ", total, t.info, t.frame),
-        (" Passed ", passed, t.ok_bright, t.ok),
-        (" Reasm ", reasm, t.accent_bright, t.accent),
-        (" Modified ", modified, t.warn_bright, t.warn),
-        (" Desync ", desynced, t.special_bright, t.special),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let card = Paragraph::new(Line::from(Span::styled(
-            format!(" {val}"),
-            Style::default().fg(val_col).add_modifier(Modifier::BOLD),
-        )))
-        .block(panel_block(title, border_col, val_col));
-        frame.render_widget(card, metric_cols[idx]);
-    }
-
-    draw_packet_inspector(frame, rows[2], &state.inspector, state.focus.run == RunFocus::Inspector, t);
-    draw_log_list(
-        frame,
-        rows[3],
-        " Daemon Log ",
-        &state.run.logs,
-        state.focus.run_log_scroll,
-        state.focus.run == RunFocus::Log,
-        t,
-    );
-}
-
-/// Pushes `raw` wrapped to `inner_w` into `out`, preserving log coloring on the first line.
-fn push_wrapped_log<'a>(out: &mut Vec<ListItem<'a>>, raw: &'a str, inner_w: usize, t: &Theme)
-{
-    let char_count = raw.chars().count();
-    if char_count <= inner_w
-    {
-        out.push(ListItem::new(log_line_spans(raw, t)));
-        return;
-    }
-    let mut boundaries: Vec<usize> = raw.char_indices().map(|(b, _)| b).collect();
-    boundaries.push(raw.len());
-    for (idx, start_c) in (0..char_count).step_by(inner_w).enumerate()
-    {
-        let end_c = (start_c + inner_w).min(char_count);
-        let slice = &raw[boundaries[start_c]..boundaries[end_c]];
-        let line = if idx == 0
-        {
-            log_line_spans(slice, t)
-        }
-        else
-        {
-            Line::from(Span::styled(slice, Style::default().fg(t.subtle)))
-        };
-        out.push(ListItem::new(line));
-    }
-}
-
-/// Renders a bounded scrolling log widget with optional history offset (`scroll = 0` follows tail).
-pub(crate) fn draw_log_list(
-    frame: &mut Frame,
-    area: Rect,
-    title: &str,
-    logs: &std::collections::VecDeque<String>,
-    scroll: u16,
-    focused: bool,
-    t: &Theme,
-)
-{
-    let capacity = usize::from(area.height.saturating_sub(2)).max(1);
-    let inner_w = usize::from(area.width.saturating_sub(2)).max(1);
-    let mut wrapped_items: Vec<ListItem> = Vec::new();
-    for raw in logs
-    {
-        push_wrapped_log(&mut wrapped_items, raw, inner_w, t);
-    }
-    let max_scroll = wrapped_items.len().saturating_sub(capacity);
-    let clamped = usize::from(scroll).min(max_scroll);
-    let end = wrapped_items.len().saturating_sub(clamped);
-    let start = end.saturating_sub(capacity);
-    let items: Vec<ListItem> = wrapped_items.drain(start..end).collect();
-    let heading = if clamped > 0 { format!("{}(+{clamped}) ", title.trim_end()) } else { title.to_owned() };
-    let border = if focused { t.accent_bright } else { t.frame };
-    let title_col = if focused { t.accent_bright } else { t.info };
-    let list = List::new(items).block(panel_block(heading, border, title_col));
-    frame.render_widget(list, area);
+    let badge = Paragraph::new(Line::from(vec![
+        Span::styled(" UID:", Style::default().fg(t.info)),
+        Span::styled(
+            format!(
+                "{}",
+                state
+                    .status
+                    .uid
+            ),
+            Style::default()
+                .fg(uid_col)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("|", Style::default().fg(t.muted)),
+        Span::styled(
+            cap_txt,
+            Style::default()
+                .fg(cap_col)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("|", Style::default().fg(t.muted)),
+        Span::styled(
+            act_txt,
+            Style::default()
+                .fg(act_col)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]))
+    .block(panel_block(" Status ", badge_border, t.info));
+    frame.render_widget(badge, cols[1]);
 }
 
 /// Renders the compact single-line bottom status strip with `[?] Keys` and the live status banner.
 fn draw_footer(frame: &mut Frame, area: Rect, state: &AppState)
 {
     let t = &state.theme;
-    let g = &state.keybinds.global;
-    let footer_keys = format!(" [{}] Keys", g.help.primary_label());
+    let g = &state
+        .keybinds
+        .global;
+    let footer_keys = format!(
+        " [{}] Keys",
+        g.help
+            .primary_label()
+    );
     let mut line_spans = styled_key_hints_owned(&footer_keys, t);
     line_spans.push(Span::styled("  |  ", Style::default().fg(t.muted)));
     line_spans.push(Span::styled(
-        state.status_banner.as_str(),
+        state
+            .status_banner
+            .as_str(),
         Style::default().fg(status_banner_color(&state.status_banner, t)),
     ));
     frame.render_widget(Paragraph::new(Line::from(line_spans)), area);

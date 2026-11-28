@@ -26,19 +26,9 @@ fn unique_temp_dir(label: &str) -> PathBuf
     std::env::temp_dir().join(format!("zapret-rs-{}-{label}", std::process::id()))
 }
 
-/// Verifies decoded action and profile filter fields from the golden TOML configuration.
-fn assert_golden_profile_fields(cfg: &AppConfig)
+/// Verifies decoded action fields from the golden TOML profile.
+fn assert_golden_action_fields(action: &zapret_rs::config::DesyncAction)
 {
-    assert_eq!(cfg.profiles.len(), 1);
-    let profile = &cfg.profiles[0];
-    assert_eq!(profile.index, 1);
-    assert_eq!(profile.name.as_deref(), Some("https"));
-    assert_eq!(profile.cookie.as_deref(), Some("profile-cookie"));
-    assert!(profile.filter_ipv4);
-    assert!(!profile.filter_ipv6);
-
-    assert_eq!(profile.actions.len(), 1);
-    let action = &profile.actions[0];
     assert_eq!(action.func, "fake");
     assert!(l7_payload_matches(L7Payload::TlsClientHello, action.payload_mask));
     assert!(!l7_payload_matches(L7Payload::HttpReq, action.payload_mask));
@@ -46,8 +36,46 @@ fn assert_golden_profile_fields(cfg: &AppConfig)
     assert_eq!(action.out_range, PacketRange::parse("-d1").expect("-d1"));
     assert_eq!(action.args["blob"], "fake_default_tls");
     assert_eq!(action.args["tcp_md5"], "");
-    assert!(!action.args.contains_key("disabled_flag"));
+    assert!(
+        !action
+            .args
+            .contains_key("disabled_flag")
+    );
     assert_eq!(action.args["repeats"], "3");
+}
+
+/// Verifies decoded action and profile filter fields from the golden TOML configuration.
+fn assert_golden_profile_fields(cfg: &AppConfig)
+{
+    assert_eq!(
+        cfg.profiles
+            .len(),
+        1
+    );
+    let profile = &cfg.profiles[0];
+    assert_eq!(profile.index, 1);
+    assert_eq!(
+        profile
+            .name
+            .as_deref(),
+        Some("https")
+    );
+    assert_eq!(
+        profile
+            .cookie
+            .as_deref(),
+        Some("profile-cookie")
+    );
+    assert!(profile.filter_ipv4);
+    assert!(!profile.filter_ipv6);
+
+    assert_eq!(
+        profile
+            .actions
+            .len(),
+        1
+    );
+    assert_golden_action_fields(&profile.actions[0]);
 }
 
 /// Verifies the golden TOML configuration shape deserializes blobs, init scripts, profiles, and action args.
@@ -112,7 +140,10 @@ args = { blob = "fake_default_tls", tcp_md5 = true, disabled_flag = false, repea
     );
     assert_eq!(cfg.blobs["custom_hex"], vec![0xDE, 0xAD, 0xBE, 0xEF]);
     assert_eq!(cfg.blobs["custom_tls"], b"\x16\x03\x01\x00\x05hello");
-    assert!(cfg.blobs.contains_key("fake_default_tls"));
+    assert!(
+        cfg.blobs
+            .contains_key("fake_default_tls")
+    );
 
     assert_golden_profile_fields(&cfg);
 }
@@ -181,7 +212,9 @@ fn clap_cli_parses_overrides_version_and_validates_conflicts()
     let cli = CliArgs::try_parse_from([
         "nfqws2",
         "--config",
-        toml_path.to_str().expect("utf8 path"),
+        toml_path
+            .to_str()
+            .expect("utf8 path"),
         "--qnum",
         "350",
         "--fwmark",
@@ -205,14 +238,10 @@ fn clap_cli_parses_overrides_version_and_validates_conflicts()
     assert!(!resolved.intercept);
 
     let qcfg = QueueConfig::with_fwmark(resolved.qnum, resolved.fwmark);
-    assert_eq!(qcfg.queue_num, 350);
-    assert_eq!(qcfg.desync_fwmark, 0x1000);
+    assert_eq!((qcfg.queue_num, qcfg.desync_fwmark), (350, 0x1000));
 
     let lcfg = LuaConfig::from(&resolved);
-    assert_eq!(lcfg.qnum, 350);
-    assert_eq!(lcfg.desync_fwmark, 0x1000);
-    assert!(lcfg.bind_fix4);
-    assert!(lcfg.debug);
+    assert_eq!((lcfg.qnum, lcfg.desync_fwmark, lcfg.bind_fix4, lcfg.debug), (350, 0x1000, true, true));
 
     let conflict =
         CliArgs::try_parse_from(["nfqws2", "--user=nobody", "--uid=65534"]).expect("syntax is valid");
@@ -251,27 +280,102 @@ fn clap_cli_parses_numeric_bools_and_lua_init_entries()
     assert!(matches!(resolve_config(&empty_file), Err(ConfigError::Validation(_))));
 }
 
+/// Verifies parsed per-profile autohostlist threshold settings.
+fn assert_m3_hostlist_settings(settings: &zapret_rs::lists::AutoHostlistSettings)
+{
+    assert_eq!(settings.fail_threshold, 4);
+    assert_eq!(settings.fail_time_sec, 90);
+    assert!(!settings.retrans_reset);
+    assert_eq!(settings.udp_out, 6);
+    assert_eq!(settings.udp_in, 2);
+    assert_eq!(settings.fail_cooldown_sec, 5);
+    assert_eq!(settings.sibling_threshold, 3);
+    assert!(settings.confirm_block);
+}
+
 /// Verifies parsed per-profile hostlist, autohostlist, and ipset paths under `dir`.
 fn assert_m3_profile_lists(cfg: &AppConfig, dir: &std::path::Path)
 {
     let p = &cfg.profiles[0];
-    assert_eq!(p.lists.hostlist, vec![dir.join("lists/include.txt")]);
-    assert_eq!(p.lists.hostlist_domains, vec!["example.com", "example.org"]);
-    assert_eq!(p.lists.hostlist_exclude, vec![dir.join("lists/exclude.txt.gz")]);
-    assert_eq!(p.lists.hostlist_exclude_domains, vec!["skip.example.com"]);
-    assert_eq!(p.lists.hostlist_auto, Some(dir.join("lists/auto.txt")));
-    assert_eq!(p.lists.hostlist_auto_settings.fail_threshold, 4);
-    assert_eq!(p.lists.hostlist_auto_settings.fail_time_sec, 90);
-    assert!(!p.lists.hostlist_auto_settings.retrans_reset);
-    assert_eq!(p.lists.hostlist_auto_settings.udp_out, 6);
-    assert_eq!(p.lists.hostlist_auto_settings.udp_in, 2);
-    assert_eq!(p.lists.hostlist_auto_settings.fail_cooldown_sec, 5);
-    assert_eq!(p.lists.hostlist_auto_settings.sibling_threshold, 3);
-    assert!(p.lists.hostlist_auto_settings.confirm_block);
-    assert_eq!(p.lists.ipset, vec![dir.join("lists/cidrs.txt")]);
-    assert_eq!(p.lists.ipset_ip, vec!["10.0.0.0/8", "192.0.2.1"]);
-    assert_eq!(p.lists.ipset_exclude, vec![dir.join("lists/skip-cidrs.txt")]);
-    assert_eq!(p.lists.ipset_exclude_ip, vec!["127.0.0.0/8"]);
+    assert_eq!(
+        p.lists
+            .hostlist,
+        vec![dir.join("lists/include.txt")]
+    );
+    assert_eq!(
+        p.lists
+            .hostlist_domains,
+        vec!["example.com", "example.org"]
+    );
+    assert_eq!(
+        p.lists
+            .hostlist_exclude,
+        vec![dir.join("lists/exclude.txt.gz")]
+    );
+    assert_eq!(
+        p.lists
+            .hostlist_exclude_domains,
+        vec!["skip.example.com"]
+    );
+    assert_eq!(
+        p.lists
+            .hostlist_auto,
+        Some(dir.join("lists/auto.txt"))
+    );
+    assert_m3_hostlist_settings(
+        &p.lists
+            .hostlist_auto_settings,
+    );
+    assert_eq!(
+        p.lists
+            .ipset,
+        vec![dir.join("lists/cidrs.txt")]
+    );
+    assert_eq!(
+        p.lists
+            .ipset_ip,
+        vec!["10.0.0.0/8", "192.0.2.1"]
+    );
+    assert_eq!(
+        p.lists
+            .ipset_exclude,
+        vec![dir.join("lists/skip-cidrs.txt")]
+    );
+    assert_eq!(
+        p.lists
+            .ipset_exclude_ip,
+        vec!["127.0.0.0/8"]
+    );
+}
+
+/// Asserts top-level M3 scalar fields parsed onto `cfg` before per-profile checks.
+fn assert_m3_top_level_fields(cfg: &AppConfig, dir: &std::path::Path)
+{
+    assert!(!cfg.server);
+    assert_eq!(
+        (
+            cfg.conntrack
+                .timeouts
+                .syn,
+            cfg.conntrack
+                .timeouts
+                .established,
+            cfg.conntrack
+                .timeouts
+                .fin,
+            cfg.conntrack
+                .timeouts
+                .udp,
+            cfg.ipcache
+                .lifetime_sec,
+            cfg.ipcache
+                .hostname,
+        ),
+        (12, 34, 56, 78, 900, true)
+    );
+    assert_ne!(cfg.payload_disable, 0);
+    assert_ne!(cfg.reasm_disable, 0);
+    assert_eq!(cfg.hostlist_auto_debug, Some(dir.join("logs/auto.log")));
 }
 
 /// Verifies M3 TOML options, relative list path resolution, `to_lua_config`, and autohostlist guards.
@@ -320,22 +424,16 @@ ipset_exclude_ip = ["127.0.0.0/8"]
     let cfg = AppConfig::from_toml_file(&toml_path).expect("M3 TOML should parse");
     let _ = fs::remove_dir_all(&dir);
 
-    assert!(!cfg.server);
-    assert_eq!(cfg.conntrack.timeouts.syn, 12);
-    assert_eq!(cfg.conntrack.timeouts.established, 34);
-    assert_eq!(cfg.conntrack.timeouts.fin, 56);
-    assert_eq!(cfg.conntrack.timeouts.udp, 78);
-    assert_eq!(cfg.ipcache.lifetime_sec, 900);
-    assert!(cfg.ipcache.hostname);
-    assert_ne!(cfg.payload_disable, 0);
-    assert_ne!(cfg.reasm_disable, 0);
-    assert_eq!(cfg.hostlist_auto_debug, Some(dir.join("logs/auto.log")));
-
+    assert_m3_top_level_fields(&cfg, &dir);
     assert_m3_profile_lists(&cfg, &dir);
 
     let lcfg = LuaConfig::from(&cfg);
     assert!(lcfg.cache_hostname);
-    assert_eq!(lcfg.ctrack_timeouts.established, 34);
+    assert_eq!(
+        lcfg.ctrack_timeouts
+            .established,
+        34
+    );
 
     let srv_conflict = "server = true\n[[profiles]]\nhostlist_auto = \"auto.txt\"\n";
     assert!(matches!(AppConfig::from_toml_str(srv_conflict, None), Err(ConfigError::Validation(_))));
@@ -360,7 +458,9 @@ fn cli_m3_flags_override_toml_settings()
     let cli = CliArgs::try_parse_from([
         "nfqws2",
         "--config",
-        toml_path.to_str().expect("utf8 path"),
+        toml_path
+            .to_str()
+            .expect("utf8 path"),
         "--ctrack-timeouts=5:10:15",
         "--ipcache-lifetime=120",
         "--ipcache-hostname=1",
@@ -370,16 +470,43 @@ fn cli_m3_flags_override_toml_settings()
     ])
     .expect("M3 CLI flags parse");
     let resolved = resolve_config(&cli).expect("M3 CLI resolution succeeds");
-    assert_eq!(resolved.conntrack.timeouts.syn, 5);
-    assert_eq!(resolved.conntrack.timeouts.udp, 60);
-    assert_eq!(resolved.ipcache.lifetime_sec, 120);
-    assert!(resolved.ipcache.hostname);
+    assert_eq!(
+        resolved
+            .conntrack
+            .timeouts
+            .syn,
+        5
+    );
+    assert_eq!(
+        resolved
+            .conntrack
+            .timeouts
+            .udp,
+        60
+    );
+    assert_eq!(
+        resolved
+            .ipcache
+            .lifetime_sec,
+        120
+    );
+    assert!(
+        resolved
+            .ipcache
+            .hostname
+    );
     assert_eq!(resolved.payload_disable, 0);
     assert_eq!(resolved.hostlist_auto_debug, Some(PathBuf::from("/tmp/auto-dbg.log")));
 
-    let err_cli =
-        CliArgs::try_parse_from(["nfqws2", "--config", toml_path.to_str().expect("utf8 path"), "--server"])
-            .expect("CLI syntax valid");
+    let err_cli = CliArgs::try_parse_from([
+        "nfqws2",
+        "--config",
+        toml_path
+            .to_str()
+            .expect("utf8 path"),
+        "--server",
+    ])
+    .expect("CLI syntax valid");
     assert!(matches!(resolve_config(&err_cli), Err(ConfigError::Validation(_))));
     let _ = fs::remove_dir_all(&dir);
 }
@@ -402,7 +529,9 @@ fn control_socket_and_sample_rate_parse_from_toml_and_cli()
     let off_cli = CliArgs::try_parse_from([
         "nfqws2",
         "--config",
-        toml_path.to_str().expect("utf8 path"),
+        toml_path
+            .to_str()
+            .expect("utf8 path"),
         "--control-socket=off",
         "--control-pass-sample=0",
     ])
@@ -417,11 +546,25 @@ fn control_socket_and_sample_rate_parse_from_toml_and_cli()
 
     let nft_cfg = AppConfig::from_toml_str("auto_nft = true\n", None).expect("auto_nft parses");
     assert!(nft_cfg.auto_nft);
-    let nft_cli =
-        CliArgs::try_parse_from(["nfqws2", "--config", toml_path.to_str().expect("utf8 path"), "--nft"])
-            .expect("--nft parses");
-    assert!(resolve_config(&nft_cli).expect("resolve --nft").auto_nft);
+    let nft_cli = CliArgs::try_parse_from([
+        "nfqws2",
+        "--config",
+        toml_path
+            .to_str()
+            .expect("utf8 path"),
+        "--nft",
+    ])
+    .expect("--nft parses");
+    assert!(
+        resolve_config(&nft_cli)
+            .expect("resolve --nft")
+            .auto_nft
+    );
     let no_nft_cli = CliArgs::try_parse_from(["nfqws2", "--nft=0"]).expect("--nft=0 parses");
-    assert!(!resolve_config(&no_nft_cli).expect("resolve --nft=0").auto_nft);
+    assert!(
+        !resolve_config(&no_nft_cli)
+            .expect("resolve --nft=0")
+            .auto_nft
+    );
     let _ = fs::remove_dir_all(&dir);
 }

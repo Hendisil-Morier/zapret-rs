@@ -31,8 +31,12 @@ fn render_to_string(state: &AppState, width: u16, height: u16) -> String
 {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test terminal");
-    terminal.draw(|f| draw_app(f, state)).expect("draw frame");
-    let buf = terminal.backend().buffer();
+    terminal
+        .draw(|f| draw_app(f, state))
+        .expect("draw frame");
+    let buf = terminal
+        .backend()
+        .buffer();
     let mut out = String::new();
     for y in 0..height
     {
@@ -103,15 +107,54 @@ delete = ["X", "Del"]
     let (resolved, has_theme) =
         parse_app_config_str(input, cfg_path.clone(), cfg_path.parent()).expect("parse config.toml");
     assert!(has_theme);
-    assert_eq!(resolved.theme.name, "custom");
+    assert_eq!(
+        resolved
+            .theme
+            .name,
+        "custom"
+    );
     assert_eq!(resolved.nfqws2_config, Some(dir.join("profiles/custom-nfqws2.toml")));
     assert!(resolved.no_nft);
-    assert_eq!(resolved.keybinds.global.prev_tab, KeyList::deserialize_test("["));
-    assert_eq!(resolved.keybinds.global.next_tab.joined_label(), "]");
+    assert_eq!(
+        resolved
+            .keybinds
+            .global
+            .prev_tab,
+        KeyList::deserialize_test("[")
+    );
+    assert_eq!(
+        resolved
+            .keybinds
+            .global
+            .next_tab
+            .joined_label(),
+        "]"
+    );
     // Unspecified fields retain their defaults.
-    assert_eq!(resolved.keybinds.global.help.primary_label(), "?");
-    assert_eq!(resolved.keybinds.nav.up.joined_label(), "Up/k");
-    assert_eq!(resolved.keybinds.hostlist.delete.joined_label(), "X/Del");
+    assert_eq!(
+        resolved
+            .keybinds
+            .global
+            .help
+            .primary_label(),
+        "?"
+    );
+    assert_eq!(
+        resolved
+            .keybinds
+            .nav
+            .up
+            .joined_label(),
+        "Up/k"
+    );
+    assert_eq!(
+        resolved
+            .keybinds
+            .hostlist
+            .delete
+            .joined_label(),
+        "X/Del"
+    );
 
     let serialized = render_app_config_toml(
         Some("profiles/custom-nfqws2.toml"),
@@ -171,8 +214,20 @@ fn startup_resolver_distinguishes_app_config_from_nfqws2_and_honors_overrides()
     assert_eq!(resolved.app_config_path, app_cfg_path);
     assert_eq!(resolved.nfqws2_config, Some(nfq_path.clone()));
     // CLI `--theme` overrides `[theme]` inside `config.toml`.
-    assert_eq!(resolved.theme.name, "dracula");
-    assert_eq!(resolved.keybinds.global.next_tab.primary_label(), "n");
+    assert_eq!(
+        resolved
+            .theme
+            .name,
+        "dracula"
+    );
+    assert_eq!(
+        resolved
+            .keybinds
+            .global
+            .next_tab
+            .primary_label(),
+        "n"
+    );
 
     // Passing `nfqws2.toml` directly to `--config` still treats it as `nfqws2_config`.
     let override_nfq = dir.join("override.toml");
@@ -188,6 +243,23 @@ fn startup_resolver_distinguishes_app_config_from_nfqws2_and_honors_overrides()
     assert!(direct.no_nft);
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+/// Asserts default global keys no longer fire once remapped and tests `[`/`]`/`F1`/`Z` bindings.
+fn verify_custom_keybind_dispatch(state: &mut AppState)
+{
+    assert_eq!(state.handle_key(key(KeyCode::Char('q'))), AppAction::None);
+    assert_eq!(state.handle_key(key(KeyCode::Char('L'))), AppAction::None);
+    assert_eq!(state.tab, ActiveTab::Finder);
+    assert_eq!(state.handle_key(key(KeyCode::Char('?'))), AppAction::None);
+    assert!(!state.help_open);
+
+    assert_eq!(state.handle_key(key(KeyCode::Char('['))), AppAction::None);
+    assert_eq!(state.tab, ActiveTab::Settings);
+    assert_eq!(state.handle_key(key(KeyCode::Char('['))), AppAction::None);
+    assert_eq!(state.tab, ActiveTab::Hostlist);
+    assert_eq!(state.handle_key(key(KeyCode::Char('d'))), AppAction::None);
+    assert_eq!(state.handle_key(key(KeyCode::Char('Z'))), AppAction::DeleteSelectedDomain);
 }
 
 /// Verifies custom keybinds control runtime dispatch, save to `config.toml`, and update UI hints.
@@ -215,20 +287,7 @@ fn remapped_keybinds_control_navigation_actions_saving_and_ui_hints()
         parse_app_config_str(&cfg_text, cfg_path.clone(), cfg_path.parent()).expect("parse custom config");
     let mut state = AppState::from_startup_config(resolved, None);
 
-    // Old defaults `q` / `H` / `L` / `?` no longer trigger their remapped global actions.
-    assert_eq!(state.handle_key(key(KeyCode::Char('q'))), AppAction::None);
-    assert_eq!(state.handle_key(key(KeyCode::Char('L'))), AppAction::None);
-    assert_eq!(state.tab, ActiveTab::Finder);
-    assert_eq!(state.handle_key(key(KeyCode::Char('?'))), AppAction::None);
-    assert!(!state.help_open);
-
-    // Remapped `[` / `]` cycle tabs (`Finder -> Settings -> Hostlist`), `F1` toggles help, and `Q` quits.
-    assert_eq!(state.handle_key(key(KeyCode::Char('['))), AppAction::None);
-    assert_eq!(state.tab, ActiveTab::Settings);
-    assert_eq!(state.handle_key(key(KeyCode::Char('['))), AppAction::None);
-    assert_eq!(state.tab, ActiveTab::Hostlist);
-    assert_eq!(state.handle_key(key(KeyCode::Char('d'))), AppAction::None);
-    assert_eq!(state.handle_key(key(KeyCode::Char('Z'))), AppAction::DeleteSelectedDomain);
+    verify_custom_keybind_dispatch(&mut state);
 
     let main_screen = render_to_string(&state, 120, 32);
     assert!(main_screen.contains("[F1] Keys"));
@@ -284,13 +343,42 @@ quit = "Q"
     let (resolved, has_theme) =
         parse_app_config_str(root_text, cfg_path.clone(), cfg_path.parent()).expect("parse imports");
     assert!(has_theme);
-    assert_eq!(resolved.theme.name, "custom");
-    assert_eq!(resolved.theme.accent, ratatui::style::Color::Rgb(0x44, 0x55, 0x66));
-    assert_eq!(resolved.theme.muted, ratatui::style::Color::Gray);
+    assert_eq!(
+        resolved
+            .theme
+            .name,
+        "custom"
+    );
+    assert_eq!(
+        resolved
+            .theme
+            .accent,
+        ratatui::style::Color::Rgb(0x44, 0x55, 0x66)
+    );
+    assert_eq!(
+        resolved
+            .theme
+            .muted,
+        ratatui::style::Color::Gray
+    );
     assert_eq!(resolved.nfqws2_config, Some(sub.join("./local-nfqws2.toml")));
     assert!(resolved.no_nft);
-    assert_eq!(resolved.keybinds.global.prev_tab.primary_label(), "[");
-    assert_eq!(resolved.keybinds.global.quit.primary_label(), "Q");
+    assert_eq!(
+        resolved
+            .keybinds
+            .global
+            .prev_tab
+            .primary_label(),
+        "["
+    );
+    assert_eq!(
+        resolved
+            .keybinds
+            .global
+            .quit
+            .primary_label(),
+        "Q"
+    );
 
     // Style 2: single-string `[theme] import = "./theme.toml"`.
     let nested_theme = "[theme]\nimport = \"./theme.toml\"\n";
@@ -298,7 +386,12 @@ quit = "Q"
         parse_app_config_str(nested_theme, cfg_path.clone(), cfg_path.parent())
             .expect("parse [theme] import");
     assert!(has_nested_theme);
-    assert_eq!(resolved_nested.theme.accent, ratatui::style::Color::Rgb(0x11, 0x22, 0x33));
+    assert_eq!(
+        resolved_nested
+            .theme
+            .accent,
+        ratatui::style::Color::Rgb(0x11, 0x22, 0x33)
+    );
 
     // Circular imports are rejected clearly.
     let cyc_a = dir.join("cyc_a.toml");
@@ -349,7 +442,12 @@ fn first_run_auto_generates_config_toml_and_imports_sibling_theme()
         cli_control_socket: None,
         cli_theme: None,
     });
-    assert_eq!(reloaded.theme.accent, ratatui::style::Color::Rgb(0xaa, 0xbb, 0xcc));
+    assert_eq!(
+        reloaded
+            .theme
+            .accent,
+        ratatui::style::Color::Rgb(0xaa, 0xbb, 0xcc)
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }

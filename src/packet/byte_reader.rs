@@ -32,9 +32,15 @@ impl<'a> ByteReader<'a>
     /// Borrows the next `len` bytes and advances `pos`, returning `Truncated` on overflow or EOF.
     pub fn read_bytes(&mut self, len: usize) -> PEResult<&'a [u8]>
     {
-        let end = self.pos.checked_add(len).ok_or(PacketError::Truncated)?;
+        let end = self
+            .pos
+            .checked_add(len)
+            .ok_or(PacketError::Truncated)?;
 
-        let slice = self.data.get(self.pos..end).ok_or(PacketError::Truncated)?;
+        let slice = self
+            .data
+            .get(self.pos..end)
+            .ok_or(PacketError::Truncated)?;
 
         self.pos = end;
 
@@ -44,7 +50,9 @@ impl<'a> ByteReader<'a>
     /// Reads an exact fixed-size array `[u8; N]` and advances `pos`.
     pub fn read_array<const N: usize>(&mut self) -> PEResult<[u8; N]>
     {
-        self.read_bytes(N)?.try_into().map_err(|_| PacketError::Truncated)
+        self.read_bytes(N)?
+            .try_into()
+            .map_err(|_| PacketError::Truncated)
     }
 
     /// Reads the next single unsigned byte (`u8`).
@@ -74,19 +82,26 @@ impl<'a> ByteReader<'a>
     /// Advances the cursor by `len` bytes without returning the skipped slice.
     pub fn skip(&mut self, len: usize) -> PEResult<()>
     {
-        self.read_bytes(len).map(|_| ())
+        self.read_bytes(len)
+            .map(|_| ())
     }
 
     /// Returns all unread bytes remaining past `pos`.
     pub fn remaining(&self) -> &'a [u8]
     {
-        self.data.get(self.pos..).unwrap_or(&[])
+        self.data
+            .get(self.pos..)
+            .unwrap_or(&[])
     }
 
     /// Shrinks the readable end of the buffer to `max_len`, dropping trailing link-layer padding.
     pub fn truncate(&mut self, max_len: usize) -> PEResult<()>
     {
-        if max_len > self.data.len() || max_len < self.pos
+        if max_len
+            > self
+                .data
+                .len()
+            || max_len < self.pos
         {
             return Err(PacketError::Truncated);
         }

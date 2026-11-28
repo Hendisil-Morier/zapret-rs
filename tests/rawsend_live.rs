@@ -80,8 +80,9 @@ fn build_loopback_udp6(
 fn assert_udp_received(sock: &UdpSocket, expected_payload: &[u8], expected_ip: IpAddr, expected_port: u16)
 {
     let mut buf = [0u8; 512];
-    let (n, peer) =
-        sock.recv_from(&mut buf).expect("kernel should deliver raw-injected UDP datagram to loopback socket");
+    let (n, peer) = sock
+        .recv_from(&mut buf)
+        .expect("kernel should deliver raw-injected UDP datagram to loopback socket");
     assert_eq!(&buf[..n], expected_payload);
     assert_eq!(peer, SocketAddr::new(expected_ip, expected_port));
 }
@@ -105,15 +106,25 @@ fn assert_udp_timed_out(sock: &UdpSocket)
 fn raw_sender_preinit_and_loopback_udp_delivery()
 {
     let udp4 = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind IPv4 loopback UDP socket");
-    udp4.set_read_timeout(Some(Duration::from_millis(400))).expect("set IPv4 read timeout");
-    let v4_port = udp4.local_addr().expect("IPv4 local_addr").port();
+    udp4.set_read_timeout(Some(Duration::from_millis(400)))
+        .expect("set IPv4 read timeout");
+    let v4_port = udp4
+        .local_addr()
+        .expect("IPv4 local_addr")
+        .port();
 
     let udp6 = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).expect("bind IPv6 loopback UDP socket");
-    udp6.set_read_timeout(Some(Duration::from_millis(400))).expect("set IPv6 read timeout");
-    let v6_port = udp6.local_addr().expect("IPv6 local_addr").port();
+    udp6.set_read_timeout(Some(Duration::from_millis(400)))
+        .expect("set IPv6 read timeout");
+    let v6_port = udp6
+        .local_addr()
+        .expect("IPv6 local_addr")
+        .port();
 
     let mut sender = RawSender::new(true, true);
-    sender.preinit().expect("RawSender::preinit should open AF_INET and AF_INET6 raw sockets");
+    sender
+        .preinit()
+        .expect("RawSender::preinit should open AF_INET and AF_INET6 raw sockets");
 
     // 1. Valid IPv4 UDP packet bound to `"lo"` delivers cleanly.
     let v4_payload_a = b"rawsend-live-v4-a";
@@ -176,24 +187,34 @@ fn raw_sender_preinit_and_loopback_udp_delivery()
 fn lua_live_rawsend_and_ipfrag2_deliver_through_kernel()
 {
     let udp4 = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind IPv4 loopback UDP socket");
-    udp4.set_read_timeout(Some(Duration::from_millis(500))).expect("set IPv4 read timeout");
-    let v4_port = udp4.local_addr().expect("IPv4 local_addr").port();
+    udp4.set_read_timeout(Some(Duration::from_millis(500)))
+        .expect("set IPv4 read timeout");
+    let v4_port = udp4
+        .local_addr()
+        .expect("IPv4 local_addr")
+        .port();
 
     let udp6 = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).expect("bind IPv6 loopback UDP socket");
-    udp6.set_read_timeout(Some(Duration::from_millis(500))).expect("set IPv6 read timeout");
-    let v6_port = udp6.local_addr().expect("IPv6 local_addr").port();
+    udp6.set_read_timeout(Some(Duration::from_millis(500)))
+        .expect("set IPv6 read timeout");
+    let v6_port = udp6
+        .local_addr()
+        .expect("IPv6 local_addr")
+        .port();
 
     let cfg =
         LuaConfig { desync_fwmark: 0x4000_0000, bind_fix4: true, bind_fix6: true, ..LuaConfig::default() };
     let rt = LuaRuntime::new(cfg).expect("LuaRuntime::new should initialize");
     let zapret_lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("lua/zapret-lib.lua");
     assert!(zapret_lib.exists(), "expected zapret-lib.lua at {}", zapret_lib.display());
-    rt.exec_file(&zapret_lib).expect("loading zapret-lib.lua should succeed");
+    rt.exec_file(&zapret_lib)
+        .expect("loading zapret-lib.lua should succeed");
 
     // 1. Direct Lua `rawsend` delivers a loopback IPv4 UDP packet.
     let direct_payload = b"lua-direct-rawsend-payload";
     let direct_v4 = build_loopback_udp4(43001, v4_port, direct_payload, false);
-    rt.set_blob("direct_v4", &direct_v4).expect("set direct_v4 blob");
+    rt.set_blob("direct_v4", &direct_v4)
+        .expect("set direct_v4 blob");
     rt.exec_str(r#"assert(rawsend(direct_v4, { ifout = "lo", fwmark = 0x10 }) == true)"#)
         .expect("Lua rawsend should return true");
     assert_udp_received(&udp4, direct_payload, IpAddr::V4(Ipv4Addr::LOCALHOST), 43001);
@@ -201,7 +222,8 @@ fn lua_live_rawsend_and_ipfrag2_deliver_through_kernel()
     // 2. Lua `ipfrag2` + `rawsend_dissect` splits and kernel-reassembles an IPv4 UDP packet.
     let frag4_payload = b"0123456789abcdef0123456789ABCDEF";
     let frag4_pkt = build_loopback_udp4(43002, v4_port, frag4_payload, false);
-    rt.set_blob("frag4_pkt", &frag4_pkt).expect("set frag4_pkt blob");
+    rt.set_blob("frag4_pkt", &frag4_pkt)
+        .expect("set frag4_pkt blob");
     rt.exec_str(
         r#"
         local d = dissect(frag4_pkt)
@@ -233,7 +255,8 @@ fn lua_live_rawsend_and_ipfrag2_deliver_through_kernel()
         frag6_payload,
         false,
     );
-    rt.set_blob("frag6_pkt", &frag6_pkt).expect("set frag6_pkt blob");
+    rt.set_blob("frag6_pkt", &frag6_pkt)
+        .expect("set frag6_pkt blob");
     rt.exec_str(
         r#"
         local d = dissect(frag6_pkt)

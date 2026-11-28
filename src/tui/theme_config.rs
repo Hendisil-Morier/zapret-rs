@@ -23,7 +23,9 @@ impl Theme
     /// Builds a [`Theme`] from a parsed [`RawThemeFile`] override block.
     pub(crate) fn from_raw(raw: &RawThemeFile) -> Result<Self, String>
     {
-        let mut theme = match raw.preset.as_deref()
+        let mut theme = match raw
+            .preset
+            .as_deref()
         {
             Some(name) => Self::from_preset(name).ok_or_else(|| {
                 format!("unknown theme preset '{name}' (expected one of: {})", PRESET_NAMES.join(", "))
@@ -32,22 +34,86 @@ impl Theme
         };
         let mut overridden = false;
         for (slot, val) in [
-            (&mut theme.accent, raw.accent.as_deref()),
-            (&mut theme.accent_bright, raw.accent_bright.as_deref()),
-            (&mut theme.frame, raw.frame.as_deref()),
-            (&mut theme.info, raw.info.as_deref()),
-            (&mut theme.ok, raw.ok.as_deref()),
-            (&mut theme.ok_bright, raw.ok_bright.as_deref()),
-            (&mut theme.warn, raw.warn.as_deref()),
-            (&mut theme.warn_bright, raw.warn_bright.as_deref()),
-            (&mut theme.err, raw.err.as_deref()),
-            (&mut theme.err_bright, raw.err_bright.as_deref()),
-            (&mut theme.special, raw.special.as_deref()),
-            (&mut theme.special_bright, raw.special_bright.as_deref()),
-            (&mut theme.text, raw.text.as_deref()),
-            (&mut theme.subtle, raw.subtle.as_deref()),
-            (&mut theme.muted, raw.muted.as_deref()),
-            (&mut theme.highlight_bg, raw.highlight_bg.as_deref()),
+            (
+                &mut theme.accent,
+                raw.accent
+                    .as_deref(),
+            ),
+            (
+                &mut theme.accent_bright,
+                raw.accent_bright
+                    .as_deref(),
+            ),
+            (
+                &mut theme.frame,
+                raw.frame
+                    .as_deref(),
+            ),
+            (
+                &mut theme.info,
+                raw.info
+                    .as_deref(),
+            ),
+            (
+                &mut theme.ok,
+                raw.ok
+                    .as_deref(),
+            ),
+            (
+                &mut theme.ok_bright,
+                raw.ok_bright
+                    .as_deref(),
+            ),
+            (
+                &mut theme.warn,
+                raw.warn
+                    .as_deref(),
+            ),
+            (
+                &mut theme.warn_bright,
+                raw.warn_bright
+                    .as_deref(),
+            ),
+            (
+                &mut theme.err,
+                raw.err
+                    .as_deref(),
+            ),
+            (
+                &mut theme.err_bright,
+                raw.err_bright
+                    .as_deref(),
+            ),
+            (
+                &mut theme.special,
+                raw.special
+                    .as_deref(),
+            ),
+            (
+                &mut theme.special_bright,
+                raw.special_bright
+                    .as_deref(),
+            ),
+            (
+                &mut theme.text,
+                raw.text
+                    .as_deref(),
+            ),
+            (
+                &mut theme.subtle,
+                raw.subtle
+                    .as_deref(),
+            ),
+            (
+                &mut theme.muted,
+                raw.muted
+                    .as_deref(),
+            ),
+            (
+                &mut theme.highlight_bg,
+                raw.highlight_bg
+                    .as_deref(),
+            ),
         ]
         {
             if let Some(spec) = val
@@ -129,15 +195,22 @@ const NAMED_COLORS: &[(&str, Color)] = &[
 pub fn parse_color(spec: &str) -> Result<Color, String>
 {
     let trimmed = spec.trim();
-    let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
-    if hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit())
+    let hex = trimmed
+        .strip_prefix('#')
+        .unwrap_or(trimmed);
+    if hex.len() == 6
+        && hex
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit())
     {
         let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| format!("invalid hex color '{spec}'"))?;
         let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| format!("invalid hex color '{spec}'"))?;
         let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| format!("invalid hex color '{spec}'"))?;
         return Ok(Color::Rgb(r, g, b));
     }
-    let norm = trimmed.to_ascii_lowercase().replace('_', "-");
+    let norm = trimmed
+        .to_ascii_lowercase()
+        .replace('_', "-");
     let canonical = match norm.as_str()
     {
         "grey" => "gray",

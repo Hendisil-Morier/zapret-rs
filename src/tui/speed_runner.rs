@@ -64,10 +64,14 @@ fn spawn_probe_worker(targets: Vec<(SpeedTarget, IpFamily)>) -> Receiver<(usize,
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let backend = CurlProbeBackend::default();
-        for (idx, (target, ipv)) in targets.iter().enumerate()
+        for (idx, (target, ipv)) in targets
+            .iter()
+            .enumerate()
         {
             let sample = measure(&backend, target, *ipv);
-            if tx.send((idx, sample)).is_err()
+            if tx
+                .send((idx, sample))
+                .is_err()
             {
                 break;
             }
@@ -83,7 +87,9 @@ fn drain_probe_samples(rx: &Receiver<(usize, SpeedSample)>, side: Side, state: &
     {
         match rx.try_recv()
         {
-            Ok((idx, sample)) => state.speed.record(side, idx, sample),
+            Ok((idx, sample)) => state
+                .speed
+                .record(side, idx, sample),
             Err(mpsc::TryRecvError::Empty) => return false,
             Err(mpsc::TryRecvError::Disconnected) => return true,
         }
@@ -93,7 +99,9 @@ fn drain_probe_samples(rx: &Receiver<(usize, SpeedSample)>, side: Side, state: &
 /// Aborts the active comparison job cleanly and updates the Tab 4 phase and status banner.
 fn abort_speed_job(job: &mut Option<SpeedJob>, state: &mut AppState, msg: String)
 {
-    state.speed.phase = SpeedPhase::Done;
+    state
+        .speed
+        .phase = SpeedPhase::Done;
     state.push_run_log(format!("[speed] {msg}"));
     state.status_banner = msg;
     *job = None;
@@ -102,9 +110,17 @@ fn abort_speed_job(job: &mut Option<SpeedJob>, state: &mut AppState, msg: String
 /// Cancels an in-flight speed test cleanly, dropping the probe receiver and marking [`SpeedPhase::Done`].
 pub(crate) fn cancel_speed_test(job: &mut Option<SpeedJob>, state: &mut AppState)
 {
-    if job.take().is_some() || state.speed.phase.is_running()
+    if job
+        .take()
+        .is_some()
+        || state
+            .speed
+            .phase
+            .is_running()
     {
-        state.speed.phase = SpeedPhase::Done;
+        state
+            .speed
+            .phase = SpeedPhase::Done;
         state.push_run_log("[speed] Speed test cancelled by user.");
         state.status_banner = "Speed test cancelled.".to_owned();
     }
@@ -123,9 +139,24 @@ pub(crate) fn begin_speed_test(
     {
         return None;
     }
-    let eff = effective_speed_domains(&state.finder.domains_input, &state.config.active_toml);
-    let targets = build_scoped_targets(&eff, &state.finder.ip_mode.families());
-    state.speed.start_scoped(&targets);
+    let eff = effective_speed_domains(
+        &state
+            .finder
+            .domains_input,
+        &state
+            .config
+            .active_toml,
+    );
+    let targets = build_scoped_targets(
+        &eff,
+        &state
+            .finder
+            .ip_mode
+            .families(),
+    );
+    state
+        .speed
+        .start_scoped(&targets);
     state.status_banner = "Speed test: waiting for daemon to stop...".to_owned();
     Some(SpeedJob { phase: JobPhase::Stopping { started: Instant::now() }, targets })
 }
@@ -146,7 +177,13 @@ pub(crate) fn poll_speed_test(
     {
         JobPhase::Stopping { started } =>
         {
-            let sock = detect_control_socket(state.run.control_socket_override.as_deref()).is_some();
+            let sock = detect_control_socket(
+                state
+                    .run
+                    .control_socket_override
+                    .as_deref(),
+            )
+            .is_some();
             if session_tab2.is_some() || sock
             {
                 if started.elapsed() >= STOP_TIMEOUT
@@ -159,9 +196,14 @@ pub(crate) fn poll_speed_test(
                 }
                 return;
             }
-            let rx = spawn_probe_worker(curr.targets.clone());
+            let rx = spawn_probe_worker(
+                curr.targets
+                    .clone(),
+            );
             curr.phase = JobPhase::ProbingBefore { rx };
-            state.speed.phase = SpeedPhase::ProbingBefore;
+            state
+                .speed
+                .phase = SpeedPhase::ProbingBefore;
             state.status_banner = "Speed test: measuring without zapret...".to_owned();
         }
         JobPhase::ProbingBefore { rx } =>
@@ -171,7 +213,9 @@ pub(crate) fn poll_speed_test(
                 return;
             }
             curr.phase = JobPhase::Starting;
-            state.speed.phase = SpeedPhase::Starting;
+            state
+                .speed
+                .phase = SpeedPhase::Starting;
             state.status_banner = "Speed test: starting nfqws2...".to_owned();
             try_start_or_attach(state, session_tab2);
         }
@@ -180,14 +224,23 @@ pub(crate) fn poll_speed_test(
             if session_tab2.is_some()
             {
                 curr.phase = JobPhase::Settling { started: Instant::now() };
-                state.speed.phase = SpeedPhase::Settling;
+                state
+                    .speed
+                    .phase = SpeedPhase::Settling;
                 state.status_banner = "Speed test: settling firewall rules...".to_owned();
             }
-            else if state.modal.is_some()
+            else if state
+                .modal
+                .is_some()
             {
                 // Waiting on user confirmation (`sudo` / capability prompt).
             }
-            else if matches!(state.run.status, RunStatus::Error(_))
+            else if matches!(
+                state
+                    .run
+                    .status,
+                RunStatus::Error(_)
+            )
             {
                 abort_speed_job(job, state, "Speed test aborted: daemon failed to start.".to_owned());
             }
@@ -202,9 +255,14 @@ pub(crate) fn poll_speed_test(
             {
                 return;
             }
-            let rx = spawn_probe_worker(curr.targets.clone());
+            let rx = spawn_probe_worker(
+                curr.targets
+                    .clone(),
+            );
             curr.phase = JobPhase::ProbingAfter { rx };
-            state.speed.phase = SpeedPhase::ProbingAfter;
+            state
+                .speed
+                .phase = SpeedPhase::ProbingAfter;
             state.status_banner = "Speed test: measuring with zapret...".to_owned();
         }
         JobPhase::ProbingAfter { rx } =>
@@ -213,7 +271,9 @@ pub(crate) fn poll_speed_test(
             {
                 return;
             }
-            state.speed.phase = SpeedPhase::Done;
+            state
+                .speed
+                .phase = SpeedPhase::Done;
             state.status_banner = "Speed comparison complete.".to_owned();
             *job = None;
         }

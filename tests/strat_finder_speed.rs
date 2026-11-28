@@ -35,17 +35,26 @@ fn build_args_supports_fractional_subsecond_and_clamped_timeouts()
         timeout: Duration::from_millis(1500),
     };
     let args_sub = CurlProbeBackend::build_args(&req_sub);
-    let max_idx = args_sub.iter().position(|a| a == "--max-time").expect("--max-time missing");
+    let max_idx = args_sub
+        .iter()
+        .position(|a| a == "--max-time")
+        .expect("--max-time missing");
     assert_eq!(args_sub[max_idx + 1], "1.5");
 
     let req_floor = ProbeRequest { timeout: Duration::from_millis(50), ..req_sub.clone() };
     let args_floor = CurlProbeBackend::build_args(&req_floor);
-    let floor_idx = args_floor.iter().position(|a| a == "--connect-timeout").expect("--connect-timeout");
+    let floor_idx = args_floor
+        .iter()
+        .position(|a| a == "--connect-timeout")
+        .expect("--connect-timeout");
     assert_eq!(args_floor[floor_idx + 1], "0.2");
 
     let req_whole = ProbeRequest { timeout: Duration::from_secs(2), ..req_sub };
     let args_whole = CurlProbeBackend::build_args(&req_whole);
-    let whole_idx = args_whole.iter().position(|a| a == "--max-time").expect("--max-time");
+    let whole_idx = args_whole
+        .iter()
+        .position(|a| a == "--max-time")
+        .expect("--max-time");
     assert_eq!(args_whole[whole_idx + 1], "2");
 }
 
@@ -127,7 +136,9 @@ impl StrategyApplier for SpeedMockApplier
 {
     fn apply_profiles(&mut self, profiles: Vec<DesyncProfile>) -> Result<(), String>
     {
-        let mut st = self.0.borrow_mut();
+        let mut st = self
+            .0
+            .borrow_mut();
         if profiles.is_empty()
         {
             st.clear_count += 1;
@@ -136,7 +147,12 @@ impl StrategyApplier for SpeedMockApplier
         else
         {
             st.swap_count += 1;
-            st.active_strategy = profiles.first().and_then(|p| p.name.clone());
+            st.active_strategy = profiles
+                .first()
+                .and_then(|p| {
+                    p.name
+                        .clone()
+                });
         }
         Ok(())
     }
@@ -154,17 +170,29 @@ impl ProbeBackend for SpeedMockProbe
 
     fn probe(&self, req: &ProbeRequest) -> ProbeOutcome
     {
-        let st = self.0.borrow();
+        let st = self
+            .0
+            .borrow();
         st.outcomes
-            .get(&(req.domain.clone(), st.active_strategy.clone()))
+            .get(&(
+                req.domain
+                    .clone(),
+                st.active_strategy
+                    .clone(),
+            ))
             .cloned()
             .unwrap_or(ProbeOutcome::Timeout)
     }
 
     fn probe_batch(&self, reqs: &[ProbeRequest]) -> Vec<ProbeOutcome>
     {
-        self.0.borrow_mut().batch_sizes.push(reqs.len());
-        reqs.iter().map(|r| self.probe(r)).collect()
+        self.0
+            .borrow_mut()
+            .batch_sizes
+            .push(reqs.len());
+        reqs.iter()
+            .map(|r| self.probe(r))
+            .collect()
     }
 }
 
@@ -182,14 +210,29 @@ fn prioritize_sticky_orders_same_family_then_cross_family_without_duplicates()
         .expect("suffix")
         .1
         .to_owned();
-    let mid_suffix =
-        cat[2].id.split_once(':').and_then(|(_, r)| r.split_once(':')).expect("suffix").1.to_owned();
+    let mid_suffix = cat[2]
+        .id
+        .split_once(':')
+        .and_then(|(_, r)| r.split_once(':'))
+        .expect("suffix")
+        .1
+        .to_owned();
 
     let sticky = vec![(IpFamily::V4, mid_suffix.clone()), (IpFamily::V6, last_suffix.clone())];
     let reordered = prioritize_sticky(cat.clone(), &sticky);
     assert_eq!(reordered.len(), cat.len());
-    assert!(reordered[0].id.ends_with(&format!(":{last_suffix}")), "same-family match first");
-    assert!(reordered[1].id.ends_with(&format!(":{mid_suffix}")), "cross-family match second");
+    assert!(
+        reordered[0]
+            .id
+            .ends_with(&format!(":{last_suffix}")),
+        "same-family match first"
+    );
+    assert!(
+        reordered[1]
+            .id
+            .ends_with(&format!(":{mid_suffix}")),
+        "cross-family match second"
+    );
 }
 
 /// Verifies `run_scan` batches all baselines in one `probe_batch` wave and promotes sticky strategies.
@@ -197,26 +240,37 @@ fn prioritize_sticky_orders_same_family_then_cross_family_without_duplicates()
 fn run_scan_batches_baselines_and_promotes_sticky_winner_to_first_probe()
 {
     let cat_t12 = build_catalog(ProbeProtocol::Tls12, ScanLevel::Quick, IpFamily::V4);
-    let winner_t12 = cat_t12.last().expect("last tls12").id.clone();
-    let suffix =
-        winner_t12.split_once(':').and_then(|(_, r)| r.split_once(':')).expect("suffix").1.to_owned();
+    let winner_t12 = cat_t12
+        .last()
+        .expect("last tls12")
+        .id
+        .clone();
+    let suffix = winner_t12
+        .split_once(':')
+        .and_then(|(_, r)| r.split_once(':'))
+        .expect("suffix")
+        .1
+        .to_owned();
     let winner_t13 = format!("tls13:ipv4:{suffix}");
 
     let state = Rc::new(RefCell::new(SpeedMockState::default()));
     {
         let mut st = state.borrow_mut();
-        st.outcomes.insert(
-            ("d1.blocked".to_owned(), Some(winner_t12)),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 20 },
-        );
-        st.outcomes.insert(
-            ("d1.blocked".to_owned(), Some(winner_t13.clone())),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 21 },
-        );
-        st.outcomes.insert(
-            ("d2.blocked".to_owned(), Some(winner_t13)),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 22 },
-        );
+        st.outcomes
+            .insert(
+                ("d1.blocked".to_owned(), Some(winner_t12)),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 20 },
+            );
+        st.outcomes
+            .insert(
+                ("d1.blocked".to_owned(), Some(winner_t13.clone())),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 21 },
+            );
+        st.outcomes
+            .insert(
+                ("d2.blocked".to_owned(), Some(winner_t13)),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 22 },
+            );
     }
 
     let cfg = ScanConfig {
@@ -240,7 +294,12 @@ fn run_scan_batches_baselines_and_promotes_sticky_winner_to_first_probe()
 
     // First target (`d1.blocked`, `tls12`) needed the whole catalog; sticky promotion makes
     // subsequent `tls13` targets pass on candidate #1 (`tested_count == 1`).
-    assert_eq!(report.targets.len(), 4);
+    assert_eq!(
+        report
+            .targets
+            .len(),
+        4
+    );
     assert_eq!(report.targets[0].tested_count, cat_t12.len());
     assert_eq!(report.targets[1].tested_count, 1, "sticky winner promoted to index 0 on tls13");
     assert_eq!(report.targets[3].tested_count, 1, "sticky winner promoted to index 0 on d2");
@@ -252,38 +311,48 @@ fn run_scan_batches_baselines_and_promotes_sticky_winner_to_first_probe()
 fn run_scan_sweeps_multiple_domains_concurrently_and_drops_solved_domains()
 {
     let cat = build_catalog(ProbeProtocol::Tls12, ScanLevel::Quick, IpFamily::V4);
-    let cand0 = cat[0].id.clone();
-    let cand2 = cat[2].id.clone();
+    let cand0 = cat[0]
+        .id
+        .clone();
+    let cand2 = cat[2]
+        .id
+        .clone();
     let t13_0 = cand0.replacen("tls12:", "tls13:", 1);
     let t13_2 = cand2.replacen("tls12:", "tls13:", 1);
 
     let state = Rc::new(RefCell::new(SpeedMockState::default()));
     {
         let mut st = state.borrow_mut();
-        st.outcomes.insert(
-            ("d1.test".to_owned(), Some(cand0)),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 15 },
-        );
-        st.outcomes.insert(
-            ("d2.test".to_owned(), Some(cand2.clone())),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 25 },
-        );
-        st.outcomes.insert(
-            ("d3.test".to_owned(), Some(cand2)),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 35 },
-        );
-        st.outcomes.insert(
-            ("d1.test".to_owned(), Some(t13_0)),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 16 },
-        );
-        st.outcomes.insert(
-            ("d2.test".to_owned(), Some(t13_2.clone())),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 26 },
-        );
-        st.outcomes.insert(
-            ("d3.test".to_owned(), Some(t13_2)),
-            ProbeOutcome::Available { http_code: 200, latency_ms: 36 },
-        );
+        st.outcomes
+            .insert(
+                ("d1.test".to_owned(), Some(cand0)),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 15 },
+            );
+        st.outcomes
+            .insert(
+                ("d2.test".to_owned(), Some(cand2.clone())),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 25 },
+            );
+        st.outcomes
+            .insert(
+                ("d3.test".to_owned(), Some(cand2)),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 35 },
+            );
+        st.outcomes
+            .insert(
+                ("d1.test".to_owned(), Some(t13_0)),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 16 },
+            );
+        st.outcomes
+            .insert(
+                ("d2.test".to_owned(), Some(t13_2.clone())),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 26 },
+            );
+        st.outcomes
+            .insert(
+                ("d3.test".to_owned(), Some(t13_2)),
+                ProbeOutcome::Available { http_code: 200, latency_ms: 36 },
+            );
     }
 
     let cfg = ScanConfig {
@@ -309,8 +378,18 @@ fn run_scan_sweeps_multiple_domains_concurrently_and_drops_solved_domains()
         "only 3 Tls12 swaps + 2 sticky Tls13 swaps instead of sweeping domains serially"
     );
 
-    let order: Vec<(&str, ProbeProtocol, usize)> =
-        report.targets.iter().map(|t| (t.domain.as_str(), t.proto, t.tested_count)).collect();
+    let order: Vec<(&str, ProbeProtocol, usize)> = report
+        .targets
+        .iter()
+        .map(|t| {
+            (
+                t.domain
+                    .as_str(),
+                t.proto,
+                t.tested_count,
+            )
+        })
+        .collect();
     assert_eq!(
         order,
         vec![

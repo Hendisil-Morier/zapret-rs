@@ -107,7 +107,9 @@ impl RawSender
 
             *slot = Some(RawSocketState { fd: owned, last_fwmark: None, last_ifout: None });
         }
-        Ok(slot.as_mut().unwrap_or_else(|| unreachable!("socket slot was initialized above")))
+        Ok(slot
+            .as_mut()
+            .unwrap_or_else(|| unreachable!("socket slot was initialized above")))
     }
 
     /// Sets an integer socket option on `fd`.
@@ -158,7 +160,9 @@ impl RawSender
                         fd,
                         libc::SOL_SOCKET,
                         libc::SO_BINDTODEVICE,
-                        bytes.as_ptr().cast::<c_void>(),
+                        bytes
+                            .as_ptr()
+                            .cast::<c_void>(),
                         bytes.len() as libc::socklen_t,
                     )
                 };
@@ -186,7 +190,16 @@ impl RawSender
         {
             // SAFETY: Caller passes valid `addr` / `addr_len` and `packet` stays valid across `sendto`.
             let sent = unsafe {
-                libc::sendto(fd, packet.as_ptr().cast::<c_void>(), packet.len(), 0, addr, addr_len)
+                libc::sendto(
+                    fd,
+                    packet
+                        .as_ptr()
+                        .cast::<c_void>(),
+                    packet.len(),
+                    0,
+                    addr,
+                    addr_len,
+                )
             };
             if sent >= 0
             {
@@ -215,7 +228,9 @@ impl PacketSender for RawSender
         let is_v6 = dst.is_ipv6();
         let bind_fix = if is_v6 { self.bind_fix6 } else { self.bind_fix4 };
         let state = self.ensure_socket(is_v6)?;
-        let fd = state.fd.as_raw_fd();
+        let fd = state
+            .fd
+            .as_raw_fd();
 
         if state.last_fwmark != Some(fwmark)
         {
@@ -226,7 +241,10 @@ impl PacketSender for RawSender
         if bind_fix
         {
             let norm_ifout = ifout.filter(|name| !name.is_empty());
-            if state.last_ifout.as_ref().is_none_or(|cached| cached.as_deref() != norm_ifout)
+            if state
+                .last_ifout
+                .as_ref()
+                .is_none_or(|cached| cached.as_deref() != norm_ifout)
             {
                 Self::bind_to_device(fd, norm_ifout)?;
                 state.last_ifout = Some(norm_ifout.map(Box::<str>::from));

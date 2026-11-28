@@ -84,65 +84,158 @@ fn mouse_clicks_switch_header_tabs_and_trigger_footer_help()
     assert!(!state.help_open);
 }
 
+/// Verifies Tab 1 setup row clicks and Live Scan Log wheel scrolling.
+fn verify_finder_mouse_panel(state: &mut AppState)
+{
+    assert!(
+        state
+            .finder
+            .proto_http
+    );
+    handle_mouse_event(state, click(10, 5), AREA);
+    assert_eq!(state.focused_field(), FinderField::ProtoHttp);
+    assert!(
+        !state
+            .finder
+            .proto_http
+    );
+
+    for i in 0..8
+    {
+        state.push_finder_log(format!("line {i}"));
+    }
+    handle_mouse_event(state, scroll(80, 26, false), AREA);
+    assert_eq!(
+        state
+            .focus
+            .finder,
+        FinderFocus::Log
+    );
+    assert_eq!(
+        state
+            .focus
+            .finder_log_scroll,
+        3
+    );
+}
+
 #[test]
 fn mouse_interacts_with_finder_run_config_and_speed_panels()
 {
     let mut state = AppState::new(None, None, false);
 
     // Tab 1: click ProtoHttp row (body starts at y=3, inner row 0=y=4 -> ProtoHttp is y=5).
-    assert!(state.finder.proto_http);
-    handle_mouse_event(&mut state, click(10, 5), AREA);
-    assert_eq!(state.focused_field(), FinderField::ProtoHttp);
-    assert!(!state.finder.proto_http);
-
-    // Tab 1 right-bottom Live Scan Log scroll wheel focuses Log and increments offset.
-    for i in 0..8
-    {
-        state.push_finder_log(format!("line {i}"));
-    }
-    handle_mouse_event(&mut state, scroll(80, 26, false), AREA);
-    assert_eq!(state.focus.finder, FinderFocus::Log);
-    assert_eq!(state.focus.finder_log_scroll, 3);
+    verify_finder_mouse_panel(&mut state);
 
     // Tab 2: inspector rows start at y = 3(body)+7(ctrl)+3(metrics)+2(border+hdr) = 15.
     state.tab = ActiveTab::Run;
-    state.inspector.push(dummy_pkt(1));
-    state.inspector.push(dummy_pkt(2));
+    state
+        .inspector
+        .push(dummy_pkt(1));
+    state
+        .inspector
+        .push(dummy_pkt(2));
     handle_mouse_event(&mut state, click(20, 16), AREA);
-    assert_eq!(state.focus.run, RunFocus::Inspector);
-    assert_eq!(state.inspector.selected, 1);
+    assert_eq!(
+        state
+            .focus
+            .run,
+        RunFocus::Inspector
+    );
+    assert_eq!(
+        state
+            .inspector
+            .selected,
+        1
+    );
     // Clicking already-selected row opens detail; next click closes it.
     handle_mouse_event(&mut state, click(20, 16), AREA);
-    assert!(state.inspector.detail_open);
+    assert!(
+        state
+            .inspector
+            .detail_open
+    );
     handle_mouse_event(&mut state, click(20, 16), AREA);
-    assert!(!state.inspector.detail_open);
+    assert!(
+        !state
+            .inspector
+            .detail_open
+    );
 
     // Tab 3: scroll wheel in left TOML and right nft focuses & scrolls.
     state.tab = ActiveTab::Config;
     handle_mouse_event(&mut state, scroll(20, 10, true), AREA);
-    assert_eq!((state.focus.config, state.config.toml_scroll), (ConfigFocus::Toml, 3));
+    assert_eq!(
+        (
+            state
+                .focus
+                .config,
+            state
+                .config
+                .toml_scroll
+        ),
+        (ConfigFocus::Toml, 3)
+    );
     handle_mouse_event(&mut state, scroll(90, 10, true), AREA);
-    assert_eq!((state.focus.config, state.focus.nft_scroll), (ConfigFocus::Nft, 3));
+    assert_eq!(
+        (
+            state
+                .focus
+                .config,
+            state
+                .focus
+                .nft_scroll
+        ),
+        (ConfigFocus::Nft, 3)
+    );
 
     // Tab 6: click row 1 in Auto Hostlist (body starts at y=3, header strip=3, list border=1 -> rows at y>=7).
     state.tab = ActiveTab::Hostlist;
-    state.config.autohostlist_entries = vec!["a.example".to_owned(), "b.example".to_owned()];
-    state.config.exclude_entries = vec!["skip1.example".to_owned(), "skip2.example".to_owned()];
+    state
+        .config
+        .autohostlist_entries = vec!["a.example".to_owned(), "b.example".to_owned()];
+    state
+        .config
+        .exclude_entries = vec!["skip1.example".to_owned(), "skip2.example".to_owned()];
     handle_mouse_event(&mut state, click(10, 8), AREA);
-    assert_eq!(state.hostlist.auto_sel, 1);
+    assert_eq!(
+        state
+            .hostlist
+            .auto_sel,
+        1
+    );
     handle_mouse_event(&mut state, scroll(90, 8, true), AREA);
-    assert_eq!(state.hostlist.blacklist_sel, 1);
+    assert_eq!(
+        state
+            .hostlist
+            .blacklist_sel,
+        1
+    );
 
     // Tab 4: click row 1 in Comparison Table (y = 3(body)+4(hdr)+2(border+table_hdr) + 1 = 10).
     state.tab = ActiveTab::Speed;
-    state.speed.start(&[domain_target("example.com"), control_target()]);
-    state.speed.record(
-        Side::Before,
-        0,
-        SpeedSample { outcome: ProbeOutcome::Timeout, connect_ms: 0, ttfb_ms: 0, bytes_per_sec: 0 },
-    );
+    state
+        .speed
+        .start(&[domain_target("example.com"), control_target()]);
+    state
+        .speed
+        .record(
+            Side::Before,
+            0,
+            SpeedSample { outcome: ProbeOutcome::Timeout, connect_ms: 0, ttfb_ms: 0, bytes_per_sec: 0 },
+        );
     handle_mouse_event(&mut state, click(20, 10), AREA);
-    assert_eq!(state.speed.selected, 1);
+    assert_eq!(
+        state
+            .speed
+            .selected,
+        1
+    );
     handle_mouse_event(&mut state, scroll(20, 10, false), AREA);
-    assert_eq!(state.speed.selected, 0);
+    assert_eq!(
+        state
+            .speed
+            .selected,
+        0
+    );
 }

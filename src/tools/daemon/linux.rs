@@ -81,7 +81,9 @@ fn poll_signals_and_commands(
         {
             eprintln!("nfqws2: SIGHUP received, reloading lists");
         }
-        engine.borrow().reload_lists();
+        engine
+            .borrow()
+            .reload_lists();
     }
     let Some(active_hub) = hub
     else
@@ -116,8 +118,15 @@ fn next_loop_timeout(
     let now = boottime_ms();
     let deadline = {
         let eng = engine.borrow();
-        eng.runtime().do_gc(now);
-        TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
+        eng.runtime()
+            .do_gc(now);
+        TimerPool::run_expired(
+            eng.runtime()
+                .timer_pool(),
+            eng.runtime()
+                .lua(),
+            now,
+        )
     };
     let wait = duration_until(deadline, boottime_ms());
     if hub.is_some()
@@ -139,7 +148,11 @@ fn refresh_auto_nft_ports(
 )
 {
     let mut cfg = AppConfig { qnum, fwmark, ..AppConfig::default() };
-    cfg.profiles = engine.profiles().iter().map(|p| (**p).clone()).collect();
+    cfg.profiles = engine
+        .profiles()
+        .iter()
+        .map(|p| (**p).clone())
+        .collect();
     let (tcp, udp) = collect_config_port_ranges(&cfg);
     match NftFirewallBackend::default().install_ranges_non_interactive(qnum, fwmark, &tcp, &udp)
     {
@@ -211,14 +224,21 @@ fn start_control_session(
         fwmark: config.fwmark,
         intercept: config.intercept,
         profile_names: collect_profile_names(engine.profiles()),
-        config_path: config_path.map(|p| p.display().to_string()),
+        config_path: config_path.map(|p| {
+            p.display()
+                .to_string()
+        }),
     };
     let hub = TelemetryHub::new(Arc::new(PacketCounters::default()), meta, config.control_pass_sample);
     let srv_cfg = ControlServerConfig::new(path.to_path_buf(), env!("CARGO_PKG_VERSION"));
     let srv = ControlServer::start(srv_cfg, Arc::clone(&hub))?;
     if config.debug
     {
-        eprintln!("nfqws2: control socket listening at {}", srv.socket_path().display());
+        eprintln!(
+            "nfqws2: control socket listening at {}",
+            srv.socket_path()
+                .display()
+        );
     }
     Ok((Some(hub), Some(srv)))
 }
@@ -238,13 +258,34 @@ fn run_linux_no_intercept_loop(
     run_no_intercept_callbacks(
         quit_flag(),
         || poll_signals_and_commands(engine, hub.as_deref(), config, config_dir, None),
-        || engine.borrow().runtime().timer_pool().borrow().is_empty(),
-        || engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms(),
+        || {
+            engine
+                .borrow()
+                .runtime()
+                .timer_pool()
+                .borrow()
+                .is_empty()
+        },
+        || {
+            engine
+                .borrow()
+                .runtime()
+                .timer_pool()
+                .borrow_mut()
+                .next_deadline_ms()
+        },
         || {
             let eng = engine.borrow();
             let now = boottime_ms();
-            eng.runtime().do_gc(now);
-            TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
+            eng.runtime()
+                .do_gc(now);
+            TimerPool::run_expired(
+                eng.runtime()
+                    .timer_pool(),
+                eng.runtime()
+                    .lua(),
+                now,
+            )
         },
     );
     if let Some(ctrl) = srv
@@ -275,8 +316,12 @@ fn run_linux_intercept_loop(
         |pkt| {
             if let Some(ref active_hub) = hub
             {
-                let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
-                let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
+                let (decision, outcome) = engine
+                    .borrow()
+                    .process_packet_traced(pkt);
+                let (seq, verdict) = active_hub
+                    .counters()
+                    .record_outcome(&outcome);
                 if active_hub.should_publish(verdict)
                 {
                     active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
@@ -285,7 +330,9 @@ fn run_linux_intercept_loop(
             }
             else
             {
-                engine.borrow().process_packet(pkt)
+                engine
+                    .borrow()
+                    .process_packet(pkt)
             }
         },
     );
@@ -307,7 +354,14 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError>
         apply_chdir(dir)?;
     }
 
-    let identity = resolve_identity(config.user.as_deref(), config.uid.as_deref())?;
+    let identity = resolve_identity(
+        config
+            .user
+            .as_deref(),
+        config
+            .uid
+            .as_deref(),
+    )?;
     verify_lua_init_files(&config.lua_init)?;
     verify_list_files(&config)?;
     if cli.dry_run
@@ -333,12 +387,24 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError>
     }
     if let Some(ref sock_path) = control_socket_path
     {
-        let uid = identity.as_ref().map(|id| id.uid);
-        let gid = identity.as_ref().and_then(|id| id.gids.first().copied());
+        let uid = identity
+            .as_ref()
+            .map(|id| id.uid);
+        let gid = identity
+            .as_ref()
+            .and_then(|id| {
+                id.gids
+                    .first()
+                    .copied()
+            });
         prepare_control_socket_dir(sock_path, uid, gid)?;
     }
 
-    let mut pid_guard = config.pidfile.as_deref().map(PidFileGuard::create).transpose()?;
+    let mut pid_guard = config
+        .pidfile
+        .as_deref()
+        .map(PidFileGuard::create)
+        .transpose()?;
     let mut raw_sender = RawSender::new(config.bind_fix4, config.bind_fix6);
     match raw_sender.preinit()
     {
@@ -365,7 +431,10 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError>
 
     install_signal_handlers()?;
     let sender: Rc<RefCell<dyn PacketSender>> = Rc::new(RefCell::new(raw_sender));
-    let config_dir = cli.config.as_deref().and_then(Path::parent);
+    let config_dir = cli
+        .config
+        .as_deref()
+        .and_then(Path::parent);
     let engine = RefCell::new(DesyncEngine::with_sender(&config, sender)?);
 
     if !config.intercept
@@ -375,7 +444,8 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError>
             &config,
             config_dir,
             control_socket_path.as_deref(),
-            cli.config.as_deref(),
+            cli.config
+                .as_deref(),
             &mut pid_guard,
         );
     }
@@ -385,7 +455,8 @@ pub(crate) fn run_daemon_linux(cli: &CliArgs) -> Result<(), DaemonError>
         &config,
         config_dir,
         control_socket_path.as_deref(),
-        cli.config.as_deref(),
+        cli.config
+            .as_deref(),
         &mut pid_guard,
     )
 }

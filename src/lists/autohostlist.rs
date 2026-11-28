@@ -213,7 +213,9 @@ pub fn promote_autohost(
     no_subdomains: bool,
 ) -> AutoHostlistAction
 {
-    let outcome = ctx.hostlists.check(clean_host, no_subdomains, false);
+    let outcome = ctx
+        .hostlists
+        .check(clean_host, no_subdomains, false);
     if outcome.matched || outcome.excluded
     {
         ctx.log(clean_host, "NOT adding, duplicate detected");
@@ -221,8 +223,16 @@ pub fn promote_autohost(
     }
 
     let (at_cap, auto_path) = {
-        let auto = ctx.autolist_file.borrow();
-        (auto.pool.len() >= DEFAULT_MAX_AUTOHOSTLIST_ENTRIES, auto.path.clone())
+        let auto = ctx
+            .autolist_file
+            .borrow();
+        (
+            auto.pool
+                .len()
+                >= DEFAULT_MAX_AUTOHOSTLIST_ENTRIES,
+            auto.path
+                .clone(),
+        )
     };
     if at_cap
     {
@@ -233,8 +243,11 @@ pub fn promote_autohost(
     {
         ctx.log(clean_host, &format!("adding to {}", path.display()));
     }
-    let mut auto = ctx.autolist_file.borrow_mut();
-    auto.pool.add_host(clean_host, 0);
+    let mut auto = ctx
+        .autolist_file
+        .borrow_mut();
+    auto.pool
+        .add_host(clean_host, 0);
     if let Some(path) = auto_path
     {
         if let Err(err) = append_to_list_file(&path, clean_host)
@@ -264,37 +277,60 @@ pub fn record_autohost_failure(
     {
         return AutoHostlistAction::Ignored;
     };
-    let count = ctx.fail_pool.record_failure_with_cooldown(
-        &clean_host,
-        ctx.settings.fail_time_sec,
-        ctx.settings.fail_cooldown_sec,
-        ctx.now_sec,
-    );
+    let count = ctx
+        .fail_pool
+        .record_failure_with_cooldown(
+            &clean_host,
+            ctx.settings
+                .fail_time_sec,
+            ctx.settings
+                .fail_cooldown_sec,
+            ctx.now_sec,
+        );
     if count == 0
     {
         return AutoHostlistAction::Ignored;
     }
-    ctx.log(&clean_host, &format!("fail counter {count}/{}", ctx.settings.fail_threshold));
+    ctx.log(
+        &clean_host,
+        &format!(
+            "fail counter {count}/{}",
+            ctx.settings
+                .fail_threshold
+        ),
+    );
 
     if !no_subdomains
-        && ctx.settings.sibling_threshold >= 2
-        && let Some(parent) = ctx.fail_pool.record_sibling_failure(
-            &clean_host,
-            ctx.settings.fail_time_sec,
-            ctx.settings.sibling_threshold,
-            ctx.now_sec,
-        )
+        && ctx
+            .settings
+            .sibling_threshold
+            >= 2
+        && let Some(parent) = ctx
+            .fail_pool
+            .record_sibling_failure(
+                &clean_host,
+                ctx.settings
+                    .fail_time_sec,
+                ctx.settings
+                    .sibling_threshold,
+                ctx.now_sec,
+            )
         && promote_autohost(ctx, &parent, false) == AutoHostlistAction::AddedToList
     {
-        ctx.fail_pool.reset(&clean_host);
+        ctx.fail_pool
+            .reset(&clean_host);
         return AutoHostlistAction::AddedToList;
     }
 
-    if count < ctx.settings.fail_threshold
+    if count
+        < ctx
+            .settings
+            .fail_threshold
     {
         return AutoHostlistAction::FailCounted(count);
     }
 
-    ctx.fail_pool.reset(&clean_host);
+    ctx.fail_pool
+        .reset(&clean_host);
     promote_autohost(ctx, &clean_host, no_subdomains)
 }

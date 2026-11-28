@@ -143,13 +143,18 @@ pub fn parse_prefix_length(spec: &str, family: Ip2NetFamily) -> Result<(u32, u32
     let invalid = || Ip2NetError::InvalidPrefixLength(spec.to_string());
     let (plen1, plen2) = match spec.split_once('-')
     {
-        Some((left, right)) =>
-        {
-            (left.parse::<u32>().map_err(|_| invalid())?, right.parse::<u32>().map_err(|_| invalid())?)
-        }
+        Some((left, right)) => (
+            left.parse::<u32>()
+                .map_err(|_| invalid())?,
+            right
+                .parse::<u32>()
+                .map_err(|_| invalid())?,
+        ),
         None =>
         {
-            let single = spec.parse::<u32>().map_err(|_| invalid())?;
+            let single = spec
+                .parse::<u32>()
+                .map_err(|_| invalid())?;
             (single, single)
         }
     };
@@ -165,9 +170,15 @@ pub fn parse_prefix_length(spec: &str, family: Ip2NetFamily) -> Result<(u32, u32
 pub fn parse_v4_threshold(spec: &str) -> Result<(u32, u32), Ip2NetError>
 {
     let invalid = || Ip2NetError::InvalidV4Threshold(spec.to_string());
-    let (mul_s, div_s) = spec.split_once('/').ok_or_else(invalid)?;
-    let mul = mul_s.parse::<u32>().map_err(|_| invalid())?;
-    let div = div_s.parse::<u32>().map_err(|_| invalid())?;
+    let (mul_s, div_s) = spec
+        .split_once('/')
+        .ok_or_else(invalid)?;
+    let mul = mul_s
+        .parse::<u32>()
+        .map_err(|_| invalid())?;
+    let div = div_s
+        .parse::<u32>()
+        .map_err(|_| invalid())?;
     if div < 2 || mul < 1 || mul >= div
     {
         return Err(invalid());
@@ -178,7 +189,9 @@ pub fn parse_v4_threshold(spec: &str) -> Result<(u32, u32), Ip2NetError>
 /// Parses `--v6-threshold=N`, enforcing `N >= 1`.
 pub fn parse_v6_threshold(spec: &str) -> Result<u32, Ip2NetError>
 {
-    let n = spec.parse::<u32>().map_err(|_| Ip2NetError::InvalidV6Threshold(spec.to_string()))?;
+    let n = spec
+        .parse::<u32>()
+        .map_err(|_| Ip2NetError::InvalidV6Threshold(spec.to_string()))?;
     if n < 1
     {
         return Err(Ip2NetError::InvalidV6Threshold(spec.to_string()));
@@ -444,7 +457,12 @@ fn run_ipv6<R: BufRead, W: Write>(
         }
         if let Some((left, right)) = line.split_once('-')
         {
-            if left.parse::<Ipv6Addr>().is_ok() && right.parse::<Ipv6Addr>().is_ok()
+            if left
+                .parse::<Ipv6Addr>()
+                .is_ok()
+                && right
+                    .parse::<Ipv6Addr>()
+                    .is_ok()
             {
                 writeln!(writer, "{left}-{right}")?;
             }

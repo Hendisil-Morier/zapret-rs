@@ -180,7 +180,10 @@ impl Theme
     /// Looks up a built-in preset by case-insensitive name.
     pub fn from_preset(name: &str) -> Option<Self>
     {
-        match name.trim().to_ascii_lowercase().as_str()
+        match name
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
         {
             "neon" => Some(Self::neon()),
             "tokyo" | "tokyonight" | "tokyo-night" => Some(Self::tokyo()),
@@ -194,7 +197,10 @@ impl Theme
     /// Cycles cleanly to the next built-in preset after `self.name`.
     pub fn next_preset(self) -> Self
     {
-        let idx = PRESET_NAMES.iter().position(|&n| n == self.name).unwrap_or(PRESET_NAMES.len() - 1);
+        let idx = PRESET_NAMES
+            .iter()
+            .position(|&n| n == self.name)
+            .unwrap_or(PRESET_NAMES.len() - 1);
         let next = PRESET_NAMES[(idx + 1) % PRESET_NAMES.len()];
         Self::from_preset(next).unwrap_or_else(Self::neon)
     }

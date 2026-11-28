@@ -135,7 +135,9 @@ fn format_client_label(dis: &DissectedPacket, b_reverse: bool) -> String
 /// Resolves 1-based `profile.index` to 0-based slice index inside `profiles`.
 pub(crate) fn profile_slot_by_id(profiles: &[Rc<DesyncProfile>], id: u32) -> Option<usize>
 {
-    profiles.iter().position(|p| p.index == id)
+    profiles
+        .iter()
+        .position(|p| p.index == id)
 }
 
 /// Resolved conntrack handles and packet direction flags produced by endpoint resolution.
@@ -163,7 +165,10 @@ fn resolve_ctrack_endpoints(
 {
     if replay.is_replay()
     {
-        let (entry_rc, rev) = svc.conntrack.borrow().double_search(dis)?;
+        let (entry_rc, rev) = svc
+            .conntrack
+            .borrow()
+            .double_search(dis)?;
         if rev
         {
             return None;
@@ -177,10 +182,13 @@ fn resolve_ctrack_endpoints(
     }
     let hit = if !svc.ctrack_disable
     {
-        let mut pool = svc.conntrack.borrow_mut();
+        let mut pool = svc
+            .conntrack
+            .borrow_mut();
         if pool.purge_rate_limited(now.sec) > 0
         {
-            svc.lua.expire_registry_values();
+            svc.lua
+                .expire_registry_values();
         }
         match pool.feed(Some(svc.lua), dis, now)
         {
@@ -249,20 +257,31 @@ fn resolve_initial_profile(lookup: &InitialProfileLookup<'_>, l7proto: &mut L7Pr
         cached_prof_id = entry.profile_index;
         prof_searched = entry.profile_searched;
         if !replay.is_replay()
-            && entry.hostname.is_none()
+            && entry
+                .hostname
+                .is_none()
             && !b_reverse
-            && let Some((cached, is_ip)) = svc.ipcache.borrow().get_hostname(target_ip)
+            && let Some((cached, is_ip)) = svc
+                .ipcache
+                .borrow()
+                .get_hostname(target_ip)
         {
             entry.hostname = Some(cached.to_owned());
             entry.hostname_is_ip = is_ip;
         }
         if cached_prof_id.is_none() && !prof_searched
         {
-            host = entry.hostname.clone();
+            host = entry
+                .hostname
+                .clone();
             host_is_ip = entry.hostname_is_ip;
         }
     }
-    else if !b_reverse && let Some((cached, is_ip)) = svc.ipcache.borrow().get_hostname(target_ip)
+    else if !b_reverse
+        && let Some((cached, is_ip)) = svc
+            .ipcache
+            .borrow()
+            .get_hostname(target_ip)
     {
         host = Some(cached.to_owned());
         host_is_ip = is_ip;
@@ -280,7 +299,9 @@ fn resolve_initial_profile(lookup: &InitialProfileLookup<'_>, l7proto: &mut L7Pr
 
     let match_input = FullMatchInput {
         base: ProfileMatchInput {
-            is_v6: dis.ip6.is_some(),
+            is_v6: dis
+                .ip6
+                .is_some(),
             l4proto: dis.l4proto,
             port: target_port,
             icmp_type: 0xFF,
@@ -317,7 +338,9 @@ fn sync_ipcache_ttl(
     if incoming
     {
         let mut ttl = extract_l3_ttl(dis);
-        svc.ipcache.borrow_mut().update_ttl(target_ip, iface, &mut ttl, svc.server, now_sec);
+        svc.ipcache
+            .borrow_mut()
+            .update_ttl(target_ip, iface, &mut ttl, svc.server, now_sec);
         if let Some(entry_rc) = ctrack
         {
             let mut entry = entry_rc.borrow_mut();
@@ -331,7 +354,10 @@ fn sync_ipcache_ttl(
     {
         let mut entry = entry_rc.borrow_mut();
         if entry.incoming_ttl == 0
-            && let Some(ttl) = svc.ipcache.borrow().get_ttl(target_ip, iface, svc.server)
+            && let Some(ttl) = svc
+                .ipcache
+                .borrow()
+                .get_ttl(target_ip, iface, svc.server)
         {
             entry.incoming_ttl = ttl;
         }
@@ -349,26 +375,44 @@ pub(crate) fn play_prolog(
     now: MonotonicTime,
 ) -> Option<PlayState>
 {
-    if dis.ip.is_some() == dis.ip6.is_some()
+    if dis
+        .ip
+        .is_some()
+        == dis
+            .ip6
+            .is_some()
     {
         return None;
     }
-    let has_payload = dis.payload.as_deref().is_some_and(|p| !p.is_empty());
+    let has_payload = dis
+        .payload
+        .as_deref()
+        .is_some_and(|p| !p.is_empty());
     let mut l7proto = L7Proto::Unknown;
     let l7payload = if has_payload { L7Payload::Unknown } else { L7Payload::Empty };
 
     let ResolvedCtrackEndpoints { ctrack, ctrack_replay, b_reverse, incoming } =
         resolve_ctrack_endpoints(svc, replay, dis, ifin, ifout, now)?;
 
-    let target_ip4 = dis.ip.as_ref().map(|ip| if incoming { ip.src } else { ip.dst });
-    let target_ip6 = dis.ip6.as_ref().map(|ip6| if incoming { ip6.src } else { ip6.dst });
+    let target_ip4 = dis
+        .ip
+        .as_ref()
+        .map(|ip| if incoming { ip.src } else { ip.dst });
+    let target_ip6 = dis
+        .ip6
+        .as_ref()
+        .map(|ip6| if incoming { ip6.src } else { ip6.dst });
     let target_ip = extract_endpoint_ip(dis, incoming)?;
     let port_from_src = incoming ^ svc.server;
     let target_port = dis
         .tcp
         .as_ref()
         .map(|tcp| if port_from_src { tcp.s_port } else { tcp.d_port })
-        .or_else(|| dis.udp.as_ref().map(|udp| if port_from_src { udp.s_port } else { udp.d_port }))
+        .or_else(|| {
+            dis.udp
+                .as_ref()
+                .map(|udp| if port_from_src { udp.s_port } else { udp.d_port })
+        })
         .unwrap_or(0);
 
     let profile_idx = resolve_initial_profile(
@@ -389,7 +433,10 @@ pub(crate) fn play_prolog(
     {
         if let Some(idx) = profile_idx
         {
-            svc.profile_runtimes[idx].fail_pool.borrow_mut().purge_rate_limited(now.sec);
+            svc.profile_runtimes[idx]
+                .fail_pool
+                .borrow_mut()
+                .purge_rate_limited(now.sec);
         }
         let iface = if incoming { ifin.unwrap_or("") } else { ifout.unwrap_or("") };
         sync_ipcache_ttl(svc, ctrack.as_ref(), dis, target_ip, iface, incoming, now.sec);
@@ -405,7 +452,9 @@ pub(crate) fn play_prolog(
         target_ip4,
         target_ip6,
         target_port,
-        client_label: if svc.hostlist_auto_debug.is_some()
+        client_label: if svc
+            .hostlist_auto_debug
+            .is_some()
         {
             format_client_label(dis, b_reverse)
         }

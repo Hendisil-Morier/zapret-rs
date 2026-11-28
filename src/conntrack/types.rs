@@ -156,31 +156,39 @@ impl CtrackPosition
     /// Returns the relative starting sequence offset (`seq_last - seq0`) in modular 32-bit space.
     pub const fn rseq(self) -> u32
     {
-        self.seq_last.wrapping_sub(self.seq0)
+        self.seq_last
+            .wrapping_sub(self.seq0)
     }
 
     /// Returns the relative end sequence position (`pos - seq0`) in modular 32-bit space.
     pub const fn rel_pos(self) -> u32
     {
-        self.pos.wrapping_sub(self.seq0)
+        self.pos
+            .wrapping_sub(self.seq0)
     }
 
     /// Returns the relative high-water sequence offset (`uppos - seq0`) in modular 32-bit space.
     pub const fn rel_uppos(self) -> u32
     {
-        self.uppos.wrapping_sub(self.seq0)
+        self.uppos
+            .wrapping_sub(self.seq0)
     }
 
     /// Returns the prior relative high-water offset (`uppos_prev - seq0`) in modular 32-bit space.
     pub const fn rel_uppos_prev(self) -> u32
     {
-        self.uppos_prev.wrapping_sub(self.seq0)
+        self.uppos_prev
+            .wrapping_sub(self.seq0)
     }
 
     /// Returns `true` when the latest segment ended at or behind `uppos_prev` (`!((uppos_prev - pos) & 0x8000_0000)`).
     pub const fn is_retransmission(self) -> bool
     {
-        (self.uppos_prev.wrapping_sub(self.pos) & 0x8000_0000) == 0
+        (self
+            .uppos_prev
+            .wrapping_sub(self.pos)
+            & 0x8000_0000)
+            == 0
     }
 }
 

@@ -90,7 +90,9 @@ fn build_inspector_row<'a>(rec: &'a PacketRecord, selected: bool, theme: &Theme)
     {
         theme.subtle
     };
-    let proto_col = match rec.proto.as_str()
+    let proto_col = match rec
+        .proto
+        .as_str()
     {
         "TCP" => theme.accent_bright,
         "UDP" => theme.special_bright,
@@ -99,27 +101,65 @@ fn build_inspector_row<'a>(rec: &'a PacketRecord, selected: bool, theme: &Theme)
     };
     let row_style = if selected
     {
-        Style::default().bg(theme.highlight_bg).fg(theme.text).add_modifier(Modifier::BOLD)
+        Style::default()
+            .bg(theme.highlight_bg)
+            .fg(theme.text)
+            .add_modifier(Modifier::BOLD)
     }
     else
     {
         Style::default().fg(theme.text)
     };
     let flow = Line::from(vec![
-        Span::styled(rec.src.as_str(), Style::default().fg(theme.text)),
+        Span::styled(
+            rec.src
+                .as_str(),
+            Style::default().fg(theme.text),
+        ),
         Span::styled(" -> ", Style::default().fg(dim)),
-        Span::styled(rec.dst.as_str(), Style::default().fg(theme.accent_bright)),
+        Span::styled(
+            rec.dst
+                .as_str(),
+            Style::default().fg(theme.accent_bright),
+        ),
     ]);
     let body_col = if selected { theme.text } else { theme.subtle };
     Row::new([
-        Cell::from(rec.seq.to_string()).style(Style::default().fg(dim)),
-        Cell::from(rec.direction.as_str()).style(Style::default().fg(dir_col).add_modifier(Modifier::BOLD)),
-        Cell::from(rec.proto.as_str()).style(Style::default().fg(proto_col)),
+        Cell::from(
+            rec.seq
+                .to_string(),
+        )
+        .style(Style::default().fg(dim)),
+        Cell::from(
+            rec.direction
+                .as_str(),
+        )
+        .style(
+            Style::default()
+                .fg(dir_col)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Cell::from(
+            rec.proto
+                .as_str(),
+        )
+        .style(Style::default().fg(proto_col)),
         Cell::from(flow),
         Cell::from(format!("{}B", rec.payload_len)).style(Style::default().fg(body_col)),
-        Cell::from(rec.verdict.label())
-            .style(Style::default().fg(verdict_color(rec.verdict, theme)).add_modifier(Modifier::BOLD)),
-        Cell::from(rec.info.as_str()).style(Style::default().fg(body_col)),
+        Cell::from(
+            rec.verdict
+                .label(),
+        )
+        .style(
+            Style::default()
+                .fg(verdict_color(rec.verdict, theme))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Cell::from(
+            rec.info
+                .as_str(),
+        )
+        .style(Style::default().fg(body_col)),
     ])
     .style(row_style)
 }
@@ -145,26 +185,50 @@ fn build_inspector_title<'a>(
         ("LIVE", theme.ok_bright, theme.frame)
     };
     let mut title_spans = vec![
-        Span::styled(" Packet Inspector [", Style::default().fg(theme.info).add_modifier(Modifier::BOLD)),
-        Span::styled(state_tag, Style::default().fg(state_col).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Packet Inspector [",
+            Style::default()
+                .fg(theme.info)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            state_tag,
+            Style::default()
+                .fg(state_col)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" | filter: ", Style::default().fg(theme.subtle)),
         Span::styled(
-            inspector.filter.label(),
-            Style::default().fg(theme.special_bright).add_modifier(Modifier::BOLD),
+            inspector
+                .filter
+                .label(),
+            Style::default()
+                .fg(theme.special_bright)
+                .add_modifier(Modifier::BOLD),
         ),
     ];
-    if inspector.filter_editing || !inspector.filter_query.is_empty()
+    if inspector.filter_editing
+        || !inspector
+            .filter_query
+            .is_empty()
     {
         let cursor = if inspector.filter_editing { "_" } else { "" };
         title_spans.push(Span::styled(" | /: ", Style::default().fg(theme.subtle)));
         title_spans.push(Span::styled(
             format!("{}{cursor}", inspector.filter_query),
-            Style::default().fg(theme.warn_bright).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.warn_bright)
+                .add_modifier(Modifier::BOLD),
         ));
     }
     title_spans.push(Span::styled(" | ", Style::default().fg(theme.subtle)));
     title_spans.push(Span::styled(format!("{visible_len} shown"), Style::default().fg(theme.accent_bright)));
-    title_spans.push(Span::styled("] ", Style::default().fg(theme.info).add_modifier(Modifier::BOLD)));
+    title_spans.push(Span::styled(
+        "] ",
+        Style::default()
+            .fg(theme.info)
+            .add_modifier(Modifier::BOLD),
+    ));
     (border_col, Line::from(title_spans))
 }
 
@@ -178,12 +242,26 @@ pub fn draw_packet_inspector(
 )
 {
     let visible = inspector.visible_packets();
-    let capacity = usize::from(area.height.saturating_sub(3)).max(1);
-    let clamped_sel = inspector.selected.min(visible.len().saturating_sub(1));
+    let capacity = usize::from(
+        area.height
+            .saturating_sub(3),
+    )
+    .max(1);
+    let clamped_sel = inspector
+        .selected
+        .min(
+            visible
+                .len()
+                .saturating_sub(1),
+        );
     let (start, end) = visible_window(visible.len(), clamped_sel, capacity);
 
-    let header = Row::new(["#", "Dir", "Proto", "Flow", "Len", "Verdict", "Info"])
-        .style(Style::default().fg(theme.warn_bright).bg(theme.highlight_bg).add_modifier(Modifier::BOLD));
+    let header = Row::new(["#", "Dir", "Proto", "Flow", "Len", "Verdict", "Info"]).style(
+        Style::default()
+            .fg(theme.warn_bright)
+            .bg(theme.highlight_bg)
+            .add_modifier(Modifier::BOLD),
+    );
 
     let rows: Vec<Row> = visible
         .iter()
@@ -203,9 +281,14 @@ pub fn draw_packet_inspector(
         Constraint::Percentage(34),
     ];
     let (border_col, title) = build_inspector_title(inspector, focused, visible.len(), theme);
-    let table = Table::new(rows, widths).header(header).block(
-        Block::default().borders(Borders::ALL).border_style(Style::default().fg(border_col)).title(title),
-    );
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_col))
+                .title(title),
+        );
     frame.render_widget(table, area);
 }
 
@@ -265,10 +348,21 @@ pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord, theme: &T
     let v_col = verdict_color(rec.verdict, theme);
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(v_col).add_modifier(Modifier::BOLD))
+        .border_style(
+            Style::default()
+                .fg(v_col)
+                .add_modifier(Modifier::BOLD),
+        )
         .title(Span::styled(
-            format!(" Packet #{} Detail [{}] ", rec.seq, rec.verdict.label()),
-            Style::default().fg(v_col).add_modifier(Modifier::BOLD),
+            format!(
+                " Packet #{} Detail [{}] ",
+                rec.seq,
+                rec.verdict
+                    .label()
+            ),
+            Style::default()
+                .fg(v_col)
+                .add_modifier(Modifier::BOLD),
         ));
     let inner = outer.inner(popup);
     frame.render_widget(outer, popup);
@@ -278,12 +372,16 @@ pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord, theme: &T
         .constraints([Constraint::Length(6), Constraint::Min(4), Constraint::Length(1)])
         .split(inner);
 
-    let key_st = Style::default().fg(theme.info).add_modifier(Modifier::BOLD);
+    let key_st = Style::default()
+        .fg(theme.info)
+        .add_modifier(Modifier::BOLD);
     let prof_span = match &rec.profile
     {
         Some(name) => Span::styled(
             name.as_str(),
-            Style::default().fg(theme.special_bright).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.special_bright)
+                .add_modifier(Modifier::BOLD),
         ),
         None if rec.verdict == PacketVerdict::Reasm => Span::styled(
             "none (multi-segment TLS/QUIC reassembled & re-sent raw)",
@@ -313,7 +411,11 @@ pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord, theme: &T
         Line::from(vec![Span::styled("Profile : ", key_st), prof_span]),
         Line::from(vec![
             Span::styled("Info    : ", key_st),
-            Span::styled(rec.info.as_str(), Style::default().fg(theme.text)),
+            Span::styled(
+                rec.info
+                    .as_str(),
+                Style::default().fg(theme.text),
+            ),
         ]),
     ];
     if let Some(tcp) = &rec.tcp_detail
@@ -335,7 +437,9 @@ pub fn draw_packet_detail_modal(frame: &mut Frame, rec: &PacketRecord, theme: &T
     frame.render_widget(
         Paragraph::new(Span::styled(
             "[Esc / d / Enter] Close",
-            Style::default().fg(theme.warn_bright).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.warn_bright)
+                .add_modifier(Modifier::BOLD),
         )),
         rows[2],
     );

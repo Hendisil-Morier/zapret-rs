@@ -14,6 +14,8 @@ pub mod icmp_ip;
 pub mod play;
 /// L7 protocol probe tables and TCP/UDP payload classifiers.
 pub mod probe;
+/// Per-profile Lua action execution and `desync` table construction.
+pub(crate) mod profile_exec;
 /// Deduplicated file list registry, autohostlist/ipset initialization, and full `dp_match` selection.
 pub mod profile_state;
 /// Client-side payload stream reassembly, delayed packet queuing, and replay orchestration.

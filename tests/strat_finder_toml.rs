@@ -46,35 +46,73 @@ impl PacketSender for NoopSender
 fn engine_replace_profiles_validates_and_clears_state()
 {
     let mut cfg = AppConfig::default();
-    cfg.ipcache.hostname = true;
-    cfg.lua_init.push(LuaInitEntry::Inline(
-        "function fake(ctx, desync) return VERDICT_PASS end\n\
+    cfg.ipcache
+        .hostname = true;
+    cfg.lua_init
+        .push(LuaInitEntry::Inline(
+            "function fake(ctx, desync) return VERDICT_PASS end\n\
          function multisplit(ctx, desync) return VERDICT_PASS end"
-            .to_owned(),
-    ));
+                .to_owned(),
+        ));
     let sender: Rc<RefCell<dyn PacketSender>> = Rc::new(RefCell::new(NoopSender));
     let mut engine = DesyncEngine::with_sender(&cfg, sender).expect("engine init");
 
     // Seed ipcache so we can verify `replace_profiles` clears it.
     let target_ip = IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34));
-    engine.ipcache().borrow_mut().put_hostname(target_ip, "example.com", false, 100);
-    assert!(!engine.ipcache().borrow().is_empty());
+    engine
+        .ipcache()
+        .borrow_mut()
+        .put_hostname(target_ip, "example.com", false, 100);
+    assert!(
+        !engine
+            .ipcache()
+            .borrow()
+            .is_empty()
+    );
 
     let catalog = build_catalog(ProbeProtocol::Tls13, ScanLevel::Quick, IpFamily::V4);
-    let split = catalog.iter().find(|s| s.family == "multisplit").expect("multisplit candidate");
+    let split = catalog
+        .iter()
+        .find(|s| s.family == "multisplit")
+        .expect("multisplit candidate");
     let profile = split.to_profile(1, &["example.com".to_owned()]);
 
-    engine.replace_profiles(vec![profile.clone()]).expect("valid Lua callbacks should swap cleanly");
-    assert_eq!(engine.profiles().len(), 1);
+    engine
+        .replace_profiles(vec![profile.clone()])
+        .expect("valid Lua callbacks should swap cleanly");
+    assert_eq!(
+        engine
+            .profiles()
+            .len(),
+        1
+    );
     assert_eq!(engine.profiles()[0].name, profile.name);
-    assert!(engine.ipcache().borrow().is_empty(), "ipcache must be cleared after profile hot-swap");
+    assert!(
+        engine
+            .ipcache()
+            .borrow()
+            .is_empty(),
+        "ipcache must be cleared after profile hot-swap"
+    );
 
     // A profile referencing an undefined Lua callback must fail without clobbering active profiles.
     let mut broken = profile.clone();
     broken.actions[0].func = "nonexistent_lua_desync_fn".to_owned();
-    let err = engine.replace_profiles(vec![broken]).expect_err("missing Lua callback must be rejected");
-    assert!(err.to_string().contains("nonexistent_lua_desync_fn"), "unexpected error: {err}");
-    assert_eq!(engine.profiles().len(), 1, "failed swap must preserve previous profiles");
+    let err = engine
+        .replace_profiles(vec![broken])
+        .expect_err("missing Lua callback must be rejected");
+    assert!(
+        err.to_string()
+            .contains("nonexistent_lua_desync_fn"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(
+        engine
+            .profiles()
+            .len(),
+        1,
+        "failed swap must preserve previous profiles"
+    );
 }
 
 /// Verifies catalog sizes grow monotonically across `Quick < Standard < Force` and include IPv6
@@ -104,20 +142,93 @@ fn catalog_expands_deterministically_by_level_proto_and_family()
                 force.len()
             );
             // Weight ordering must be non-decreasing.
-            assert!(force.windows(2).all(|w| w[0].weight <= w[1].weight));
+            assert!(
+                force
+                    .windows(2)
+                    .all(|w| w[0].weight <= w[1].weight)
+            );
         }
     }
 
     let v6_tls = build_catalog(ProbeProtocol::Tls13, ScanLevel::Standard, IpFamily::V6);
     assert!(
-        v6_tls.iter().any(|s| s.id.contains("ip6_hopbyhop")),
+        v6_tls
+            .iter()
+            .any(|s| s
+                .id
+                .contains("ip6_hopbyhop")),
         "IPv6 catalog should include IPv6 extension-header foolings"
     );
     let tls12_std = build_catalog(ProbeProtocol::Tls12, ScanLevel::Standard, IpFamily::V4);
     assert!(
-        tls12_std.iter().any(|s| s.id.contains("wssize")),
+        tls12_std
+            .iter()
+            .any(|s| s
+                .id
+                .contains("wssize")),
         "TLS 1.2 standard catalog should include wssize combinations"
     );
+}
+
+/// Verifies parsed TOML top-level fields and compares rendered vs parsed profiles/actions.
+fn assert_parsed_catalog_roundtrip(covered: &[CoveredProfile], parsed: &AppConfig)
+{
+    assert_eq!(
+        (
+            parsed.qnum,
+            parsed.fwmark,
+            parsed
+                .lua_init
+                .len(),
+            parsed
+                .profiles
+                .len()
+        ),
+        (205, 0x4000_0000, 2, covered.len())
+    );
+
+    for (orig, loaded) in covered
+        .iter()
+        .zip(
+            parsed
+                .profiles
+                .iter(),
+        )
+    {
+        assert_eq!(
+            loaded
+                .name
+                .as_deref(),
+            Some(
+                orig.strategy
+                    .id
+                    .as_str()
+            )
+        );
+        assert_eq!(
+            loaded
+                .actions
+                .len(),
+            orig.strategy
+                .actions
+                .len()
+        );
+        for (a, b) in orig
+            .strategy
+            .actions
+            .iter()
+            .zip(
+                loaded
+                    .actions
+                    .iter(),
+            )
+        {
+            assert_eq!(
+                (&a.func, a.payload_mask, a.in_range, a.out_range, &a.args),
+                (&b.func, b.payload_mask, b.in_range, b.out_range, &b.args)
+            );
+        }
+    }
 }
 
 /// Verifies every catalog strategy across all protocols round-trips cleanly through
@@ -151,26 +262,7 @@ fn rendered_toml_parses_cleanly_for_every_catalog_strategy()
     };
     let toml_text = render_nfqws2_toml(&covered, &opts);
     let parsed = AppConfig::from_toml_str(&toml_text, None).expect("generated TOML must parse");
-
-    assert_eq!(parsed.qnum, 205);
-    assert_eq!(parsed.fwmark, 0x4000_0000);
-    assert_eq!(parsed.lua_init.len(), 2);
-    assert_eq!(parsed.profiles.len(), covered.len());
-
-    // Spot-check OOB (`in_range = "-s1"`) and syndata (`out_range = "-d1"`) round-trip fidelity.
-    for (orig, loaded) in covered.iter().zip(parsed.profiles.iter())
-    {
-        assert_eq!(loaded.name.as_deref(), Some(orig.strategy.id.as_str()));
-        assert_eq!(loaded.actions.len(), orig.strategy.actions.len());
-        for (a, b) in orig.strategy.actions.iter().zip(loaded.actions.iter())
-        {
-            assert_eq!(a.func, b.func);
-            assert_eq!(a.payload_mask, b.payload_mask);
-            assert_eq!(a.in_range, b.in_range);
-            assert_eq!(a.out_range, b.out_range);
-            assert_eq!(a.args, b.args);
-        }
-    }
+    assert_parsed_catalog_roundtrip(&covered, &parsed);
 }
 
 /// Verifies ranking and greedy multi-domain set cover minimize profile count and break ties
@@ -189,7 +281,12 @@ fn minimal_set_cover_selects_shared_simplest_fastest_profiles()
         StrategyMatch { strategy: s_simple.clone(), latency_ms: 20 },
     ];
     rank_matches(&mut ranked);
-    assert_eq!(ranked[0].strategy.id, s_simple.id);
+    assert_eq!(
+        ranked[0]
+            .strategy
+            .id,
+        s_simple.id
+    );
     assert_eq!(ranked[0].latency_ms, 20);
 
     // Three domains: A and B share `s_mid`, C only works with `s_heavy`, A also works with `s_simple`.
@@ -220,10 +317,20 @@ fn minimal_set_cover_selects_shared_simplest_fastest_profiles()
 
     let cover = select_minimal_cover(&results);
     assert_eq!(cover.len(), 2);
-    assert_eq!(cover[0].strategy.id, s_mid.id);
+    assert_eq!(
+        cover[0]
+            .strategy
+            .id,
+        s_mid.id
+    );
     assert_eq!(cover[0].domains, vec!["a.example".to_owned(), "b.example".to_owned()]);
     assert_eq!(cover[0].avg_latency_ms, 40);
-    assert_eq!(cover[1].strategy.id, s_heavy.id);
+    assert_eq!(
+        cover[1]
+            .strategy
+            .id,
+        s_heavy.id
+    );
     assert_eq!(cover[1].domains, vec!["c.example".to_owned()]);
 }
 
@@ -235,7 +342,12 @@ fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing()
     let cat12 = build_catalog(ProbeProtocol::Tls12, ScanLevel::Standard, IpFamily::V4);
     let cat13 = build_catalog(ProbeProtocol::Tls13, ScanLevel::Standard, IpFamily::V4);
     let find = |cat: &[zapret_rs::tools::StrategySpec], suffix: &str| {
-        cat.iter().find(|s| s.id.ends_with(suffix)).expect("strategy in catalog").clone()
+        cat.iter()
+            .find(|s| {
+                s.id.ends_with(suffix)
+            })
+            .expect("strategy in catalog")
+            .clone()
     };
 
     // Shared case: `tls12` matched both `sniext+1` (faster) and `2`, while `tls13` only matched `2`.
@@ -259,7 +371,12 @@ fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing()
     ];
     let shared_cover = select_minimal_cover(&shared_results);
     assert_eq!(shared_cover.len(), 1);
-    assert_eq!(shared_cover[0].strategy.id, "tls13:ipv4:multisplit:2");
+    assert_eq!(
+        shared_cover[0]
+            .strategy
+            .id,
+        "tls13:ipv4:multisplit:2"
+    );
     assert_eq!(shared_cover[0].avg_latency_ms, 150);
 
     // Disjoint case: `tls12` only matched `sniext+1`, `tls13` only matched `2`.
@@ -280,7 +397,12 @@ fn minimal_set_cover_merges_tls12_and_tls13_without_shadowing()
     ];
     let disjoint_cover = select_minimal_cover(&disjoint_results);
     assert_eq!(disjoint_cover.len(), 1);
-    assert_eq!(disjoint_cover[0].strategy.id, "tls13:ipv4:multisplit:2");
+    assert_eq!(
+        disjoint_cover[0]
+            .strategy
+            .id,
+        "tls13:ipv4:multisplit:2"
+    );
 }
 
 /// Verifies every Lua action function emitted by `build_catalog` exists in the sibling
@@ -297,8 +419,10 @@ fn all_catalog_lua_callbacks_exist_in_zapret2_antidpi()
     }
 
     let mut cfg = AppConfig::default();
-    cfg.lua_init.push(LuaInitEntry::File(lib_lua));
-    cfg.lua_init.push(LuaInitEntry::File(antidpi_lua));
+    cfg.lua_init
+        .push(LuaInitEntry::File(lib_lua));
+    cfg.lua_init
+        .push(LuaInitEntry::File(antidpi_lua));
     let sender: Rc<RefCell<dyn PacketSender>> = Rc::new(RefCell::new(NoopSender));
     let mut engine = DesyncEngine::with_sender(&cfg, sender).expect("engine with zapret2 lua");
 

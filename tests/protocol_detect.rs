@@ -189,22 +189,9 @@ fn quic_initial_decrypt_defrag_and_sni_work_on_real_fixtures()
     assert_eq!(&defrag_gap[10..], b"abcd\0\0\0\0\0\0ef");
 }
 
-/// Verifies XMPP, DNS, WireGuard, DHT, Discord, STUN, DTLS, BitTorrent, and uTP-BT probes.
-#[test]
-fn datagram_and_other_stream_l7_probes_match_zapret2()
+/// Verifies WireGuard, DHT, Discord, STUN, and DTLS datagram probes against fake fixtures.
+fn verify_wireguard_and_dtls_probes()
 {
-    assert!(is_xmpp_stream(b"<stream:stream to='example.com'>"));
-    assert!(is_xmpp_stream(b"<?xml version='1.0'?><stream:stream to='example.com'>"));
-    assert!(is_xmpp_starttls(b"<starttls xmlns='urn:ietf'/>"));
-    assert!(is_xmpp_proceed_tls(b"<proceed xmlns='urn:ietf'/>"));
-    assert!(is_xmpp_features(b"<stream:features></stream:features>"));
-
-    let dns_q = read_fake_fixture("dns.bin");
-    assert!(is_dns_query(&dns_q));
-    assert!(!is_dns_response(&dns_q));
-    let dns_resp = [0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00];
-    assert!(is_dns_response(&dns_resp));
-
     let wg_init = read_fake_fixture("wireguard_initiation.bin");
     let wg_resp = read_fake_fixture("wireguard_response.bin");
     assert!(is_wireguard_handshake_initiation(&wg_init));
@@ -229,6 +216,25 @@ fn datagram_and_other_stream_l7_probes_match_zapret2()
     assert!(is_dtls(&dtls_ch));
     assert!(is_dtls_client_hello(&dtls_ch));
     assert!(is_dtls_server_hello(&dtls_sh));
+}
+
+/// Verifies XMPP, DNS, WireGuard, DHT, Discord, STUN, DTLS, BitTorrent, and uTP-BT probes.
+#[test]
+fn datagram_and_other_stream_l7_probes_match_zapret2()
+{
+    assert!(is_xmpp_stream(b"<stream:stream to='example.com'>"));
+    assert!(is_xmpp_stream(b"<?xml version='1.0'?><stream:stream to='example.com'>"));
+    assert!(is_xmpp_starttls(b"<starttls xmlns='urn:ietf'/>"));
+    assert!(is_xmpp_proceed_tls(b"<proceed xmlns='urn:ietf'/>"));
+    assert!(is_xmpp_features(b"<stream:features></stream:features>"));
+
+    let dns_q = read_fake_fixture("dns.bin");
+    assert!(is_dns_query(&dns_q));
+    assert!(!is_dns_response(&dns_q));
+    let dns_resp = [0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00];
+    assert!(is_dns_response(&dns_resp));
+
+    verify_wireguard_and_dtls_probes();
 
     let mut bt = b"\x13BitTorrent protocol".to_vec();
     bt.resize(68, 0);

@@ -124,10 +124,25 @@ pub(crate) fn poll_daemon_cycle(
     {
         let inputs = CycleInputs {
             session_active: session_tab2.is_some(),
-            socket_present: detect_control_socket(state.run.control_socket_override.as_deref()).is_some(),
-            modal_open: state.modal.is_some(),
-            run_errored: matches!(state.run.status, RunStatus::Error(_)),
-            elapsed: cycle.started.elapsed(),
+            socket_present: detect_control_socket(
+                state
+                    .run
+                    .control_socket_override
+                    .as_deref(),
+            )
+            .is_some(),
+            modal_open: state
+                .modal
+                .is_some(),
+            run_errored: matches!(
+                state
+                    .run
+                    .status,
+                RunStatus::Error(_)
+            ),
+            elapsed: cycle
+                .started
+                .elapsed(),
         };
         match next_step(cycle.phase, &inputs)
         {

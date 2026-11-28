@@ -71,7 +71,11 @@ pub(crate) fn serve_client(
     let _ = writer_stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT));
 
     let client_alive = Arc::new(AtomicBool::new(true));
-    let (out_tx, out_rx) = mpsc::sync_channel::<Response>(config.client_queue_cap.max(1));
+    let (out_tx, out_rx) = mpsc::sync_channel::<Response>(
+        config
+            .client_queue_cap
+            .max(1),
+    );
 
     let writer_alive = Arc::clone(&client_alive);
     let writer_join = thread::spawn(move || {
@@ -93,7 +97,9 @@ pub(crate) fn serve_client(
                     hub: &hub,
                     out_tx: &out_tx,
                     client_alive: &client_alive,
-                    stream_ref: reader.get_ref().get_ref(),
+                    stream_ref: reader
+                        .get_ref()
+                        .get_ref(),
                 };
                 if !handle_client_request(&ctx, req, &mut handshaked)
                 {
@@ -120,7 +126,10 @@ pub(crate) fn serve_client(
     hub.remove_subscriber(id);
     drop(out_tx);
     let _ = writer_join.join();
-    let _ = reader.get_ref().get_ref().shutdown(Shutdown::Both);
+    let _ = reader
+        .get_ref()
+        .get_ref()
+        .shutdown(Shutdown::Both);
 }
 
 /// Dispatches one decoded client [`Request`], returning `false` if the connection should close.
@@ -133,8 +142,19 @@ fn handle_client_request(ctx: &ClientSessionContext<'_>, req: Request, handshake
 
     match req
     {
-        Request::Hello { version } => handle_hello(version, &ctx.config.daemon_version, ctx.out_tx),
-        Request::Status => send_or_close(ctx.out_tx, Response::Status(ctx.hub.status_snapshot())),
+        Request::Hello { version } => handle_hello(
+            version,
+            &ctx.config
+                .daemon_version,
+            ctx.out_tx,
+        ),
+        Request::Status => send_or_close(
+            ctx.out_tx,
+            Response::Status(
+                ctx.hub
+                    .status_snapshot(),
+            ),
+        ),
         Request::Subscribe { pass_sample_rate } => register_subscriber(
             ctx.id,
             pass_sample_rate,
@@ -145,7 +165,8 @@ fn handle_client_request(ctx: &ClientSessionContext<'_>, req: Request, handshake
         ),
         Request::Unsubscribe =>
         {
-            ctx.hub.remove_subscriber(ctx.id);
+            ctx.hub
+                .remove_subscriber(ctx.id);
             send_or_close(ctx.out_tx, Response::Ack { op: "unsubscribe".to_owned(), message: None })
         }
         Request::ReloadLists => dispatch_loop_command("reload_lists", ctx.hub, ctx.out_tx, |reply| {
@@ -183,7 +204,9 @@ fn handle_pre_handshake(
                     out_tx,
                     Response::HelloOk {
                         version: CONTROL_PROTOCOL_VERSION,
-                        daemon_version: config.daemon_version.clone(),
+                        daemon_version: config
+                            .daemon_version
+                            .clone(),
                     },
                 )
             }
@@ -235,7 +258,9 @@ fn register_subscriber(
     stream_ref: &ControlStream,
 ) -> bool
 {
-    let shutdown_ref = stream_ref.try_clone().ok();
+    let shutdown_ref = stream_ref
+        .try_clone()
+        .ok();
     let alive_flag = Arc::clone(client_alive);
     let disconnect: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         alive_flag.store(false, Ordering::Release);
@@ -287,7 +312,9 @@ where
 /// Non-blocking send to client's writer queue; returns `false` if client stalled or disconnected.
 fn send_or_close(out_tx: &SyncSender<Response>, resp: Response) -> bool
 {
-    out_tx.try_send(resp).is_ok()
+    out_tx
+        .try_send(resp)
+        .is_ok()
 }
 
 /// Drains `out_rx` into `stream` until the session drops `out_tx` or `alive` clears.

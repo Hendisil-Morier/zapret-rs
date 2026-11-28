@@ -81,7 +81,8 @@ impl WinDivertIntercepter
     /// Signals the underlying WinDivert handle to shut down so a blocked capture loop exits.
     pub fn shutdown(&self)
     {
-        self.handle.shutdown();
+        self.handle
+            .shutdown();
     }
 
     /// Applies `decision` to `raw_packet` using `addr`.
@@ -96,12 +97,15 @@ impl WinDivertIntercepter
         {
             Decision::Pass =>
             {
-                self.handle.send(raw_packet, addr)?;
+                self.handle
+                    .send(raw_packet, addr)?;
             }
             Decision::Replace(mut modified) =>
             {
-                self.handle.calc_checksums(&mut modified, addr);
-                self.handle.send(&modified, addr)?;
+                self.handle
+                    .calc_checksums(&mut modified, addr);
+                self.handle
+                    .send(&modified, addr)?;
             }
             Decision::Drop =>
             {}
@@ -168,7 +172,15 @@ impl<'a> OverlappedRecvGuard<'a>
         let mut xfer = 0u32;
         // SAFETY: `io.overlapped` stays pinned until `GetOverlappedResult` completes synchronously.
         let ok = unsafe {
-            GetOverlappedResult(self.handle.raw_handle(), self.io.overlapped.get(), &raw mut xfer, 1)
+            GetOverlappedResult(
+                self.handle
+                    .raw_handle(),
+                self.io
+                    .overlapped
+                    .get(),
+                &raw mut xfer,
+                1,
+            )
         };
         if ok != 0
         {
@@ -191,23 +203,44 @@ impl<'a> OverlappedRecvGuard<'a>
         {
             // SAFETY: No kernel I/O is pending (`!self.pending`), so resetting `overlapped` is exclusive.
             unsafe {
-                let _ = ResetEvent(self.event.0);
-                self.io.overlapped.get().write(Overlapped { h_event: self.event.0, ..Overlapped::default() });
+                let _ = ResetEvent(
+                    self.event
+                        .0,
+                );
+                self.io
+                    .overlapped
+                    .get()
+                    .write(Overlapped {
+                        h_event: self
+                            .event
+                            .0,
+                        ..Overlapped::default()
+                    });
             }
             // SAFETY: `buf` is heap-allocated and no `&mut` references exist while `pending` can become `true`.
             let (buf_ptr, buf_cap) = unsafe {
-                let slice = &mut *self.io.buf.get();
+                let slice = &mut *self
+                    .io
+                    .buf
+                    .get();
                 (slice.as_mut_ptr(), u32::try_from(slice.len()).unwrap_or(u32::MAX))
             };
             // SAFETY: `Drop` guarantees `CancelIoEx` + `GetOverlappedResult` wait before `self.io` frees.
             match unsafe {
-                self.handle.start_recv_ex(
-                    buf_ptr,
-                    buf_cap,
-                    self.io.addr.get(),
-                    self.io.addr_len.get(),
-                    self.io.overlapped.get(),
-                )
+                self.handle
+                    .start_recv_ex(
+                        buf_ptr,
+                        buf_cap,
+                        self.io
+                            .addr
+                            .get(),
+                        self.io
+                            .addr_len
+                            .get(),
+                        self.io
+                            .overlapped
+                            .get(),
+                    )
             }
             {
                 Ok(true) => return self.finish_overlapped(stop),
@@ -226,7 +259,13 @@ impl<'a> OverlappedRecvGuard<'a>
         }
 
         // SAFETY: `self.event.0` stays valid until after `Drop` drains pending I/O.
-        let wait_rc = unsafe { WaitForSingleObject(self.event.0, wait_ms) };
+        let wait_rc = unsafe {
+            WaitForSingleObject(
+                self.event
+                    .0,
+                wait_ms,
+            )
+        };
         if wait_rc == WAIT_TIMEOUT
         {
             return Ok(RecvStep::TimedOut);
@@ -246,8 +285,14 @@ impl<'a> OverlappedRecvGuard<'a>
         debug_assert!(!self.pending);
         // SAFETY: `pending` is `false`, so no kernel writes are in flight against `io`.
         unsafe {
-            let addr = *self.io.addr.get();
-            let buf = &(&*self.io.buf.get())[..len];
+            let addr = *self
+                .io
+                .addr
+                .get();
+            let buf = &(&*self
+                .io
+                .buf
+                .get())[..len];
             (buf, addr)
         }
     }
@@ -263,9 +308,22 @@ impl Drop for OverlappedRecvGuard<'_>
             let mut xfer = 0u32;
             // SAFETY: `self.io` and `self.event` stay live until `GetOverlappedResult(..., TRUE)` finishes.
             unsafe {
-                let _ = CancelIoEx(self.handle.raw_handle(), self.io.overlapped.get());
-                let _ =
-                    GetOverlappedResult(self.handle.raw_handle(), self.io.overlapped.get(), &raw mut xfer, 1);
+                let _ = CancelIoEx(
+                    self.handle
+                        .raw_handle(),
+                    self.io
+                        .overlapped
+                        .get(),
+                );
+                let _ = GetOverlappedResult(
+                    self.handle
+                        .raw_handle(),
+                    self.io
+                        .overlapped
+                        .get(),
+                    &raw mut xfer,
+                    1,
+                );
             }
             self.pending = false;
         }
@@ -295,8 +353,11 @@ impl PacketIntercepter for WinDivertIntercepter
             {
                 break;
             }
-            let wait_ms =
-                timeout.map_or(DEFAULT_WAIT_MS, |d| u32::try_from(d.as_millis()).unwrap_or(u32::MAX).max(1));
+            let wait_ms = timeout.map_or(DEFAULT_WAIT_MS, |d| {
+                u32::try_from(d.as_millis())
+                    .unwrap_or(u32::MAX)
+                    .max(1)
+            });
             let read_len = match guard.poll_step(wait_ms, stop)?
             {
                 RecvStep::Ready(n) => n,

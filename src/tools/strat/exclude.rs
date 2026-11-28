@@ -21,12 +21,16 @@ pub fn parse_clean_domain(raw: &str) -> Option<String>
         || raw.contains('}')
         || raw.contains('[')
         || raw.contains(']')
-        || raw.chars().any(char::is_control)
+        || raw
+            .chars()
+            .any(char::is_control)
     {
         return None;
     }
     let domain = normalize_domain(raw)?;
-    if domain.parse::<std::net::IpAddr>().is_ok()
+    if domain
+        .parse::<std::net::IpAddr>()
+        .is_ok()
         || domain == "localhost"
         || domain.ends_with(".localhost")
         || domain.ends_with(".local")
@@ -34,7 +38,9 @@ pub fn parse_clean_domain(raw: &str) -> Option<String>
     {
         return None;
     }
-    let valid_chars = domain.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
+    let valid_chars = domain
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
     let valid_labels = domain
         .split('.')
         .all(|lbl| !lbl.is_empty() && lbl.len() <= 63 && !lbl.starts_with('-') && !lbl.ends_with('-'));
@@ -66,7 +72,10 @@ fn parse_hostlist_entry(raw: &str) -> Option<String>
 {
     parse_clean_domain(raw).or_else(|| {
         let trimmed = raw.trim();
-        trimmed.parse::<std::net::IpAddr>().ok().map(|ip| ip.to_string())
+        trimmed
+            .parse::<std::net::IpAddr>()
+            .ok()
+            .map(|ip| ip.to_string())
     })
 }
 
@@ -81,7 +90,9 @@ pub fn mutate_hostlist_file(path: &Path, raw_domain: &str, add: bool) -> Result<
     let mut domains = read_hostlist_lines(path);
     if add
     {
-        if !domains.iter().any(|d| d.eq_ignore_ascii_case(&domain))
+        if !domains
+            .iter()
+            .any(|d| d.eq_ignore_ascii_case(&domain))
         {
             domains.push(domain);
         }
@@ -106,7 +117,9 @@ pub fn configured_autohostlist_paths(cfg: &AppConfig) -> Vec<PathBuf>
     let mut paths = Vec::new();
     for prof in &cfg.profiles
     {
-        if let Some(path) = &prof.lists.hostlist_auto
+        if let Some(path) = &prof
+            .lists
+            .hostlist_auto
             && !paths.contains(path)
         {
             paths.push(path.clone());
@@ -121,7 +134,9 @@ pub fn extract_exclude_domains(cfg: &AppConfig) -> Vec<String>
     let mut domains = BTreeSet::new();
     for prof in &cfg.profiles
     {
-        for raw in &prof.lists.hostlist_exclude_domains
+        for raw in &prof
+            .lists
+            .hostlist_exclude_domains
         {
             let trimmed = raw.trim();
             if !trimmed.is_empty()
@@ -129,7 +144,9 @@ pub fn extract_exclude_domains(cfg: &AppConfig) -> Vec<String>
                 domains.insert(trimmed.to_ascii_lowercase());
             }
         }
-        for path in &prof.lists.hostlist_exclude
+        for path in &prof
+            .lists
+            .hostlist_exclude
         {
             for line in read_hostlist_lines(path)
             {
@@ -137,7 +154,9 @@ pub fn extract_exclude_domains(cfg: &AppConfig) -> Vec<String>
             }
         }
     }
-    domains.into_iter().collect()
+    domains
+        .into_iter()
+        .collect()
 }
 
 /// Adds or removes `raw_domain` in `hostlist_exclude_domains` across all `[[profiles]]` tables.
@@ -191,14 +210,22 @@ pub fn mutate_exclude_domains_toml(
                 },
             };
             if let Some(arr) = arr
-                && !arr.iter().any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(&domain)))
+                && !arr
+                    .iter()
+                    .any(|v| {
+                        v.as_str()
+                            .is_some_and(|s| s.eq_ignore_ascii_case(&domain))
+                    })
             {
                 arr.push(toml::Value::String(domain.clone()));
             }
         }
         else if let Some(toml::Value::Array(arr)) = prof.get_mut("hostlist_exclude_domains")
         {
-            arr.retain(|v| v.as_str().is_none_or(|s| !s.eq_ignore_ascii_case(&domain)));
+            arr.retain(|v| {
+                v.as_str()
+                    .is_none_or(|s| !s.eq_ignore_ascii_case(&domain))
+            });
             if arr.is_empty()
             {
                 prof.remove("hostlist_exclude_domains");

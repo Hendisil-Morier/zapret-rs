@@ -106,7 +106,9 @@ impl ControlServer
     pub fn start(config: ControlServerConfig, hub: Arc<TelemetryHub>) -> Result<Self, ControlServerError>
     {
         let bound = bind_control_socket(&config.socket_path)?;
-        let socket_path = bound.path.clone();
+        let socket_path = bound
+            .path
+            .clone();
         let stop = Arc::new(AtomicBool::new(false));
         let client_joins: Arc<Mutex<Vec<JoinHandle<()>>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -144,16 +146,23 @@ impl ControlServer
     /// Idempotent internal teardown invoked by both [`ControlServer::shutdown`] and [`Drop`].
     fn stop_inner(&mut self)
     {
-        self.stop.store(true, Ordering::Release);
-        if let Some(handle) = self.accept_join.take()
+        self.stop
+            .store(true, Ordering::Release);
+        if let Some(handle) = self
+            .accept_join
+            .take()
         {
             let _ = handle.join();
         }
-        if let Some(handle) = self.fanout_join.take()
+        if let Some(handle) = self
+            .fanout_join
+            .take()
         {
             let _ = handle.join();
         }
-        if let Ok(mut guard) = self.client_joins.lock()
+        if let Ok(mut guard) = self
+            .client_joins
+            .lock()
         {
             for handle in guard.drain(..)
             {
@@ -205,7 +214,9 @@ fn run_accept_loop(
 )
 {
     #[cfg(unix)]
-    let expected_uid = config.expected_uid.unwrap_or_else(current_euid);
+    let expected_uid = config
+        .expected_uid
+        .unwrap_or_else(current_euid);
     let next_id = AtomicU64::new(1);
 
     while !stop.load(Ordering::Acquire)
@@ -279,7 +290,9 @@ fn run_fanout_loop(hub: Arc<TelemetryHub>, stop: Arc<AtomicBool>)
     {
         return;
     };
-    let mut last_counters = hub.counters().snapshot();
+    let mut last_counters = hub
+        .counters()
+        .snapshot();
     let mut last_tick = Instant::now();
 
     while !stop.load(Ordering::Acquire)
@@ -310,7 +323,9 @@ fn run_fanout_loop(hub: Arc<TelemetryHub>, stop: Arc<AtomicBool>)
 /// Emits a `Response::Counters` event if counters changed since the previous broadcast.
 fn maybe_broadcast_counters(hub: &TelemetryHub, last: &mut (u64, u64, u64, u64, u64), last_tick: &mut Instant)
 {
-    let current = hub.counters().snapshot();
+    let current = hub
+        .counters()
+        .snapshot();
     if current != *last
     {
         *last = current;

@@ -100,7 +100,11 @@ impl AppState
     pub fn from_startup_config(resolved: ResolvedAppConfig, warning: Option<String>) -> Self
     {
         let finder = FinderState::from_cli(resolved.nfqws2_config, resolved.lua_dir, resolved.no_nft);
-        let help_key = resolved.keybinds.global.help.primary_label();
+        let help_key = resolved
+            .keybinds
+            .global
+            .help
+            .primary_label();
 
         let mut state = Self {
             tab: ActiveTab::Finder,
@@ -123,8 +127,14 @@ impl AppState
             hostlist: HostlistTabState::default(),
             settings: SettingsTabState::default(),
         };
-        state.run.control_socket_override = resolved.control_socket;
-        let cfg_path = expand_tilde(&state.finder.output_path);
+        state
+            .run
+            .control_socket_override = resolved.control_socket;
+        let cfg_path = expand_tilde(
+            &state
+                .finder
+                .output_path,
+        );
         if let Ok(text) = std::fs::read_to_string(&cfg_path)
         {
             state.set_active_toml(text);
@@ -140,7 +150,10 @@ impl AppState
     /// Returns the currently focused [`FinderField`].
     pub fn focused_field(&self) -> FinderField
     {
-        FinderField::ALL[self.finder.focus_idx.min(FinderField::ALL.len() - 1)]
+        FinderField::ALL[self
+            .finder
+            .focus_idx
+            .min(FinderField::ALL.len() - 1)]
     }
 
     /// Pushes `msg` into a bounded [`VecDeque`], evicting the oldest line once full.
@@ -156,13 +169,23 @@ impl AppState
     /// Appends a bounded line to the Finder log buffer.
     pub fn push_finder_log(&mut self, msg: impl Into<String>)
     {
-        Self::push_bounded_log(&mut self.finder.logs, msg.into());
+        Self::push_bounded_log(
+            &mut self
+                .finder
+                .logs,
+            msg.into(),
+        );
     }
 
     /// Appends a bounded line to the Run daemon log buffer.
     pub fn push_run_log(&mut self, msg: impl Into<String>)
     {
-        Self::push_bounded_log(&mut self.run.logs, msg.into());
+        Self::push_bounded_log(
+            &mut self
+                .run
+                .logs,
+            msg.into(),
+        );
     }
 
     /// Opens the centered floating modal for granting `CAP_NET_ADMIN|CAP_NET_RAW`.
@@ -187,7 +210,11 @@ impl AppState
             {
                 AuthModal::open(
                     ModalPurpose::GrantCaps,
-                    format!("sudo setcap cap_net_admin,cap_net_raw+ep {}", self.status.exe_path),
+                    format!(
+                        "sudo setcap cap_net_admin,cap_net_raw+ep {}",
+                        self.status
+                            .exe_path
+                    ),
                 )
             },
         );
@@ -196,7 +223,9 @@ impl AppState
     /// Processes a terminal key press and returns any side-effect [`AppAction`] for the runner.
     pub fn handle_key(&mut self, key: KeyEvent) -> AppAction
     {
-        if let Some(modal) = self.modal.as_mut()
+        if let Some(modal) = self
+            .modal
+            .as_mut()
         {
             let purpose = modal.purpose;
             return match modal.handle_key(key)
@@ -208,7 +237,8 @@ impl AppState
                     self.pending_caps_action = None;
                     if purpose == ModalPurpose::ConfirmMergeConfig
                     {
-                        self.config.pending_merge = None;
+                        self.config
+                            .pending_merge = None;
                         self.status_banner = "Kept new scan config only (press 's' to save).".to_owned();
                     }
                     self.reset_finder_hover();
@@ -223,7 +253,10 @@ impl AppState
                 ModalKeyResult::KeepExisting =>
                 {
                     self.modal = None;
-                    if let Some((prev, _)) = self.config.pending_merge.take()
+                    if let Some((prev, _)) = self
+                        .config
+                        .pending_merge
+                        .take()
                     {
                         self.set_active_toml(prev);
                     }
@@ -233,7 +266,9 @@ impl AppState
                 }
             };
         }
-        if let Some(prompt) = self.prompt_modal.as_mut()
+        if let Some(prompt) = self
+            .prompt_modal
+            .as_mut()
         {
             return match prompt.handle_key(key)
             {
@@ -246,34 +281,56 @@ impl AppState
                 PromptKeyResult::Submit => AppAction::SubmitPrompt,
             };
         }
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
+        if key
+            .modifiers
+            .contains(KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('c')
         {
             return AppAction::Quit;
         }
         if self.help_open
         {
             if matches!(key.code, KeyCode::Esc | KeyCode::Enter)
-                || self.keybinds.global.help.contains(key)
-                || self.keybinds.global.quit.contains(key)
+                || self
+                    .keybinds
+                    .global
+                    .help
+                    .contains(key)
+                || self
+                    .keybinds
+                    .global
+                    .quit
+                    .contains(key)
             {
                 self.help_open = false;
                 self.reset_finder_hover();
             }
             return AppAction::None;
         }
-        if self.finder.editing_text
+        if self
+            .finder
+            .editing_text
         {
             return self.handle_text_edit_key(key.code);
         }
-        if self.inspector.filter_editing
+        if self
+            .inspector
+            .filter_editing
         {
             return self.handle_run_key(key);
         }
-        if self.hostlist.filter_editing
+        if self
+            .hostlist
+            .filter_editing
         {
             return self.handle_hostlist_key(key);
         }
-        if self.settings.capturing_rebind || self.settings.editing_option
+        if self
+            .settings
+            .capturing_rebind
+            || self
+                .settings
+                .editing_option
         {
             return self.handle_settings_key(key);
         }

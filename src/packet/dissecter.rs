@@ -57,7 +57,9 @@ pub fn parse_ipv4_header(r: &mut ByteReader<'_>) -> PEResult<Ipv4Header>
         src: r.read_array::<4>()?,
         dst: r.read_array::<4>()?,
 
-        options: r.read_bytes(ip_bytes_len - IP_BASE_LEN)?.to_vec(),
+        options: r
+            .read_bytes(ip_bytes_len - IP_BASE_LEN)?
+            .to_vec(),
     })
 }
 
@@ -115,7 +117,9 @@ pub fn parse_ipv4_tcp(raw: &[u8]) -> PEResult<Dissecter>
     }
 
     let tcp = parse_tcp_header(&mut reader)?;
-    let payload = reader.remaining().to_vec();
+    let payload = reader
+        .remaining()
+        .to_vec();
 
     Ok(Dissecter { ip, tcp, payload })
 }
@@ -156,7 +160,9 @@ fn parse_tcp_option(input: &[u8]) -> Vec<TcpOption>
     }
 
     // Strip trailing END padding while preserving any END bytes embedded between other options.
-    while option.last().is_some_and(|opt| opt.kind == TCP_KIND_END)
+    while option
+        .last()
+        .is_some_and(|opt| opt.kind == TCP_KIND_END)
     {
         option.pop();
     }
@@ -193,8 +199,12 @@ pub fn dissect_ipv4_header(raw: &[u8]) -> Option<Ipv4Header>
         ttl: raw[8],
         protocol: raw[9],
         checksum: u16::from_be_bytes([raw[10], raw[11]]),
-        src: raw[12..16].try_into().ok()?,
-        dst: raw[16..20].try_into().ok()?,
+        src: raw[12..16]
+            .try_into()
+            .ok()?,
+        dst: raw[16..20]
+            .try_into()
+            .ok()?,
         options,
     })
 }

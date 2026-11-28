@@ -19,7 +19,8 @@ fn register_bitnot(lua: &Lua, name: &'static str, max: i64) -> mlua::Result<()>
         let v = require_i64_in_range(lua, &args[0], max)?;
         Ok((!(v as u64) & (max as u64)) as i64)
     })?;
-    lua.globals().set(name, f)
+    lua.globals()
+        .set(name, f)
 }
 
 /// Registers an N-byte big-endian unsigned read helper (`u8`, `u16`, `u24`, `u32`, `u48`).
@@ -29,7 +30,10 @@ fn register_unpack_uint(lua: &Lua, name: &'static str, width: usize) -> mlua::Re
         check_argc_range(name, &args, 1, 2)?;
         let bytes = require_strict_bytes(&args[0])?.as_bytes();
         let offset = if args.len() >= 2 && !args[1].is_nil() { coerce_i64(lua, &args[1])? - 1 } else { 0 };
-        if offset < 0 || (offset as usize).checked_add(width).is_none_or(|end| end > bytes.len())
+        if offset < 0
+            || (offset as usize)
+                .checked_add(width)
+                .is_none_or(|end| end > bytes.len())
         {
             return Err(mlua::Error::external("out of range"));
         }
@@ -41,7 +45,8 @@ fn register_unpack_uint(lua: &Lua, name: &'static str, width: usize) -> mlua::Re
         }
         Ok(acc as i64)
     })?;
-    lua.globals().set(name, f)
+    lua.globals()
+        .set(name, f)
 }
 
 /// Registers a wrapping unsigned addition helper (`u8add`..`u48add`) supporting 1..=100 signed args.
@@ -57,7 +62,8 @@ fn register_uxadd(lua: &Lua, name: &'static str, max: i64) -> mlua::Result<()>
         }
         Ok((sum & (max as u64)) as i64)
     })?;
-    lua.globals().set(name, f)
+    lua.globals()
+        .set(name, f)
 }
 
 /// Registers a big-endian byte-string packer (`bu8`..`bu48`).
@@ -69,7 +75,8 @@ fn register_pack_uint(lua: &Lua, name: &'static str, width: usize, max: i64) -> 
         let be = (v as u64).to_be_bytes();
         lua.create_string(&be[8 - width..])
     })?;
-    lua.globals().set(name, f)
+    lua.globals()
+        .set(name, f)
 }
 
 /// Registers bitwise shift, mask, and bitfield extract/insert Lua globals.

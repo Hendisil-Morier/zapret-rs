@@ -59,11 +59,42 @@ fn merge_preserves_existing_profiles_deduplicates_matching_and_replaces_conflict
 
     // HTTP legacy profile kept untouched, strat_a keeps youtube.com + adds steam while dropping discord.com,
     // and strat_b owns discord.com.
-    let a = cfg.profiles.iter().find(|p| p.name.as_deref() == Some(&strat_a.id)).expect("strat_a");
-    assert_eq!(a.lists.hostlist_domains, vec!["youtube.com", "store.steampowered.com"]);
-    let b = cfg.profiles.iter().find(|p| p.name.as_deref() == Some(&strat_b.id)).expect("strat_b");
-    assert_eq!(b.lists.hostlist_domains, vec!["discord.com"]);
-    assert!(cfg.profiles.iter().any(|p| p.name.as_deref() == Some(&strat_http.id)));
+    let a = cfg
+        .profiles
+        .iter()
+        .find(|p| {
+            p.name
+                .as_deref()
+                == Some(&strat_a.id)
+        })
+        .expect("strat_a");
+    assert_eq!(
+        a.lists
+            .hostlist_domains,
+        vec!["youtube.com", "store.steampowered.com"]
+    );
+    let b = cfg
+        .profiles
+        .iter()
+        .find(|p| {
+            p.name
+                .as_deref()
+                == Some(&strat_b.id)
+        })
+        .expect("strat_b");
+    assert_eq!(
+        b.lists
+            .hostlist_domains,
+        vec!["discord.com"]
+    );
+    assert!(
+        cfg.profiles
+            .iter()
+            .any(|p| p
+                .name
+                .as_deref()
+                == Some(&strat_http.id))
+    );
 
     // Domain extraction returns unique domains across all profiles in order.
     let extracted = extract_hostlist_domains(&cfg);
@@ -80,14 +111,32 @@ fn domain_scope_renders_catch_all_and_autohostlist_profiles_cleanly()
 
     let all_toml = render_nfqws2_toml_scoped(&cover, &opts, DomainScope::AllDomains);
     let all_cfg = AppConfig::from_toml_str(&all_toml, None).expect("valid catch-all TOML");
-    assert!(all_cfg.profiles[0].lists.hostlist_domains.is_empty());
-    assert!(all_cfg.profiles[0].lists.hostlist_auto.is_none());
+    assert!(
+        all_cfg.profiles[0]
+            .lists
+            .hostlist_domains
+            .is_empty()
+    );
+    assert!(
+        all_cfg.profiles[0]
+            .lists
+            .hostlist_auto
+            .is_none()
+    );
 
     let auto_toml = render_nfqws2_toml_scoped(&cover, &opts, DomainScope::AutoHostlist);
     let auto_cfg = AppConfig::from_toml_str(&auto_toml, None).expect("valid autolist TOML");
-    assert!(auto_cfg.profiles[0].lists.hostlist_domains.is_empty());
+    assert!(
+        auto_cfg.profiles[0]
+            .lists
+            .hostlist_domains
+            .is_empty()
+    );
     assert_eq!(
-        auto_cfg.profiles[0].lists.hostlist_auto.as_deref(),
+        auto_cfg.profiles[0]
+            .lists
+            .hostlist_auto
+            .as_deref(),
         Some(std::path::Path::new(DEFAULT_AUTOHOSTLIST_FILE))
     );
 }
@@ -112,9 +161,31 @@ fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot()
     {
         let rendered = render_nfqws2_toml_scoped(&multi_cover, &opts, scope);
         let cfg = AppConfig::from_toml_str(&rendered, None).expect("valid deduplicated TOML");
-        assert_eq!(cfg.profiles.len(), 2);
-        assert_eq!(cfg.profiles[0].name.as_deref(), Some(http_a.id.as_str()));
-        assert_eq!(cfg.profiles[1].name.as_deref(), Some(tls_a.id.as_str()));
+        assert_eq!(
+            cfg.profiles
+                .len(),
+            2
+        );
+        assert_eq!(
+            cfg.profiles[0]
+                .name
+                .as_deref(),
+            Some(
+                http_a
+                    .id
+                    .as_str()
+            )
+        );
+        assert_eq!(
+            cfg.profiles[1]
+                .name
+                .as_deref(),
+            Some(
+                tls_a
+                    .id
+                    .as_str()
+            )
+        );
     }
 
     // Merging a new AutoHostlist TLS winner replaces the old TLS autolist profile while keeping HTTP.
@@ -126,9 +197,31 @@ fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot()
     );
     let merged = merge_nfqws2_toml(&existing, &incoming_tls).expect("slot merge succeeds");
     let cfg = AppConfig::from_toml_str(&merged, None).expect("valid slot-merged TOML");
-    assert_eq!(cfg.profiles.len(), 2);
-    assert_eq!(cfg.profiles[0].name.as_deref(), Some(http_a.id.as_str()));
-    assert_eq!(cfg.profiles[1].name.as_deref(), Some(tls_b.id.as_str()));
+    assert_eq!(
+        cfg.profiles
+            .len(),
+        2
+    );
+    assert_eq!(
+        cfg.profiles[0]
+            .name
+            .as_deref(),
+        Some(
+            http_a
+                .id
+                .as_str()
+        )
+    );
+    assert_eq!(
+        cfg.profiles[1]
+            .name
+            .as_deref(),
+        Some(
+            tls_b
+                .id
+                .as_str()
+        )
+    );
 
     // A domain-scoped profile merges ahead of trailing AutoHostlist fallback rules.
     let incoming_domain = render_nfqws2_toml(
@@ -137,10 +230,30 @@ fn slot_wide_render_and_merge_keep_one_profile_per_protocol_slot()
     );
     let with_specific = merge_nfqws2_toml(&merged, &incoming_domain).expect("domain merge succeeds");
     let specific_cfg = AppConfig::from_toml_str(&with_specific, None).expect("valid hybrid TOML");
-    assert_eq!(specific_cfg.profiles.len(), 3);
-    assert_eq!(specific_cfg.profiles[0].lists.hostlist_domains, vec!["d.com"]);
-    assert!(specific_cfg.profiles[1].lists.hostlist_auto.is_some());
-    assert!(specific_cfg.profiles[2].lists.hostlist_auto.is_some());
+    assert_eq!(
+        specific_cfg
+            .profiles
+            .len(),
+        3
+    );
+    assert_eq!(
+        specific_cfg.profiles[0]
+            .lists
+            .hostlist_domains,
+        vec!["d.com"]
+    );
+    assert!(
+        specific_cfg.profiles[1]
+            .lists
+            .hostlist_auto
+            .is_some()
+    );
+    assert!(
+        specific_cfg.profiles[2]
+            .lists
+            .hostlist_auto
+            .is_some()
+    );
 }
 
 #[test]
@@ -172,7 +285,12 @@ func = "fake"
     let merged = merge_nfqws2_toml(existing, &incoming).expect("merge with ipset_ip succeeds");
     let cfg = AppConfig::from_toml_str(&merged, None).expect("merged config parses");
     assert!(
-        cfg.profiles.iter().any(|p| p.name.as_deref() == Some("custom_ipset_ip")),
+        cfg.profiles
+            .iter()
+            .any(|p| p
+                .name
+                .as_deref()
+                == Some("custom_ipset_ip")),
         "existing ipset_ip profile must be preserved across slot merge:\n{merged}"
     );
 }

@@ -67,19 +67,22 @@ impl ConntrackPool
     /// Returns the total currently buffered bytes across active reassembly and delayed queues.
     pub fn queued_bytes(&self) -> usize
     {
-        self.budget.used_bytes()
+        self.budget
+            .used_bytes()
     }
 
     /// Returns the configured global byte cap across all concurrent flows (`0` = unbounded).
     pub fn max_buffer_bytes(&self) -> usize
     {
-        self.budget.max_bytes()
+        self.budget
+            .max_bytes()
     }
 
     /// Configures the global byte ceiling across active reassembly and delayed buffers.
     pub fn set_max_buffer_bytes(&mut self, max_bytes: usize)
     {
-        self.budget.set_max_bytes(max_bytes);
+        self.budget
+            .set_max_bytes(max_bytes);
     }
 
     /// Returns the configured maximum active flow capacity (`0` = unbounded).
@@ -97,23 +100,46 @@ impl ConntrackPool
     /// Ensures room exists for a new flow, purging expired entries then evicting oldest idle flows.
     fn ensure_insert_capacity(&mut self, lua: Option<&Lua>, now_sec: i64) -> bool
     {
-        if self.max_entries == 0 || self.entries.len() < self.max_entries
+        if self.max_entries == 0
+            || self
+                .entries
+                .len()
+                < self.max_entries
         {
             return true;
         }
-        let before = self.entries.len();
+        let before = self
+            .entries
+            .len();
         if self.last_purge_sec != now_sec
         {
             self.last_purge_sec = now_sec;
             self.purge_now(now_sec);
         }
-        while self.entries.len() >= self.max_entries
+        while self
+            .entries
+            .len()
+            >= self.max_entries
         {
             let oldest = self
                 .entries
                 .iter()
                 .filter_map(|(k, rc)| {
-                    rc.try_borrow().ok().map(|e| (*k, (e.pos.t_last.sec, e.pos.t_last.nsec)))
+                    rc.try_borrow()
+                        .ok()
+                        .map(|e| {
+                            (
+                                *k,
+                                (
+                                    e.pos
+                                        .t_last
+                                        .sec,
+                                    e.pos
+                                        .t_last
+                                        .nsec,
+                                ),
+                            )
+                        })
                 })
                 .min_by_key(|(_, ts)| *ts)
                 .map(|(k, _)| k);
@@ -122,41 +148,54 @@ impl ConntrackPool
             {
                 break;
             };
-            self.entries.remove(&evict_key);
+            self.entries
+                .remove(&evict_key);
         }
-        if self.entries.len() < before
+        if self
+            .entries
+            .len()
+            < before
             && let Some(l) = lua
         {
             l.expire_registry_values();
         }
-        self.entries.len() < self.max_entries
+        self.entries
+            .len()
+            < self.max_entries
     }
 
     /// Returns the number of currently tracked connections.
     pub fn len(&self) -> usize
     {
-        self.entries.len()
+        self.entries
+            .len()
     }
 
     /// Returns `true` when no connections are tracked.
     pub fn is_empty(&self) -> bool
     {
-        self.entries.is_empty()
+        self.entries
+            .is_empty()
     }
 
     /// Removes all tracked connections immediately (releasing Lua registry keys cleanly before drop).
     pub fn clear(&mut self)
     {
-        self.entries.clear();
+        self.entries
+            .clear();
     }
 
     /// Clears cached unmatched-profile flags across live flows so updated lists (`SIGHUP`) re-evaluate.
     pub fn reset_unmatched_profiles(&mut self)
     {
-        for entry_rc in self.entries.values()
+        for entry_rc in self
+            .entries
+            .values()
         {
             let mut entry = entry_rc.borrow_mut();
-            if entry.profile_index.is_none()
+            if entry
+                .profile_index
+                .is_none()
             {
                 entry.profile_searched = false;
             }
@@ -179,12 +218,16 @@ impl ConntrackPool
     pub fn double_search(&self, dis: &DissectedPacket) -> Option<(Rc<RefCell<CtrackEntry>>, bool)>
     {
         let key = ConnKey::extract(dis, false)?;
-        if let Some(entry) = self.entries.get(&key)
+        if let Some(entry) = self
+            .entries
+            .get(&key)
         {
             return Some((Rc::clone(entry), false));
         }
         let rev = key.swapped();
-        self.entries.get(&rev).map(|entry| (Rc::clone(entry), true))
+        self.entries
+            .get(&rev)
+            .map(|entry| (Rc::clone(entry), true))
     }
 
     /// Drops the matching flow entry from either direction if present (`ConntrackPoolDrop`).
@@ -195,49 +238,70 @@ impl ConntrackPool
         {
             return false;
         };
-        if self.entries.remove(&key).is_some()
+        if self
+            .entries
+            .remove(&key)
+            .is_some()
         {
             return true;
         }
-        self.entries.remove(&key.swapped()).is_some()
+        self.entries
+            .remove(&key.swapped())
+            .is_some()
     }
 
     /// Scans all entries and removes any expired or `cutoff`-marked connections, returning count evicted.
     pub fn purge_now(&mut self, now_sec: i64) -> usize
     {
-        let before = self.entries.len();
+        let before = self
+            .entries
+            .len();
         let t = self.timeouts;
-        self.entries.retain(|conn, entry_rc| {
-            let Ok(entry) = entry_rc.try_borrow()
-            else
-            {
-                return true;
-            };
-            if entry.cutoff
-            {
-                return false;
-            }
-            let idle = now_sec.saturating_sub(entry.pos.t_last.sec);
-            let limit = match conn.l4proto
-            {
-                IPPROTO_TCP => match entry.pos.state
+        self.entries
+            .retain(|conn, entry_rc| {
+                let Ok(entry) = entry_rc.try_borrow()
+                else
                 {
-                    ConnState::Syn => i64::from(t.syn),
-                    ConnState::Established => i64::from(t.established),
-                    ConnState::Fin => i64::from(t.fin),
-                },
-                IPPROTO_UDP => i64::from(t.udp),
-                _ => return false,
-            };
-            idle < limit
-        });
-        before.saturating_sub(self.entries.len())
+                    return true;
+                };
+                if entry.cutoff
+                {
+                    return false;
+                }
+                let idle = now_sec.saturating_sub(
+                    entry
+                        .pos
+                        .t_last
+                        .sec,
+                );
+                let limit = match conn.l4proto
+                {
+                    IPPROTO_TCP => match entry
+                        .pos
+                        .state
+                    {
+                        ConnState::Syn => i64::from(t.syn),
+                        ConnState::Established => i64::from(t.established),
+                        ConnState::Fin => i64::from(t.fin),
+                    },
+                    IPPROTO_UDP => i64::from(t.udp),
+                    _ => return false,
+                };
+                idle < limit
+            });
+        before.saturating_sub(
+            self.entries
+                .len(),
+        )
     }
 
     /// Purges expired entries at most once per [`ConntrackTimeouts::purge_interval`] seconds.
     pub fn purge_rate_limited(&mut self, now_sec: i64) -> usize
     {
-        if now_sec.saturating_sub(self.last_purge_sec) < self.timeouts.purge_interval
+        if now_sec.saturating_sub(self.last_purge_sec)
+            < self
+                .timeouts
+                .purge_interval
         {
             return 0;
         }
@@ -261,14 +325,18 @@ impl ConntrackPool
             return Ok(None);
         };
 
-        let (entry_rc, b_reverse) = if let Some(hit) = self.entries.get(&fwd_key)
+        let (entry_rc, b_reverse) = if let Some(hit) = self
+            .entries
+            .get(&fwd_key)
         {
             (Rc::clone(hit), false)
         }
         else
         {
             let rev_key = fwd_key.swapped();
-            if let Some(hit) = self.entries.get(&rev_key)
+            if let Some(hit) = self
+                .entries
+                .get(&rev_key)
             {
                 (Rc::clone(hit), true)
             }
@@ -279,8 +347,13 @@ impl ConntrackPool
                 {
                     let is_synack = !is_tcp_syn(tcp.flags);
                     let key = if is_synack { rev_key } else { fwd_key };
-                    let created = Rc::new(RefCell::new(CtrackEntry::with_budget(lua, self.budget.clone())?));
-                    self.entries.insert(key, Rc::clone(&created));
+                    let created = Rc::new(RefCell::new(CtrackEntry::with_budget(
+                        lua,
+                        self.budget
+                            .clone(),
+                    )?));
+                    self.entries
+                        .insert(key, Rc::clone(&created));
                     (created, is_synack)
                 }
                 else
@@ -288,10 +361,18 @@ impl ConntrackPool
                     return Ok(None);
                 }
             }
-            else if dis.udp.is_some() && self.ensure_insert_capacity(lua, now.sec)
+            else if dis
+                .udp
+                .is_some()
+                && self.ensure_insert_capacity(lua, now.sec)
             {
-                let created = Rc::new(RefCell::new(CtrackEntry::with_budget(lua, self.budget.clone())?));
-                self.entries.insert(fwd_key, Rc::clone(&created));
+                let created = Rc::new(RefCell::new(CtrackEntry::with_budget(
+                    lua,
+                    self.budget
+                        .clone(),
+                )?));
+                self.entries
+                    .insert(fwd_key, Rc::clone(&created));
                 (created, false)
             }
             else
@@ -316,7 +397,10 @@ impl ConntrackPool
         now: MonotonicTime,
     ) -> mlua::Result<()>
     {
-        let payload_len = dis.payload.as_ref().map_or(0usize, Vec::len);
+        let payload_len = dis
+            .payload
+            .as_ref()
+            .map_or(0usize, Vec::len);
         let len_u16 = (payload_len.min(usize::from(u16::MAX))) as u16;
 
         if let Some(tcp) = &dis.tcp
@@ -328,11 +412,17 @@ impl ConntrackPool
                     // Reject unexpected reverse-direction SYN so it cannot reset an active flow.
                     return Ok(());
                 }
-                if entry.pos.state != ConnState::Syn
+                if entry
+                    .pos
+                    .state
+                    != ConnState::Syn
                 {
                     entry.reinit(lua)?;
                 }
-                entry.pos.client.seq0 = tcp.seq;
+                entry
+                    .pos
+                    .client
+                    .seq0 = tcp.seq;
             }
             else if is_tcp_synack(tcp.flags)
             {
@@ -340,43 +430,108 @@ impl ConntrackPool
                 {
                     return Ok(());
                 }
-                let derived_client_seq0 = tcp.ack.wrapping_sub(1);
-                if entry.pos.state != ConnState::Syn && entry.pos.client.seq0 != derived_client_seq0
+                let derived_client_seq0 = tcp
+                    .ack
+                    .wrapping_sub(1);
+                if entry
+                    .pos
+                    .state
+                    != ConnState::Syn
+                    && entry
+                        .pos
+                        .client
+                        .seq0
+                        != derived_client_seq0
                 {
                     entry.reinit(lua)?;
                 }
-                if entry.pos.client.seq0 == 0
+                if entry
+                    .pos
+                    .client
+                    .seq0
+                    == 0
                 {
-                    entry.pos.client.seq0 = derived_client_seq0;
+                    entry
+                        .pos
+                        .client
+                        .seq0 = derived_client_seq0;
                 }
-                entry.pos.server.seq0 = tcp.seq;
+                entry
+                    .pos
+                    .server
+                    .seq0 = tcp.seq;
             }
             else if (tcp.flags & (TH_FIN | TH_RST)) != 0
             {
-                entry.pos.state = ConnState::Fin;
+                entry
+                    .pos
+                    .state = ConnState::Fin;
             }
-            else if entry.pos.state == ConnState::Syn
+            else if entry
+                .pos
+                .state
+                == ConnState::Syn
             {
-                entry.pos.state = ConnState::Established;
-                if !b_reverse && entry.pos.server.seq0 == 0
+                entry
+                    .pos
+                    .state = ConnState::Established;
+                if !b_reverse
+                    && entry
+                        .pos
+                        .server
+                        .seq0
+                        == 0
                 {
-                    entry.pos.server.seq0 = tcp.ack.wrapping_sub(1);
+                    entry
+                        .pos
+                        .server
+                        .seq0 = tcp
+                        .ack
+                        .wrapping_sub(1);
                 }
             }
             Self::apply_tcp_pos(entry, b_reverse, dis, tcp, len_u16);
         }
 
-        let direct = if b_reverse { &mut entry.pos.server } else { &mut entry.pos.client };
-        direct.pcounter = direct.pcounter.saturating_add(1);
+        let direct = if b_reverse
+        {
+            &mut entry
+                .pos
+                .server
+        }
+        else
+        {
+            &mut entry
+                .pos
+                .client
+        };
+        direct.pcounter = direct
+            .pcounter
+            .saturating_add(1);
         if len_u16 > 0
         {
-            direct.pdcounter = direct.pdcounter.saturating_add(1);
-            direct.pbcounter = direct.pbcounter.saturating_add(u64::from(len_u16));
+            direct.pdcounter = direct
+                .pdcounter
+                .saturating_add(1);
+            direct.pbcounter = direct
+                .pbcounter
+                .saturating_add(u64::from(len_u16));
         }
 
-        entry.pos.ipproto = dis.l4proto;
-        entry.pos.t_last = now;
-        if entry.t_start.sec == 0 && entry.t_start.nsec == 0
+        entry
+            .pos
+            .ipproto = dis.l4proto;
+        entry
+            .pos
+            .t_last = now;
+        if entry
+            .t_start
+            .sec
+            == 0
+            && entry
+                .t_start
+                .nsec
+                == 0
         {
             entry.t_start = now;
         }
@@ -392,14 +547,30 @@ impl ConntrackPool
         len_u16: u16,
     )
     {
-        let state = entry.pos.state;
+        let state = entry
+            .pos
+            .state;
         let (direct, reverse) = if b_reverse
         {
-            (&mut entry.pos.server, &mut entry.pos.client)
+            (
+                &mut entry
+                    .pos
+                    .server,
+                &mut entry
+                    .pos
+                    .client,
+            )
         }
         else
         {
-            (&mut entry.pos.client, &mut entry.pos.server)
+            (
+                &mut entry
+                    .pos
+                    .client,
+                &mut entry
+                    .pos
+                    .server,
+            )
         };
 
         if let Some(ip6) = &dis.ip6
@@ -419,11 +590,15 @@ impl ConntrackPool
         }
         else
         {
-            direct.winsize_calc = direct.winsize_calc.wrapping_shl(u32::from(direct.scale));
+            direct.winsize_calc = direct
+                .winsize_calc
+                .wrapping_shl(u32::from(direct.scale));
         }
 
         direct.seq_last = tcp.seq;
-        direct.pos = direct.seq_last.wrapping_add(u32::from(len_u16));
+        direct.pos = direct
+            .seq_last
+            .wrapping_add(u32::from(len_u16));
         reverse.seq_last = tcp.ack;
         reverse.pos = tcp.ack;
 
@@ -435,17 +610,31 @@ impl ConntrackPool
         else if len_u16 > 0
         {
             direct.uppos_prev = direct.uppos;
-            if (direct.pos.wrapping_sub(direct.uppos) & SEQ_MSB_MASK) == 0
+            if (direct
+                .pos
+                .wrapping_sub(direct.uppos)
+                & SEQ_MSB_MASK)
+                == 0
             {
                 direct.uppos = direct.pos;
             }
         }
 
-        if !direct.rseq_over_2g && (direct.seq_last.wrapping_sub(direct.seq0) & SEQ_MSB_MASK) != 0
+        if !direct.rseq_over_2g
+            && (direct
+                .seq_last
+                .wrapping_sub(direct.seq0)
+                & SEQ_MSB_MASK)
+                != 0
         {
             direct.rseq_over_2g = true;
         }
-        if !reverse.rseq_over_2g && (reverse.seq_last.wrapping_sub(reverse.seq0) & SEQ_MSB_MASK) != 0
+        if !reverse.rseq_over_2g
+            && (reverse
+                .seq_last
+                .wrapping_sub(reverse.seq0)
+                & SEQ_MSB_MASK)
+                != 0
         {
             reverse.rseq_over_2g = true;
         }

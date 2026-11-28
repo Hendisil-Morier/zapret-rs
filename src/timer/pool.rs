@@ -81,13 +81,15 @@ impl TimerPool
     /// Returns `true` if no timers are currently scheduled.
     pub fn is_empty(&self) -> bool
     {
-        self.timers.is_empty()
+        self.timers
+            .is_empty()
     }
 
     /// Returns the number of currently scheduled timers.
     pub fn len(&self) -> usize
     {
-        self.timers.len()
+        self.timers
+            .len()
     }
 
     /// Returns whether the timer pool was mutated since the flag was last cleared.
@@ -121,13 +123,16 @@ impl TimerPool
         }
 
         let seq = self.next_seq;
-        self.next_seq = self.next_seq.saturating_add(1);
+        self.next_seq = self
+            .next_seq
+            .saturating_add(1);
         let bt_next = now_ms.saturating_add(period_ms);
 
         let entry =
             TimerEntry { name: name.clone(), func_key, data_key, period_ms, oneshot, bt_next, fires: 0, seq };
 
-        self.timers.insert(name, entry);
+        self.timers
+            .insert(name, entry);
         self.dirty = true;
         Ok(())
     }
@@ -135,7 +140,10 @@ impl TimerPool
     /// Removes the timer named `name`, returning `true` if it existed.
     pub fn del(&mut self, name: &str) -> bool
     {
-        let removed = self.timers.remove(name).is_some();
+        let removed = self
+            .timers
+            .remove(name)
+            .is_some();
         if removed
         {
             self.dirty = true;
@@ -146,24 +154,33 @@ impl TimerPool
     /// Returns a metadata snapshot for the timer named `name`, or `None` if not found.
     pub fn info(&self, name: &str) -> Option<TimerInfo>
     {
-        self.timers.get(name).map(|e| TimerInfo {
-            name: e.name.clone(),
-            period_ms: e.period_ms,
-            oneshot: e.oneshot,
-            fires: e.fires,
-        })
+        self.timers
+            .get(name)
+            .map(|e| TimerInfo {
+                name: e
+                    .name
+                    .clone(),
+                period_ms: e.period_ms,
+                oneshot: e.oneshot,
+                fires: e.fires,
+            })
     }
 
     /// Returns a reference to the registry key for `name`'s Lua callback, if present.
     pub fn get_func_key(&self, name: &str) -> Option<&RegistryKey>
     {
-        self.timers.get(name).map(|e| &e.func_key)
+        self.timers
+            .get(name)
+            .map(|e| &e.func_key)
     }
 
     /// Returns a sorted list of all active timer names.
     pub fn enum_names(&self) -> Vec<String>
     {
-        self.timers.keys().cloned().collect()
+        self.timers
+            .keys()
+            .cloned()
+            .collect()
     }
 
     /// Computes the earliest monotonic deadline among all registered timers.
@@ -172,7 +189,10 @@ impl TimerPool
     pub fn next_deadline_ms(&mut self) -> Option<u64>
     {
         self.dirty = false;
-        self.timers.values().map(|e| e.bt_next).min()
+        self.timers
+            .values()
+            .map(|e| e.bt_next)
+            .min()
     }
 
     /// Runs all expired timers against `lua`, gracefully handling re-entrancy and errors.
@@ -193,7 +213,15 @@ impl TimerPool
                 pool.timers
                     .values()
                     .find(|e| now_ms >= e.bt_next)
-                    .map(|e| (e.name.clone(), e.seq, e.oneshot, e.period_ms))
+                    .map(|e| {
+                        (
+                            e.name
+                                .clone(),
+                            e.seq,
+                            e.oneshot,
+                            e.period_ms,
+                        )
+                    })
             };
 
             let Some((name, seq, oneshot, period_ms)) = next_to_run
@@ -204,7 +232,9 @@ impl TimerPool
 
             let callback_data = {
                 let pool = pool_rc.borrow();
-                match pool.timers.get(&name)
+                match pool
+                    .timers
+                    .get(&name)
                 {
                     Some(entry) if entry.seq == seq =>
                     {
@@ -228,22 +258,34 @@ impl TimerPool
             else
             {
                 let mut pool = pool_rc.borrow_mut();
-                removed_any |= pool.timers.remove(&name).is_some();
+                removed_any |= pool
+                    .timers
+                    .remove(&name)
+                    .is_some();
                 continue;
             };
 
-            pool_rc.borrow_mut().dirty = false;
+            pool_rc
+                .borrow_mut()
+                .dirty = false;
 
             let call_res = func.call::<()>((name.clone(), data));
 
             let mut pool = pool_rc.borrow_mut();
-            if let Some(entry) = pool.timers.get_mut(&name)
+            if let Some(entry) = pool
+                .timers
+                .get_mut(&name)
                 && entry.seq == seq
             {
-                entry.fires = entry.fires.saturating_add(1);
+                entry.fires = entry
+                    .fires
+                    .saturating_add(1);
                 if call_res.is_err() || oneshot
                 {
-                    removed_any |= pool.timers.remove(&name).is_some();
+                    removed_any |= pool
+                        .timers
+                        .remove(&name)
+                        .is_some();
                 }
                 else
                 {
@@ -256,6 +298,8 @@ impl TimerPool
         {
             lua.expire_registry_values();
         }
-        pool_rc.borrow_mut().next_deadline_ms()
+        pool_rc
+            .borrow_mut()
+            .next_deadline_ms()
     }
 }

@@ -27,8 +27,12 @@ fn render_to_string(state: &AppState) -> String
 {
     let backend = TestBackend::new(120, 32);
     let mut terminal = Terminal::new(backend).expect("test terminal");
-    terminal.draw(|f| draw_app(f, state)).expect("draw frame");
-    let buf = terminal.backend().buffer();
+    terminal
+        .draw(|f| draw_app(f, state))
+        .expect("draw frame");
+    let buf = terminal
+        .backend()
+        .buffer();
     let mut out = String::new();
     for y in 0..32
     {
@@ -50,10 +54,19 @@ fn assert_surgical_settings_save_and_reset(
 {
     let msg = save_settings_surgically(
         &state.app_config_path,
-        &state.finder.output_path,
-        &state.finder.lua_dir_input,
-        state.finder.no_nft,
-        state.run.control_socket_override.as_deref(),
+        &state
+            .finder
+            .output_path,
+        &state
+            .finder
+            .lua_dir_input,
+        state
+            .finder
+            .no_nft,
+        state
+            .run
+            .control_socket_override
+            .as_deref(),
         state.theme,
         &state.keybinds,
     )
@@ -72,11 +85,22 @@ fn assert_surgical_settings_save_and_reset(
     assert!(saved_theme.contains(&format!("preset = \"{}\"", state.theme.name)));
 
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::None);
-    assert_eq!(state.keybinds.global.help.primary_label(), "?");
+    assert_eq!(
+        state
+            .keybinds
+            .global
+            .help
+            .primary_label(),
+        "?"
+    );
     save_settings_surgically(
         &state.app_config_path,
-        &state.finder.output_path,
-        &state.finder.lua_dir_input,
+        &state
+            .finder
+            .output_path,
+        &state
+            .finder
+            .lua_dir_input,
         false,
         None,
         state.theme,
@@ -86,6 +110,42 @@ fn assert_surgical_settings_save_and_reset(
     let cleaned_cfg = fs::read_to_string(cfg_path).expect("read cleaned config");
     assert!(!cleaned_cfg.contains("[keybinds"));
     assert!(!cleaned_cfg.contains("no_nft"));
+}
+
+/// Verifies live keybind capture (`[`) on Tab 7 Keybinds pane without quitting on `'q'`.
+fn assert_tab7_keybind_capture(state: &mut AppState)
+{
+    assert_eq!(state.handle_key(key(KeyCode::Tab)), AppAction::None);
+    assert_eq!(
+        state
+            .settings
+            .focus,
+        SettingsFocus::Keybinds
+    );
+    assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
+    assert!(
+        state
+            .settings
+            .capturing_rebind
+    );
+    let capturing_screen = render_to_string(state);
+    assert!(capturing_screen.contains("<press new key...>"));
+    assert!(capturing_screen.contains("[MODIFIED]"));
+
+    assert_eq!(state.handle_key(key(KeyCode::Char('['))), AppAction::None);
+    assert!(
+        !state
+            .settings
+            .capturing_rebind
+    );
+    assert_eq!(
+        state
+            .keybinds
+            .global
+            .help
+            .primary_label(),
+        "["
+    );
 }
 
 /// Verifies Tab 7 interactive option edits, live key capture (even `'q'`/`'H'`), reset, and surgical save.
@@ -119,31 +179,42 @@ fn tab7_settings_rebinds_keys_toggles_options_and_saves_sparsely_preserving_comm
     assert_eq!(state.tab, ActiveTab::Settings);
 
     // Cycle Theme Preset in Options (`Enter`), toggle `no_nft` (row 3 -> `Down` x3, `Space`).
-    assert_eq!(state.theme.name, "neon");
+    assert_eq!(
+        state
+            .theme
+            .name,
+        "neon"
+    );
     assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
-    assert_ne!(state.theme.name, "neon");
-    assert!(state.settings.dirty);
+    assert_ne!(
+        state
+            .theme
+            .name,
+        "neon"
+    );
+    assert!(
+        state
+            .settings
+            .dirty
+    );
     for _ in 0..3
     {
         assert_eq!(state.handle_key(key(KeyCode::Down)), AppAction::None);
     }
-    assert!(!state.finder.no_nft);
+    assert!(
+        !state
+            .finder
+            .no_nft
+    );
     assert_eq!(state.handle_key(key(KeyCode::Char(' '))), AppAction::None);
-    assert!(state.finder.no_nft);
+    assert!(
+        state
+            .finder
+            .no_nft
+    );
 
     // Switch to Keybinds pane (`Tab`), capture a new binding `[` for `global.help`, cancel test first.
-    assert_eq!(state.handle_key(key(KeyCode::Tab)), AppAction::None);
-    assert_eq!(state.settings.focus, SettingsFocus::Keybinds);
-    assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::None);
-    assert!(state.settings.capturing_rebind);
-    let capturing_screen = render_to_string(&state);
-    assert!(capturing_screen.contains("<press new key...>"));
-    assert!(capturing_screen.contains("[MODIFIED]"));
-
-    // Pressing `q` during capture binds `[` cleanly to `global.help` instead of quitting!
-    assert_eq!(state.handle_key(key(KeyCode::Char('['))), AppAction::None);
-    assert!(!state.settings.capturing_rebind);
-    assert_eq!(state.keybinds.global.help.primary_label(), "[");
+    assert_tab7_keybind_capture(&mut state);
 
     assert_surgical_settings_save_and_reset(&mut state, &cfg_path, &theme_path);
 

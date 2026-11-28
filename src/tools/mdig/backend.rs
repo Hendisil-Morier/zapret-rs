@@ -138,7 +138,9 @@ impl MdigConfig
         {
             Some(s) =>
             {
-                let raw = s.parse::<i64>().map_err(|_| MdigConfigError::InvalidStats(s.into()))?;
+                let raw = s
+                    .parse::<i64>()
+                    .map_err(|_| MdigConfigError::InvalidStats(s.into()))?;
                 if raw <= 0 { 0 } else { raw as u64 }
             }
             None => 0,
@@ -220,7 +222,9 @@ impl Drop for AddrInfoGuard
 {
     fn drop(&mut self)
     {
-        if !self.0.is_null()
+        if !self
+            .0
+            .is_null()
         {
             // SAFETY: `self.0` was allocated by `libc::getaddrinfo` and owned exclusively by `AddrInfoGuard`.
             unsafe { libc::freeaddrinfo(self.0) };
@@ -263,7 +267,9 @@ impl DnsResolver for LibcResolver
         {
             // SAFETY: `cur` points inside the valid `getaddrinfo` linked list guarded by `_guard`.
             let info = unsafe { &*cur };
-            if !info.ai_addr.is_null()
+            if !info
+                .ai_addr
+                .is_null()
             {
                 match info.ai_family
                 {
@@ -271,15 +277,30 @@ impl DnsResolver for LibcResolver
                         if (info.ai_addrlen as usize) >= std::mem::size_of::<libc::sockaddr_in>() =>
                     {
                         // SAFETY: `ai_family == AF_INET` and `ai_addrlen` verified `>= sizeof(sockaddr_in)`.
-                        let sin = unsafe { &*(info.ai_addr.cast::<libc::sockaddr_in>()) };
-                        addrs.push(IpAddr::V4(Ipv4Addr::from(sin.sin_addr.s_addr.to_ne_bytes())));
+                        let sin = unsafe {
+                            &*(info
+                                .ai_addr
+                                .cast::<libc::sockaddr_in>())
+                        };
+                        addrs.push(IpAddr::V4(Ipv4Addr::from(
+                            sin.sin_addr
+                                .s_addr
+                                .to_ne_bytes(),
+                        )));
                     }
                     libc::AF_INET6
                         if (info.ai_addrlen as usize) >= std::mem::size_of::<libc::sockaddr_in6>() =>
                     {
                         // SAFETY: `ai_family == AF_INET6` and `ai_addrlen` verified `>= sizeof(sockaddr_in6)`.
-                        let sin6 = unsafe { &*(info.ai_addr.cast::<libc::sockaddr_in6>()) };
-                        addrs.push(IpAddr::V6(Ipv6Addr::from(sin6.sin6_addr.s6_addr)));
+                        let sin6 = unsafe {
+                            &*(info
+                                .ai_addr
+                                .cast::<libc::sockaddr_in6>())
+                        };
+                        addrs.push(IpAddr::V6(Ipv6Addr::from(
+                            sin6.sin6_addr
+                                .s6_addr,
+                        )));
                     }
                     _ =>
                     {}
@@ -325,11 +346,16 @@ pub fn is_valid_domain(dom: &str) -> bool
 {
     !dom.is_empty()
         && !dom.starts_with('.')
-        && dom.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+        && dom
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
 
 /// Sanitizes up to 64 bytes of an invalid domain for readable verbose logging.
 pub fn beautify_invalid_domain(raw: &[u8]) -> String
 {
-    raw.iter().take(64).map(|&b| if b < 0x20 || (b & 0x80) != 0 { '?' } else { char::from(b) }).collect()
+    raw.iter()
+        .take(64)
+        .map(|&b| if b < 0x20 || (b & 0x80) != 0 { '?' } else { char::from(b) })
+        .collect()
 }

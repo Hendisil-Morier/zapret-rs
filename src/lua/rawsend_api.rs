@@ -79,8 +79,10 @@ pub fn register_rawsend_functions(
             let raw = require_strict_bytes(&args[0])?.as_bytes();
             let (repeats, fwmark, ifout) = parse_rawsend_opts(lua, args.get(1), desync_fwmark)?;
             let dst = extract_dst(&raw).map_err(|_| mlua::Error::external("bad ip4/ip6 header"))?;
-            let ok =
-                raw_sender.borrow_mut().send_repeat(repeats, dst, fwmark, ifout.as_deref(), &raw).is_ok();
+            let ok = raw_sender
+                .borrow_mut()
+                .send_repeat(repeats, dst, fwmark, ifout.as_deref(), &raw)
+                .is_ok();
             Ok(ok)
         })?,
     )?;
@@ -100,7 +102,10 @@ pub fn register_rawsend_functions(
             let packet = reconstruct_packet(&dis, &rec_opts)
                 .map_err(|_| mlua::Error::external("invalid dissect data"))?;
             let dst = extract_dst(&packet).map_err(|_| mlua::Error::external("bad ip4/ip6 header"))?;
-            let ok = sender.borrow_mut().send_repeat(repeats, dst, fwmark, ifout.as_deref(), &packet).is_ok();
+            let ok = sender
+                .borrow_mut()
+                .send_repeat(repeats, dst, fwmark, ifout.as_deref(), &packet)
+                .is_ok();
             Ok(ok)
         })?,
     )?;

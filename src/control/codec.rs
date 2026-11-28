@@ -122,7 +122,9 @@ impl<R: BufRead> LineReader<R>
     {
         let mut raw = loop
         {
-            let available = match self.reader.fill_buf()
+            let available = match self
+                .reader
+                .fill_buf()
             {
                 Ok(chunk) => chunk,
                 Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -130,34 +132,54 @@ impl<R: BufRead> LineReader<R>
             };
             if available.is_empty()
             {
-                if self.buf.is_empty()
+                if self
+                    .buf
+                    .is_empty()
                 {
                     return Ok(None);
                 }
                 break std::mem::take(&mut self.buf);
             }
-            if let Some(pos) = available.iter().position(|&b| b == b'\n')
+            if let Some(pos) = available
+                .iter()
+                .position(|&b| b == b'\n')
             {
                 let take = pos + 1;
-                if self.buf.len() + take > self.max_bytes
+                if self
+                    .buf
+                    .len()
+                    + take
+                    > self.max_bytes
                 {
-                    self.buf.clear();
-                    self.reader.consume(take);
+                    self.buf
+                        .clear();
+                    self.reader
+                        .consume(take);
                     return Err(CodecError::LineTooLong { max: self.max_bytes });
                 }
-                self.buf.extend_from_slice(&available[..pos]);
-                self.reader.consume(take);
+                self.buf
+                    .extend_from_slice(&available[..pos]);
+                self.reader
+                    .consume(take);
                 break std::mem::take(&mut self.buf);
             }
             let chunk_len = available.len();
-            if self.buf.len() + chunk_len > self.max_bytes
+            if self
+                .buf
+                .len()
+                + chunk_len
+                > self.max_bytes
             {
-                self.buf.clear();
-                self.reader.consume(chunk_len);
+                self.buf
+                    .clear();
+                self.reader
+                    .consume(chunk_len);
                 return Err(CodecError::LineTooLong { max: self.max_bytes });
             }
-            self.buf.extend_from_slice(available);
-            self.reader.consume(chunk_len);
+            self.buf
+                .extend_from_slice(available);
+            self.reader
+                .consume(chunk_len);
         };
         if raw.last() == Some(&b'\r')
         {

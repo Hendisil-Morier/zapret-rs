@@ -12,29 +12,122 @@ use zapret_rs::tools::{WebAuth, WebConfig, start_web_server};
 fn raw_http(addr: SocketAddr, req: &str) -> (u16, String)
 {
     let mut s = TcpStream::connect(addr).expect("connect web");
-    s.write_all(req.as_bytes()).expect("write");
+    s.write_all(req.as_bytes())
+        .expect("write");
     let mut out = String::new();
-    s.read_to_string(&mut out).expect("read");
+    s.read_to_string(&mut out)
+        .expect("read");
     let status = out
         .lines()
         .next()
-        .and_then(|l| l.split_whitespace().nth(1))
-        .and_then(|c| c.parse::<u16>().ok())
+        .and_then(|l| {
+            l.split_whitespace()
+                .nth(1)
+        })
+        .and_then(|c| {
+            c.parse::<u16>()
+                .ok()
+        })
         .expect("status");
     (status, out)
+}
+
+/// Sends an authenticated JSON POST request to `addr` at `path`.
+fn post_json_http(addr: SocketAddr, path: &str, body: &str) -> (u16, String)
+{
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    raw_http(addr, &req)
+}
+
+/// Verifies GET/POST `/api/config` rejection of invalid TOML and persistence of valid TOML.
+fn assert_web_config_api(addr: SocketAddr, cfg_path: &std::path::Path, initial_toml: &str)
+{
+    let (st_get, body_get) = raw_http(
+        addr,
+        "GET /api/config HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\n\r\n",
+    );
+    assert_eq!(st_get, 200);
+    assert!(body_get.contains("\"valid\":true") && body_get.contains("\"profiles\":1"));
+
+    let bad_body = serde_json::json!({ "toml": "unknown_field = 123\n", "apply": false }).to_string();
+    assert_eq!(post_json_http(addr, "/api/config", &bad_body).0, 400);
+    assert_eq!(fs::read_to_string(cfg_path).expect("read"), initial_toml);
+
+    let valid_toml = "qnum = 201\nfwmark = 0x40000000\n";
+    let ok_body = serde_json::json!({ "toml": valid_toml, "apply": false }).to_string();
+    let (st_ok, out_ok) = post_json_http(addr, "/api/config", &ok_body);
+    assert_eq!(st_ok, 200);
+    assert!(out_ok.contains("\"ok\":true"));
+    assert_eq!(fs::read_to_string(cfg_path).expect("read updated"), valid_toml);
+}
+
+/// Verifies `/api/domains` add/remove mutations, validation errors, and idle `/api/scan`.
+fn assert_web_domains_api(addr: SocketAddr, cfg_path: &std::path::Path)
+{
+    let add_body = "{\"domain\":\"Bank.Example.com\",\"action\":\"add\",\"list\":\"exclude\"}";
+    let (st_add, out_add) = post_json_http(addr, "/api/domains", add_body);
+    assert_eq!(st_add, 400, "no profiles in valid_toml yet returns clear 400");
+    assert!(out_add.contains("no [[profiles]]"));
+
+    let with_prof = "qnum = 201\nfwmark = 0x40000000\n\n[[profiles]]\nname = \"p1\"\n";
+    let save_prof = serde_json::json!({ "toml": with_prof, "apply": false }).to_string();
+    assert_eq!(post_json_http(addr, "/api/config", &save_prof).0, 200);
+
+    let (st_ex, out_ex) = post_json_http(addr, "/api/domains", add_body);
+    assert_eq!(st_ex, 200);
+    assert!(out_ex.contains("bank.example.com"));
+    assert!(
+        fs::read_to_string(cfg_path)
+            .expect("read")
+            .contains("hostlist_exclude_domains")
+    );
+
+    let auto_off = "{\"domain\":\"blocked.test\",\"action\":\"add\",\"list\":\"auto\"}";
+    assert_eq!(
+        post_json_http(addr, "/api/domains", auto_off).0,
+        400,
+        "autohostlist edit refused when hostlist_auto unset"
+    );
+
+    let bad_dom = "{\"domain\":\"bad domain!!\",\"action\":\"add\",\"list\":\"exclude\"}";
+    assert_eq!(post_json_http(addr, "/api/domains", bad_dom).0, 400);
+
+    let rm_body = "{\"domain\":\"bank.example.com\",\"action\":\"remove\",\"list\":\"exclude\"}";
+    assert_eq!(post_json_http(addr, "/api/domains", rm_body).0, 200);
+    let (st_doms, out_doms) = raw_http(
+        addr,
+        "GET /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\n\r\n",
+    );
+    assert_eq!(st_doms, 200);
+    assert!(out_doms.contains("\"exclude_domains\":[]"));
+
+    let (st_scan, out_scan) = raw_http(
+        addr,
+        "GET /api/scan HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\n\r\n",
+    );
+    assert_eq!(st_scan, 200);
+    assert!(out_scan.contains("\"status\":\"idle\""));
 }
 
 #[test]
 fn config_editor_rejects_invalid_toml_writes_valid_and_manages_domains()
 {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_web_ops_{}_{nanos}", std::process::id()));
     fs::create_dir_all(&dir).expect("mkdir");
     let cfg_path = dir.join("nfqws2.toml");
     let initial_toml = "qnum = 200\nfwmark = 0x40000000\n\n[[profiles]]\nname = \"inline_doms\"\nhostlist_domains = [\"example.com\"]\n";
     fs::write(&cfg_path, initial_toml).expect("write initial toml");
 
-    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let bind: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("ops-token".to_owned()), false).expect("auth");
     let mut web = start_web_server(WebConfig {
         bind,
@@ -46,93 +139,8 @@ fn config_editor_rejects_invalid_toml_writes_valid_and_manages_domains()
     .expect("start web");
     let addr = web.addr();
 
-    // GET /api/config returns file contents and valid profile count.
-    let (st_get, body_get) = raw_http(
-        addr,
-        "GET /api/config HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\n\r\n",
-    );
-    assert_eq!(st_get, 200);
-    assert!(body_get.contains("\"valid\":true") && body_get.contains("\"profiles\":1"));
-
-    // POST invalid TOML returns 400 and never overwrites original disk file.
-    let bad_body = serde_json::json!({ "toml": "unknown_field = 123\n", "apply": false }).to_string();
-    let req_bad = format!(
-        "POST /api/config HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{bad_body}",
-        bad_body.len()
-    );
-    assert_eq!(raw_http(addr, &req_bad).0, 400);
-    assert_eq!(fs::read_to_string(&cfg_path).expect("read"), initial_toml);
-
-    // POST valid TOML saves cleanly.
-    let valid_toml = "qnum = 201\nfwmark = 0x40000000\n";
-    let ok_body = serde_json::json!({ "toml": valid_toml, "apply": false }).to_string();
-    let req_ok = format!(
-        "POST /api/config HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{ok_body}",
-        ok_body.len()
-    );
-    let (st_ok, out_ok) = raw_http(addr, &req_ok);
-    assert_eq!(st_ok, 200);
-    assert!(out_ok.contains("\"ok\":true"));
-    assert_eq!(fs::read_to_string(&cfg_path).expect("read updated"), valid_toml);
-
-    // Blacklist (`hostlist_exclude`) updates profiles in nfqws2.toml; autohostlist is gated off.
-    let add_body = "{\"domain\":\"Bank.Example.com\",\"action\":\"add\",\"list\":\"exclude\"}";
-    let req_add = format!(
-        "POST /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{add_body}",
-        add_body.len()
-    );
-    let (st_add, out_add) = raw_http(addr, &req_add);
-    assert_eq!(st_add, 400, "no profiles in valid_toml yet returns clear 400");
-    assert!(out_add.contains("no [[profiles]]"));
-
-    // Restore a config with one profile and blacklist + test conditional autohostlist gating.
-    let with_prof = "qnum = 201\nfwmark = 0x40000000\n\n[[profiles]]\nname = \"p1\"\n";
-    let save_prof = serde_json::json!({ "toml": with_prof, "apply": false }).to_string();
-    let req_prof = format!(
-        "POST /api/config HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{save_prof}",
-        save_prof.len()
-    );
-    assert_eq!(raw_http(addr, &req_prof).0, 200);
-
-    let (st_ex, out_ex) = raw_http(addr, &req_add);
-    assert_eq!(st_ex, 200);
-    assert!(out_ex.contains("bank.example.com"));
-    assert!(fs::read_to_string(&cfg_path).expect("read").contains("hostlist_exclude_domains"));
-
-    let auto_off = "{\"domain\":\"blocked.test\",\"action\":\"add\",\"list\":\"auto\"}";
-    let req_auto_off = format!(
-        "POST /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{auto_off}",
-        auto_off.len()
-    );
-    assert_eq!(raw_http(addr, &req_auto_off).0, 400, "autohostlist edit refused when hostlist_auto unset");
-
-    let bad_dom = "{\"domain\":\"bad domain!!\",\"action\":\"add\",\"list\":\"exclude\"}";
-    let req_bad_dom = format!(
-        "POST /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{bad_dom}",
-        bad_dom.len()
-    );
-    assert_eq!(raw_http(addr, &req_bad_dom).0, 400);
-
-    let rm_body = "{\"domain\":\"bank.example.com\",\"action\":\"remove\",\"list\":\"exclude\"}";
-    let req_rm = format!(
-        "POST /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{rm_body}",
-        rm_body.len()
-    );
-    assert_eq!(raw_http(addr, &req_rm).0, 200);
-    let (st_doms, out_doms) = raw_http(
-        addr,
-        "GET /api/domains HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\n\r\n",
-    );
-    assert_eq!(st_doms, 200);
-    assert!(out_doms.contains("\"exclude_domains\":[]"));
-
-    // Scan status starts idle.
-    let (st_scan, out_scan) = raw_http(
-        addr,
-        "GET /api/scan HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ops-token\r\n\r\n",
-    );
-    assert_eq!(st_scan, 200);
-    assert!(out_scan.contains("\"status\":\"idle\""));
+    assert_web_config_api(addr, &cfg_path, initial_toml);
+    assert_web_domains_api(addr, &cfg_path);
 
     web.shutdown();
     let _ = fs::remove_dir_all(&dir);
@@ -151,7 +159,10 @@ fn config_apply_pushes_reload_config_to_attached_daemon()
     };
     use zapret_rs::telemetry::PacketCounters;
 
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_web_apply_{}_{nanos}", std::process::id()));
     fs::create_dir_all(&dir).expect("mkdir");
     let sock = dir.join("control.sock");
@@ -191,7 +202,9 @@ fn config_apply_pushes_reload_config_to_attached_daemon()
         }
     });
 
-    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let bind: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("apply-tok".to_owned()), false).expect("auth");
     let mut web = start_web_server(WebConfig {
         bind,
@@ -242,7 +255,10 @@ fn config_apply_pushes_reload_config_to_attached_daemon()
 #[test]
 fn config_upload_blocks_path_traversal_and_external_file_disclosure()
 {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!("zapret_web_confine_{}_{nanos}", std::process::id()));
     let outside = std::env::temp_dir().join(format!("zapret_outside_{}_{nanos}.txt", std::process::id()));
     fs::create_dir_all(&dir).expect("mkdir");
@@ -251,7 +267,9 @@ fn config_upload_blocks_path_traversal_and_external_file_disclosure()
     let baseline = "qnum = 200\nfwmark = 0x40000000\n";
     fs::write(&cfg_path, baseline).expect("write baseline");
 
-    let bind: SocketAddr = "127.0.0.1:0".parse().expect("loopback");
+    let bind: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .expect("loopback");
     let (auth, _) = WebAuth::new(bind, Some("confine-tok".to_owned()), false).expect("auth");
     let mut web = start_web_server(WebConfig {
         bind,

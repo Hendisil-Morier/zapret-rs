@@ -75,10 +75,15 @@ impl WebServerHandle
     /// Signals the accept loop and IPC bridge to stop and joins background threads.
     pub fn shutdown(&mut self)
     {
-        self.stop.store(true, Ordering::Release);
-        self.scan_job.stop();
-        self.ipc.shutdown();
-        if let Some(handle) = self.join.take()
+        self.stop
+            .store(true, Ordering::Release);
+        self.scan_job
+            .stop();
+        self.ipc
+            .shutdown();
+        if let Some(handle) = self
+            .join
+            .take()
         {
             let _ = handle.join();
         }
@@ -147,7 +152,9 @@ fn handle_login(
         let _ = write_error(stream, 403, "Forbidden", "missing JSON or X-Zapret-Action header");
         return;
     }
-    if limiter.check_allowed(now).is_err()
+    if limiter
+        .check_allowed(now)
+        .is_err()
     {
         let _ = write_error(stream, 429, "Too Many Requests", "too many failed attempts; retry later");
         return;
@@ -158,14 +165,18 @@ fn handle_login(
         let _ = write_error(stream, 400, "Bad Request", "expected JSON object with token");
         return;
     };
-    if !cfg.auth.verify_token(&payload.token)
+    if !cfg
+        .auth
+        .verify_token(&payload.token)
     {
         limiter.record_failure(now);
         let _ = write_error(stream, 401, "Unauthorized", "invalid passcode");
         return;
     }
     limiter.record_success();
-    if let Some(cookie) = cfg.auth.issue_session_cookie(now)
+    if let Some(cookie) = cfg
+        .auth
+        .issue_session_cookie(now)
     {
         let header = WebAuth::format_set_cookie(&cookie, 12 * 3600);
         let _ = write_json(
@@ -185,7 +196,9 @@ fn handle_login(
 /// Dispatches authenticated daemon actions (`reload-lists`, `stop`).
 fn handle_daemon_action(stream: &mut TcpStream, req: &HttpRequest, ipc: &WebIpcBridge)
 {
-    let cmd = match req.path.as_str()
+    let cmd = match req
+        .path
+        .as_str()
     {
         "/api/daemon/reload-lists" => Request::ReloadLists,
         "/api/daemon/stop" => Request::Stop,
@@ -225,7 +238,10 @@ fn handle_protected_route(
     now: u64,
 )
 {
-    if !st.cfg.auth.is_authorized(req, now)
+    if !st
+        .cfg
+        .auth
+        .is_authorized(req, now)
     {
         let _ = write_error(stream, 401, "Unauthorized", "authentication required");
         return;
@@ -235,17 +251,25 @@ fn handle_protected_route(
         let _ = write_error(stream, 403, "Forbidden", "missing JSON or X-Zapret-Action header");
         return;
     }
-    match (&req.method, req.path.as_str())
+    match (
+        &req.method,
+        req.path
+            .as_str(),
+    )
     {
         (HttpMethod::Get, "/api/status") =>
         {
-            let snap = st.ipc.snapshot();
+            let snap = st
+                .ipc
+                .snapshot();
             let _ = write_json(stream, 200, "OK", &[], &snap);
         }
         (HttpMethod::Get, "/api/events") =>
         {
             // Release short-request worker slot before entering long-lived SSE loop.
-            if let Some(c) = slot.0.take()
+            if let Some(c) = slot
+                .0
+                .take()
             {
                 c.fetch_sub(1, Ordering::AcqRel);
             }
@@ -273,13 +297,21 @@ fn handle_request(
     slot: &mut WorkerSlotGuard<'_>,
 )
 {
-    if !WebAuth::passes_host_and_origin_guard(req, st.cfg.bind)
+    if !WebAuth::passes_host_and_origin_guard(
+        req,
+        st.cfg
+            .bind,
+    )
     {
         let _ = write_error(stream, 403, "Forbidden", "invalid Host or cross-origin request");
         return;
     }
     let now = unix_now_secs();
-    match (&req.method, req.path.as_str())
+    match (
+        &req.method,
+        req.path
+            .as_str(),
+    )
     {
         (HttpMethod::Get, "/" | "/index.html") =>
         {
@@ -312,7 +344,10 @@ fn handle_request(
         }
         (HttpMethod::Get, "/api/auth/check") =>
         {
-            let authed = st.cfg.auth.is_authorized(req, now);
+            let authed = st
+                .cfg
+                .auth
+                .is_authorized(req, now);
             let _ = write_json(
                 stream,
                 if authed { 200 } else { 401 },
@@ -375,9 +410,14 @@ pub fn start_web_server(cfg: WebConfig) -> Result<WebServerHandle, String>
     listener
         .set_nonblocking(true)
         .map_err(|err| format!("failed to configure non-blocking listener: {err}"))?;
-    let addr = listener.local_addr().map_err(|err| format!("failed to inspect local bind address: {err}"))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|err| format!("failed to inspect local bind address: {err}"))?;
 
-    let ipc = Arc::new(WebIpcBridge::spawn(cfg.control_socket.clone()));
+    let ipc = Arc::new(WebIpcBridge::spawn(
+        cfg.control_socket
+            .clone(),
+    ));
     let scan_job = Arc::new(WebScanJob::default());
     let stop = Arc::new(AtomicBool::new(false));
     let shared = Arc::new(WebServerState {
@@ -393,16 +433,22 @@ pub fn start_web_server(cfg: WebConfig) -> Result<WebServerHandle, String>
     let join = thread::Builder::new()
         .name("zapret-web-http".to_owned())
         .spawn(move || {
-            while !shared_bg.stop.load(Ordering::Acquire)
+            while !shared_bg
+                .stop
+                .load(Ordering::Acquire)
             {
                 match listener.accept()
                 {
                     Ok((mut stream, _)) =>
                     {
-                        let prev = shared_bg.active_workers.fetch_add(1, Ordering::AcqRel);
+                        let prev = shared_bg
+                            .active_workers
+                            .fetch_add(1, Ordering::AcqRel);
                         if prev >= MAX_HTTP_WORKERS
                         {
-                            shared_bg.active_workers.fetch_sub(1, Ordering::AcqRel);
+                            shared_bg
+                                .active_workers
+                                .fetch_sub(1, Ordering::AcqRel);
                             let _ = write_error(&mut stream, 503, "Service Unavailable", "server busy");
                             continue;
                         }
@@ -412,7 +458,9 @@ pub fn start_web_server(cfg: WebConfig) -> Result<WebServerHandle, String>
                             .spawn(move || serve_connection(stream, &st_req))
                             .is_err()
                         {
-                            shared_bg.active_workers.fetch_sub(1, Ordering::AcqRel);
+                            shared_bg
+                                .active_workers
+                                .fetch_sub(1, Ordering::AcqRel);
                         }
                     }
                     Err(err) if err.kind() == ErrorKind::WouldBlock =>

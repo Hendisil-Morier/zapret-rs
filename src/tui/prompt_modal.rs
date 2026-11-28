@@ -65,7 +65,10 @@ impl PromptModal
     /// Consumes and clears keyboard events when this modal is active.
     pub fn handle_key(&mut self, key: KeyEvent) -> PromptKeyResult
     {
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
+        if key
+            .modifiers
+            .contains(KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('c')
         {
             return PromptKeyResult::Close;
         }
@@ -131,8 +134,17 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme)
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_col).add_modifier(Modifier::BOLD))
-        .title(Span::styled(title, Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)));
+        .border_style(
+            Style::default()
+                .fg(border_col)
+                .add_modifier(Modifier::BOLD),
+        )
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(t.warn_bright)
+                .add_modifier(Modifier::BOLD),
+        ));
     let inner = outer.inner(popup);
     frame.render_widget(outer, popup);
 
@@ -154,11 +166,18 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme)
     {
         Paragraph::new(Line::from(vec![
             Span::styled("Mode: ", Style::default().fg(t.muted)),
-            Span::styled("[Enter] LAN / Phone ", Style::default().fg(t.ok).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Enter] LAN / Phone ",
+                Style::default()
+                    .fg(t.ok)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("or ", Style::default().fg(t.muted)),
             Span::styled(
                 "[l] Localhost only",
-                Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(t.accent_bright)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]))
         .block(
@@ -171,8 +190,18 @@ pub fn draw_prompt_modal(frame: &mut Frame, modal: &PromptModal, t: &Theme)
     else
     {
         Paragraph::new(Line::from(vec![
-            Span::styled(modal.input.as_str(), Style::default().fg(t.text)),
-            Span::styled("_", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                modal
+                    .input
+                    .as_str(),
+                Style::default().fg(t.text),
+            ),
+            Span::styled(
+                "_",
+                Style::default()
+                    .fg(t.warn_bright)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]))
         .block(
             Block::default()

@@ -98,9 +98,15 @@ impl From<&AppConfig> for LuaConfig
             debug: config.debug,
             daemon: config.daemon,
             server: config.server,
-            cache_hostname: config.ipcache.hostname,
-            ctrack_disable: config.conntrack.disable,
-            ctrack_timeouts: config.conntrack.timeouts,
+            cache_hostname: config
+                .ipcache
+                .hostname,
+            ctrack_disable: config
+                .conntrack
+                .disable,
+            ctrack_timeouts: config
+                .conntrack
+                .timeouts,
             lua_gc_sec: config.lua_gc,
             ..Self::default()
         }
@@ -282,7 +288,12 @@ pub fn register_constants(lua: &Lua, config: &LuaConfig) -> mlua::Result<()>
 {
     let globals = lua.globals();
 
-    globals.set("NFQWS2_VER", config.verstr.as_str())?;
+    globals.set(
+        "NFQWS2_VER",
+        config
+            .verstr
+            .as_str(),
+    )?;
     register_verdict_and_ip_constants(&globals, config)?;
     register_icmp_constants(&globals)?;
 

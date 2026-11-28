@@ -16,8 +16,8 @@ use crate::config::l7::parse_l7_disable_mask;
 use crate::config::model::{AppConfig, LuaInitEntry, WritableDirConfig};
 /// Conntrack `S:E:F[:U]` timeout parser for `--ctrack-timeouts`.
 use crate::config::runtime_cfg::parse_timeouts;
-/// Shared `control_socket` string parser reused across TOML and `--control-socket`.
-use crate::config::schema::parse_control_socket_str;
+/// Shared option-assignment helpers and `control_socket` parser reused across TOML and CLI.
+use crate::config::schema::{assign_cloned_some, assign_some, parse_control_socket_str};
 
 /// Parses `--fwmark` from decimal or `0x` hex notation for `clap`.
 fn parse_fwmark_arg(raw: &str) -> Result<u32, String>
@@ -28,7 +28,10 @@ fn parse_fwmark_arg(raw: &str) -> Result<u32, String>
 /// Parses boolean flags supporting both `true`/`false` and `zapret2`-compatible `1`/`0` syntax.
 fn parse_bool_arg(raw: &str) -> Result<bool, String>
 {
-    match raw.trim().to_ascii_lowercase().as_str()
+    match raw
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
     {
         "1" | "true" | "yes" | "on" => Ok(true),
         "0" | "false" | "no" | "off" => Ok(false),
@@ -127,94 +130,54 @@ pub struct CliArgs
     pub strat_finder: bool,
 }
 
-/// Loads TOML config (when specified) and merges any explicit CLI overrides.
 /// Copies optional scalar network/runtime flags from `cli` into `cfg`.
 fn apply_scalar_cli_overrides(cli: &CliArgs, cfg: &mut AppConfig)
 {
-    if let Some(qnum) = cli.qnum
-    {
-        cfg.qnum = qnum;
-    }
-    if let Some(fwmark) = cli.fwmark
-    {
-        cfg.fwmark = fwmark;
-    }
-    if let Some(bind_fix4) = cli.bind_fix4
-    {
-        cfg.bind_fix4 = bind_fix4;
-    }
-    if let Some(bind_fix6) = cli.bind_fix6
-    {
-        cfg.bind_fix6 = bind_fix6;
-    }
-    if let Some(server) = cli.server
-    {
-        cfg.server = server;
-    }
-    if let Some(debug) = cli.debug
-    {
-        cfg.debug = debug;
-    }
-    if let Some(intercept) = cli.intercept
-    {
-        cfg.intercept = intercept;
-    }
-    if let Some(daemon) = cli.daemon
-    {
-        cfg.daemon = daemon;
-    }
-    if let Some(lua_gc) = cli.lua_gc
-    {
-        cfg.lua_gc = lua_gc;
-    }
-    if let Some(ctrack_disable) = cli.ctrack_disable
-    {
-        cfg.conntrack.disable = ctrack_disable;
-    }
-    if let Some(lifetime) = cli.ipcache_lifetime
-    {
-        cfg.ipcache.lifetime_sec = lifetime;
-    }
-    if let Some(hostname) = cli.ipcache_hostname
-    {
-        cfg.ipcache.hostname = hostname;
-    }
-    if let Some(sample) = cli.control_pass_sample
-    {
-        cfg.control_pass_sample = sample;
-    }
-    if let Some(nft) = cli.nft
-    {
-        cfg.auto_nft = nft;
-    }
+    assign_some(&mut cfg.qnum, cli.qnum);
+    assign_some(&mut cfg.fwmark, cli.fwmark);
+    assign_some(&mut cfg.bind_fix4, cli.bind_fix4);
+    assign_some(&mut cfg.bind_fix6, cli.bind_fix6);
+    assign_some(&mut cfg.server, cli.server);
+    assign_some(&mut cfg.debug, cli.debug);
+    assign_some(&mut cfg.intercept, cli.intercept);
+    assign_some(&mut cfg.daemon, cli.daemon);
+    assign_some(&mut cfg.lua_gc, cli.lua_gc);
+    assign_some(
+        &mut cfg
+            .conntrack
+            .disable,
+        cli.ctrack_disable,
+    );
+    assign_some(
+        &mut cfg
+            .ipcache
+            .lifetime_sec,
+        cli.ipcache_lifetime,
+    );
+    assign_some(
+        &mut cfg
+            .ipcache
+            .hostname,
+        cli.ipcache_hostname,
+    );
+    assign_some(&mut cfg.control_pass_sample, cli.control_pass_sample);
+    assign_some(&mut cfg.auto_nft, cli.nft);
 }
 
 /// Copies optional path and string-parsed overrides from `cli` into `cfg`.
 fn apply_parsed_cli_overrides(cli: &CliArgs, cfg: &mut AppConfig) -> Result<(), ConfigError>
 {
-    if let Some(pidfile) = &cli.pidfile
+    assign_cloned_some(&mut cfg.pidfile, &cli.pidfile);
+    assign_cloned_some(&mut cfg.chdir, &cli.chdir);
+    assign_cloned_some(&mut cfg.user, &cli.user);
+    assign_cloned_some(&mut cfg.uid, &cli.uid);
+    assign_cloned_some(&mut cfg.hostlist_auto_debug, &cli.hostlist_auto_debug);
+    if let Some(raw_timeouts) = cli
+        .ctrack_timeouts
+        .as_deref()
     {
-        cfg.pidfile = Some(pidfile.clone());
-    }
-    if let Some(chdir) = &cli.chdir
-    {
-        cfg.chdir = Some(chdir.clone());
-    }
-    if let Some(user) = &cli.user
-    {
-        cfg.user = Some(user.clone());
-    }
-    if let Some(uid) = &cli.uid
-    {
-        cfg.uid = Some(uid.clone());
-    }
-    if let Some(debug_log) = &cli.hostlist_auto_debug
-    {
-        cfg.hostlist_auto_debug = Some(debug_log.clone());
-    }
-    if let Some(raw_timeouts) = cli.ctrack_timeouts.as_deref()
-    {
-        cfg.conntrack.timeouts = parse_timeouts(raw_timeouts)?;
+        cfg.conntrack
+            .timeouts = parse_timeouts(raw_timeouts)?;
     }
     if let Some(payload_disable) = &cli.payload_disable
     {
@@ -246,15 +209,19 @@ fn apply_parsed_cli_overrides(cli: &CliArgs, cfg: &mut AppConfig) -> Result<(), 
     {
         if let Some(path) = entry.strip_prefix('@')
         {
-            if path.trim().is_empty()
+            if path
+                .trim()
+                .is_empty()
             {
                 return Err(ConfigError::Validation("empty --lua-init @path".to_owned()));
             }
-            cfg.lua_init.push(LuaInitEntry::File(PathBuf::from(path)));
+            cfg.lua_init
+                .push(LuaInitEntry::File(PathBuf::from(path)));
         }
         else
         {
-            cfg.lua_init.push(LuaInitEntry::Inline(entry.clone()));
+            cfg.lua_init
+                .push(LuaInitEntry::Inline(entry.clone()));
         }
     }
     Ok(())

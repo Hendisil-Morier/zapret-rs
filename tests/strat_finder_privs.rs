@@ -21,7 +21,12 @@ use zapret_rs::tools::{
 /// Extracts the value for `key` (e.g., `"CapEff:"` or `"NoNewPrivs:"`) from `/proc/self/status`.
 fn status_field<'a>(status: &'a str, key: &str) -> Option<&'a str>
 {
-    status.lines().find_map(|line| line.strip_prefix(key).map(str::trim))
+    status
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix(key)
+                .map(str::trim)
+        })
 }
 
 /// Spawns `cat /proc/self/status` with [`clear_child_privileges`] in `pre_exec` and asserts
@@ -34,8 +39,15 @@ fn assert_child_has_zero_caps_and_no_new_privs()
     unsafe {
         cmd.pre_exec(clear_child_privileges);
     }
-    let out = cmd.output().expect("spawn cat /proc/self/status");
-    assert!(out.status.success(), "cat failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = cmd
+        .output()
+        .expect("spawn cat /proc/self/status");
+    assert!(
+        out.status
+            .success(),
+        "cat failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let text = String::from_utf8_lossy(&out.stdout);
 
     assert_eq!(status_field(&text, "CapEff:"), Some("0000000000000000"));
@@ -71,15 +83,18 @@ fn live_child_pre_exec_strips_root_capabilities()
 fn live_nft_firewall_backend_installs_and_cleans_up_table()
 {
     let nft = NftFirewallBackend::default();
-    let guard =
-        nft.install(210, 0x4000_0000, &[80, 443], &[443]).expect("real nft -f - install must succeed");
+    let guard = nft
+        .install(210, 0x4000_0000, &[80, 443], &[443])
+        .expect("real nft -f - install must succeed");
 
     let list_active = Command::new("nft")
         .args(["list", "table", "inet", STRAT_FINDER_NFT_TABLE])
         .output()
         .expect("nft list table");
     assert!(
-        list_active.status.success(),
+        list_active
+            .status
+            .success(),
         "table should exist while guard is alive: {}",
         String::from_utf8_lossy(&list_active.stderr)
     );
@@ -95,7 +110,12 @@ fn live_nft_firewall_backend_installs_and_cleans_up_table()
         .args(["list", "table", "inet", STRAT_FINDER_NFT_TABLE])
         .output()
         .expect("nft list table after drop");
-    assert!(!list_after.status.success(), "table must be deleted when NftQueueGuard drops");
+    assert!(
+        !list_after
+            .status
+            .success(),
+        "table must be deleted when NftQueueGuard drops"
+    );
 }
 
 /// Verifies `--print-nft`, `is_nft_perm_denied`, and the non-root `setcap` error guidance.
@@ -112,7 +132,10 @@ fn print_nft_perm_classifier_and_setcap_guidance()
         .args(["daemon", "--strat-finder", "--print-nft", "--proto", "http,tls13,http3", "--qnum", "215"])
         .output()
         .expect("run --print-nft");
-    assert!(out.status.success());
+    assert!(
+        out.status
+            .success()
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("table inet zapret_strat_finder"));
     assert!(stdout.contains("tcp dport { 80, 443 } queue num 215 bypass"));
@@ -127,7 +150,11 @@ fn print_nft_perm_classifier_and_setcap_guidance()
             .args(["daemon", "--strat-finder", "--domain", "example.com", "--no-nft"])
             .output()
             .expect("run without caps");
-        assert!(!missing.status.success());
+        assert!(
+            !missing
+                .status
+                .success()
+        );
         let stderr = String::from_utf8_lossy(&missing.stderr);
         assert!(
             stderr.contains("setcap cap_net_admin,cap_net_raw+ep"),
@@ -154,7 +181,10 @@ fn write_config_nofollow_writes_regular_file_and_refuses_symlink()
     assert_eq!(err.raw_os_error(), Some(libc::ELOOP));
     assert_eq!(fs::read_to_string(&target).expect("read victim"), "untouched");
 
-    let regular = dir.join("nested").join("zapret-rs").join("nfqws2.toml");
+    let regular = dir
+        .join("nested")
+        .join("zapret-rs")
+        .join("nfqws2.toml");
     write_config_nofollow(&regular, "qnum = 200\n").expect("write regular file in nested dir");
     assert_eq!(fs::read_to_string(&regular).expect("read regular"), "qnum = 200\n");
 

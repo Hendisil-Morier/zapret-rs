@@ -40,16 +40,24 @@ impl ChildGuard
 
     fn id(&self) -> u32
     {
-        self.child.as_ref().expect("child").id()
+        self.child
+            .as_ref()
+            .expect("child")
+            .id()
     }
 
     fn wait_bounded(mut self, timeout: Duration) -> std::process::ExitStatus
     {
-        let mut child = self.child.take().expect("child");
+        let mut child = self
+            .child
+            .take()
+            .expect("child");
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline
         {
-            if let Some(status) = child.try_wait().expect("try_wait")
+            if let Some(status) = child
+                .try_wait()
+                .expect("try_wait")
             {
                 return status;
             }
@@ -65,7 +73,9 @@ impl Drop for ChildGuard
 {
     fn drop(&mut self)
     {
-        if let Some(mut child) = self.child.take()
+        if let Some(mut child) = self
+            .child
+            .take()
         {
             let _ = child.kill();
             let _ = child.wait();
@@ -82,7 +92,14 @@ fn connect_with_retry(sock: &Path, child: &mut ChildGuard, timeout: Duration) ->
         {
             return stream;
         }
-        if let Some(status) = child.child.as_mut().and_then(|c| c.try_wait().ok().flatten())
+        if let Some(status) = child
+            .child
+            .as_mut()
+            .and_then(|c| {
+                c.try_wait()
+                    .ok()
+                    .flatten()
+            })
         {
             panic!("nfqws2 exited prematurely ({status}) before binding control socket");
         }
@@ -150,9 +167,12 @@ fn real_nfqws2_control_socket_answers_status_reloads_and_stops_cleanly()
             "--qnum",
             "244",
             "--pidfile",
-            pidfile.to_str().expect("utf8 pidfile"),
+            pidfile
+                .to_str()
+                .expect("utf8 pidfile"),
             "--control-socket",
-            sock.to_str().expect("utf8 sock"),
+            sock.to_str()
+                .expect("utf8 sock"),
             "--control-pass-sample",
             "5",
             "--lua-init",
@@ -165,13 +185,27 @@ fn real_nfqws2_control_socket_answers_status_reloads_and_stops_cleanly()
     let mut child = ChildGuard::new(raw_child);
 
     let mut stream = connect_with_retry(&sock, &mut child, Duration::from_secs(3));
-    stream.set_read_timeout(Some(Duration::from_secs(2))).expect("timeout");
-    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("timeout");
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .expect("clone"),
+    );
 
     // Missing parent dir should be created mode 0700 and socket mode 0600.
-    let dir_mode = fs::symlink_metadata(&sock_dir).expect("dir stat").permissions().mode() & 0o777;
+    let dir_mode = fs::symlink_metadata(&sock_dir)
+        .expect("dir stat")
+        .permissions()
+        .mode()
+        & 0o777;
     assert_eq!(dir_mode, 0o700);
-    let sock_mode = fs::symlink_metadata(&sock).expect("sock stat").permissions().mode() & 0o777;
+    let sock_mode = fs::symlink_metadata(&sock)
+        .expect("sock stat")
+        .permissions()
+        .mode()
+        & 0o777;
     assert_eq!(sock_mode, 0o600);
 
     write_message(&mut stream, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("hello");
@@ -210,14 +244,21 @@ fn real_nfqws2_control_socket_off_exits_without_binding()
             "--intercept=0",
             "--control-socket=off",
             "--pidfile",
-            pidfile.to_str().expect("utf8 pidfile"),
+            pidfile
+                .to_str()
+                .expect("utf8 pidfile"),
             "--lua-init",
             r#"timer_set("once", function() end, 15, true)"#,
         ])
         .output()
         .expect("run nfqws2 --control-socket=off");
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status
+            .success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(!pidfile.exists());
     let _ = fs::remove_dir_all(&dir);
 }

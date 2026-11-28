@@ -91,8 +91,13 @@ fn check_web_ui(state: &AppState) -> ComponentCheck
 fn check_dns_resolver(state: &AppState) -> ComponentCheck
 {
     let st = detect_dns_status();
-    let preset = state.status.dns_preset.label();
-    if st.servers.is_empty()
+    let preset = state
+        .status
+        .dns_preset
+        .label();
+    if st
+        .servers
+        .is_empty()
     {
         return ComponentCheck {
             name: "DNS Resolver",
@@ -104,8 +109,13 @@ fn check_dns_resolver(state: &AppState) -> ComponentCheck
             ),
         };
     }
-    let list = st.servers.join(", ");
-    let enc_suffix = st.encryption.as_deref().map_or_else(String::new, |e| format!(" | {e}"));
+    let list = st
+        .servers
+        .join(", ");
+    let enc_suffix = st
+        .encryption
+        .as_deref()
+        .map_or_else(String::new, |e| format!(" | {e}"));
     ComponentCheck {
         name: "DNS Resolver",
         health: ComponentHealth::Ok,
@@ -122,7 +132,9 @@ fn check_privileges(state: &AppState) -> ComponentCheck
 {
     #[cfg(windows)]
     {
-        if state.status.has_net_caps
+        if state
+            .status
+            .has_net_caps
         {
             ComponentCheck {
                 name: "Privileges",
@@ -144,12 +156,19 @@ fn check_privileges(state: &AppState) -> ComponentCheck
     }
     #[cfg(not(windows))]
     {
-        if state.status.has_net_caps
+        if state
+            .status
+            .has_net_caps
         {
             ComponentCheck {
                 name: "Privileges",
                 health: ComponentHealth::Ok,
-                summary: format!("UID {} | CAP_NET_ADMIN+RAW active", state.status.uid),
+                summary: format!(
+                    "UID {} | CAP_NET_ADMIN+RAW active",
+                    state
+                        .status
+                        .uid
+                ),
                 detail: "Effective packet capture and raw-socket capabilities are active.".to_owned(),
             }
         }
@@ -158,10 +177,17 @@ fn check_privileges(state: &AppState) -> ComponentCheck
             ComponentCheck {
                 name: "Privileges",
                 health: ComponentHealth::Err,
-                summary: format!("UID {} | missing network caps", state.status.uid),
+                summary: format!(
+                    "UID {} | missing network caps",
+                    state
+                        .status
+                        .uid
+                ),
                 detail: format!(
                     "Missing CAP_NET_ADMIN/CAP_NET_RAW. Press 'g' to grant via: sudo setcap cap_net_admin,cap_net_raw+ep {}",
-                    state.status.exe_path
+                    state
+                        .status
+                        .exe_path
                 ),
             }
         }
@@ -174,8 +200,16 @@ fn check_packet_driver(state: &AppState) -> ComponentCheck
     #[cfg(windows)]
     {
         let dll_res = WinDivertApi::load();
-        let exe_dir = Path::new(&state.status.exe_path).parent();
-        let sys_beside_exe = exe_dir.is_some_and(|d| d.join("WinDivert64.sys").is_file());
+        let exe_dir = Path::new(
+            &state
+                .status
+                .exe_path,
+        )
+        .parent();
+        let sys_beside_exe = exe_dir.is_some_and(|d| {
+            d.join("WinDivert64.sys")
+                .is_file()
+        });
         let sys_in_system = Path::new(r"C:\Windows\System32\drivers\WinDivert64.sys").is_file();
         let sys_ok = sys_beside_exe || sys_in_system;
         match (dll_res, sys_ok) {
@@ -205,7 +239,9 @@ fn check_packet_driver(state: &AppState) -> ComponentCheck
     }
     #[cfg(not(windows))]
     {
-        if state.finder.no_nft
+        if state
+            .finder
+            .no_nft
         {
             return ComponentCheck {
                 name: "Packet Driver",
@@ -222,9 +258,14 @@ fn check_packet_driver(state: &AppState) -> ComponentCheck
             .stderr(Stdio::null())
             .output()
         {
-            Ok(out) if out.status.success() =>
+            Ok(out)
+                if out
+                    .status
+                    .success() =>
             {
-                let ver = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                let ver = String::from_utf8_lossy(&out.stdout)
+                    .trim()
+                    .to_owned();
                 ComponentCheck {
                     name: "Packet Driver",
                     health: ComponentHealth::Ok,
@@ -252,13 +293,22 @@ fn check_packet_driver(state: &AppState) -> ComponentCheck
 /// Checks `zapret-lib.lua` and `zapret-antidpi.lua` resolution from the configured Lua directory.
 fn check_lua_scripts(state: &AppState) -> ComponentCheck
 {
-    let lua_opt = if state.finder.lua_dir_input.trim().is_empty()
+    let lua_opt = if state
+        .finder
+        .lua_dir_input
+        .trim()
+        .is_empty()
     {
         None
     }
     else
     {
-        Some(PathBuf::from(state.finder.lua_dir_input.trim()))
+        Some(PathBuf::from(
+            state
+                .finder
+                .lua_dir_input
+                .trim(),
+        ))
     };
     match resolve_lua_scripts(lua_opt.as_deref())
     {
@@ -267,7 +317,10 @@ fn check_lua_scripts(state: &AppState) -> ComponentCheck
             let dir = paths
                 .first()
                 .and_then(|p| p.parent())
-                .map(|p| p.display().to_string())
+                .map(|p| {
+                    p.display()
+                        .to_string()
+                })
                 .unwrap_or_else(|| ".".to_owned());
             ComponentCheck {
                 name: "Lua Scripts",
@@ -275,7 +328,13 @@ fn check_lua_scripts(state: &AppState) -> ComponentCheck
                 summary: format!("{} script(s) in {dir}", paths.len()),
                 detail: format!(
                     "Resolved Lua scripts: {}",
-                    paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+                    paths
+                        .iter()
+                        .map(|p| p
+                            .display()
+                            .to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
             }
         }
@@ -300,11 +359,22 @@ fn check_curl_probe() -> ComponentCheck
         .output();
     match ver_out
     {
-        Ok(out) if out.status.success() =>
+        Ok(out)
+            if out
+                .status
+                .success() =>
         {
             let text = String::from_utf8_lossy(&out.stdout);
-            let first_line = text.lines().next().unwrap_or("curl").trim();
-            let short_ver = first_line.split(" (").next().unwrap_or(first_line).trim();
+            let first_line = text
+                .lines()
+                .next()
+                .unwrap_or("curl")
+                .trim();
+            let short_ver = first_line
+                .split(" (")
+                .next()
+                .unwrap_or(first_line)
+                .trim();
             let h3 = backend.supports_http3();
             if h3
             {
@@ -347,38 +417,72 @@ fn check_curl_probe() -> ComponentCheck
 /// Checks the active `nfqws2.toml` parse status and profile count.
 fn check_config(state: &AppState) -> ComponentCheck
 {
-    if state.config.active_toml.trim().is_empty()
+    if state
+        .config
+        .active_toml
+        .trim()
+        .is_empty()
     {
         return ComponentCheck {
             name: "Config",
             health: ComponentHealth::Warn,
-            summary: format!("No active config ({})", state.finder.output_path),
+            summary: format!(
+                "No active config ({})",
+                state
+                    .finder
+                    .output_path
+            ),
             detail: "No nfqws2.toml loaded yet. Run Strategy Finder or press 'l' on Tab 3 to load a file."
                 .to_owned(),
         };
     }
-    if let Some(err) = &state.config.toml_error
+    if let Some(err) = &state
+        .config
+        .toml_error
     {
         return ComponentCheck {
             name: "Config",
             health: ComponentHealth::Err,
-            summary: format!("Invalid TOML ({})", state.finder.output_path),
+            summary: format!(
+                "Invalid TOML ({})",
+                state
+                    .finder
+                    .output_path
+            ),
             detail: err.clone(),
         };
     }
     ComponentCheck {
         name: "Config",
         health: ComponentHealth::Ok,
-        summary: format!("Valid ({} profile(s))", state.config.parsed_profiles.len()),
-        detail: format!("Active configuration at {} parsed cleanly.", state.finder.output_path),
+        summary: format!(
+            "Valid ({} profile(s))",
+            state
+                .config
+                .parsed_profiles
+                .len()
+        ),
+        detail: format!(
+            "Active configuration at {} parsed cleanly.",
+            state
+                .finder
+                .output_path
+        ),
     }
 }
 
 /// Checks live daemon / control IPC reachability and `systemd` unit state on Linux.
 fn check_daemon_ipc(state: &AppState) -> ComponentCheck
 {
-    let detected = detect_control_socket(state.run.control_socket_override.as_deref());
-    let base_summary = match &state.run.status
+    let detected = detect_control_socket(
+        state
+            .run
+            .control_socket_override
+            .as_deref(),
+    );
+    let base_summary = match &state
+        .run
+        .status
     {
         RunStatus::Running => "In-process engine running".to_owned(),
         RunStatus::Attached => "Attached to daemon IPC".to_owned(),
@@ -400,7 +504,9 @@ fn check_daemon_ipc(state: &AppState) -> ComponentCheck
     {
         Ok(out) =>
         {
-            let s = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+            let s = String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .to_owned();
             if s.is_empty() { "not installed".to_owned() } else { s }
         }
         Err(_) => "unavailable".to_owned(),
@@ -409,15 +515,31 @@ fn check_daemon_ipc(state: &AppState) -> ComponentCheck
     #[cfg(target_os = "linux")]
     let detail = format!(
         "Control endpoint: {}. systemd unit (zapret-rs.service): {svc_note}.",
-        detected.as_ref().map_or_else(|| "none active".to_owned(), |p| p.display().to_string())
+        detected
+            .as_ref()
+            .map_or_else(
+                || "none active".to_owned(),
+                |p| p
+                    .display()
+                    .to_string()
+            )
     );
     #[cfg(not(target_os = "linux"))]
     let detail = format!(
         "Control IPC endpoint: {}.",
-        detected.as_ref().map_or_else(|| "none active".to_owned(), |p| p.display().to_string())
+        detected
+            .as_ref()
+            .map_or_else(
+                || "none active".to_owned(),
+                |p| p
+                    .display()
+                    .to_string()
+            )
     );
 
-    let health = match &state.run.status
+    let health = match &state
+        .run
+        .status
     {
         RunStatus::Error(_) => ComponentHealth::Err,
         _ => ComponentHealth::Ok,

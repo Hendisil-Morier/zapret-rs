@@ -59,9 +59,16 @@ fn candidate_lua_dirs(explicit_dir: Option<&Path>) -> Vec<PathBuf>
         dirs.push(parent.join("lua"));
         if let Some(prefix) = parent.parent()
         {
-            dirs.push(prefix.join("share").join("zapret-rs").join("lua"));
+            dirs.push(
+                prefix
+                    .join("share")
+                    .join("zapret-rs")
+                    .join("lua"),
+            );
         }
-        if let Some(grand) = parent.parent().and_then(Path::parent)
+        if let Some(grand) = parent
+            .parent()
+            .and_then(Path::parent)
         {
             dirs.push(grand.join("lua"));
         }
@@ -87,7 +94,13 @@ pub fn detect_lua_dir(explicit_dir: Option<&Path>) -> Option<PathBuf>
 {
     candidate_lua_dirs(explicit_dir)
         .into_iter()
-        .find(|dir| dir.join("zapret-lib.lua").is_file() && dir.join("zapret-antidpi.lua").is_file())
+        .find(|dir| {
+            dir.join("zapret-lib.lua")
+                .is_file()
+                && dir
+                    .join("zapret-antidpi.lua")
+                    .is_file()
+        })
 }
 
 /// Strips the Windows `\\?\` extended-length prefix from canonicalized paths when present.
@@ -125,7 +138,10 @@ pub fn extract_bundled_lua(dir: &Path) -> Result<Vec<PathBuf>, String>
     for &(name, contents) in BUNDLED_LUA_SCRIPTS
     {
         let dest = dir.join(name);
-        if fs::read_to_string(&dest).ok().as_deref() != Some(contents)
+        if fs::read_to_string(&dest)
+            .ok()
+            .as_deref()
+            != Some(contents)
         {
             write_config_nofollow(&dest, contents)
                 .map_err(|err| format!("failed to write bundled Lua script '{}': {err}", dest.display()))?;
@@ -153,7 +169,10 @@ pub fn resolve_lua_scripts(explicit_dir: Option<&Path>) -> Result<Vec<PathBuf>, 
     }
     let checked = candidate_lua_dirs(explicit_dir)
         .iter()
-        .map(|p| p.display().to_string())
+        .map(|p| {
+            p.display()
+                .to_string()
+        })
         .collect::<Vec<_>>()
         .join(", ");
     Err(format!(

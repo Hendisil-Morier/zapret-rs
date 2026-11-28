@@ -45,7 +45,11 @@ type WindowsControlHandles = (Option<Arc<TelemetryHub>>, Option<ControlServer>);
 fn collect_engine_port_ranges(qnum: u16, fwmark: u32, engine: &DesyncEngine) -> PortRangePair
 {
     let mut cfg = AppConfig { qnum, fwmark, ..AppConfig::default() };
-    cfg.profiles = engine.profiles().iter().map(|p| (**p).clone()).collect();
+    cfg.profiles = engine
+        .profiles()
+        .iter()
+        .map(|p| (**p).clone())
+        .collect();
     collect_config_port_ranges(&cfg)
 }
 
@@ -94,10 +98,22 @@ fn poll_windows_loop(
     let now = boottime_ms();
     {
         let eng = engine.borrow();
-        eng.runtime().do_gc(now);
-        TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now);
+        eng.runtime()
+            .do_gc(now);
+        TimerPool::run_expired(
+            eng.runtime()
+                .timer_pool(),
+            eng.runtime()
+                .lua(),
+            now,
+        );
     }
-    let deadline = engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms();
+    let deadline = engine
+        .borrow()
+        .runtime()
+        .timer_pool()
+        .borrow_mut()
+        .next_deadline_ms();
     let wait = duration_until(deadline, boottime_ms());
     if hub.is_some()
     {
@@ -130,7 +146,10 @@ fn start_windows_control_server(
         fwmark: config.fwmark,
         intercept: config.intercept,
         profile_names: collect_profile_names(engine.profiles()),
-        config_path: config_path.map(|p| p.display().to_string()),
+        config_path: config_path.map(|p| {
+            p.display()
+                .to_string()
+        }),
     };
     let hub = TelemetryHub::new(Arc::new(PacketCounters::default()), meta, config.control_pass_sample);
     let srv_cfg = ControlServerConfig::new(path.to_path_buf(), env!("CARGO_PKG_VERSION"));
@@ -163,13 +182,34 @@ fn run_windows_no_intercept_loop(
                 );
             }
         },
-        || engine.borrow().runtime().timer_pool().borrow().is_empty(),
-        || engine.borrow().runtime().timer_pool().borrow_mut().next_deadline_ms(),
+        || {
+            engine
+                .borrow()
+                .runtime()
+                .timer_pool()
+                .borrow()
+                .is_empty()
+        },
+        || {
+            engine
+                .borrow()
+                .runtime()
+                .timer_pool()
+                .borrow_mut()
+                .next_deadline_ms()
+        },
         || {
             let eng = engine.borrow();
             let now = boottime_ms();
-            eng.runtime().do_gc(now);
-            TimerPool::run_expired(eng.runtime().timer_pool(), eng.runtime().lua(), now)
+            eng.runtime()
+                .do_gc(now);
+            TimerPool::run_expired(
+                eng.runtime()
+                    .timer_pool(),
+                eng.runtime()
+                    .lua(),
+                now,
+            )
         },
     );
 }
@@ -196,8 +236,12 @@ fn run_windows_intercept_loop(
             |pkt| {
                 if let Some(active_hub) = hub
                 {
-                    let (decision, outcome) = engine.borrow().process_packet_traced(pkt);
-                    let (seq, verdict) = active_hub.counters().record_outcome(&outcome);
+                    let (decision, outcome) = engine
+                        .borrow()
+                        .process_packet_traced(pkt);
+                    let (seq, verdict) = active_hub
+                        .counters()
+                        .record_outcome(&outcome);
                     if active_hub.should_publish(verdict)
                     {
                         active_hub.publish_packet(build_packet_record(seq, pkt, &outcome));
@@ -206,7 +250,9 @@ fn run_windows_intercept_loop(
                 }
                 else
                 {
-                    engine.borrow().process_packet(pkt)
+                    engine
+                        .borrow()
+                        .process_packet(pkt)
                 }
             },
         );
@@ -246,14 +292,18 @@ pub(crate) fn run_daemon_windows(cli: &CliArgs) -> Result<(), DaemonError>
     }
 
     install_signal_handlers()?;
-    let config_dir = cli.config.as_deref().and_then(Path::parent);
+    let config_dir = cli
+        .config
+        .as_deref()
+        .and_then(Path::parent);
     let socket_path = resolve_control_socket_path(&config.control_socket, config.intercept);
     let engine = RefCell::new(DesyncEngine::new(&config)?);
     let (hub, control_server) = start_windows_control_server(
         socket_path.as_deref(),
         &config,
         &engine.borrow(),
-        cli.config.as_deref(),
+        cli.config
+            .as_deref(),
     )?;
 
     let res = if !config.intercept

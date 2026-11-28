@@ -52,12 +52,8 @@ impl PacketSender for CapturingSender
         packet: &[u8],
     ) -> Result<(), RawSendError>
     {
-        self.packets.push(CapturedPacket {
-            dst,
-            fwmark,
-            ifout: ifout.map(str::to_owned),
-            data: packet.to_vec(),
-        });
+        self.packets
+            .push(CapturedPacket { dst, fwmark, ifout: ifout.map(str::to_owned), data: packet.to_vec() });
         Ok(())
     }
 }

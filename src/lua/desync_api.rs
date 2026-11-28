@@ -89,7 +89,9 @@ fn extract_valid_ctx(val: &Value) -> mlua::Result<Rc<RefCell<DesyncContextState>
         let guard = ud.borrow::<DesyncCtxUserData>()?;
         Rc::clone(&guard.0)
     };
-    if !state_rc.borrow().valid
+    if !state_rc
+        .borrow()
+        .valid
     {
         return Err(mlua::Error::external("ctx is invalid"));
     }
@@ -131,7 +133,18 @@ fn register_execution_plan_fns(lua: &Lua, globals: &mlua::Table, debug: bool) ->
             let inst = {
                 let mut state = ctx.borrow_mut();
                 state.cancel = true;
-                if debug { Some(state.instance.clone()) } else { None }
+                if debug
+                {
+                    Some(
+                        state
+                            .instance
+                            .clone(),
+                    )
+                }
+                else
+                {
+                    None
+                }
             };
             if let Some(name) = inst
             {
@@ -148,7 +161,13 @@ fn register_execution_plan_fns(lua: &Lua, globals: &mlua::Table, debug: bool) ->
             let ctx = extract_valid_ctx(&args[0])?;
             let (profile_opt, current_func_n, incoming) = {
                 let state = ctx.borrow();
-                (state.profile.clone(), state.func_n, state.incoming)
+                (
+                    state
+                        .profile
+                        .clone(),
+                    state.func_n,
+                    state.incoming,
+                )
             };
 
             let plan_tbl = lua.create_table()?;
@@ -157,7 +176,10 @@ fn register_execution_plan_fns(lua: &Lua, globals: &mlua::Table, debug: bool) ->
             {
                 return Ok(Value::Table(plan_tbl));
             };
-            for (idx, action) in profile.actions.iter().enumerate()
+            for (idx, action) in profile
+                .actions
+                .iter()
+                .enumerate()
             {
                 let n = (idx as u32) + 1;
                 if n <= current_func_n
@@ -170,7 +192,12 @@ fn register_execution_plan_fns(lua: &Lua, globals: &mlua::Table, debug: bool) ->
                 let arg_tbl = build_action_args_table(lua, &action.args, None, false)?
                     .ok_or_else(|| mlua::Error::external("unexpected blob substitution failure"))?;
                 entry.raw_set("arg", arg_tbl)?;
-                entry.raw_set("func", action.func.as_str())?;
+                entry.raw_set(
+                    "func",
+                    action
+                        .func
+                        .as_str(),
+                )?;
                 entry.raw_set("func_n", i64::from(n))?;
                 entry.raw_set("func_instance", instance.as_str())?;
                 entry.raw_set("range", packet_range_to_lua(lua, range)?)?;
@@ -206,11 +233,21 @@ fn register_cutoff_fns(lua: &Lua, globals: &mlua::Table, debug: bool) -> mlua::R
             let (b_in, b_out) = parse_cutoff_direction(args.get(1))?;
             let (ctrack_opt, inst, profile_n) = {
                 let state = ctx.borrow();
-                (state.ctrack.clone(), state.instance.clone(), state.profile_n)
+                (
+                    state
+                        .ctrack
+                        .clone(),
+                    state
+                        .instance
+                        .clone(),
+                    state.profile_n,
+                )
             };
             if let Some(ctrack_rc) = ctrack_opt
             {
-                ctrack_rc.borrow_mut().set_instance_cutoff(&inst, profile_n, b_in, b_out);
+                ctrack_rc
+                    .borrow_mut()
+                    .set_instance_cutoff(&inst, profile_n, b_in, b_out);
                 if debug
                 {
                     eprintln!("instance cutoff from '{inst}' in={} out={}", u8::from(b_in), u8::from(b_out));
@@ -236,7 +273,14 @@ fn register_cutoff_fns(lua: &Lua, globals: &mlua::Table, debug: bool) -> mlua::R
             let (b_in, b_out) = parse_cutoff_direction(args.get(1))?;
             let (ctrack_opt, inst) = {
                 let state = ctx.borrow();
-                (state.ctrack.clone(), state.instance.clone())
+                (
+                    state
+                        .ctrack
+                        .clone(),
+                    state
+                        .instance
+                        .clone(),
+                )
             };
             if let Some(ctrack_rc) = ctrack_opt
             {
@@ -298,7 +342,9 @@ fn register_conntrack_feed(
                     reconstruct_packet(&dis, &opts)
                         .map_err(|_| mlua::Error::external("invalid dissect data"))?
                 }
-                Value::String(s) => s.as_bytes().to_vec(),
+                Value::String(s) => s
+                    .as_bytes()
+                    .to_vec(),
                 _ => return Err(mlua::Error::external("invalid packet data type")),
             };
 
@@ -325,7 +371,9 @@ fn register_conntrack_feed(
             };
             {
                 let mut state = ctx_state.borrow_mut();
-                if state.ctrack.is_none()
+                if state
+                    .ctrack
+                    .is_none()
                 {
                     state.ctrack = Some(Rc::clone(&entry_rc));
                     state.incoming = b_reverse;

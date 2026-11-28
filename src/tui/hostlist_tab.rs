@@ -81,12 +81,16 @@ impl HostlistTabState
             HostlistFocus::AutoHostlist =>
             {
                 let items = self.filtered_auto(config);
-                items.get(self.auto_sel).map(|s| (*s).to_owned())
+                items
+                    .get(self.auto_sel)
+                    .map(|s| (*s).to_owned())
             }
             HostlistFocus::Blacklist =>
             {
                 let items = self.filtered_blacklist(config);
-                items.get(self.blacklist_sel).map(|s| (*s).to_owned())
+                items
+                    .get(self.blacklist_sel)
+                    .map(|s| (*s).to_owned())
             }
         }
     }
@@ -94,8 +98,18 @@ impl HostlistTabState
     /// Clamps both cursors cleanly within the current filtered list lengths.
     pub fn clamp_selection(&mut self, config: &ConfigTabState)
     {
-        self.auto_sel = step_selection(self.auto_sel, self.filtered_auto(config).len(), 0);
-        self.blacklist_sel = step_selection(self.blacklist_sel, self.filtered_blacklist(config).len(), 0);
+        self.auto_sel = step_selection(
+            self.auto_sel,
+            self.filtered_auto(config)
+                .len(),
+            0,
+        );
+        self.blacklist_sel = step_selection(
+            self.blacklist_sel,
+            self.filtered_blacklist(config)
+                .len(),
+            0,
+        );
     }
 
     /// Moves the active column's cursor by signed `delta`, clamped at list bounds.
@@ -103,8 +117,16 @@ impl HostlistTabState
     {
         let (len, sel) = match self.focus
         {
-            HostlistFocus::AutoHostlist => (self.filtered_auto(config).len(), &mut self.auto_sel),
-            HostlistFocus::Blacklist => (self.filtered_blacklist(config).len(), &mut self.blacklist_sel),
+            HostlistFocus::AutoHostlist => (
+                self.filtered_auto(config)
+                    .len(),
+                &mut self.auto_sel,
+            ),
+            HostlistFocus::Blacklist => (
+                self.filtered_blacklist(config)
+                    .len(),
+                &mut self.blacklist_sel,
+            ),
         };
         *sel = step_selection(*sel, len, delta);
     }
@@ -113,12 +135,24 @@ impl HostlistTabState
 /// Filters `entries` case-insensitively when `query` is non-empty.
 fn filter_domain_slice<'a>(entries: &'a [String], query: &str) -> Vec<&'a str>
 {
-    let needle = query.trim().to_ascii_lowercase();
+    let needle = query
+        .trim()
+        .to_ascii_lowercase();
     if needle.is_empty()
     {
-        return entries.iter().map(String::as_str).collect();
+        return entries
+            .iter()
+            .map(String::as_str)
+            .collect();
     }
-    entries.iter().filter(|item| item.to_ascii_lowercase().contains(&needle)).map(String::as_str).collect()
+    entries
+        .iter()
+        .filter(|item| {
+            item.to_ascii_lowercase()
+                .contains(&needle)
+        })
+        .map(String::as_str)
+        .collect()
 }
 
 impl AppState
@@ -126,15 +160,28 @@ impl AppState
     /// Applies key presses while the incremental `/` search input is focused on Tab 6.
     fn handle_hostlist_filter_key(&mut self, key: KeyEvent)
     {
-        match handle_inline_text_key(&mut self.hostlist.filter, key)
+        match handle_inline_text_key(
+            &mut self
+                .hostlist
+                .filter,
+            key,
+        )
         {
             TextInputOutcome::Cancelled =>
             {
-                self.hostlist.filter_editing = false;
-                self.hostlist.clamp_selection(&self.config);
+                self.hostlist
+                    .filter_editing = false;
+                self.hostlist
+                    .clamp_selection(&self.config);
             }
-            TextInputOutcome::Submitted => self.hostlist.filter_editing = false,
-            TextInputOutcome::Edited => self.hostlist.clamp_selection(&self.config),
+            TextInputOutcome::Submitted =>
+            {
+                self.hostlist
+                    .filter_editing = false
+            }
+            TextInputOutcome::Edited => self
+                .hostlist
+                .clamp_selection(&self.config),
             TextInputOutcome::Ignored =>
             {}
         }
@@ -143,19 +190,38 @@ impl AppState
     /// Dispatches domain addition, removal, move, and reload shortcuts on Tab 6.
     fn handle_hostlist_action_key(&mut self, key: KeyEvent) -> AppAction
     {
-        let hl = &self.keybinds.hostlist;
-        if hl.filter.contains(key)
+        let hl = &self
+            .keybinds
+            .hostlist;
+        if hl
+            .filter
+            .contains(key)
         {
-            self.hostlist.filter_editing = true;
+            self.hostlist
+                .filter_editing = true;
         }
-        else if !self.hostlist.filter.is_empty() && hl.clear_filter.contains(key)
+        else if !self
+            .hostlist
+            .filter
+            .is_empty()
+            && hl
+                .clear_filter
+                .contains(key)
         {
-            self.hostlist.filter.clear();
-            self.hostlist.clamp_selection(&self.config);
+            self.hostlist
+                .filter
+                .clear();
+            self.hostlist
+                .clamp_selection(&self.config);
         }
-        else if hl.add_auto.contains(key)
+        else if hl
+            .add_auto
+            .contains(key)
         {
-            if self.config.autohostlist_paths.is_empty()
+            if self
+                .config
+                .autohostlist_paths
+                .is_empty()
             {
                 self.status_banner =
                     "Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first).".to_owned();
@@ -165,9 +231,14 @@ impl AppState
                 self.prompt_modal = Some(PromptModal::open(PromptKind::AddAutoHostlist));
             }
         }
-        else if hl.add_blacklist.contains(key)
+        else if hl
+            .add_blacklist
+            .contains(key)
         {
-            if self.config.parsed_profiles.is_empty()
+            if self
+                .config
+                .parsed_profiles
+                .is_empty()
             {
                 self.status_banner =
                     "No [[profiles]] in nfqws2.toml yet; scan or load a config first.".to_owned();
@@ -177,20 +248,36 @@ impl AppState
                 self.prompt_modal = Some(PromptModal::open(PromptKind::BlacklistDomain));
             }
         }
-        else if hl.delete.contains(key)
+        else if hl
+            .delete
+            .contains(key)
         {
-            if self.hostlist.selected_domain(&self.config).is_some()
+            if self
+                .hostlist
+                .selected_domain(&self.config)
+                .is_some()
             {
                 return AppAction::DeleteSelectedDomain;
             }
             self.status_banner = "No domain selected to remove.".to_owned();
         }
-        else if hl.move_entry.contains(key)
+        else if hl
+            .move_entry
+            .contains(key)
         {
-            if self.hostlist.selected_domain(&self.config).is_some()
+            if self
+                .hostlist
+                .selected_domain(&self.config)
+                .is_some()
             {
-                if self.hostlist.focus == HostlistFocus::Blacklist
-                    && self.config.autohostlist_paths.is_empty()
+                if self
+                    .hostlist
+                    .focus
+                    == HostlistFocus::Blacklist
+                    && self
+                        .config
+                        .autohostlist_paths
+                        .is_empty()
                 {
                     self.status_banner =
                         "Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first).".to_owned();
@@ -201,7 +288,9 @@ impl AppState
                 }
             }
         }
-        else if hl.reload.contains(key)
+        else if hl
+            .reload
+            .contains(key)
         {
             return AppAction::ReloadLists;
         }
@@ -211,20 +300,31 @@ impl AppState
     /// Handles `/` search input, cursor navigation, add prompts, direct delete, and exclude transfers on Tab 6.
     pub(crate) fn handle_hostlist_key(&mut self, key: KeyEvent) -> AppAction
     {
-        if self.hostlist.filter_editing
+        if self
+            .hostlist
+            .filter_editing
         {
             self.handle_hostlist_filter_key(key);
             return AppAction::None;
         }
 
-        let nav = &self.keybinds.nav;
-        if nav.left.contains(key) || nav.right.contains(key)
+        let nav = &self
+            .keybinds
+            .nav;
+        if nav
+            .left
+            .contains(key)
+            || nav
+                .right
+                .contains(key)
         {
-            self.hostlist.toggle_focus();
+            self.hostlist
+                .toggle_focus();
         }
         else if let Some(delta) = nav.vertical_delta(key, 10)
         {
-            self.hostlist.move_selection(&self.config, delta);
+            self.hostlist
+                .move_selection(&self.config, delta);
         }
         else
         {
@@ -249,13 +349,17 @@ pub fn move_selected_hostlist_offline(state: &mut AppState)
 /// Deletes the currently highlighted domain in Tab 6 and returns an optional daemon reload request.
 pub(crate) fn delete_selected_hostlist_domain(state: &mut AppState) -> Option<Request>
 {
-    let Some(domain) = state.hostlist.selected_domain(&state.config)
+    let Some(domain) = state
+        .hostlist
+        .selected_domain(&state.config)
     else
     {
         state.status_banner = "No domain selected to remove.".to_owned();
         return None;
     };
-    match state.hostlist.focus
+    match state
+        .hostlist
+        .focus
     {
         HostlistFocus::AutoHostlist =>
         {
@@ -269,11 +373,22 @@ pub(crate) fn delete_selected_hostlist_domain(state: &mut AppState) -> Option<Re
         }
         HostlistFocus::Blacklist =>
         {
-            let cfg_path = expand_tilde(&state.finder.output_path);
-            match mutate_exclude_domains_toml(&state.config.active_toml, &domain, false, cfg_path.parent())
-                .and_then(|updated| {
-                    commit_updated_toml(state, updated, &format!("Removed {domain} from Blacklist"))
-                })
+            let cfg_path = expand_tilde(
+                &state
+                    .finder
+                    .output_path,
+            );
+            match mutate_exclude_domains_toml(
+                &state
+                    .config
+                    .active_toml,
+                &domain,
+                false,
+                cfg_path.parent(),
+            )
+            .and_then(|updated| {
+                commit_updated_toml(state, updated, &format!("Removed {domain} from Blacklist"))
+            })
             {
                 Ok(req) => Some(req),
                 Err(err) =>
@@ -289,8 +404,12 @@ pub(crate) fn delete_selected_hostlist_domain(state: &mut AppState) -> Option<Re
 /// Moves the selected Tab 6 entry between Auto Hostlist and Blacklist and returns a reload request.
 pub(crate) fn move_selected_hostlist_entry(state: &mut AppState) -> Option<Request>
 {
-    let domain = state.hostlist.selected_domain(&state.config)?;
-    let (add_exclude, label) = match state.hostlist.focus
+    let domain = state
+        .hostlist
+        .selected_domain(&state.config)?;
+    let (add_exclude, label) = match state
+        .hostlist
+        .focus
     {
         HostlistFocus::AutoHostlist =>
         {
@@ -303,7 +422,10 @@ pub(crate) fn move_selected_hostlist_entry(state: &mut AppState) -> Option<Reque
         }
         HostlistFocus::Blacklist =>
         {
-            if state.config.autohostlist_paths.is_empty()
+            if state
+                .config
+                .autohostlist_paths
+                .is_empty()
             {
                 state.status_banner =
                     "Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first).".to_owned();
@@ -317,9 +439,20 @@ pub(crate) fn move_selected_hostlist_entry(state: &mut AppState) -> Option<Reque
             (false, format!("Moved {domain} to Auto Hostlist"))
         }
     };
-    let cfg_path = expand_tilde(&state.finder.output_path);
-    match mutate_exclude_domains_toml(&state.config.active_toml, &domain, add_exclude, cfg_path.parent())
-        .and_then(|updated| commit_updated_toml(state, updated, &label))
+    let cfg_path = expand_tilde(
+        &state
+            .finder
+            .output_path,
+    );
+    match mutate_exclude_domains_toml(
+        &state
+            .config
+            .active_toml,
+        &domain,
+        add_exclude,
+        cfg_path.parent(),
+    )
+    .and_then(|updated| commit_updated_toml(state, updated, &label))
     {
         Ok(req) => Some(req),
         Err(err) =>
@@ -341,14 +474,23 @@ pub(crate) fn reload_hostlist_entries(state: &mut AppState) -> Option<Request>
 /// Adds or removes `domain` across every configured `autohostlist` file and refreshes UI state.
 fn mutate_autolist_paths(state: &mut AppState, domain: &str, add: bool) -> Result<(), String>
 {
-    if state.config.autohostlist_paths.is_empty()
+    if state
+        .config
+        .autohostlist_paths
+        .is_empty()
     {
         return Err("Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist first)".to_owned());
     }
     let mut changed = false;
-    for path in state.config.autohostlist_paths.clone()
+    for path in state
+        .config
+        .autohostlist_paths
+        .clone()
     {
-        let prev = state.config.autohostlist_entries.len();
+        let prev = state
+            .config
+            .autohostlist_entries
+            .len();
         let after = mutate_hostlist_file(&path, domain, add)?;
         if add || after.len() < prev
         {
@@ -379,39 +521,79 @@ pub(crate) fn handle_hostlist_mouse(
 
     if cols[0].contains(pos)
     {
-        state.hostlist.focus = HostlistFocus::AutoHostlist;
+        state
+            .hostlist
+            .focus = HostlistFocus::AutoHostlist;
         if let Some(dir) = scroll_dir
         {
-            state.hostlist.move_selection(&state.config, dir);
+            state
+                .hostlist
+                .move_selection(&state.config, dir);
         }
         else if is_left && pos.y > cols[0].y && pos.y + 1 < cols[0].bottom()
         {
-            let cap = usize::from(cols[0].height.saturating_sub(2)).max(1);
-            let len = state.hostlist.filtered_auto(&state.config).len();
-            let (start, end) = visible_window(len, state.hostlist.auto_sel, cap);
+            let cap = usize::from(
+                cols[0]
+                    .height
+                    .saturating_sub(2),
+            )
+            .max(1);
+            let len = state
+                .hostlist
+                .filtered_auto(&state.config)
+                .len();
+            let (start, end) = visible_window(
+                len,
+                state
+                    .hostlist
+                    .auto_sel,
+                cap,
+            );
             let idx = start + usize::from(pos.y - cols[0].y - 1);
             if idx < end
             {
-                state.hostlist.auto_sel = idx;
+                state
+                    .hostlist
+                    .auto_sel = idx;
             }
         }
     }
     else if cols[1].contains(pos)
     {
-        state.hostlist.focus = HostlistFocus::Blacklist;
+        state
+            .hostlist
+            .focus = HostlistFocus::Blacklist;
         if let Some(dir) = scroll_dir
         {
-            state.hostlist.move_selection(&state.config, dir);
+            state
+                .hostlist
+                .move_selection(&state.config, dir);
         }
         else if is_left && pos.y > cols[1].y && pos.y + 1 < cols[1].bottom()
         {
-            let cap = usize::from(cols[1].height.saturating_sub(2)).max(1);
-            let len = state.hostlist.filtered_blacklist(&state.config).len();
-            let (start, end) = visible_window(len, state.hostlist.blacklist_sel, cap);
+            let cap = usize::from(
+                cols[1]
+                    .height
+                    .saturating_sub(2),
+            )
+            .max(1);
+            let len = state
+                .hostlist
+                .filtered_blacklist(&state.config)
+                .len();
+            let (start, end) = visible_window(
+                len,
+                state
+                    .hostlist
+                    .blacklist_sel,
+                cap,
+            );
             let idx = start + usize::from(pos.y - cols[1].y - 1);
             if idx < end
             {
-                state.hostlist.blacklist_sel = idx;
+                state
+                    .hostlist
+                    .blacklist_sel = idx;
             }
         }
     }

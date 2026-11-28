@@ -90,42 +90,57 @@ impl<T: IpBits> PrefixSet<T>
         {
             return false;
         };
-        if let Some((_, &prev_end)) = self.ranges.range(..=start).next_back()
+        if let Some((_, &prev_end)) = self
+            .ranges
+            .range(..=start)
+            .next_back()
             && prev_end >= end
         {
             return true;
         }
-        let covered: Vec<T> = self.ranges.range(start..=end).map(|(&k, _)| k).collect();
+        let covered: Vec<T> = self
+            .ranges
+            .range(start..=end)
+            .map(|(&k, _)| k)
+            .collect();
         for key in covered
         {
-            self.ranges.remove(&key);
+            self.ranges
+                .remove(&key);
         }
-        self.ranges.insert(start, end);
+        self.ranges
+            .insert(start, end);
         true
     }
 
     /// Returns `true` when `addr` falls within any stored CIDR interval in O(log N).
     fn contains(&self, addr: T) -> bool
     {
-        self.ranges.range(..=addr).next_back().is_some_and(|(_, &end)| addr <= end)
+        self.ranges
+            .range(..=addr)
+            .next_back()
+            .is_some_and(|(_, &end)| addr <= end)
     }
 
     /// Returns the number of disjoint CIDR prefixes currently stored.
     fn len(&self) -> usize
     {
-        self.ranges.len()
+        self.ranges
+            .len()
     }
 
     /// Returns `true` when no CIDR prefixes are stored.
     fn is_empty(&self) -> bool
     {
-        self.ranges.is_empty()
+        self.ranges
+            .is_empty()
     }
 
     /// Clears all stored prefixes.
     fn clear(&mut self)
     {
-        self.ranges.clear();
+        self.ranges
+            .clear();
     }
 }
 
@@ -136,11 +151,16 @@ fn parse_cidr<A: FromStr>(s: &str, max_prefix: u8) -> Option<(A, u8)>
     {
         Some((ip, prefix)) =>
         {
-            if prefix.is_empty() || !prefix.bytes().all(|b| b.is_ascii_digit())
+            if prefix.is_empty()
+                || !prefix
+                    .bytes()
+                    .all(|b| b.is_ascii_digit())
             {
                 return None;
             }
-            let plen = prefix.parse::<u8>().ok()?;
+            let plen = prefix
+                .parse::<u8>()
+                .ok()?;
             if plen > max_prefix
             {
                 return None;
@@ -149,7 +169,9 @@ fn parse_cidr<A: FromStr>(s: &str, max_prefix: u8) -> Option<(A, u8)>
         }
         None => (s, max_prefix),
     };
-    let addr = ip_str.parse::<A>().ok()?;
+    let addr = ip_str
+        .parse::<A>()
+        .ok()?;
     Some((addr, preflen))
 }
 
@@ -186,38 +208,48 @@ impl IpSet
     /// Returns `true` when neither IPv4 nor IPv6 prefixes are stored (`IPSET_EMPTY`).
     pub fn is_empty(&self) -> bool
     {
-        self.v4.is_empty() && self.v6.is_empty()
+        self.v4
+            .is_empty()
+            && self
+                .v6
+                .is_empty()
     }
 
     /// Returns the count of stored disjoint IPv4 prefixes.
     pub fn len_v4(&self) -> usize
     {
-        self.v4.len()
+        self.v4
+            .len()
     }
 
     /// Returns the count of stored disjoint IPv6 prefixes.
     pub fn len_v6(&self) -> usize
     {
-        self.v6.len()
+        self.v6
+            .len()
     }
 
     /// Removes all IPv4 and IPv6 prefixes (`ipsetDestroy`).
     pub fn clear(&mut self)
     {
-        self.v4.clear();
-        self.v6.clear();
+        self.v4
+            .clear();
+        self.v6
+            .clear();
     }
 
     /// Inserts an IPv4 CIDR into the disjoint v4 prefix tree (`ipset4Add`).
     pub fn add_v4(&mut self, addr: Ipv4Addr, preflen: u8) -> bool
     {
-        self.v4.insert(u32::from(addr), preflen)
+        self.v4
+            .insert(u32::from(addr), preflen)
     }
 
     /// Inserts an IPv6 CIDR into the disjoint v6 prefix tree (`ipset6Add`).
     pub fn add_v6(&mut self, addr: Ipv6Addr, preflen: u8) -> bool
     {
-        self.v6.insert(u128::from(addr), preflen)
+        self.v6
+            .insert(u128::from(addr), preflen)
     }
 
     /// Parses one raw ipset line, ignoring comments and logging invalid CIDRs non-fatally.
@@ -245,8 +277,12 @@ impl IpSet
     {
         match addr
         {
-            IpAddr::V4(ip) => self.v4.contains(u32::from(ip)),
-            IpAddr::V6(ip) => self.v6.contains(u128::from(ip)),
+            IpAddr::V4(ip) => self
+                .v4
+                .contains(u32::from(ip)),
+            IpAddr::V6(ip) => self
+                .v6
+                .contains(u128::from(ip)),
         }
     }
 }
@@ -290,20 +326,28 @@ impl IpsetFile
     /// Clears `mod_sig` so the next reload check forces a full disk reload (`SIGHUP`).
     pub fn reset_mod_sig(&mut self)
     {
-        self.mod_sig.reset();
+        self.mod_sig
+            .reset();
     }
 
     /// Strictly loads the backing file at startup (`test_list_files`), failing on I/O or gzip error.
     pub fn load_initial(&mut self) -> std::io::Result<()>
     {
-        load_list_initial(self.path.as_deref(), &mut self.mod_sig, &mut self.ipset, parse_ipset_file)
+        load_list_initial(
+            self.path
+                .as_deref(),
+            &mut self.mod_sig,
+            &mut self.ipset,
+            parse_ipset_file,
+        )
     }
 
     /// Reloads the file if its signature changed, keeping existing entries on transient access error.
     pub fn reload_if_changed(&mut self) -> std::io::Result<bool>
     {
         reload_cached_list(
-            self.path.as_deref(),
+            self.path
+                .as_deref(),
             &mut self.mod_sig,
             &mut self.ipset,
             "ipset",
@@ -328,7 +372,11 @@ impl IpsetCollection
     /// Returns `true` when neither include nor exclude ipsets are configured (`PROFILE_IPSETS_ABSENT`).
     pub fn is_absent(&self) -> bool
     {
-        self.include.is_empty() && self.exclude.is_empty()
+        self.include
+            .is_empty()
+            && self
+                .exclude
+                .is_empty()
     }
 
     /// Checks and reloads modified include/exclude ipset files (`IpsetsReloadCheckForProfile`).
@@ -337,14 +385,18 @@ impl IpsetCollection
         let mut any_changed = false;
         for file in &self.include
         {
-            if file.borrow_mut().reload_if_changed()?
+            if file
+                .borrow_mut()
+                .reload_if_changed()?
             {
                 any_changed = true;
             }
         }
         for file in &self.exclude
         {
-            if file.borrow_mut().reload_if_changed()?
+            if file
+                .borrow_mut()
+                .reload_if_changed()?
             {
                 any_changed = true;
             }
@@ -359,7 +411,10 @@ impl IpsetCollection
         {
             return true;
         }
-        if !skip_reload && self.reload_check().is_err()
+        if !skip_reload
+            && self
+                .reload_check()
+                .is_err()
         {
             return false;
         }
@@ -367,13 +422,26 @@ impl IpsetCollection
         for ex_file in &self.exclude
         {
             let ex = ex_file.borrow();
-            if ex.ipset.contains(primary) || reverse.is_some_and(|r| ex.ipset.contains(r))
+            if ex
+                .ipset
+                .contains(primary)
+                || reverse.is_some_and(|r| {
+                    ex.ipset
+                        .contains(r)
+                })
             {
                 return false;
             }
         }
 
-        if self.include.iter().all(|f| f.borrow().ipset.is_empty())
+        if self
+            .include
+            .iter()
+            .all(|f| {
+                f.borrow()
+                    .ipset
+                    .is_empty()
+            })
         {
             return true;
         }
@@ -381,7 +449,13 @@ impl IpsetCollection
         for inc_file in &self.include
         {
             let inc = inc_file.borrow();
-            if inc.ipset.contains(primary) || reverse.is_some_and(|r| inc.ipset.contains(r))
+            if inc
+                .ipset
+                .contains(primary)
+                || reverse.is_some_and(|r| {
+                    inc.ipset
+                        .contains(r)
+                })
             {
                 return true;
             }

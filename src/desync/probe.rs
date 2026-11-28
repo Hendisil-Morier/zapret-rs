@@ -169,7 +169,9 @@ fn run_probes(
                 *l7proto = probe.l7;
                 if let Some(entry_rc) = ctrack
                 {
-                    entry_rc.borrow_mut().l7proto = probe.l7;
+                    entry_rc
+                        .borrow_mut()
+                        .l7proto = probe.l7;
                 }
             }
             break;
@@ -201,7 +203,15 @@ pub(crate) fn probe_tcp_outgoing(
 {
     run_probes(TCP_OUT_PROBES, payload, payload_disable, ctrack, l7proto, l7payload);
     if *l7payload == L7Payload::Unknown
-        && tpos.is_some_and(|p| p.client.seq_last.wrapping_sub(p.client.seq0) == 1)
+        && tpos.is_some_and(|p| {
+            p.client
+                .seq_last
+                .wrapping_sub(
+                    p.client
+                        .seq0,
+                )
+                == 1
+        })
     {
         run_probes(MTPROTO_PROBE, payload, payload_disable, ctrack, l7proto, l7payload);
     }

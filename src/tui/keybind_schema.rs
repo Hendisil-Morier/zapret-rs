@@ -137,27 +137,39 @@ impl NavKeybinds
     /// signed row step using `page_step` for page jumps, or `None` if `key` is not vertical navigation.
     pub fn vertical_delta(&self, key: KeyEvent, page_step: isize) -> Option<isize>
     {
-        if self.up.contains(key)
+        if self
+            .up
+            .contains(key)
         {
             Some(-1)
         }
-        else if self.down.contains(key)
+        else if self
+            .down
+            .contains(key)
         {
             Some(1)
         }
-        else if self.page_up.contains(key)
+        else if self
+            .page_up
+            .contains(key)
         {
             Some(-page_step)
         }
-        else if self.page_down.contains(key)
+        else if self
+            .page_down
+            .contains(key)
         {
             Some(page_step)
         }
-        else if self.home.contains(key)
+        else if self
+            .home
+            .contains(key)
         {
             Some(isize::MIN / 2)
         }
-        else if self.end.contains(key)
+        else if self
+            .end
+            .contains(key)
         {
             Some(isize::MAX / 2)
         }

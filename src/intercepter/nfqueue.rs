@@ -163,7 +163,13 @@ impl QueueCatcher
                 break;
             }
 
-            let mut pfd = libc::pollfd { fd: self.queue.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+            let mut pfd = libc::pollfd {
+                fd: self
+                    .queue
+                    .as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
             // SAFETY: `pfd` points to one initialized stack `libc::pollfd` entry for the duration of `poll`.
             let rc = unsafe { libc::poll(&raw mut pfd, 1, timeout_ms) };
             if rc < 0
@@ -207,7 +213,9 @@ impl QueueCatcher
     {
         let queue = &mut self.queue;
         let ifnames = &mut self.ifnames;
-        let desync_fwmark = self.config.desync_fwmark;
+        let desync_fwmark = self
+            .config
+            .desync_fwmark;
         drain_batch_with(
             MAX_NFQUEUE_BATCH_PACKETS,
             stop,
@@ -221,7 +229,9 @@ impl QueueCatcher
                 )
             },
             || {
-                let msg = queue.recv().map_err(IntercepterError::from)?;
+                let msg = queue
+                    .recv()
+                    .map_err(IntercepterError::from)?;
                 handle_queue_message(queue, ifnames, desync_fwmark, msg, on_packet)
             },
         )
@@ -282,6 +292,11 @@ impl Drop for QueueCatcher
     /// Best-effort unbind of the netfilter queue when `QueueCatcher` exits scope.
     fn drop(&mut self)
     {
-        let _ = self.queue.unbind(self.config.queue_num);
+        let _ = self
+            .queue
+            .unbind(
+                self.config
+                    .queue_num,
+            );
     }
 }

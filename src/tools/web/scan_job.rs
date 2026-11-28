@@ -139,13 +139,18 @@ impl WebScanJob
     /// Returns a cloned snapshot of the current/last Strategy Finder run.
     pub fn snapshot(&self) -> WebScanSnapshot
     {
-        self.state.lock().map(|g| g.clone()).unwrap_or_default()
+        self.state
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     /// Requests cancellation of an active scan, returning `true` when one was running.
     pub fn stop(&self) -> bool
     {
-        if let Ok(guard) = self.stop_flag.lock()
+        if let Ok(guard) = self
+            .stop_flag
+            .lock()
             && let Some(flag) = guard.as_ref()
         {
             flag.store(true, Ordering::Release);
@@ -166,19 +171,34 @@ impl WebScanJob
         {
             return Err((403, "web process lacks packet capture / administrator privileges".to_owned()));
         }
-        let domains: Vec<String> = req.domains.iter().filter_map(|d| parse_clean_domain(d)).collect();
+        let domains: Vec<String> = req
+            .domains
+            .iter()
+            .filter_map(|d| parse_clean_domain(d))
+            .collect();
         if domains.is_empty()
         {
             return Err((400, "enter at least one valid domain".to_owned()));
         }
         let protos = parse_protos(&req.protos).map_err(|e| (400, e))?;
-        let level: ScanLevel = req.level.as_deref().unwrap_or("standard").parse().map_err(|e| (400, e))?;
-        let secs = req.timeout_secs.unwrap_or(2.0);
+        let level: ScanLevel = req
+            .level
+            .as_deref()
+            .unwrap_or("standard")
+            .parse()
+            .map_err(|e| (400, e))?;
+        let secs = req
+            .timeout_secs
+            .unwrap_or(2.0);
         if !secs.is_finite() || secs <= 0.0
         {
             return Err((400, "invalid scan timeout".to_owned()));
         }
-        let lua_scripts = resolve_lua_scripts(cfg.lua_dir.as_deref()).map_err(|e| (400, e))?;
+        let lua_scripts = resolve_lua_scripts(
+            cfg.lua_dir
+                .as_deref(),
+        )
+        .map_err(|e| (400, e))?;
 
         let initial = WebScanSnapshot {
             status: "running".to_owned(),
@@ -186,7 +206,10 @@ impl WebScanJob
             ..WebScanSnapshot::default()
         };
         {
-            let mut guard = self.state.lock().map_err(|_| (500, "scan lock poisoned".to_owned()))?;
+            let mut guard = self
+                .state
+                .lock()
+                .map_err(|_| (500, "scan lock poisoned".to_owned()))?;
             if guard.status == "running"
             {
                 return Err((409, "a scan is already running".to_owned()));
@@ -194,14 +217,18 @@ impl WebScanJob
             *guard = initial.clone();
         }
         let release_claim = |msg: &str| {
-            if let Ok(mut guard) = self.state.lock()
+            if let Ok(mut guard) = self
+                .state
+                .lock()
             {
                 guard.status = "failed".to_owned();
                 guard.error = Some(msg.to_owned());
             }
         };
 
-        if let Ok(mut j) = self.join.lock()
+        if let Ok(mut j) = self
+            .join
+            .lock()
             && let Some(old) = j.take()
         {
             let _ = old.join();
@@ -239,7 +266,9 @@ impl WebScanJob
         };
 
         let stop = Arc::new(AtomicBool::new(false));
-        if let Ok(mut f) = self.stop_flag.lock()
+        if let Ok(mut f) = self
+            .stop_flag
+            .lock()
         {
             *f = Some(Arc::clone(&stop));
         }
@@ -260,7 +289,9 @@ impl WebScanJob
                 return Err((500, msg));
             }
         };
-        if let Ok(mut j) = self.join.lock()
+        if let Ok(mut j) = self
+            .join
+            .lock()
         {
             *j = Some(handle);
         }
@@ -290,11 +321,16 @@ fn parse_protos(raw: &[String]) -> Result<Vec<ProbeProtocol>, String>
 /// Appends one line to capped `logs` and broadcasts the current scan snapshot.
 fn push_scan_log(st: &mut WebScanSnapshot, line: String)
 {
-    if st.logs.len() >= MAX_SCAN_LOGS
+    if st
+        .logs
+        .len()
+        >= MAX_SCAN_LOGS
     {
-        st.logs.remove(0);
+        st.logs
+            .remove(0);
     }
-    st.logs.push(line);
+    st.logs
+        .push(line);
 }
 
 /// Updates live scan snapshot state and pushes an SSE `scan` event for each progress callback.
@@ -345,7 +381,9 @@ fn finalize_scan_snapshot(
     ipc: &WebIpcBridge,
 )
 {
-    let rendered_toml = if report.cover.is_empty()
+    let rendered_toml = if report
+        .cover
+        .is_empty()
     {
         String::new()
     }
@@ -363,23 +401,53 @@ fn finalize_scan_snapshot(
         st.progress_done = st.progress_total;
         st.label = if report.interrupted
         {
-            format!("Stopped early: {} covering profile(s)", report.cover.len())
+            format!(
+                "Stopped early: {} covering profile(s)",
+                report
+                    .cover
+                    .len()
+            )
         }
         else
         {
-            format!("Done: {} minimal covering profile(s)", report.cover.len())
+            format!(
+                "Done: {} minimal covering profile(s)",
+                report
+                    .cover
+                    .len()
+            )
         };
         st.targets = report
             .targets
             .iter()
             .map(|t| ScanTargetSummary {
-                domain: t.domain.clone(),
-                proto: t.proto.as_str().to_owned(),
-                ipv: t.ipv.as_str().to_owned(),
-                baseline: t.baseline.summary(),
+                domain: t
+                    .domain
+                    .clone(),
+                proto: t
+                    .proto
+                    .as_str()
+                    .to_owned(),
+                ipv: t
+                    .ipv
+                    .as_str()
+                    .to_owned(),
+                baseline: t
+                    .baseline
+                    .summary(),
                 skipped: t.skipped_unblocked,
-                best_strategy: t.matches.first().map(|m| m.strategy.id.clone()),
-                best_latency_ms: t.matches.first().map(|m| m.latency_ms),
+                best_strategy: t
+                    .matches
+                    .first()
+                    .map(|m| {
+                        m.strategy
+                            .id
+                            .clone()
+                    }),
+                best_latency_ms: t
+                    .matches
+                    .first()
+                    .map(|m| m.latency_ms),
             })
             .collect();
         st.rendered_toml = rendered_toml;
@@ -400,8 +468,14 @@ fn run_scan_worker(
     static NEVER_STOP: AtomicBool = AtomicBool::new(false);
     let mut base_cfg =
         AppConfig { qnum: DEFAULT_STRAT_QNUM, fwmark: DEFAULT_DESYNC_FWMARK, ..AppConfig::default() };
-    base_cfg.ipcache.hostname = true;
-    base_cfg.lua_init = lua_scripts.iter().cloned().map(LuaInitEntry::File).collect();
+    base_cfg
+        .ipcache
+        .hostname = true;
+    base_cfg.lua_init = lua_scripts
+        .iter()
+        .cloned()
+        .map(LuaInitEntry::File)
+        .collect();
 
     let mut worker = match InProcessWorkerHandle::spawn(base_cfg, &NEVER_STOP)
     {

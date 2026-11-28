@@ -143,8 +143,10 @@ impl ListRegistry
         }
         for rt in runtimes
         {
-            rt.hostlists.ensure_autolists_non_empty();
-            rt.last_reload_check_sec.set(i64::MIN);
+            rt.hostlists
+                .ensure_autolists_non_empty();
+            rt.last_reload_check_sec
+                .set(i64::MIN);
         }
     }
 }
@@ -168,25 +170,42 @@ fn build_profile_runtime(
 ) -> Result<ProfileRuntime, (PathBuf, std::io::Error)>
 {
     let mut hl_col = HostlistCollection::default();
-    for path in &profile.lists.hostlist
+    for path in &profile
+        .lists
+        .hostlist
     {
         let file = get_or_load_hostlist(path, hl_by_path, hl_registry, false)?;
-        hl_col.include.push(HostlistRef { file, is_autolist: false });
+        hl_col
+            .include
+            .push(HostlistRef { file, is_autolist: false });
     }
-    if !profile.lists.hostlist_domains.is_empty()
+    if !profile
+        .lists
+        .hostlist_domains
+        .is_empty()
     {
         let mut inline = HostlistFile::inline();
-        for domain in &profile.lists.hostlist_domains
+        for domain in &profile
+            .lists
+            .hostlist_domains
         {
-            let _ = inline.pool.add_raw_line(domain);
+            let _ = inline
+                .pool
+                .add_raw_line(domain);
         }
-        hl_col.include.push(HostlistRef { file: Rc::new(RefCell::new(inline)), is_autolist: false });
+        hl_col
+            .include
+            .push(HostlistRef { file: Rc::new(RefCell::new(inline)), is_autolist: false });
     }
 
-    let autolist = if let Some(path) = &profile.lists.hostlist_auto
+    let autolist = if let Some(path) = &profile
+        .lists
+        .hostlist_auto
     {
         let file = get_or_load_hostlist(path, hl_by_path, hl_registry, true)?;
-        hl_col.include.push(HostlistRef { file: Rc::clone(&file), is_autolist: true });
+        hl_col
+            .include
+            .push(HostlistRef { file: Rc::clone(&file), is_autolist: true });
         Some(file)
     }
     else
@@ -194,50 +213,89 @@ fn build_profile_runtime(
         None
     };
 
-    for path in &profile.lists.hostlist_exclude
+    for path in &profile
+        .lists
+        .hostlist_exclude
     {
         let file = get_or_load_hostlist(path, hl_by_path, hl_registry, false)?;
-        hl_col.exclude.push(file);
+        hl_col
+            .exclude
+            .push(file);
     }
-    if !profile.lists.hostlist_exclude_domains.is_empty()
+    if !profile
+        .lists
+        .hostlist_exclude_domains
+        .is_empty()
     {
         let mut inline = HostlistFile::inline();
-        for domain in &profile.lists.hostlist_exclude_domains
+        for domain in &profile
+            .lists
+            .hostlist_exclude_domains
         {
-            let _ = inline.pool.add_raw_line(domain);
+            let _ = inline
+                .pool
+                .add_raw_line(domain);
         }
-        hl_col.exclude.push(Rc::new(RefCell::new(inline)));
+        hl_col
+            .exclude
+            .push(Rc::new(RefCell::new(inline)));
     }
     hl_col.ensure_autolists_non_empty();
 
     let mut ip_col = IpsetCollection::default();
-    for path in &profile.lists.ipset
+    for path in &profile
+        .lists
+        .ipset
     {
         let file = get_or_load_ipset(path, ip_by_path, ip_registry)?;
-        ip_col.include.push(file);
+        ip_col
+            .include
+            .push(file);
     }
-    if !profile.lists.ipset_ip.is_empty()
+    if !profile
+        .lists
+        .ipset_ip
+        .is_empty()
     {
         let mut inline = IpsetFile::inline();
-        for token in &profile.lists.ipset_ip
+        for token in &profile
+            .lists
+            .ipset_ip
         {
-            let _ = inline.ipset.add_raw_line(token);
+            let _ = inline
+                .ipset
+                .add_raw_line(token);
         }
-        ip_col.include.push(Rc::new(RefCell::new(inline)));
+        ip_col
+            .include
+            .push(Rc::new(RefCell::new(inline)));
     }
-    for path in &profile.lists.ipset_exclude
+    for path in &profile
+        .lists
+        .ipset_exclude
     {
         let file = get_or_load_ipset(path, ip_by_path, ip_registry)?;
-        ip_col.exclude.push(file);
+        ip_col
+            .exclude
+            .push(file);
     }
-    if !profile.lists.ipset_exclude_ip.is_empty()
+    if !profile
+        .lists
+        .ipset_exclude_ip
+        .is_empty()
     {
         let mut inline = IpsetFile::inline();
-        for token in &profile.lists.ipset_exclude_ip
+        for token in &profile
+            .lists
+            .ipset_exclude_ip
         {
-            let _ = inline.ipset.add_raw_line(token);
+            let _ = inline
+                .ipset
+                .add_raw_line(token);
         }
-        ip_col.exclude.push(Rc::new(RefCell::new(inline)));
+        ip_col
+            .exclude
+            .push(Rc::new(RefCell::new(inline)));
     }
 
     let action_instances = profile
@@ -274,7 +332,8 @@ fn get_or_load_hostlist(
         return Ok(Rc::clone(existing));
     }
     let mut file = HostlistFile::from_path(path.to_path_buf());
-    file.load_initial().map_err(|err| (path.to_path_buf(), err))?;
+    file.load_initial()
+        .map_err(|err| (path.to_path_buf(), err))?;
     let shared = Rc::new(RefCell::new(file));
     by_path.insert(path.to_path_buf(), Rc::clone(&shared));
     registry.push(Rc::clone(&shared));
@@ -284,7 +343,11 @@ fn get_or_load_hostlist(
 /// Ensures an `--hostlist-auto` file is creatable/writable and not compressed with gzip (`nfqws.c`).
 fn verify_autolist_writable_plain(path: &Path) -> std::io::Result<()>
 {
-    let mut file = OpenOptions::new().create(true).append(true).read(true).open(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .read(true)
+        .open(path)?;
     if detect_gzip_and_rewind(&mut file)?
     {
         return Err(std::io::Error::new(ErrorKind::InvalidData, "gzipped auto hostlists are not supported"));
@@ -304,7 +367,8 @@ fn get_or_load_ipset(
         return Ok(Rc::clone(existing));
     }
     let mut file = IpsetFile::from_path(path.to_path_buf());
-    file.load_initial().map_err(|err| (path.to_path_buf(), err))?;
+    file.load_initial()
+        .map_err(|err| (path.to_path_buf(), err))?;
     let shared = Rc::new(RefCell::new(file));
     by_path.insert(path.to_path_buf(), Rc::clone(&shared));
     registry.push(Rc::clone(&shared));
@@ -314,8 +378,23 @@ fn get_or_load_ipset(
 /// Returns `true` when every configured include/exclude hostlist pool on `col` is empty (`PROFILE_HOSTLISTS_EMPTY`).
 pub(crate) fn hostlists_are_empty(col: &HostlistCollection) -> bool
 {
-    let inc_empty = col.include.iter().all(|item| item.file.borrow().pool.is_empty());
-    let exc_empty = col.exclude.iter().all(|file| file.borrow().pool.is_empty());
+    let inc_empty = col
+        .include
+        .iter()
+        .all(|item| {
+            item.file
+                .borrow()
+                .pool
+                .is_empty()
+        });
+    let exc_empty = col
+        .exclude
+        .iter()
+        .all(|file| {
+            file.borrow()
+                .pool
+                .is_empty()
+        });
     inc_empty && exc_empty
 }
 
@@ -331,25 +410,45 @@ pub(crate) fn profile_matches_full(
         return false;
     }
     let now_sec = boottime_secs();
-    let do_reload = rt.last_reload_check_sec.get() != now_sec;
+    let do_reload = rt
+        .last_reload_check_sec
+        .get()
+        != now_sec;
     if do_reload
     {
-        rt.last_reload_check_sec.set(now_sec);
-        if rt.hostlists.reload_check().is_err()
+        rt.last_reload_check_sec
+            .set(now_sec);
+        if rt
+            .hostlists
+            .reload_check()
+            .is_err()
         {
             return false;
         }
     }
     let hl_empty = hostlists_are_empty(&rt.hostlists);
-    if rt.autolist.is_none() && input.hostname.is_none() && !hl_empty
+    if rt
+        .autolist
+        .is_none()
+        && input
+            .hostname
+            .is_none()
+        && !hl_empty
     {
         return false;
     }
-    if !rt.ipsets.check(input.primary_ip, input.reverse_ip, !do_reload)
+    if !rt
+        .ipsets
+        .check(input.primary_ip, input.reverse_ip, !do_reload)
     {
         return false;
     }
-    if rt.autolist.is_some() && input.hostname.is_some()
+    if rt
+        .autolist
+        .is_some()
+        && input
+            .hostname
+            .is_some()
     {
         return true;
     }
@@ -357,7 +456,13 @@ pub(crate) fn profile_matches_full(
     {
         return true;
     }
-    input.hostname.is_some_and(|host| rt.hostlists.check(host, input.hostname_is_ip, true).matched)
+    input
+        .hostname
+        .is_some_and(|host| {
+            rt.hostlists
+                .check(host, input.hostname_is_ip, true)
+                .matched
+        })
 }
 
 /// Returns the 0-based index of the first active profile matching `input` (`dp_find`).
@@ -367,7 +472,10 @@ pub(crate) fn find_matching_profile(
     input: &FullMatchInput<'_>,
 ) -> Option<usize>
 {
-    profiles.iter().zip(runtimes.iter()).position(|(profile, rt)| profile_matches_full(profile, rt, input))
+    profiles
+        .iter()
+        .zip(runtimes.iter())
+        .position(|(profile, rt)| profile_matches_full(profile, rt, input))
 }
 
 /// Bundled registry, profile snapshots, and runtime states produced by [`build_swapped_profiles`].
@@ -390,7 +498,10 @@ pub(crate) fn build_swapped_profiles(
     runtime.verify_desync_functions(&profiles)?;
     let (registry, runtimes) = ListRegistry::load_from_profiles(&profiles)
         .map_err(|(_, err)| crate::lua::LuaEngineError::Io(err))?;
-    let profiles = profiles.into_iter().map(Rc::new).collect();
+    let profiles = profiles
+        .into_iter()
+        .map(Rc::new)
+        .collect();
     Ok(SwappedProfiles { registry, profiles, runtimes })
 }
 

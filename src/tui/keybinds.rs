@@ -33,7 +33,9 @@ fn push_help_section(
     let marker = if active { " (current tab)" } else { "" };
     lines.push(Line::from(Span::styled(
         format!("{heading}{marker}"),
-        Style::default().fg(head_col).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(head_col)
+            .add_modifier(Modifier::BOLD),
     )));
     for row in rows
     {
@@ -46,41 +48,63 @@ fn push_help_section(
 fn push_global_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState)
 {
     let t = &state.theme;
-    let g = &state.keybinds.global;
+    let g = &state
+        .keybinds
+        .global;
     let tab_nav = format!(
         "{}..{}/{}/{}",
-        g.tab_1.primary_label(),
-        g.tab_7.primary_label(),
-        g.prev_tab.primary_label(),
-        g.next_tab.primary_label()
+        g.tab_1
+            .primary_label(),
+        g.tab_7
+            .primary_label(),
+        g.prev_tab
+            .primary_label(),
+        g.next_tab
+            .primary_label()
     );
-    let panel_nav = g.next_panel.combine_labels(&g.prev_panel);
-    let global_row = if !state.status.has_net_caps
+    let panel_nav = g
+        .next_panel
+        .combine_labels(&g.prev_panel);
+    let global_row = if !state
+        .status
+        .has_net_caps
     {
         format!(
             "[{tab_nav}] Tabs  [{panel_nav}] Panel  [{}] Web UI  [{}] Caps  [{}] Help  [{}] Quit",
-            g.web_ui.primary_label(),
-            g.caps_modal.primary_label(),
-            g.help.primary_label(),
-            g.quit.primary_label(),
+            g.web_ui
+                .primary_label(),
+            g.caps_modal
+                .primary_label(),
+            g.help
+                .primary_label(),
+            g.quit
+                .primary_label(),
         )
     }
     else
     {
         format!(
             "[{tab_nav}] Tabs  [{panel_nav}] Focus Panel  [{}] Web UI  [{}] Help  [{}] Quit",
-            g.web_ui.primary_label(),
-            g.help.primary_label(),
-            g.quit.primary_label(),
+            g.web_ui
+                .primary_label(),
+            g.help
+                .primary_label(),
+            g.quit
+                .primary_label(),
         )
     };
-    if state.web_status.is_some()
+    if state
+        .web_status
+        .is_some()
     {
         let extra = format!(
             "[{}] Open Web UI   [{}] Copy Passcode   [{}] Stop Web UI   (click URL/passcode also works)",
-            g.open_web_ui.primary_label(),
-            g.copy_web_passcode.primary_label(),
-            g.web_ui.primary_label(),
+            g.open_web_ui
+                .primary_label(),
+            g.copy_web_passcode
+                .primary_label(),
+            g.web_ui
+                .primary_label(),
         );
         push_help_section(lines, "Global", false, &[global_row, extra], t);
     }
@@ -94,63 +118,107 @@ fn push_global_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState)
 fn push_run_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState, page_nav: &str)
 {
     let t = &state.theme;
-    let r = &state.keybinds.run;
-    let insp = &state.keybinds.inspector;
-    let row1 = if state.run.status == RunStatus::Attached
+    let r = &state
+        .keybinds
+        .run;
+    let insp = &state
+        .keybinds
+        .inspector;
+    let row1 = if state
+        .run
+        .status
+        == RunStatus::Attached
     {
         format!(
             "[{}] Detach  [{}] Stop Daemon  [{}] Restart  [{}] Reload Lists  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail",
-            r.stop_or_detach.primary_label(),
-            r.stop_attached.primary_label(),
-            r.restart.primary_label(),
-            r.reload.primary_label(),
-            insp.filter_cycle.primary_label(),
-            insp.filter_edit.primary_label(),
-            insp.pause.primary_label(),
-            insp.detail.primary_label(),
+            r.stop_or_detach
+                .primary_label(),
+            r.stop_attached
+                .primary_label(),
+            r.restart
+                .primary_label(),
+            r.reload
+                .primary_label(),
+            insp.filter_cycle
+                .primary_label(),
+            insp.filter_edit
+                .primary_label(),
+            insp.pause
+                .primary_label(),
+            insp.detail
+                .primary_label(),
         )
     }
-    else if state.run.detected_socket.is_some() && state.run.status != RunStatus::Running
+    else if state
+        .run
+        .detected_socket
+        .is_some()
+        && state
+            .run
+            .status
+            != RunStatus::Running
     {
         format!(
             "[{}] Attach  [{}] Restart  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail  [{}] Clear  [{}] Reload",
-            r.start_stop.primary_label(),
-            r.restart.primary_label(),
-            insp.filter_cycle.primary_label(),
-            insp.filter_edit.primary_label(),
-            insp.pause.primary_label(),
-            insp.detail.primary_label(),
-            r.clear.primary_label(),
-            r.reload.primary_label(),
+            r.start_stop
+                .primary_label(),
+            r.restart
+                .primary_label(),
+            insp.filter_cycle
+                .primary_label(),
+            insp.filter_edit
+                .primary_label(),
+            insp.pause
+                .primary_label(),
+            insp.detail
+                .primary_label(),
+            r.clear
+                .primary_label(),
+            r.reload
+                .primary_label(),
         )
     }
     else
     {
         format!(
             "[{}] Start/Stop  [{}] Restart  [{}] Verdict  [{}] Search  [{}] Pause  [{}] Detail  [{}] Clear  [{}] Reload",
-            r.start_stop.primary_label(),
-            r.restart.primary_label(),
-            insp.filter_cycle.primary_label(),
-            insp.filter_edit.primary_label(),
-            insp.pause.primary_label(),
-            insp.detail.primary_label(),
-            r.clear.primary_label(),
-            r.reload.primary_label(),
+            r.start_stop
+                .primary_label(),
+            r.restart
+                .primary_label(),
+            insp.filter_cycle
+                .primary_label(),
+            insp.filter_edit
+                .primary_label(),
+            insp.pause
+                .primary_label(),
+            insp.detail
+                .primary_label(),
+            r.clear
+                .primary_label(),
+            r.reload
+                .primary_label(),
         )
     };
-    let row2 = if state.run.status == RunStatus::Attached
+    let row2 = if state
+        .run
+        .status
+        == RunStatus::Attached
     {
         format!(
             "[{page_nav}] Select Packet / Scroll Log  [{}] Clear  [{}] Close Detail",
-            r.clear.primary_label(),
-            insp.close_detail.joined_label(),
+            r.clear
+                .primary_label(),
+            insp.close_detail
+                .joined_label(),
         )
     }
     else
     {
         format!(
             "[{page_nav}] Select Packet / Scroll Daemon Log  [{}] Close Detail",
-            insp.close_detail.joined_label(),
+            insp.close_detail
+                .joined_label(),
         )
     };
     let run_title = if cfg!(windows) { "Run WinDivert" } else { "Run nfqws2" };
@@ -171,48 +239,69 @@ fn push_other_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState, v_n
             let f = &k.finder;
             let row1 = format!(
                 "[{v_nav}] Move/Scroll  [{}] Edit/Toggle  [{}] Start Scan  [{}] Stop Scan",
-                f.activate.joined_label(),
-                f.start_scan.primary_label(),
-                f.stop_scan.joined_label(),
+                f.activate
+                    .joined_label(),
+                f.start_scan
+                    .primary_label(),
+                f.stop_scan
+                    .joined_label(),
             );
             let row2 = format!(
                 "[{}/{}/{}/{}] Cursor in field  [Del] Forward delete  [{}] Save TOML  [{}] Run Tab",
-                nav.left.primary_label(),
-                nav.right.primary_label(),
-                nav.home.primary_label(),
-                nav.end.primary_label(),
-                f.save_toml.primary_label(),
-                f.open_run_tab.primary_label(),
+                nav.left
+                    .primary_label(),
+                nav.right
+                    .primary_label(),
+                nav.home
+                    .primary_label(),
+                nav.end
+                    .primary_label(),
+                f.save_toml
+                    .primary_label(),
+                f.open_run_tab
+                    .primary_label(),
             );
             push_help_section(lines, "Strategy Finder", true, &[row1, row2], t);
         }
         ActiveTab::Config =>
         {
             let c = &k.config;
-            let row1 = if state.run.status == RunStatus::Attached
+            let row1 = if state
+                .run
+                .status
+                == RunStatus::Attached
             {
                 format!(
                     "[{}] Edit ($EDITOR)  [{}] Push Config  [{}] Save  [{}] Reload",
-                    c.edit.joined_label(),
-                    c.push.primary_label(),
-                    c.save.primary_label(),
-                    c.reload.primary_label(),
+                    c.edit
+                        .joined_label(),
+                    c.push
+                        .primary_label(),
+                    c.save
+                        .primary_label(),
+                    c.reload
+                        .primary_label(),
                 )
             }
             else
             {
                 format!(
                     "[{}] Edit ($EDITOR)  [{}] Save  [{}] Reload",
-                    c.edit.joined_label(),
-                    c.save.primary_label(),
-                    c.reload.primary_label(),
+                    c.edit
+                        .joined_label(),
+                    c.save
+                        .primary_label(),
+                    c.reload
+                        .primary_label(),
                 )
             };
             let target_lbl = if cfg!(windows) { "Filter" } else { "nft" };
             let row2 = format!(
                 "[{page_nav}/{}] Scroll TOML / {target_lbl}  [{}] Switch Pane",
-                nav.home.primary_label(),
-                g.next_panel.primary_label(),
+                nav.home
+                    .primary_label(),
+                g.next_panel
+                    .primary_label(),
             );
             push_help_section(lines, "Config & Diagnostics", true, &[row1, row2], t);
         }
@@ -221,9 +310,12 @@ fn push_other_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState, v_n
             let s = &k.speed;
             let row = format!(
                 "[{}] Run Before/After Check  [{}] Cancel  [{}] Clear Results  [{v_nav}] Select",
-                s.start.primary_label(),
-                s.cancel.joined_label(),
-                s.clear.primary_label(),
+                s.start
+                    .primary_label(),
+                s.cancel
+                    .joined_label(),
+                s.clear
+                    .primary_label(),
             );
             push_help_section(lines, "Speed Test", true, &[row], t);
         }
@@ -232,14 +324,22 @@ fn push_other_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState, v_n
             let s = &k.status;
             let row = format!(
                 "[{}] Refresh  [{}] DNS Preset  [{}] Apply DNS  [{}] Debug Report  [{}/{}/{}/{}]",
-                s.refresh.joined_label(),
-                s.next_dns.primary_label(),
-                s.apply_dns.primary_label(),
-                s.export_debug.primary_label(),
-                nav.up.primary_label(),
-                nav.down.primary_label(),
-                nav.left.primary_label(),
-                nav.right.primary_label(),
+                s.refresh
+                    .joined_label(),
+                s.next_dns
+                    .primary_label(),
+                s.apply_dns
+                    .primary_label(),
+                s.export_debug
+                    .primary_label(),
+                nav.up
+                    .primary_label(),
+                nav.down
+                    .primary_label(),
+                nav.left
+                    .primary_label(),
+                nav.right
+                    .primary_label(),
             );
             push_help_section(lines, "Status", true, &[row], t);
         }
@@ -261,20 +361,31 @@ fn push_management_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState
             let hl = &k.hostlist;
             let row1 = format!(
                 "[{v_nav}/{}/{}] Select  [{}/{}/{}] Switch List  [{}] Remove Selected",
-                nav.page_up.primary_label(),
-                nav.page_down.primary_label(),
-                g.next_panel.primary_label(),
-                nav.left.primary_label(),
-                nav.right.primary_label(),
-                hl.delete.joined_label(),
+                nav.page_up
+                    .primary_label(),
+                nav.page_down
+                    .primary_label(),
+                g.next_panel
+                    .primary_label(),
+                nav.left
+                    .primary_label(),
+                nav.right
+                    .primary_label(),
+                hl.delete
+                    .joined_label(),
             );
             let row2 = format!(
                 "[{}] Move Selected (Auto <-> Blacklist)  [{}] Add Auto  [{}] Add Blacklist  [{}] Filter  [{}] Reload",
-                hl.move_entry.joined_label(),
-                hl.add_auto.primary_label(),
-                hl.add_blacklist.primary_label(),
-                hl.filter.primary_label(),
-                hl.reload.primary_label(),
+                hl.move_entry
+                    .joined_label(),
+                hl.add_auto
+                    .primary_label(),
+                hl.add_blacklist
+                    .primary_label(),
+                hl.filter
+                    .primary_label(),
+                hl.reload
+                    .primary_label(),
             );
             push_help_section(lines, "Auto Hostlist & Blacklist", true, &[row1, row2], t);
         }
@@ -283,19 +394,29 @@ fn push_management_tab_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState
             let st = &k.settings;
             let row1 = format!(
                 "[{v_nav}/{}/{}] Navigate  [{}/{}/{}] Column  [{}] Edit/Rebind  [{}] Reset",
-                nav.page_up.primary_label(),
-                nav.page_down.primary_label(),
-                g.next_panel.primary_label(),
-                nav.left.primary_label(),
-                nav.right.primary_label(),
-                st.rebind.primary_label(),
-                st.reset.joined_label(),
+                nav.page_up
+                    .primary_label(),
+                nav.page_down
+                    .primary_label(),
+                g.next_panel
+                    .primary_label(),
+                nav.left
+                    .primary_label(),
+                nav.right
+                    .primary_label(),
+                st.rebind
+                    .primary_label(),
+                st.reset
+                    .joined_label(),
             );
             let row2 = format!(
                 "[{}] Save config.toml  [{}] Reload config.toml  [{}] Open $EDITOR",
-                st.save.primary_label(),
-                st.reload.primary_label(),
-                st.edit.primary_label(),
+                st.save
+                    .primary_label(),
+                st.reload
+                    .primary_label(),
+                st.edit
+                    .primary_label(),
             );
             push_help_section(lines, "Settings (config.toml)", true, &[row1, row2], t);
         }
@@ -313,7 +434,10 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
     let popup = clamped_centered_rect(frame.area(), 84, 44, 14, 8);
     frame.render_widget(Clear, popup);
 
-    let tab_label = state.tab.spec().full_title;
+    let tab_label = state
+        .tab
+        .spec()
+        .full_title;
     // `panel_block` takes `&'static str`; leak the formatted title for the lifetime of this frame.
     let title = format!(" Keybindings \u{2014} {tab_label} [?] ");
     let outer = panel_block(Box::leak(title.into_boxed_str()), t.accent_bright, t.warn_bright);
@@ -328,14 +452,22 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
     let mut lines = Vec::new();
     push_global_keybinds(&mut lines, state);
 
-    let nav = &state.keybinds.nav;
-    let v_nav = nav.up.combine_labels(&nav.down);
+    let nav = &state
+        .keybinds
+        .nav;
+    let v_nav = nav
+        .up
+        .combine_labels(&nav.down);
     let page_nav = format!(
         "{}/{}/{}/{}",
-        nav.up.primary_label(),
-        nav.down.primary_label(),
-        nav.page_up.primary_label(),
-        nav.page_down.primary_label()
+        nav.up
+            .primary_label(),
+        nav.down
+            .primary_label(),
+        nav.page_up
+            .primary_label(),
+        nav.page_down
+            .primary_label()
     );
     if state.tab == ActiveTab::Run
     {
@@ -346,8 +478,16 @@ pub fn draw_keybinds_modal(frame: &mut Frame, state: &AppState)
         push_other_tab_keybinds(&mut lines, state, &v_nav, &page_nav);
     }
 
-    let g = &state.keybinds.global;
-    let close_hint = format!("[{}/Esc/Enter/{}] Close", g.help.primary_label(), g.quit.primary_label());
+    let g = &state
+        .keybinds
+        .global;
+    let close_hint = format!(
+        "[{}/Esc/Enter/{}] Close",
+        g.help
+            .primary_label(),
+        g.quit
+            .primary_label()
+    );
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
     frame.render_widget(Paragraph::new(Line::from(styled_key_hints_owned(&close_hint, t))), chunks[1]);
 }

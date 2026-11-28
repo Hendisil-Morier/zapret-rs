@@ -24,7 +24,9 @@ fn strerror_string(errno: i32) -> String
     if rc == 0
     {
         // SAFETY: XSI `strerror_r` NUL-terminates `buf` upon returning `0`.
-        return unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned();
+        return unsafe { CStr::from_ptr(buf.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
     }
     std::io::Error::from_raw_os_error(errno).to_string()
 }
@@ -50,14 +52,18 @@ const fn stat_file_type(mode: libc::mode_t) -> &'static str
 #[cfg(unix)]
 fn tm_zone_string(tm: &libc::tm) -> String
 {
-    if tm.tm_zone.is_null()
+    if tm
+        .tm_zone
+        .is_null()
     {
         String::new()
     }
     else
     {
         // SAFETY: `localtime_r`/`gmtime_r` populate `tm_zone` with a static NUL-terminated string.
-        unsafe { CStr::from_ptr(tm.tm_zone) }.to_string_lossy().into_owned()
+        unsafe { CStr::from_ptr(tm.tm_zone) }
+            .to_string_lossy()
+            .into_owned()
     }
 }
 
@@ -204,7 +210,9 @@ fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue>
     // SAFETY: `c_path` is NUL-terminated and `st` is valid writable storage.
     if unsafe { libc::stat(c_path.as_ptr(), &raw mut st) } != 0
     {
-        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EINVAL);
+        let errno = std::io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or(libc::EINVAL);
         let err_str = strerror_string(errno);
         return Ok(MultiValue::from_vec(vec![
             Value::Nil,
@@ -234,7 +242,9 @@ fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue>
         Ok(m) => m,
         Err(err) =>
         {
-            let errno = err.raw_os_error().unwrap_or(libc::EINVAL);
+            let errno = err
+                .raw_os_error()
+                .unwrap_or(libc::EINVAL);
             let err_str = err.to_string();
             return Ok(MultiValue::from_vec(vec![
                 Value::Nil,
@@ -246,7 +256,10 @@ fn lua_stat(lua: &Lua, args: Variadic<Value>) -> mlua::Result<MultiValue>
     let mtime = meta
         .modified()
         .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+        })
         .map_or(0.0, |d| d.as_secs_f64());
     let ftype = if meta.is_file()
     {

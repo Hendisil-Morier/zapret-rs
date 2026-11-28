@@ -168,7 +168,10 @@ pub fn quic_decrypt_initial(data: &[u8]) -> Option<Vec<u8>>
         return None;
     }
 
-    let sample: [u8; 16] = data.get(pn_offset + 4..pn_offset + 20)?.try_into().ok()?;
+    let sample: [u8; 16] = data
+        .get(pn_offset + 4..pn_offset + 20)?
+        .try_into()
+        .ok()?;
     let hp_key = AesKey::new(&aeshp).ok()?;
     let mask = hp_key.encrypt_block(&sample);
 
@@ -180,7 +183,9 @@ pub fn quic_decrypt_initial(data: &[u8]) -> Option<Vec<u8>>
         return None;
     }
 
-    let mut header = data.get(..header_len)?.to_vec();
+    let mut header = data
+        .get(..header_len)?
+        .to_vec();
     header[0] = packet0;
     let mut pkn = 0u32;
     for i in 0..pkn_len
@@ -190,7 +195,9 @@ pub fn quic_decrypt_initial(data: &[u8]) -> Option<Vec<u8>>
         pkn |= u32::from(decoded) << (8 * (pkn_len - 1 - i));
     }
 
-    let iv_tail_bytes: [u8; 8] = aesiv[4..12].try_into().ok()?;
+    let iv_tail_bytes: [u8; 8] = aesiv[4..12]
+        .try_into()
+        .ok()?;
     let iv_tail = u64::from_be_bytes(iv_tail_bytes) ^ u64::from(pkn);
     aesiv[4..12].copy_from_slice(&iv_tail.to_be_bytes());
 

@@ -92,7 +92,9 @@ impl PortRewrite for Vec<u8>
     fn replace_port_443_to_80(self) -> Vec<u8>
     {
         let mut dis = dissect_packet(&self, false);
-        if let Some(tcp) = dis.tcp.as_mut()
+        if let Some(tcp) = dis
+            .tcp
+            .as_mut()
         {
             tcp.d_port = 80;
         }
@@ -228,7 +230,10 @@ fn desync_engine_exposes_track_lua_state_ranges_and_cutoffs()
         .borrow()
         .double_search(&dissect_packet(&syn80, false))
         .expect("80 tracked");
-    assert!(e80.borrow().lua_out_cutoff);
+    assert!(
+        e80.borrow()
+            .lua_out_cutoff
+    );
 }
 
 /// Verifies `conntrack_feed` creates tracked state from Lua dissect/raw packets and propagates `ctx.ctrack`.
@@ -285,7 +290,10 @@ fn lua_conntrack_feed_creates_and_propagates_ctrack_mid_profile()
         payload: &mid,
     });
     assert_eq!(decision, Decision::Drop);
-    engine.runtime().exec_str("assert(_G.step1 == 1 and _G.step2 == 1)").expect("mid-profile propagation");
+    engine
+        .runtime()
+        .exec_str("assert(_G.step1 == 1 and _G.step2 == 1)")
+        .expect("mid-profile propagation");
 
     // Raw-string conntrack_feed and invalid type error handling.
     engine
@@ -301,5 +309,10 @@ fn lua_conntrack_feed_creates_and_propagates_ctrack_mid_profile()
     "#,
         )
         .expect("raw string conntrack_feed succeeds");
-    assert!(engine.runtime().exec_str("conntrack_feed(42)").is_err());
+    assert!(
+        engine
+            .runtime()
+            .exec_str("conntrack_feed(42)")
+            .is_err()
+    );
 }

@@ -30,7 +30,9 @@ fn resolve_with_existing_ancestor(path: &Path) -> Result<PathBuf, String>
     }
     let mut resolved = fs::canonicalize(cursor)
         .map_err(|err| format!("cannot canonicalize '{}': {err}", cursor.display()))?;
-    for part in tail.into_iter().rev()
+    for part in tail
+        .into_iter()
+        .rev()
     {
         resolved.push(part);
     }
@@ -40,17 +42,23 @@ fn resolve_with_existing_ancestor(path: &Path) -> Result<PathBuf, String>
 /// Returns `Ok(())` only if `raw` stays strictly inside `config_dir` without `..` or symlinks.
 pub(crate) fn check_confined_path(raw: &Path, config_dir: &Path) -> Result<PathBuf, String>
 {
-    if raw.as_os_str().is_empty()
+    if raw
+        .as_os_str()
+        .is_empty()
     {
         return Err("empty path is not permitted".to_owned());
     }
-    if raw.components().any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
+    if raw
+        .components()
+        .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
     {
         return Err(format!("path traversal '..' is not permitted: '{}'", raw.display()));
     }
 
     if let Ok(meta) = fs::symlink_metadata(config_dir)
-        && meta.file_type().is_symlink()
+        && meta
+            .file_type()
+            .is_symlink()
     {
         return Err(format!("config directory '{}' must not be a symlink", config_dir.display()));
     }
@@ -74,14 +82,19 @@ pub(crate) fn check_confined_path(raw: &Path, config_dir: &Path) -> Result<PathB
             {
                 scan.push(seg);
                 if let Ok(meta) = fs::symlink_metadata(&scan)
-                    && meta.file_type().is_symlink()
+                    && meta
+                        .file_type()
+                        .is_symlink()
                 {
                     return Err(format!("symlink component not permitted: '{}'", scan.display()));
                 }
             }
         }
     }
-    else if fs::symlink_metadata(&candidate).is_ok_and(|m| m.file_type().is_symlink())
+    else if fs::symlink_metadata(&candidate).is_ok_and(|m| {
+        m.file_type()
+            .is_symlink()
+    })
     {
         return Err(format!("symlink path not permitted: '{}'", candidate.display()));
     }
@@ -120,7 +133,8 @@ fn check_lua_init_entry(
             {
                 return Err("inline Lua scripts cannot be configured via Web UI".to_owned());
             }
-            t.get("file").and_then(toml::Value::as_str)
+            t.get("file")
+                .and_then(toml::Value::as_str)
         }
         _ => None,
     };
@@ -134,7 +148,9 @@ fn check_lua_init_entry(
     {
         return Ok(());
     }
-    let Some(fname) = p.file_name().and_then(|n| n.to_str())
+    let Some(fname) = p
+        .file_name()
+        .and_then(|n| n.to_str())
     else
     {
         return Err(format!("invalid lua_init path '{path_str}'"));
@@ -168,12 +184,17 @@ fn check_lua_init_entry(
         {
             allowed_dirs.push(pref.join("share/zapret-rs/lua"));
         }
-        if let Some(grand) = parent.parent().and_then(Path::parent)
+        if let Some(grand) = parent
+            .parent()
+            .and_then(Path::parent)
         {
             allowed_dirs.push(grand.join("lua"));
         }
     }
-    if allowed_dirs.iter().filter_map(|d| fs::canonicalize(d).ok()).any(|d| canon.starts_with(&d))
+    if allowed_dirs
+        .iter()
+        .filter_map(|d| fs::canonicalize(d).ok())
+        .any(|d| canon.starts_with(&d))
     {
         Ok(())
     }
@@ -212,12 +233,16 @@ pub(crate) fn validate_web_toml_paths(
 
     for key in ["pidfile", "chdir", "hostlist_auto_debug", "writable"]
     {
-        if let Some(s) = root.get(key).and_then(toml::Value::as_str)
+        if let Some(s) = root
+            .get(key)
+            .and_then(toml::Value::as_str)
         {
             check_confined_path(Path::new(s), config_dir)?;
         }
     }
-    if let Some(sock) = root.get("control_socket").and_then(toml::Value::as_str)
+    if let Some(sock) = root
+        .get("control_socket")
+        .and_then(toml::Value::as_str)
         && sock != "off"
         && sock != "default"
     {
@@ -227,7 +252,10 @@ pub(crate) fn validate_web_toml_paths(
     {
         for (name, spec) in blobs
         {
-            if let Some(file_str) = spec.as_table().and_then(|t| t.get("file")).and_then(toml::Value::as_str)
+            if let Some(file_str) = spec
+                .as_table()
+                .and_then(|t| t.get("file"))
+                .and_then(toml::Value::as_str)
             {
                 check_confined_path(Path::new(file_str), config_dir)
                     .map_err(|e| format!("blob '{name}': {e}"))?;
@@ -250,7 +278,9 @@ pub(crate) fn validate_web_toml_paths(
             {
                 continue;
             };
-            if let Some(auto_str) = prof.get("hostlist_auto").and_then(toml::Value::as_str)
+            if let Some(auto_str) = prof
+                .get("hostlist_auto")
+                .and_then(toml::Value::as_str)
             {
                 check_confined_path(Path::new(auto_str), config_dir)?;
             }

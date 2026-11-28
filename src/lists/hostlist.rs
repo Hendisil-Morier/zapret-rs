@@ -64,26 +64,31 @@ impl HostlistPool
     /// Returns `true` if no entries are stored in the pool.
     pub fn is_empty(&self) -> bool
     {
-        self.entries.is_empty()
+        self.entries
+            .is_empty()
     }
 
     /// Returns the number of distinct entries stored in the pool.
     pub fn len(&self) -> usize
     {
-        self.entries.len()
+        self.entries
+            .len()
     }
 
     /// Removes all host entries from the pool (`HostlistPoolDestroy`).
     pub fn clear(&mut self)
     {
-        self.entries.clear();
+        self.entries
+            .clear();
     }
 
     /// Inserts a lowercase-normalized host entry with `flags` if not already present.
     pub fn add_host(&mut self, host: &str, flags: u32)
     {
         let lower = host.to_ascii_lowercase();
-        self.entries.entry(lower).or_insert(flags);
+        self.entries
+            .entry(lower)
+            .or_insert(flags);
     }
 
     /// Parses one raw hostlist line (skipping comments, extracting `^`/`!` flags) and adds it.
@@ -96,7 +101,10 @@ impl HostlistPool
         };
         let mut flags = 0u32;
         let mut rest = token;
-        while let Some(prefix) = rest.as_bytes().first().copied()
+        while let Some(prefix) = rest
+            .as_bytes()
+            .first()
+            .copied()
         {
             match prefix
             {
@@ -121,20 +129,27 @@ impl HostlistPool
     /// Inserts [`EMPTY_AUTOLIST_SENTINEL`] when the pool is empty (`NonEmptyHostlist`).
     pub fn ensure_non_empty(&mut self)
     {
-        if self.entries.is_empty()
+        if self
+            .entries
+            .is_empty()
         {
-            self.entries.insert(EMPTY_AUTOLIST_SENTINEL.to_owned(), 0);
+            self.entries
+                .insert(EMPTY_AUTOLIST_SENTINEL.to_owned(), 0);
         }
     }
 
     /// Searches for `host` and, unless `no_match_subdomains`, walks parent domain suffixes.
     pub fn search(&self, host: &str, no_match_subdomains: bool) -> HostlistSearchResult
     {
-        if self.entries.is_empty()
+        if self
+            .entries
+            .is_empty()
         {
             return HostlistSearchResult::NotFound;
         }
-        let normalized: Cow<'_, str> = if host.bytes().any(|b| b.is_ascii_uppercase())
+        let normalized: Cow<'_, str> = if host
+            .bytes()
+            .any(|b| b.is_ascii_uppercase())
         {
             Cow::Owned(host.to_ascii_lowercase())
         }
@@ -147,7 +162,9 @@ impl HostlistPool
         let mut full_host = true;
         loop
         {
-            if let Some(&flags) = self.entries.get(cursor)
+            if let Some(&flags) = self
+                .entries
+                .get(cursor)
             {
                 let strict_skip = (flags & HOSTLIST_FLAG_STRICT_MATCH) != 0 && !full_host;
                 if !strict_skip
@@ -215,20 +232,28 @@ impl HostlistFile
     /// Clears `mod_sig` so the next reload check forces a full disk reload (`SIGHUP`).
     pub fn reset_mod_sig(&mut self)
     {
-        self.mod_sig.reset();
+        self.mod_sig
+            .reset();
     }
 
     /// Strictly loads the backing file at startup (`test_list_files`), failing on I/O or gzip error.
     pub fn load_initial(&mut self) -> std::io::Result<()>
     {
-        load_list_initial(self.path.as_deref(), &mut self.mod_sig, &mut self.pool, parse_hostlist_file)
+        load_list_initial(
+            self.path
+                .as_deref(),
+            &mut self.mod_sig,
+            &mut self.pool,
+            parse_hostlist_file,
+        )
     }
 
     /// Reloads the file if its signature changed, keeping existing entries on transient access error.
     pub fn reload_if_changed(&mut self) -> std::io::Result<bool>
     {
         reload_cached_list(
-            self.path.as_deref(),
+            self.path
+                .as_deref(),
             &mut self.mod_sig,
             &mut self.pool,
             "hostlist",
@@ -263,7 +288,11 @@ impl HostlistCollection
     /// Returns `true` when neither include nor exclude hostlists are configured.
     pub fn is_absent(&self) -> bool
     {
-        self.include.is_empty() && self.exclude.is_empty()
+        self.include
+            .is_empty()
+            && self
+                .exclude
+                .is_empty()
     }
 
     /// Ensures every autolist pool contains at least [`EMPTY_AUTOLIST_SENTINEL`] (`MakeAutolistsNonEmpty`).
@@ -273,7 +302,10 @@ impl HostlistCollection
         {
             if item.is_autolist
             {
-                item.file.borrow_mut().pool.ensure_non_empty();
+                item.file
+                    .borrow_mut()
+                    .pool
+                    .ensure_non_empty();
             }
         }
     }
@@ -284,14 +316,19 @@ impl HostlistCollection
         let mut any_changed = false;
         for item in &self.include
         {
-            if item.file.borrow_mut().reload_if_changed()?
+            if item
+                .file
+                .borrow_mut()
+                .reload_if_changed()?
             {
                 any_changed = true;
             }
         }
         for file in &self.exclude
         {
-            if file.borrow_mut().reload_if_changed()?
+            if file
+                .borrow_mut()
+                .reload_if_changed()?
             {
                 any_changed = true;
             }
@@ -306,20 +343,35 @@ impl HostlistCollection
     /// Evaluates `host` against exclude then include hostlists (`HostlistCheck_`).
     pub fn check(&self, host: &str, no_match_subdomains: bool, skip_reload: bool) -> HostlistCheckOutcome
     {
-        if !skip_reload && self.reload_check().is_err()
+        if !skip_reload
+            && self
+                .reload_check()
+                .is_err()
         {
             return HostlistCheckOutcome { matched: false, excluded: false };
         }
 
         for ex_file in &self.exclude
         {
-            if ex_file.borrow().pool.search(host, no_match_subdomains) == HostlistSearchResult::Matched
+            if ex_file
+                .borrow()
+                .pool
+                .search(host, no_match_subdomains)
+                == HostlistSearchResult::Matched
             {
                 return HostlistCheckOutcome { matched: false, excluded: true };
             }
         }
 
-        if self.include.iter().all(|item| item.file.borrow().pool.is_empty())
+        if self
+            .include
+            .iter()
+            .all(|item| {
+                item.file
+                    .borrow()
+                    .pool
+                    .is_empty()
+            })
         {
             return HostlistCheckOutcome { matched: true, excluded: false };
         }
@@ -327,7 +379,11 @@ impl HostlistCollection
         let mut excluded = false;
         for item in &self.include
         {
-            match item.file.borrow().pool.search(host, no_match_subdomains)
+            match item
+                .file
+                .borrow()
+                .pool
+                .search(host, no_match_subdomains)
             {
                 HostlistSearchResult::Matched =>
                 {

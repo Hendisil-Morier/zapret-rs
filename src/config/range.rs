@@ -99,11 +99,15 @@ impl PacketPos
 /// Parses strict unsigned decimal digits without sign or hex prefixes.
 fn parse_u32_radix_decimal_only(raw: &str) -> Option<u32>
 {
-    if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit())
+    if raw.is_empty()
+        || !raw
+            .bytes()
+            .all(|b| b.is_ascii_digit())
     {
         return None;
     }
-    raw.parse::<u32>().ok()
+    raw.parse::<u32>()
+        .ok()
 }
 
 /// Inclusive or exclusive packet range filter matching `zapret2`'s `packet_range`.
@@ -128,7 +132,15 @@ impl PacketRange
     /// Evaluates whether this range matches without connection tracking (`'a'..'a'` only).
     pub const fn matches_without_conntrack(self) -> bool
     {
-        matches!(self.from.mode, PacketPosMode::Always) && matches!(self.to.mode, PacketPosMode::Always)
+        matches!(
+            self.from
+                .mode,
+            PacketPosMode::Always
+        ) && matches!(
+            self.to
+                .mode,
+            PacketPosMode::Always
+        )
     }
 
     /// Returns `true` when relative TCP sequence tracking overflowed past 2 GiB on `mode` (`'s'` or `'p'`).
@@ -160,29 +172,22 @@ impl PacketRange
     /// Evaluates whether the lower endpoint `self.from` has been reached (`check_pos_from` in `desync.c`).
     pub fn check_pos_from(self, pos: Option<&CtrackPosition>) -> bool
     {
-        if self.from.mode == PacketPosMode::Never || Self::pos_overflow(pos, self.from.mode)
+        if self
+            .from
+            .mode
+            == PacketPosMode::Never
+            || Self::pos_overflow(
+                pos,
+                self.from
+                    .mode,
+            )
         {
             return false;
         }
-        if self.from.mode == PacketPosMode::Always
-        {
-            return true;
-        }
-        match pos
-        {
-            Some(p) => Self::pos_get(Some(p), self.from.mode) >= u64::from(self.from.pos),
-            None => false,
-        }
-    }
-
-    /// Evaluates whether the upper endpoint `self.to` has not yet been passed (`check_pos_to` in `desync.c`).
-    pub fn check_pos_to(self, pos: Option<&CtrackPosition>) -> bool
-    {
-        if self.to.mode == PacketPosMode::Never || Self::pos_overflow(pos, self.to.mode)
-        {
-            return false;
-        }
-        if self.to.mode == PacketPosMode::Always
+        if self
+            .from
+            .mode
+            == PacketPosMode::Always
         {
             return true;
         }
@@ -190,8 +195,59 @@ impl PacketRange
         {
             Some(p) =>
             {
-                let ps = Self::pos_get(Some(p), self.to.mode);
-                ps < u64::from(self.to.pos) || (!self.upper_cutoff && ps == u64::from(self.to.pos))
+                Self::pos_get(
+                    Some(p),
+                    self.from
+                        .mode,
+                ) >= u64::from(
+                    self.from
+                        .pos,
+                )
+            }
+            None => false,
+        }
+    }
+
+    /// Evaluates whether the upper endpoint `self.to` has not yet been passed (`check_pos_to` in `desync.c`).
+    pub fn check_pos_to(self, pos: Option<&CtrackPosition>) -> bool
+    {
+        if self
+            .to
+            .mode
+            == PacketPosMode::Never
+            || Self::pos_overflow(
+                pos,
+                self.to
+                    .mode,
+            )
+        {
+            return false;
+        }
+        if self
+            .to
+            .mode
+            == PacketPosMode::Always
+        {
+            return true;
+        }
+        match pos
+        {
+            Some(p) =>
+            {
+                let ps = Self::pos_get(
+                    Some(p),
+                    self.to
+                        .mode,
+                );
+                ps < u64::from(
+                    self.to
+                        .pos,
+                ) || (!self.upper_cutoff
+                    && ps
+                        == u64::from(
+                            self.to
+                                .pos,
+                        ))
             }
             None => false,
         }
@@ -221,7 +277,9 @@ impl PacketRange
         {
             return Err(ConfigError::InvalidPacketRange(raw.to_owned()));
         }
-        if let Some(rest) = s.strip_prefix('-').or_else(|| s.strip_prefix('<'))
+        if let Some(rest) = s
+            .strip_prefix('-')
+            .or_else(|| s.strip_prefix('<'))
         {
             let upper_cutoff = s.starts_with('<');
             let to = if rest.is_empty() { PacketPos::ALWAYS } else { PacketPos::parse(rest)? };

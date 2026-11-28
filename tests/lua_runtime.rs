@@ -62,12 +62,8 @@ impl PacketSender for CapturingSender
         packet: &[u8],
     ) -> Result<(), RawSendError>
     {
-        self.packets.push(CapturedPacket {
-            dst,
-            fwmark,
-            ifout: ifout.map(str::to_owned),
-            data: packet.to_vec(),
-        });
+        self.packets
+            .push(CapturedPacket { dst, fwmark, ifout: ifout.map(str::to_owned), data: packet.to_vec() });
         Ok(())
     }
 }
@@ -77,8 +73,10 @@ fn runtime_with_zapret_tests(sender: Rc<RefCell<CapturingSender>>) -> LuaRuntime
 {
     let config = LuaConfig { desync_fwmark: 0x4000_0000, ..LuaConfig::default() };
     let rt = LuaRuntime::with_sender(config, sender).expect("LuaRuntime should initialize");
-    rt.exec_file(Path::new(ZAPRET_LIB_LUA)).expect("zapret-lib.lua should load cleanly");
-    rt.exec_file(Path::new(ZAPRET_TESTS_LUA)).expect("zapret-tests.lua should load cleanly");
+    rt.exec_file(Path::new(ZAPRET_LIB_LUA))
+        .expect("zapret-lib.lua should load cleanly");
+    rt.exec_file(Path::new(ZAPRET_TESTS_LUA))
+        .expect("zapret-tests.lua should load cleanly");
     rt
 }
 
@@ -150,19 +148,36 @@ fn zapret_tests_network_topology_suites_pass()
 /// Verifies repeated UDP, `badsum`, direct `rawsend`, and IPv4 fragment packet metadata.
 fn assert_udp_and_frag4_captures(captured: &[CapturedPacket])
 {
-    let expected_v4_dst: IpAddr = "10.1.1.2".parse().expect("valid IPv4");
+    let expected_v4_dst: IpAddr = "10.1.1.2"
+        .parse()
+        .expect("valid IPv4");
     for pkt in &captured[0..3]
     {
         assert_eq!(pkt.dst, expected_v4_dst);
         assert_eq!(pkt.fwmark, 0x4000_50EA);
-        assert_eq!(pkt.ifout.as_deref(), Some("eth9"));
+        assert_eq!(
+            pkt.ifout
+                .as_deref(),
+            Some("eth9")
+        );
         let dis = dissect_packet(&pkt.data, false);
         assert_eq!(dis.l4proto, IPPROTO_UDP);
-        assert_eq!(dis.payload.as_ref().expect("pl").len(), 160);
+        assert_eq!(
+            dis.payload
+                .as_ref()
+                .expect("pl")
+                .len(),
+            160
+        );
     }
 
-    let good_udp_sum = dissect_packet(&captured[0].data, false).udp.expect("good").checksum;
-    let bad_udp = dissect_packet(&captured[3].data, false).udp.expect("bad");
+    let good_udp_sum = dissect_packet(&captured[0].data, false)
+        .udp
+        .expect("good")
+        .checksum;
+    let bad_udp = dissect_packet(&captured[3].data, false)
+        .udp
+        .expect("bad");
     assert_ne!(bad_udp.checksum, good_udp_sum);
     assert_ne!(bad_udp.checksum, 0);
     let expected_good_sum =
@@ -270,10 +285,14 @@ fn lua_rawsend_and_rawsend_dissect_emit_valid_wire_packets()
     )
     .expect("Lua rawsend scenarios must execute without error");
 
-    let captured = &sender.borrow().packets;
+    let captured = &sender
+        .borrow()
+        .packets;
     assert_eq!(captured.len(), 14, "expected 3+1+2+2+2+2+2 = 14 packets");
 
-    let expected_v6_dst: IpAddr = "fd00::2".parse().expect("valid IPv6");
+    let expected_v6_dst: IpAddr = "fd00::2"
+        .parse()
+        .expect("valid IPv6");
     assert_udp_and_frag4_captures(captured);
 
     // Verify IPv6 UDP fragments (indices 8, 9): HOPOPTS, DSTOPTS, FRAGMENT, DSTOPTS2, plus forged TCP next on frag 2.
@@ -282,7 +301,11 @@ fn lua_rawsend_and_rawsend_dissect_emit_valid_wire_packets()
     assert_eq!(captured[8].dst, expected_v6_dst);
     assert_eq!(captured[8].fwmark, 0x4000_409A);
     assert_eq!(f6_1.frag_off, Some(0));
-    let exts_1 = &f6_1.ip6.as_ref().expect("ip6").exthdr;
+    let exts_1 = &f6_1
+        .ip6
+        .as_ref()
+        .expect("ip6")
+        .exthdr;
     assert_eq!(exts_1[0].header_type, IPPROTO_HOPOPTS);
     assert_eq!(exts_1[1].header_type, IPPROTO_DSTOPTS);
     assert_eq!(exts_1[2].header_type, IPPROTO_FRAGMENT);

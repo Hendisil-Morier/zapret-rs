@@ -187,7 +187,8 @@ fn all_zapret2_lua_scripts_load_and_non_live_tests_pass()
     let rt = LuaRuntime::with_sender(LuaConfig::default(), cap).expect("LuaRuntime initializes");
     for (name, data) in default_blobs()
     {
-        rt.set_blob(&name, &data).expect("set default blob");
+        rt.set_blob(&name, &data)
+            .expect("set default blob");
     }
     let lua_dir = Path::new(ZAPRET2_LUA_DIR);
     for script in [
@@ -246,9 +247,16 @@ args = { blob = "fake_default_http" }
         panic!("expected postnat-fix Replace on dropped initial SYN");
     };
     assert_eq!((postnat_dummy[8], postnat_dummy[9]), (1, 255));
-    let pkts = &cap.borrow().packets;
+    let pkts = &cap
+        .borrow()
+        .packets;
     assert_eq!(pkts.len(), 1);
-    assert_eq!(dissect_packet(&pkts[0].data, false).payload.as_deref(), Some(FAKE_HTTP_REQUEST_DEFAULT));
+    assert_eq!(
+        dissect_packet(&pkts[0].data, false)
+            .payload
+            .as_deref(),
+        Some(FAKE_HTTP_REQUEST_DEFAULT)
+    );
 
     let tls_hello = fs::read(TLS_HELLO_FIXTURE).expect("read TLS ClientHello fixture");
     let (eng, cap) = engine_with_capture(
@@ -266,11 +274,84 @@ args = { blob = "fake_default_tls", tls_mod = "rnd,rndsni,dupsid", ip_ttl = 3 }
     handshake_tcp4(&eng, 40002, 443);
     let pkt_tls = build_tcp4(CLI_IP, SRV_IP, 40002, 443, 1001, 2001, TH_ACK | TH_PUSH, &tls_hello);
     assert_eq!(eng.process_packet(&out_pkt(3, &pkt_tls)), Decision::Pass);
-    let fake_dis = dissect_packet(&cap.borrow().packets[0].data, false);
-    assert_eq!(fake_dis.ip.as_ref().expect("ip").ttl, 3);
-    let fake_pl = fake_dis.payload.as_deref().expect("fake tls payload");
+    let fake_dis = dissect_packet(
+        &cap.borrow()
+            .packets[0]
+            .data,
+        false,
+    );
+    assert_eq!(
+        fake_dis
+            .ip
+            .as_ref()
+            .expect("ip")
+            .ttl,
+        3
+    );
+    let fake_pl = fake_dis
+        .payload
+        .as_deref()
+        .expect("fake tls payload");
     assert_eq!(&fake_pl[44..76], &tls_hello[44..76], "dupsid must copy client session id");
     assert_ne!(tls_hello_extract_host(fake_pl, true).as_deref(), Some("www.iana.org"));
+}
+
+/// Verifies unmodified `fakedsplit` and `hostfakesplit` Lua strategies against `http_req`.
+fn verify_fakedsplit_and_hostfakesplit(http_req: &[u8], pkt_http: &[u8])
+{
+    for (func, extra_args) in [
+        ("fakedsplit", r#"pos = "midsld", ip_ttl = 2"#),
+        ("hostfakesplit", r#"host = "safe.org", midhost = "midsld", ip_ttl = 2"#),
+    ]
+    {
+        let toml = format!(
+            r#"
+lua_init = ["zapret-lib.lua", "zapret-antidpi.lua"]
+[[profiles]]
+filter_tcp = ["80"]
+[[profiles.actions]]
+func = "{func}"
+out_range = "a"
+args = {{ {extra_args} }}
+"#
+        );
+        let (eng, cap) = engine_with_capture(&toml);
+        handshake_tcp4(&eng, 40005, 80);
+        assert_eq!(eng.process_packet(&out_pkt(6, pkt_http)), Decision::Drop);
+        let pkts = &cap
+            .borrow()
+            .packets;
+        let mut reals = Vec::new();
+        let mut fake_found = 0usize;
+        for p in pkts
+        {
+            let d = dissect_packet(&p.data, false);
+            let ttl =
+                d.ip.expect("ip")
+                    .ttl;
+            let pl = d
+                .payload
+                .expect("pl");
+            if ttl == 64
+            {
+                reals.extend_from_slice(&pl);
+            }
+            else
+            {
+                assert_eq!(ttl, 2);
+                fake_found += 1;
+                if func == "hostfakesplit"
+                {
+                    assert!(
+                        pl.windows(8)
+                            .any(|w| w == b"safe.org")
+                    );
+                }
+            }
+        }
+        assert!(fake_found >= 2, "{func} must emit fake segments");
+        assert_eq!(reals.as_slice(), http_req, "{func} real segments must reconstruct HTTP");
+    }
 }
 
 /// Verifies `syndata`, `fake+tls_mod`, `multisplit`, `multidisorder`, `fakedsplit`, and `hostfakesplit`.
@@ -296,15 +377,30 @@ args = { pos = "midsld", seqovl = 4 }
     handshake_tcp4(&eng, 40003, 80);
     let pkt_http = build_tcp4(CLI_IP, SRV_IP, 40003, 80, 1001, 2001, TH_ACK | TH_PUSH, http_req);
     assert_eq!(eng.process_packet(&out_pkt(4, &pkt_http)), Decision::Drop);
-    let ms = &cap.borrow().packets;
+    let ms = &cap
+        .borrow()
+        .packets;
     assert_eq!(ms.len(), 2);
     let d0 = dissect_packet(&ms[0].data, false);
     let d1 = dissect_packet(&ms[1].data, false);
-    assert_eq!(d0.tcp.as_ref().expect("t0").seq, 997);
-    let p0 = d0.payload.as_deref().expect("p0");
+    assert_eq!(
+        d0.tcp
+            .as_ref()
+            .expect("t0")
+            .seq,
+        997
+    );
+    let p0 = d0
+        .payload
+        .as_deref()
+        .expect("p0");
     assert_eq!(&p0[..4], b"\0\0\0\0");
     let mut rebuilt = p0[4..].to_vec();
-    rebuilt.extend_from_slice(d1.payload.as_deref().expect("p1"));
+    rebuilt.extend_from_slice(
+        d1.payload
+            .as_deref()
+            .expect("p1"),
+    );
     assert_eq!(rebuilt.as_slice(), http_req);
 
     // 4) multidisorder ("host,endhost")
@@ -327,60 +423,26 @@ args = { pos = "host,endhost" }
         .iter()
         .map(|p| {
             let d = dissect_packet(&p.data, false);
-            (d.tcp.expect("tcp").seq, d.payload.expect("pl"))
+            (
+                d.tcp
+                    .expect("tcp")
+                    .seq,
+                d.payload
+                    .expect("pl"),
+            )
         })
         .collect();
     assert_eq!(parts.len(), 3);
     assert!(parts[0].0 > parts[1].0 && parts[1].0 > parts[2].0);
     parts.sort_by_key(|(seq, _)| *seq);
-    let md_rebuilt: Vec<u8> = parts.into_iter().flat_map(|(_, b)| b).collect();
+    let md_rebuilt: Vec<u8> = parts
+        .into_iter()
+        .flat_map(|(_, b)| b)
+        .collect();
     assert_eq!(md_rebuilt.as_slice(), http_req);
 
     // 5) fakedsplit + 6) hostfakesplit
-    for (func, extra_args) in [
-        ("fakedsplit", r#"pos = "midsld", ip_ttl = 2"#),
-        ("hostfakesplit", r#"host = "safe.org", midhost = "midsld", ip_ttl = 2"#),
-    ]
-    {
-        let toml = format!(
-            r#"
-lua_init = ["zapret-lib.lua", "zapret-antidpi.lua"]
-[[profiles]]
-filter_tcp = ["80"]
-[[profiles.actions]]
-func = "{func}"
-out_range = "a"
-args = {{ {extra_args} }}
-"#
-        );
-        let (eng, cap) = engine_with_capture(&toml);
-        handshake_tcp4(&eng, 40005, 80);
-        assert_eq!(eng.process_packet(&out_pkt(6, &pkt_http)), Decision::Drop);
-        let pkts = &cap.borrow().packets;
-        let mut reals = Vec::new();
-        let mut fake_found = 0usize;
-        for p in pkts
-        {
-            let d = dissect_packet(&p.data, false);
-            let ttl = d.ip.expect("ip").ttl;
-            let pl = d.payload.expect("pl");
-            if ttl == 64
-            {
-                reals.extend_from_slice(&pl);
-            }
-            else
-            {
-                assert_eq!(ttl, 2);
-                fake_found += 1;
-                if func == "hostfakesplit"
-                {
-                    assert!(pl.windows(8).any(|w| w == b"safe.org"));
-                }
-            }
-        }
-        assert!(fake_found >= 2, "{func} must emit fake segments");
-        assert_eq!(reals.as_slice(), http_req, "{func} real segments must reconstruct HTTP");
-    }
+    verify_fakedsplit_and_hostfakesplit(http_req, &pkt_http);
 }
 
 /// Verifies `zapret-obfs.lua::wgobfs` encrypt/decrypt round-trip and tag-mismatch rejection.
@@ -411,7 +473,11 @@ args = { secret = "shared-pass", padmin = 4, padmax = 12 }
         panic!("expected Decision::Replace from wgobfs encryption");
     };
     let obf_dis = dissect_packet(&obf_wire, false);
-    let obf_len = obf_dis.payload.as_ref().expect("obf payload").len();
+    let obf_len = obf_dis
+        .payload
+        .as_ref()
+        .expect("obf payload")
+        .len();
     assert!((148 + 30 + 4..=148 + 30 + 12).contains(&obf_len));
 
     let Decision::Replace(dec_wire) = peer_eng.process_packet(&out_pkt(2, &obf_wire))
@@ -420,11 +486,19 @@ args = { secret = "shared-pass", padmin = 4, padmax = 12 }
         panic!("expected Decision::Replace from wgobfs decryption");
     };
     let dec_dis = dissect_packet(&dec_wire, false);
-    assert_eq!(dec_dis.payload.as_deref(), Some(wg_init.as_slice()));
+    assert_eq!(
+        dec_dis
+            .payload
+            .as_deref(),
+        Some(wg_init.as_slice())
+    );
 
     // Corrupting one byte inside the AEAD ciphertext/tag must fail tag verification and pass cleanly.
     let mut tampered_dis = dissect_packet(&obf_wire, false);
-    tampered_dis.payload.as_mut().expect("pl")[30] ^= 0xFF;
+    tampered_dis
+        .payload
+        .as_mut()
+        .expect("pl")[30] ^= 0xFF;
     let tampered_wire = reconstruct_packet(&tampered_dis, &ReconstructOptions::default()).unwrap();
     assert_eq!(peer_eng.process_packet(&out_pkt(3, &tampered_wire)), Decision::Pass);
 }
@@ -474,15 +548,34 @@ args = { strategy = "2" }
     let req3 = build_tcp4(CLI_IP, SRV_IP, 41003, 80, 1001, 2001, TH_ACK | TH_PUSH, http_req);
     assert_eq!(eng.process_packet(&out_pkt(12, &req3)), Decision::Pass);
 
-    let log: Vec<String> = eng.runtime().lua().load("return strat_log").eval().unwrap();
+    let log: Vec<String> = eng
+        .runtime()
+        .lua()
+        .load("return strat_log")
+        .eval()
+        .unwrap();
     assert_eq!(log, vec!["1", "1", "2"]);
 }
 
 /// Verifies one nanosecond-PCAP packet record header and payload at byte offset `off`.
 fn assert_pcap_record(raw: &[u8], off: usize, pkt: &[u8]) -> usize
 {
-    assert_eq!(u32::from_be_bytes(raw[off + 8..off + 12].try_into().unwrap()) as usize, pkt.len());
-    assert_eq!(u32::from_be_bytes(raw[off + 12..off + 16].try_into().unwrap()) as usize, pkt.len());
+    assert_eq!(
+        u32::from_be_bytes(
+            raw[off + 8..off + 12]
+                .try_into()
+                .unwrap()
+        ) as usize,
+        pkt.len()
+    );
+    assert_eq!(
+        u32::from_be_bytes(
+            raw[off + 12..off + 16]
+                .try_into()
+                .unwrap()
+        ) as usize,
+        pkt.len()
+    );
     assert_eq!(&raw[off + 16..off + 16 + pkt.len()], pkt);
     off + 16 + pkt.len()
 }
@@ -492,8 +585,14 @@ fn assert_pcap_record(raw: &[u8], off: usize, pkt: &[u8]) -> usize
 fn zapret_pcap_writes_valid_nanosecond_pcap_under_writable()
 {
     let tmp = TempDir::new("zapret_rs_pcap");
-    let dir = prepare_writable_dir(&WritableDirConfig::Custom(tmp.0.join("writable")), None)
-        .expect("prepare writable dir");
+    let dir = prepare_writable_dir(
+        &WritableDirConfig::Custom(
+            tmp.0
+                .join("writable"),
+        ),
+        None,
+    )
+    .expect("prepare writable dir");
     let toml = r#"
 lua_init = ["zapret-lib.lua", "zapret-pcap.lua"]
 [[profiles]]

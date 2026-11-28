@@ -62,11 +62,15 @@ fn zapret_tests_resolve_suite_passes_unmodified()
     let rt = LuaRuntime::new(LuaConfig::default()).expect("LuaRuntime should initialize");
     for (name, data) in default_blobs()
     {
-        rt.set_blob(&name, &data).unwrap_or_else(|e| panic!("set_blob {name} failed: {e}"));
+        rt.set_blob(&name, &data)
+            .unwrap_or_else(|e| panic!("set_blob {name} failed: {e}"));
     }
-    rt.exec_file(Path::new(ZAPRET_LIB_LUA)).expect("zapret-lib.lua should load cleanly");
-    rt.exec_file(Path::new(ZAPRET_TESTS_LUA)).expect("zapret-tests.lua should load cleanly");
-    rt.exec_str("test_resolve()").expect("unmodified test_resolve() must pass");
+    rt.exec_file(Path::new(ZAPRET_LIB_LUA))
+        .expect("zapret-lib.lua should load cleanly");
+    rt.exec_file(Path::new(ZAPRET_TESTS_LUA))
+        .expect("zapret-tests.lua should load cleanly");
+    rt.exec_str("test_resolve()")
+        .expect("unmodified test_resolve() must pass");
 }
 
 /// Verifies `resolve_pos`, `resolve_multi_pos`, and `resolve_range` edge cases and strict errors in Lua.
@@ -76,8 +80,10 @@ fn lua_position_markers_and_ranges_match_c_semantics()
     let rt = LuaRuntime::new(LuaConfig::default()).expect("LuaRuntime should initialize");
     let http_req = read_fake_fixture("http_iana_org.bin");
     let ch_iana = read_fake_fixture("tls_clienthello_iana_org.bin");
-    rt.set_blob("http_iana", &http_req).expect("set_blob http_iana");
-    rt.set_blob("tls_iana", &ch_iana).expect("set_blob tls_iana");
+    rt.set_blob("http_iana", &http_req)
+        .expect("set_blob http_iana");
+    rt.set_blob("tls_iana", &ch_iana)
+        .expect("set_blob tls_iana");
 
     rt.exec_str(
         r#"
@@ -139,6 +145,50 @@ fn lua_position_markers_and_ranges_match_c_semantics()
     .expect("Lua marker assertions must pass");
 }
 
+/// Verifies `tls_mod` `sni` resize and `rndsni` mutations against the Rust TLS parser.
+fn verify_tls_mod_sni_mutations(tls_mod_fn: &mlua::Function, lua: &mlua::Lua, ch_iana: &[u8])
+{
+    let shrunk: mlua::LuaString = tls_mod_fn
+        .call((
+            lua.create_string(ch_iana)
+                .unwrap(),
+            "sni=a.io",
+        ))
+        .expect("tls_mod shrink succeeds");
+    let shrunk_bytes = shrunk.as_bytes();
+    assert!(is_tls_client_hello(&shrunk_bytes, false));
+    assert_eq!(tls_record_len(&shrunk_bytes), Some(shrunk_bytes.len()));
+    assert_eq!(tls_hello_extract_host(&shrunk_bytes, false).as_deref(), Some("a.io"));
+
+    let grown_sni = "very-long-replacement.example.org";
+    let grown: mlua::LuaString = tls_mod_fn
+        .call((
+            lua.create_string(ch_iana)
+                .unwrap(),
+            format!("sni={grown_sni}"),
+        ))
+        .expect("tls_mod grow succeeds");
+    let grown_bytes = grown.as_bytes();
+    assert!(is_tls_client_hello(&grown_bytes, false));
+    assert_eq!(tls_record_len(&grown_bytes), Some(grown_bytes.len()));
+    assert_eq!(tls_hello_extract_host(&grown_bytes, false).as_deref(), Some(grown_sni));
+
+    let rnd_sni_blob: mlua::LuaString = tls_mod_fn
+        .call((
+            lua.create_string(ch_iana)
+                .unwrap(),
+            "rndsni",
+        ))
+        .expect("tls_mod rndsni succeeds");
+    let rnd_sni_bytes = rnd_sni_blob.as_bytes();
+    assert_eq!(rnd_sni_bytes.len(), ch_iana.len());
+    let rnd_host = tls_hello_extract_host(&rnd_sni_bytes, false).expect("valid SNI after rndsni");
+    assert_eq!(rnd_host.len(), "iana.org".len());
+    assert_ne!(rnd_host, "iana.org");
+    assert!(rnd_host.as_bytes()[0].is_ascii_lowercase());
+    assert_eq!(rnd_host.as_bytes()[rnd_host.len() - 4], b'.');
+}
+
 /// Verifies `tls_mod` modifiers (`none`, `sni`, `rndsni`, `rnd`, `dupsid`, `padencap`) and errors.
 #[test]
 fn lua_tls_mod_handles_all_mutations_and_edge_cases()
@@ -148,8 +198,10 @@ fn lua_tls_mod_handles_all_mutations_and_edge_cases()
     let pad_before_sni = build_synthetic_client_hello(true, true);
     let no_pad = build_synthetic_client_hello(false, false);
     let pad_trailing = build_synthetic_client_hello(false, true);
-    rt.set_blob("fake_iana", &ch_iana).expect("set_blob fake_iana");
-    rt.set_blob("pad_mid", &pad_before_sni).expect("set_blob pad_mid");
+    rt.set_blob("fake_iana", &ch_iana)
+        .expect("set_blob fake_iana");
+    rt.set_blob("pad_mid", &pad_before_sni)
+        .expect("set_blob pad_mid");
 
     // `none` passes through even arbitrary non-TLS blobs.
     rt.exec_str(
@@ -169,36 +221,12 @@ fn lua_tls_mod_handles_all_mutations_and_edge_cases()
     )
     .expect("tls_mod passthrough/error/pad-non-trailing assertions must pass");
 
-    // Verify `sni` resize (shrinking and growing) via Rust TLS parser on Lua outputs.
     let lua = rt.lua();
-    let tls_mod_fn: mlua::Function = lua.globals().get("tls_mod").expect("tls_mod global");
-
-    let shrunk: mlua::LuaString =
-        tls_mod_fn.call((lua.create_string(&ch_iana).unwrap(), "sni=a.io")).expect("tls_mod shrink succeeds");
-    let shrunk_bytes = shrunk.as_bytes();
-    assert!(is_tls_client_hello(&shrunk_bytes, false));
-    assert_eq!(tls_record_len(&shrunk_bytes), Some(shrunk_bytes.len()));
-    assert_eq!(tls_hello_extract_host(&shrunk_bytes, false).as_deref(), Some("a.io"));
-
-    let grown_sni = "very-long-replacement.example.org";
-    let grown: mlua::LuaString = tls_mod_fn
-        .call((lua.create_string(&ch_iana).unwrap(), format!("sni={grown_sni}")))
-        .expect("tls_mod grow succeeds");
-    let grown_bytes = grown.as_bytes();
-    assert!(is_tls_client_hello(&grown_bytes, false));
-    assert_eq!(tls_record_len(&grown_bytes), Some(grown_bytes.len()));
-    assert_eq!(tls_hello_extract_host(&grown_bytes, false).as_deref(), Some(grown_sni));
-
-    // Verify `rndsni` preserves length and generates lowercase alnum + dot + valid TLD.
-    let rnd_sni_blob: mlua::LuaString =
-        tls_mod_fn.call((lua.create_string(&ch_iana).unwrap(), "rndsni")).expect("tls_mod rndsni succeeds");
-    let rnd_sni_bytes = rnd_sni_blob.as_bytes();
-    assert_eq!(rnd_sni_bytes.len(), ch_iana.len());
-    let rnd_host = tls_hello_extract_host(&rnd_sni_bytes, false).expect("valid SNI after rndsni");
-    assert_eq!(rnd_host.len(), "iana.org".len());
-    assert_ne!(rnd_host, "iana.org");
-    assert!(rnd_host.as_bytes()[0].is_ascii_lowercase());
-    assert_eq!(rnd_host.as_bytes()[rnd_host.len() - 4], b'.');
+    let tls_mod_fn: mlua::Function = lua
+        .globals()
+        .get("tls_mod")
+        .expect("tls_mod global");
+    verify_tls_mod_sni_mutations(&tls_mod_fn, lua, &ch_iana);
 
     // Verify `rnd,dupsid` randomizes random[11..43] while duplicating payload's session_id.
     let mut orig_payload = ch_iana.clone();
@@ -206,7 +234,13 @@ fn lua_tls_mod_handles_all_mutations_and_edge_cases()
     assert_eq!(sid_len, 32);
     orig_payload[44..44 + sid_len].fill(0xA5);
     let duped: mlua::LuaString = tls_mod_fn
-        .call((lua.create_string(&ch_iana).unwrap(), "rnd,dupsid", lua.create_string(&orig_payload).unwrap()))
+        .call((
+            lua.create_string(&ch_iana)
+                .unwrap(),
+            "rnd,dupsid",
+            lua.create_string(&orig_payload)
+                .unwrap(),
+        ))
         .expect("tls_mod rnd,dupsid succeeds");
     let duped_bytes = duped.as_bytes();
     assert_ne!(&duped_bytes[11..43], &ch_iana[11..43]);
@@ -215,7 +249,13 @@ fn lua_tls_mod_handles_all_mutations_and_edge_cases()
     // Verify `padencap` adds ext 21 when absent and grows existing trailing ext 21 without appending bytes.
     let encap_payload = vec![0x77u8; 100];
     let pad_out_1: mlua::LuaString = tls_mod_fn
-        .call((lua.create_string(&no_pad).unwrap(), "padencap", lua.create_string(&encap_payload).unwrap()))
+        .call((
+            lua.create_string(&no_pad)
+                .unwrap(),
+            "padencap",
+            lua.create_string(&encap_payload)
+                .unwrap(),
+        ))
         .expect("padencap insert succeeds");
     let pad1_bytes = pad_out_1.as_bytes();
     assert_eq!(pad1_bytes.len(), no_pad.len() + 4);
@@ -228,9 +268,11 @@ fn lua_tls_mod_handles_all_mutations_and_edge_cases()
 
     let pad_out_2: mlua::LuaString = tls_mod_fn
         .call((
-            lua.create_string(&pad_trailing).unwrap(),
+            lua.create_string(&pad_trailing)
+                .unwrap(),
             "padencap",
-            lua.create_string(&encap_payload).unwrap(),
+            lua.create_string(&encap_payload)
+                .unwrap(),
         ))
         .expect("padencap existing trailing succeeds");
     let pad2_bytes = pad_out_2.as_bytes();

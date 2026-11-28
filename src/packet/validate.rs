@@ -105,12 +105,16 @@ pub fn extract_dst(raw: &[u8]) -> PEResult<IpAddr>
 {
     if check_ipv4_header(raw)
     {
-        let dst: [u8; 4] = raw[16..20].try_into().map_err(|_| PacketError::Truncated)?;
+        let dst: [u8; 4] = raw[16..20]
+            .try_into()
+            .map_err(|_| PacketError::Truncated)?;
         Ok(IpAddr::V4(Ipv4Addr::from(dst)))
     }
     else if check_ipv6_header(raw)
     {
-        let dst: [u8; 16] = raw[24..40].try_into().map_err(|_| PacketError::Truncated)?;
+        let dst: [u8; 16] = raw[24..40]
+            .try_into()
+            .map_err(|_| PacketError::Truncated)?;
         Ok(IpAddr::V6(Ipv6Addr::from(dst)))
     }
     else if !raw.is_empty()

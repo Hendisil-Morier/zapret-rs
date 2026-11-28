@@ -35,7 +35,8 @@ impl MonotonicTime
     {
         let secs = u64::try_from(self.sec).unwrap_or(0);
         let nsecs = u64::try_from(self.nsec).unwrap_or(0);
-        secs.saturating_mul(1_000).saturating_add(nsecs / 1_000_000)
+        secs.saturating_mul(1_000)
+            .saturating_add(nsecs / 1_000_000)
     }
 }
 
@@ -70,7 +71,9 @@ pub fn boottime_now() -> MonotonicTime
 pub fn boottime_now() -> MonotonicTime
 {
     static EPOCH: OnceLock<Instant> = OnceLock::new();
-    let elapsed = EPOCH.get_or_init(Instant::now).elapsed();
+    let elapsed = EPOCH
+        .get_or_init(Instant::now)
+        .elapsed();
     MonotonicTime {
         sec: i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX),
         nsec: i64::from(elapsed.subsec_nanos()),

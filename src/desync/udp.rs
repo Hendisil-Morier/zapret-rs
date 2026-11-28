@@ -45,7 +45,9 @@ fn queue_quic_fragment(
 {
     let queued = {
         let mut entry = ctrack_rc.borrow_mut();
-        let started = !entry.reasm_client.is_empty()
+        let started = !entry
+            .reasm_client
+            .is_empty()
             || reasm_client_start(
                 &mut entry,
                 IPPROTO_UDP,
@@ -88,7 +90,10 @@ fn handle_full_quic_crypto(
         let mut started_ok = true;
         {
             let mut entry = ctrack_rc.borrow_mut();
-            if !req_full && entry.reasm_client.is_empty()
+            if !req_full
+                && entry
+                    .reasm_client
+                    .is_empty()
             {
                 started_ok = reasm_client_start(
                     &mut entry,
@@ -99,7 +104,10 @@ fn handle_full_quic_crypto(
                     clean,
                 );
             }
-            if started_ok && !entry.reasm_client.is_empty()
+            if started_ok
+                && !entry
+                    .reasm_client
+                    .is_empty()
             {
                 if !queue_delayed_packet(&mut entry, pkt.payload, pkt.mark, pkt.ifin, pkt.ifout)
                 {
@@ -149,7 +157,11 @@ fn process_quic_initial_flow(
 {
     let mut clean = if replay.is_replay()
     {
-        clone_reasm_bytes(ps.ctrack_replay.as_ref()).unwrap_or_default()
+        clone_reasm_bytes(
+            ps.ctrack_replay
+                .as_ref(),
+        )
+        .unwrap_or_default()
     }
     else
     {
@@ -157,7 +169,12 @@ fn process_quic_initial_flow(
     };
     if clean.is_empty()
     {
-        reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
+        reasm_client_stop(
+            ps.ctrack
+                .as_ref(),
+            engine.desync_fwmark,
+            &engine.sender,
+        );
         return Ok(None);
     }
 
@@ -167,7 +184,12 @@ fn process_quic_initial_flow(
     {
         let overflow = {
             let entry = ctrack_rc.borrow();
-            !entry.reasm_client.is_empty() && !entry.reasm_client.has_space(clean.len())
+            !entry
+                .reasm_client
+                .is_empty()
+                && !entry
+                    .reasm_client
+                    .has_space(clean.len())
         };
         if overflow
         {
@@ -183,7 +205,12 @@ fn process_quic_initial_flow(
     let Some((defrag, full_frag)) = quic_defrag_crypto(&clean, UDP_MAX_REASM)
     else
     {
-        reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
+        reasm_client_stop(
+            ps.ctrack
+                .as_ref(),
+            engine.desync_fwmark,
+            &engine.sender,
+        );
         return Ok(None);
     };
     if full_frag
@@ -214,7 +241,10 @@ pub(crate) fn process_udp_packet(
     {
         return Decision::Pass;
     };
-    let payload = dis.payload.as_deref().unwrap_or(&[]);
+    let payload = dis
+        .payload
+        .as_deref()
+        .unwrap_or(&[]);
     let mut decrypt_buf: Option<Vec<u8>> = None;
 
     if !payload.is_empty()
@@ -222,7 +252,8 @@ pub(crate) fn process_udp_packet(
         probe_udp(
             payload,
             engine.payload_disable,
-            ps.ctrack_replay.as_ref(),
+            ps.ctrack_replay
+                .as_ref(),
             &mut ps.l7proto,
             &mut ps.l7payload,
         );
@@ -233,7 +264,13 @@ pub(crate) fn process_udp_packet(
                 Ok(dec) => decrypt_buf = dec,
                 Err(Decision::Drop) =>
                 {
-                    return ct_new_postnat_fix(ps.ctrack.as_ref(), engine.server, dis, pkt.payload);
+                    return ct_new_postnat_fix(
+                        ps.ctrack
+                            .as_ref(),
+                        engine.server,
+                        dis,
+                        pkt.payload,
+                    );
                 }
                 Err(other) => return other,
             }
@@ -244,7 +281,12 @@ pub(crate) fn process_udp_packet(
         }
     }
 
-    reasm_client_stop(ps.ctrack.as_ref(), engine.desync_fwmark, &engine.sender);
+    reasm_client_stop(
+        ps.ctrack
+            .as_ref(),
+        engine.desync_fwmark,
+        &engine.sender,
+    );
 
     if !dp_rediscovery(&svc, &mut ps, dis, replay.tpos, now.sec)
     {
@@ -254,7 +296,13 @@ pub(crate) fn process_udp_packet(
     let decision = engine.dispatch_state(replay, pkt, dis, &ps, None, decrypt_buf.as_deref());
     if !ps.incoming && decision == Decision::Drop
     {
-        return ct_new_postnat_fix(ps.ctrack.as_ref(), engine.server, dis, pkt.payload);
+        return ct_new_postnat_fix(
+            ps.ctrack
+                .as_ref(),
+            engine.server,
+            dis,
+            pkt.payload,
+        );
     }
     decision
 }

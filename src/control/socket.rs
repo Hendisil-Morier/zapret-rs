@@ -82,9 +82,15 @@ impl BoundSocket
     pub(crate) fn accept(&self) -> std::io::Result<ControlStream>
     {
         #[cfg(unix)]
-        let accepted = self.listener.accept().map(|(s, _)| ControlStream::from_unix(s))?;
+        let accepted = self
+            .listener
+            .accept()
+            .map(|(s, _)| ControlStream::from_unix(s))?;
         #[cfg(not(unix))]
-        let accepted = self.listener.accept().map(|(s, _)| ControlStream::from_tcp(s))?;
+        let accepted = self
+            .listener
+            .accept()
+            .map(|(s, _)| ControlStream::from_tcp(s))?;
         accepted.set_nonblocking(false)?;
         Ok(accepted)
     }
@@ -200,11 +206,15 @@ fn prepare_socket_path(path: &Path) -> Result<(), ControlServerError>
     {
         Ok(meta) =>
         {
-            if meta.file_type().is_symlink()
+            if meta
+                .file_type()
+                .is_symlink()
             {
                 return Err(ControlServerError::SymlinkNotAllowed(path.to_path_buf()));
             }
-            if !meta.file_type().is_socket()
+            if !meta
+                .file_type()
+                .is_socket()
             {
                 return Err(ControlServerError::NotASocket(path.to_path_buf()));
             }
@@ -256,7 +266,9 @@ pub(crate) fn bind_control_socket(path: &Path) -> Result<BoundSocket, ControlSer
 
     let meta = fs::symlink_metadata(path)
         .map_err(|source| ControlServerError::Io { path: path.to_path_buf(), source })?;
-    if !meta.file_type().is_socket()
+    if !meta
+        .file_type()
+        .is_socket()
     {
         return Err(ControlServerError::NotASocket(path.to_path_buf()));
     }
@@ -269,7 +281,9 @@ pub(crate) fn bind_control_socket(path: &Path) -> Result<BoundSocket, ControlSer
 pub(crate) fn unlink_if_same_socket(path: &Path, expected_dev: u64, expected_ino: u64)
 {
     if let Ok(meta) = fs::symlink_metadata(path)
-        && meta.file_type().is_socket()
+        && meta
+            .file_type()
+            .is_socket()
         && meta.dev() == expected_dev
         && meta.ino() == expected_ino
     {
@@ -305,7 +319,9 @@ pub(crate) fn bind_control_socket(path: &Path) -> Result<BoundSocket, ControlSer
 {
     if let Ok(meta) = fs::symlink_metadata(path)
     {
-        if meta.file_type().is_symlink()
+        if meta
+            .file_type()
+            .is_symlink()
         {
             return Err(ControlServerError::SymlinkNotAllowed(path.to_path_buf()));
         }

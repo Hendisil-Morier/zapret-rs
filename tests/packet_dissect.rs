@@ -43,6 +43,45 @@ fn build_ipv4_tcp(tcp_options: &[u8], payload: &[u8]) -> Vec<u8>
     pkt
 }
 
+/// Asserts IPv4 header fields parsed from `build_ipv4_tcp`.
+fn assert_sample_ipv4_fields(ip: &zapret_rs::packet::Ipv4Header)
+{
+    assert_eq!(ip.version, 4);
+    assert_eq!(ip.header_len, 5);
+    assert_eq!(ip.tos, 0);
+    assert_eq!(ip.total_len, 45);
+    assert_eq!(ip.id, 0x1234);
+    assert_eq!(ip.frag_off, 0x4000);
+    assert_eq!(ip.ttl, 64);
+    assert_eq!(ip.protocol, 6);
+    assert_eq!(ip.checksum, 0);
+    assert_eq!(ip.src, [192, 168, 1, 10]);
+    assert_eq!(ip.dst, [93, 184, 216, 34]);
+    assert!(
+        ip.options
+            .is_empty()
+    );
+}
+
+/// Asserts TCP header fields parsed from `build_ipv4_tcp`.
+fn assert_sample_tcp_fields(tcp: &zapret_rs::packet::TcpHeader)
+{
+    assert_eq!(tcp.s_port, 54321);
+    assert_eq!(tcp.d_port, 443);
+    assert_eq!(tcp.seq, 1000);
+    assert_eq!(tcp.ack, 2000);
+    assert_eq!(tcp.data_offset, 5);
+    assert_eq!(tcp.reserved, 0);
+    assert_eq!(tcp.flags, 0x18);
+    assert_eq!(tcp.window, 65535);
+    assert_eq!(tcp.checksum, 0);
+    assert_eq!(tcp.urgent_ptr, 0);
+    assert!(
+        tcp.options
+            .is_empty()
+    );
+}
+
 /// Verifies that all IPv4 header fields, TCP header fields, empty options, and payload bytes parse accurately.
 #[test]
 fn parse_ipv4_tcp_parses_valid_packet_fields_and_payload()
@@ -50,30 +89,8 @@ fn parse_ipv4_tcp_parses_valid_packet_fields_and_payload()
     let pkt = build_ipv4_tcp(&[], b"hello");
     let dis = parse_ipv4_tcp(&pkt).expect("valid IPv4 TCP packet should parse");
 
-    assert_eq!(dis.ip.version, 4);
-    assert_eq!(dis.ip.header_len, 5);
-    assert_eq!(dis.ip.tos, 0);
-    assert_eq!(dis.ip.total_len, 45);
-    assert_eq!(dis.ip.id, 0x1234);
-    assert_eq!(dis.ip.frag_off, 0x4000);
-    assert_eq!(dis.ip.ttl, 64);
-    assert_eq!(dis.ip.protocol, 6);
-    assert_eq!(dis.ip.checksum, 0);
-    assert_eq!(dis.ip.src, [192, 168, 1, 10]);
-    assert_eq!(dis.ip.dst, [93, 184, 216, 34]);
-    assert!(dis.ip.options.is_empty());
-
-    assert_eq!(dis.tcp.s_port, 54321);
-    assert_eq!(dis.tcp.d_port, 443);
-    assert_eq!(dis.tcp.seq, 1000);
-    assert_eq!(dis.tcp.ack, 2000);
-    assert_eq!(dis.tcp.data_offset, 5);
-    assert_eq!(dis.tcp.reserved, 0);
-    assert_eq!(dis.tcp.flags, 0x18);
-    assert_eq!(dis.tcp.window, 65535);
-    assert_eq!(dis.tcp.checksum, 0);
-    assert_eq!(dis.tcp.urgent_ptr, 0);
-    assert!(dis.tcp.options.is_empty());
+    assert_sample_ipv4_fields(&dis.ip);
+    assert_sample_tcp_fields(&dis.tcp);
 
     assert_eq!(dis.payload, b"hello");
 }
@@ -86,7 +103,11 @@ fn parse_ipv4_tcp_trims_trailing_ethernet_padding()
     pkt.extend_from_slice(&[0u8; 14]);
 
     let dis = parse_ipv4_tcp(&pkt).expect("packet with trailing padding should parse");
-    assert_eq!(dis.ip.total_len, 45);
+    assert_eq!(
+        dis.ip
+            .total_len,
+        45
+    );
     assert_eq!(dis.payload, b"hello");
 }
 
@@ -102,8 +123,16 @@ fn parse_ipv4_tcp_preserves_md5_zero_bytes_and_strips_trailing_end_padding()
     let pkt = build_ipv4_tcp(&tcp_options, b"tls");
     let dis = parse_ipv4_tcp(&pkt).expect("packet with MD5 option and END padding should parse");
 
-    assert_eq!(dis.tcp.data_offset, 10);
-    assert_eq!(dis.tcp.options, vec![TcpOption { kind: 19, data: Some(vec![0u8; 16]) }]);
+    assert_eq!(
+        dis.tcp
+            .data_offset,
+        10
+    );
+    assert_eq!(
+        dis.tcp
+            .options,
+        vec![TcpOption { kind: 19, data: Some(vec![0u8; 16]) }]
+    );
     assert_eq!(dis.payload, b"tls");
 }
 
@@ -116,7 +145,8 @@ fn parse_ipv4_tcp_parses_noop_and_timestamp_options()
     let dis = parse_ipv4_tcp(&pkt).expect("packet with NOOP and Timestamp options should parse");
 
     assert_eq!(
-        dis.tcp.options,
+        dis.tcp
+            .options,
         vec![
             TcpOption { kind: 1, data: None },
             TcpOption { kind: 1, data: None },

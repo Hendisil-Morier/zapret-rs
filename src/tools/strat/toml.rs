@@ -86,9 +86,22 @@ pub fn rank_matches(matches: &mut [StrategyMatch])
     matches.sort_by(|a, b| {
         a.strategy
             .weight
-            .cmp(&b.strategy.weight)
-            .then_with(|| a.latency_ms.cmp(&b.latency_ms))
-            .then_with(|| a.strategy.id.cmp(&b.strategy.id))
+            .cmp(
+                &b.strategy
+                    .weight,
+            )
+            .then_with(|| {
+                a.latency_ms
+                    .cmp(&b.latency_ms)
+            })
+            .then_with(|| {
+                a.strategy
+                    .id
+                    .cmp(
+                        &b.strategy
+                            .id,
+                    )
+            })
     });
 }
 
@@ -106,7 +119,13 @@ const fn runtime_bucket_key(proto: ProbeProtocol) -> u8
 /// Extracts the protocol-agnostic strategy suffix (after the first `':'`, e.g. `"ipv4:multisplit:2"`).
 fn strategy_runtime_key(spec: &StrategySpec) -> &str
 {
-    spec.id.split_once(':').map_or(spec.id.as_str(), |(_, rest)| rest)
+    spec.id
+        .split_once(':')
+        .map_or(
+            spec.id
+                .as_str(),
+            |(_, rest)| rest,
+        )
 }
 
 /// Merges per-domain matches that share one runtime `nfqws2` filter bucket (such as `tls12` + `tls13`).
@@ -118,7 +137,9 @@ fn merge_domain_bucket_matches(entries: &[&DomainStrategies]) -> Vec<StrategyMat
 {
     if entries.len() == 1
     {
-        return entries[0].matches.clone();
+        return entries[0]
+            .matches
+            .clone();
     }
     let mut per_entry: Vec<BTreeMap<&str, (&StrategySpec, u64)>> = Vec::with_capacity(entries.len());
     for entry in entries
@@ -169,7 +190,12 @@ fn merge_domain_bucket_matches(entries: &[&DomainStrategies]) -> Vec<StrategyMat
         return shared;
     }
 
-    entries.iter().find(|e| e.proto == ProbeProtocol::Tls13).unwrap_or(&entries[0]).matches.clone()
+    entries
+        .iter()
+        .find(|e| e.proto == ProbeProtocol::Tls13)
+        .unwrap_or(&entries[0])
+        .matches
+        .clone()
 }
 
 /// Selects a minimal set of [`CoveredProfile`] entries covering all domains with passing strategies.
@@ -184,12 +210,18 @@ pub fn select_minimal_cover(results: &[DomainStrategies]) -> Vec<CoveredProfile>
     let mut buckets: BTreeMap<(u8, IpFamily), BTreeMap<String, Vec<&DomainStrategies>>> = BTreeMap::new();
     for entry in results
     {
-        if !entry.matches.is_empty()
+        if !entry
+            .matches
+            .is_empty()
         {
             buckets
                 .entry((runtime_bucket_key(entry.proto), entry.ipv))
                 .or_default()
-                .entry(entry.domain.clone())
+                .entry(
+                    entry
+                        .domain
+                        .clone(),
+                )
                 .or_default()
                 .push(entry);
         }
@@ -198,7 +230,10 @@ pub fn select_minimal_cover(results: &[DomainStrategies]) -> Vec<CoveredProfile>
     let mut covered = Vec::new();
     for ((_bucket, _ipv), by_domain) in buckets
     {
-        let mut uncovered: BTreeSet<String> = by_domain.keys().cloned().collect();
+        let mut uncovered: BTreeSet<String> = by_domain
+            .keys()
+            .cloned()
+            .collect();
         // Map runtime key -> (StrategySpec, domain -> best latency_ms).
         let mut candidates: BTreeMap<String, (StrategySpec, BTreeMap<String, u64>)> = BTreeMap::new();
         for (domain, entries) in &by_domain
@@ -206,9 +241,19 @@ pub fn select_minimal_cover(results: &[DomainStrategies]) -> Vec<CoveredProfile>
             for m in merge_domain_bucket_matches(entries)
             {
                 let key = strategy_runtime_key(&m.strategy).to_owned();
-                let (spec_slot, dom_map) =
-                    candidates.entry(key).or_insert_with(|| (m.strategy.clone(), BTreeMap::new()));
-                if m.strategy.proto == ProbeProtocol::Tls13 && spec_slot.proto != ProbeProtocol::Tls13
+                let (spec_slot, dom_map) = candidates
+                    .entry(key)
+                    .or_insert_with(|| {
+                        (
+                            m.strategy
+                                .clone(),
+                            BTreeMap::new(),
+                        )
+                    });
+                if m.strategy
+                    .proto
+                    == ProbeProtocol::Tls13
+                    && spec_slot.proto != ProbeProtocol::Tls13
                 {
                     *spec_slot = m.strategy;
                 }
@@ -361,7 +406,12 @@ fn payload_names(mask: u64) -> Vec<&'static str>
     {
         return Vec::new();
     }
-    KNOWN_PAYLOADS.iter().copied().filter(|p| (mask & p.bit()) != 0).map(L7Payload::as_str).collect()
+    KNOWN_PAYLOADS
+        .iter()
+        .copied()
+        .filter(|p| (mask & p.bit()) != 0)
+        .map(L7Payload::as_str)
+        .collect()
 }
 
 /// Appends one `[[profiles.actions]]` block to `out`.
@@ -372,7 +422,10 @@ fn write_action_toml(out: &mut String, action: &DesyncAction)
     let payloads = payload_names(action.payload_mask);
     if !payloads.is_empty()
     {
-        let joined: Vec<String> = payloads.iter().map(|p| toml_quote(p)).collect();
+        let joined: Vec<String> = payloads
+            .iter()
+            .map(|p| toml_quote(p))
+            .collect();
         let _ = writeln!(out, "payload = [{}]", joined.join(", "));
     }
     if action.in_range != PacketRange::NEVER
@@ -383,7 +436,9 @@ fn write_action_toml(out: &mut String, action: &DesyncAction)
     {
         let _ = writeln!(out, "out_range = {}", toml_quote(&format_packet_range(action.out_range)));
     }
-    if !action.args.is_empty()
+    if !action
+        .args
+        .is_empty()
     {
         out.push_str("[profiles.actions.args]\n");
         for (key, val) in &action.args
@@ -408,7 +463,9 @@ pub fn render_nfqws2_toml(profiles: &[CoveredProfile], opts: &TomlRenderOptions)
     out.push_str("# Generated by strat_finder (zapret-rs)\n");
     let _ = writeln!(out, "qnum = {}", opts.qnum);
     let _ = writeln!(out, "fwmark = 0x{:08x}", opts.fwmark);
-    if !opts.lua_init.is_empty()
+    if !opts
+        .lua_init
+        .is_empty()
     {
         out.push_str("lua_init = [\n");
         for path in &opts.lua_init
@@ -429,9 +486,21 @@ pub fn render_nfqws2_toml(profiles: &[CoveredProfile], opts: &TomlRenderOptions)
         );
         out.push_str("[[profiles]]\n");
         let _ = writeln!(out, "name = {}", toml_quote(&spec.id));
-        let _ = writeln!(out, "filter_l3 = [{}]", toml_quote(spec.ipv.as_str()));
-        let port = spec.proto.default_port().to_string();
-        if spec.proto.is_udp()
+        let _ = writeln!(
+            out,
+            "filter_l3 = [{}]",
+            toml_quote(
+                spec.ipv
+                    .as_str()
+            )
+        );
+        let port = spec
+            .proto
+            .default_port()
+            .to_string();
+        if spec
+            .proto
+            .is_udp()
         {
             let _ = writeln!(out, "filter_udp = [{}]", toml_quote(&port));
         }
@@ -439,10 +508,24 @@ pub fn render_nfqws2_toml(profiles: &[CoveredProfile], opts: &TomlRenderOptions)
         {
             let _ = writeln!(out, "filter_tcp = [{}]", toml_quote(&port));
         }
-        let _ = writeln!(out, "filter_l7 = [{}]", toml_quote(spec.proto.l7_proto().as_str()));
-        if !covered.domains.is_empty()
+        let _ = writeln!(
+            out,
+            "filter_l7 = [{}]",
+            toml_quote(
+                spec.proto
+                    .l7_proto()
+                    .as_str()
+            )
+        );
+        if !covered
+            .domains
+            .is_empty()
         {
-            let doms: Vec<String> = covered.domains.iter().map(|d| toml_quote(d)).collect();
+            let doms: Vec<String> = covered
+                .domains
+                .iter()
+                .map(|d| toml_quote(d))
+                .collect();
             let _ = writeln!(out, "hostlist_domains = [{}]", doms.join(", "));
         }
         out.push('\n');
@@ -459,12 +542,16 @@ pub fn render_nfqws2_toml(profiles: &[CoveredProfile], opts: &TomlRenderOptions)
 pub fn write_config_nofollow(path: &Path, content: &str) -> io::Result<()>
 {
     if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
+        && !parent
+            .as_os_str()
+            .is_empty()
     {
         std::fs::create_dir_all(parent)?;
     }
     let mut opts = OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.write(true)
+        .create(true)
+        .truncate(true);
     #[cfg(unix)]
     opts.custom_flags(libc::O_NOFOLLOW);
     let mut file = opts.open(path)?;

@@ -28,7 +28,12 @@ fn sample_cell(sample: &Option<SpeedSample>, t: &Theme) -> (String, Color)
     match sample
     {
         None => ("-".to_owned(), t.muted),
-        Some(s) if s.outcome.is_success() => (describe_sample(s), t.ok_bright),
+        Some(s)
+            if s.outcome
+                .is_success() =>
+        {
+            (describe_sample(s), t.ok_bright)
+        }
         Some(s) => (describe_sample(s), t.err_bright),
     }
 }
@@ -55,16 +60,32 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState)
         .constraints([Constraint::Length(4), Constraint::Min(6)])
         .split(area);
 
-    let phase = state.speed.phase;
+    let phase = state
+        .speed
+        .phase;
     let badge_col = match phase
     {
         SpeedPhase::Idle => t.frame,
         SpeedPhase::Done => t.ok,
         _ => t.warn,
     };
-    let eff_domains = effective_speed_domains(&state.finder.domains_input, &state.config.active_toml);
+    let eff_domains = effective_speed_domains(
+        &state
+            .finder
+            .domains_input,
+        &state
+            .config
+            .active_toml,
+    );
     let preview_targets = build_targets(&eff_domains);
-    let source_hint = if state.finder.domains_input.trim().is_empty() && !eff_domains.trim().is_empty()
+    let source_hint = if state
+        .finder
+        .domains_input
+        .trim()
+        .is_empty()
+        && !eff_domains
+            .trim()
+            .is_empty()
     {
         "Targets (from active config + control): "
     }
@@ -72,14 +93,31 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState)
     {
         "Targets (from Tab 1 + control): "
     };
-    let target_list: String =
-        preview_targets.iter().map(|tgt| tgt.label.as_str()).collect::<Vec<_>>().join(", ");
+    let target_list: String = preview_targets
+        .iter()
+        .map(|tgt| {
+            tgt.label
+                .as_str()
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     let summary = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("Phase: ", Style::default().fg(t.info)),
-            Span::styled(phase.label(), Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                phase.label(),
+                Style::default()
+                    .fg(t.accent_bright)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("   IP Family: ", Style::default().fg(t.info)),
-            Span::styled(state.finder.ip_mode.label(), Style::default().fg(t.warn_bright)),
+            Span::styled(
+                state
+                    .finder
+                    .ip_mode
+                    .label(),
+                Style::default().fg(t.warn_bright),
+            ),
         ]),
         Line::from(vec![
             Span::styled(source_hint, Style::default().fg(t.subtle)),
@@ -90,7 +128,10 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState)
     .block(panel_block(" Before / After Speed Check ", badge_col, t.accent_bright));
     frame.render_widget(summary, rows[0]);
 
-    if state.speed.rows.is_empty()
+    if state
+        .speed
+        .rows
+        .is_empty()
     {
         let empty = Paragraph::new(vec![
             Line::default(),
@@ -98,7 +139,11 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState)
             Line::from(styled_key_hints_owned(
                 &format!(
                     "Press [{}] to measure with zapret OFF, restart the daemon, and measure with zapret ON.",
-                    state.keybinds.speed.start.primary_label()
+                    state
+                        .keybinds
+                        .speed
+                        .start
+                        .primary_label()
                 ),
                 t,
             )),
@@ -109,28 +154,41 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState)
     }
     else
     {
-        let header = Row::new(["Target", "Without zapret", "With zapret", "Delta"])
-            .style(Style::default().fg(t.warn_bright).bg(t.highlight_bg).add_modifier(Modifier::BOLD));
+        let header = Row::new(["Target", "Without zapret", "With zapret", "Delta"]).style(
+            Style::default()
+                .fg(t.warn_bright)
+                .bg(t.highlight_bg)
+                .add_modifier(Modifier::BOLD),
+        );
         let table_rows: Vec<Row> = state
             .speed
             .rows
             .iter()
             .enumerate()
             .map(|(idx, row)| {
-                let selected = idx == state.speed.selected;
+                let selected = idx
+                    == state
+                        .speed
+                        .selected;
                 let (before_txt, before_col) = sample_cell(&row.before, t);
                 let (after_txt, after_col) = sample_cell(&row.after, t);
                 let (delta_txt, delta_col) = change_cell(compare(row), t);
                 let row_style = if selected
                 {
-                    Style::default().bg(t.highlight_bg).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .bg(t.highlight_bg)
+                        .add_modifier(Modifier::BOLD)
                 }
                 else
                 {
                     Style::default()
                 };
                 Row::new([
-                    Cell::from(row.label.as_str()).style(Style::default().fg(t.text)),
+                    Cell::from(
+                        row.label
+                            .as_str(),
+                    )
+                    .style(Style::default().fg(t.text)),
                     Cell::from(before_txt).style(Style::default().fg(before_col)),
                     Cell::from(after_txt).style(Style::default().fg(after_col)),
                     Cell::from(delta_txt).style(Style::default().fg(delta_col)),
@@ -144,11 +202,9 @@ pub(crate) fn draw_speed_tab(frame: &mut Frame, area: Rect, state: &AppState)
             Constraint::Percentage(27),
             Constraint::Percentage(22),
         ];
-        let table = Table::new(table_rows, widths).header(header).block(panel_block(
-            " Comparison Table ",
-            t.accent_bright,
-            t.info,
-        ));
+        let table = Table::new(table_rows, widths)
+            .header(header)
+            .block(panel_block(" Comparison Table ", t.accent_bright, t.info));
         frame.render_widget(table, rows[1]);
     }
 }

@@ -29,7 +29,10 @@ const ZAPRET_TESTS_LUA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/lua/zapret-
 fn hex(s: &str) -> Vec<u8>
 {
     assert_eq!(s.len() % 2, 0, "hex string must have even length");
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("valid hex byte")).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("valid hex byte"))
+        .collect()
 }
 
 /// Evaluates a Lua snippet returning raw binary string bytes via `mlua::LuaString`.
@@ -46,15 +49,27 @@ fn eval_lua_bytes(rt: &LuaRuntime, expr: &str) -> Vec<u8>
 /// Evaluates a Lua snippet returning `(out_bytes, tag_bytes)` as raw byte vectors.
 fn eval_lua_gcm(rt: &LuaRuntime, expr: &str) -> (Vec<u8>, Vec<u8>)
 {
-    let (out, tag): (mlua::LuaString, mlua::LuaString) =
-        rt.lua().load(expr).eval().expect("Lua AES-GCM expression must return two strings");
-    (out.as_bytes().to_vec(), tag.as_bytes().to_vec())
+    let (out, tag): (mlua::LuaString, mlua::LuaString) = rt
+        .lua()
+        .load(expr)
+        .eval()
+        .expect("Lua AES-GCM expression must return two strings");
+    (
+        out.as_bytes()
+            .to_vec(),
+        tag.as_bytes()
+            .to_vec(),
+    )
 }
 
 /// Asserts that evaluating `expr` raises a Lua error containing `expected_substr`.
 fn assert_lua_err(rt: &LuaRuntime, expr: &str, expected_substr: &str)
 {
-    let err = rt.lua().load(expr).exec().expect_err("Lua snippet unexpectedly succeeded");
+    let err = rt
+        .lua()
+        .load(expr)
+        .exec()
+        .expect_err("Lua snippet unexpectedly succeeded");
     let msg = err.to_string();
     assert!(msg.contains(expected_substr), "expected error containing '{expected_substr}', got: {msg}");
 }
@@ -65,9 +80,12 @@ fn zapret_tests_test_crypto_passes()
 {
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let rt = LuaRuntime::with_sender(LuaConfig::default(), sender).expect("LuaRuntime should initialize");
-    rt.exec_file(Path::new(ZAPRET_LIB_LUA)).expect("zapret-lib.lua should load");
-    rt.exec_file(Path::new(ZAPRET_TESTS_LUA)).expect("zapret-tests.lua should load");
-    rt.exec_str("test_crypto()").expect("unmodified zapret-tests.lua test_crypto() must pass");
+    rt.exec_file(Path::new(ZAPRET_LIB_LUA))
+        .expect("zapret-lib.lua should load");
+    rt.exec_file(Path::new(ZAPRET_TESTS_LUA))
+        .expect("zapret-tests.lua should load");
+    rt.exec_str("test_crypto()")
+        .expect("unmodified zapret-tests.lua test_crypto() must pass");
 }
 
 /// Verifies FIPS 180-4 SHA-224/SHA-256 vectors and cross-checks SHA-256 against `ring::digest`.
@@ -98,14 +116,19 @@ fn sha2_kats_and_ring_oracle()
         assert_eq!(sha2_hash(HashAlg::Sha256, msg.as_bytes()), hex(exp256));
         assert_eq!(sha2_hash(HashAlg::Sha224, msg.as_bytes()), hex(exp224));
 
-        rt.lua().globals().set("msg_in", msg).expect("set msg_in");
+        rt.lua()
+            .globals()
+            .set("msg_in", msg)
+            .expect("set msg_in");
         assert_eq!(eval_lua_bytes(&rt, "return hash('sha256', msg_in)"), hex(exp256));
         assert_eq!(eval_lua_bytes(&rt, "return hash('sha224', msg_in)"), hex(exp224));
     }
 
     for len in 0..=140usize
     {
-        let data: Vec<u8> = (0..len).map(|i| ((i * 37) ^ 0x5a) as u8).collect();
+        let data: Vec<u8> = (0..len)
+            .map(|i| ((i * 37) ^ 0x5a) as u8)
+            .collect();
         let expected = digest(&SHA256, &data);
         assert_eq!(sha2_hash(HashAlg::Sha256, &data), expected.as_ref());
     }
@@ -125,10 +148,30 @@ fn hkdf_rfc5869_and_boundary_lengths()
     assert_eq!(hkdf_sha2(HashAlg::Sha256, None, &ikm, &[], 42).expect("tc3 nil"), tc3_okm);
 
     let rt = LuaRuntime::new(LuaConfig::default()).expect("LuaRuntime should initialize");
-    let g = rt.lua().globals();
-    g.set("tc1_salt", rt.lua().create_string(&tc1_salt).unwrap()).unwrap();
-    g.set("tc_ikm", rt.lua().create_string(&ikm).unwrap()).unwrap();
-    g.set("tc1_info", rt.lua().create_string(&tc1_info).unwrap()).unwrap();
+    let g = rt
+        .lua()
+        .globals();
+    g.set(
+        "tc1_salt",
+        rt.lua()
+            .create_string(&tc1_salt)
+            .unwrap(),
+    )
+    .unwrap();
+    g.set(
+        "tc_ikm",
+        rt.lua()
+            .create_string(&ikm)
+            .unwrap(),
+    )
+    .unwrap();
+    g.set(
+        "tc1_info",
+        rt.lua()
+            .create_string(&tc1_info)
+            .unwrap(),
+    )
+    .unwrap();
 
     assert_eq!(eval_lua_bytes(&rt, "return hkdf('sha256', tc1_salt, tc_ikm, tc1_info, 42)"), tc1_okm);
     assert_eq!(eval_lua_bytes(&rt, "return hkdf('sha256', '', tc_ikm, '', 42)"), tc3_okm);
@@ -167,21 +210,60 @@ fn aes_ecb_fips197_and_ctr_carry()
     ];
 
     let rt = LuaRuntime::new(LuaConfig::default()).expect("LuaRuntime should initialize");
-    let pt_arr: [u8; 16] = pt.clone().try_into().unwrap();
-    rt.lua().globals().set("pt_blk", rt.lua().create_string(&pt).unwrap()).unwrap();
+    let pt_arr: [u8; 16] = pt
+        .clone()
+        .try_into()
+        .unwrap();
+    rt.lua()
+        .globals()
+        .set(
+            "pt_blk",
+            rt.lua()
+                .create_string(&pt)
+                .unwrap(),
+        )
+        .unwrap();
 
     for (klen, exp_hex) in fips_vectors
     {
         let key = &full_key[..klen];
         let exp = hex(exp_hex);
         let cipher = AesKey::new(key).expect("valid key");
-        assert_eq!(cipher.encrypt_block(&pt_arr).as_slice(), exp.as_slice());
-        assert_eq!(cipher.decrypt_block(&exp.as_slice().try_into().unwrap()), pt_arr);
+        assert_eq!(
+            cipher
+                .encrypt_block(&pt_arr)
+                .as_slice(),
+            exp.as_slice()
+        );
+        assert_eq!(
+            cipher.decrypt_block(
+                &exp.as_slice()
+                    .try_into()
+                    .unwrap()
+            ),
+            pt_arr
+        );
 
-        rt.lua().globals().set("k", rt.lua().create_string(key).unwrap()).unwrap();
+        rt.lua()
+            .globals()
+            .set(
+                "k",
+                rt.lua()
+                    .create_string(key)
+                    .unwrap(),
+            )
+            .unwrap();
         let ct_lua = eval_lua_bytes(&rt, "return aes(true, k, pt_blk)");
         assert_eq!(ct_lua, exp);
-        rt.lua().globals().set("ct_blk", rt.lua().create_string(&ct_lua).unwrap()).unwrap();
+        rt.lua()
+            .globals()
+            .set(
+                "ct_blk",
+                rt.lua()
+                    .create_string(&ct_lua)
+                    .unwrap(),
+            )
+            .unwrap();
         assert_eq!(eval_lua_bytes(&rt, "return aes(false, k, ct_blk)"), pt);
     }
 
@@ -191,7 +273,9 @@ fn aes_ecb_fips197_and_ctr_carry()
     let enc = aes_ctr_crypt(key24, &iv_carry, &msg).unwrap();
     let aes = AesKey::new(key24).unwrap();
     let mut manual = Vec::new();
-    for (idx, block_pt) in msg.chunks(16).enumerate()
+    for (idx, block_pt) in msg
+        .chunks(16)
+        .enumerate()
     {
         let ctr = if idx == 0
         {
@@ -204,26 +288,43 @@ fn aes_ecb_fips197_and_ctr_carry()
             b
         };
         let ks = aes.encrypt_block(&ctr);
-        manual.extend(block_pt.iter().zip(ks.iter()).map(|(a, b)| a ^ b));
+        manual.extend(
+            block_pt
+                .iter()
+                .zip(ks.iter())
+                .map(|(a, b)| a ^ b),
+        );
     }
     assert_eq!(enc, manual);
     assert_eq!(aes_ctr_crypt(key24, &iv_carry, &enc).unwrap(), msg);
 
-    rt.lua().globals().set("ctr_k", rt.lua().create_string(&full_key[..16]).unwrap()).unwrap();
-    rt.lua().globals().set("ctr_iv", rt.lua().create_string(iv_carry).unwrap()).unwrap();
+    rt.lua()
+        .globals()
+        .set(
+            "ctr_k",
+            rt.lua()
+                .create_string(&full_key[..16])
+                .unwrap(),
+        )
+        .unwrap();
+    rt.lua()
+        .globals()
+        .set(
+            "ctr_iv",
+            rt.lua()
+                .create_string(iv_carry)
+                .unwrap(),
+        )
+        .unwrap();
     assert_eq!(eval_lua_bytes(&rt, "return aes_ctr(ctr_k, ctr_iv, '')"), Vec::<u8>::new());
     let num_ct = eval_lua_bytes(&rt, "return aes_ctr(ctr_k, ctr_iv, 12345)");
     let str_ct = eval_lua_bytes(&rt, "return aes_ctr(ctr_k, ctr_iv, '12345')");
     assert_eq!(num_ct, str_ct);
 }
 
-/// Verifies NIST SP 800-38D AES-GCM vectors (12B and 8B IV), decrypt tags, and `ring::aead` parity.
-#[test]
-fn aes_gcm_nist_arbitrary_iv_and_ring_oracle()
+/// Verifies NIST SP 800-38D Test Case 1 & Test Case 2 plus Lua `aes_gcm` TC5 round-trip.
+fn assert_nist_gcm_cases(rt: &LuaRuntime, tc5_k: &[u8])
 {
-    let rt = LuaRuntime::new(LuaConfig::default()).expect("LuaRuntime should initialize");
-
-    // NIST SP 800-38D Test Case 1 & Test Case 2
     let (c1, t1) = aes_gcm_crypt(true, &[0u8; 16], &[0u8; 12], &[], &[]).unwrap();
     assert!(c1.is_empty());
     assert_eq!(t1, hex("58e2fccefa7e3061367f1d57a4e7455a").as_slice());
@@ -232,8 +333,6 @@ fn aes_gcm_nist_arbitrary_iv_and_ring_oracle()
     assert_eq!(c2, hex("0388dace60b6a392f328c2b971b2fe78"));
     assert_eq!(t2, hex("ab6e47d42cec13bdf53a67b21257bddf").as_slice());
 
-    // NIST SP 800-38D Test Case 5 (8-byte IV)
-    let tc5_k = hex("feffe9928665731c6d6a8f9467308308");
     let tc5_iv = hex("cafebabefacedbad");
     let tc5_pt = hex("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a72\
          1c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39");
@@ -242,25 +341,53 @@ fn aes_gcm_nist_arbitrary_iv_and_ring_oracle()
          73806900e49f24b22b097544d4896b424989b5e1ebac0f07c23f4598");
     let tc5_tag = hex("3612d2e79e3b0785561be14aaca2fccb");
 
-    let g = rt.lua().globals();
-    g.set("k5", rt.lua().create_string(&tc5_k).unwrap()).unwrap();
-    g.set("iv5", rt.lua().create_string(&tc5_iv).unwrap()).unwrap();
-    g.set("pt5", rt.lua().create_string(&tc5_pt).unwrap()).unwrap();
-    g.set("aad5", rt.lua().create_string(&tc5_aad).unwrap()).unwrap();
+    let g = rt
+        .lua()
+        .globals();
+    for (k, v) in
+        [("k5", tc5_k), ("iv5", tc5_iv.as_slice()), ("pt5", tc5_pt.as_slice()), ("aad5", tc5_aad.as_slice())]
+    {
+        g.set(
+            k,
+            rt.lua()
+                .create_string(v)
+                .unwrap(),
+        )
+        .unwrap();
+    }
 
-    let (lua_ct, lua_tag) = eval_lua_gcm(&rt, "return aes_gcm(true, k5, iv5, pt5, aad5)");
+    let (lua_ct, lua_tag) = eval_lua_gcm(rt, "return aes_gcm(true, k5, iv5, pt5, aad5)");
     assert_eq!(lua_ct, tc5_ct);
     assert_eq!(lua_tag, tc5_tag);
 
-    g.set("ct5", rt.lua().create_string(&lua_ct).unwrap()).unwrap();
-    let (dec_pt, dec_tag) = eval_lua_gcm(&rt, "return aes_gcm(false, k5, iv5, ct5, aad5)");
+    g.set(
+        "ct5",
+        rt.lua()
+            .create_string(&lua_ct)
+            .unwrap(),
+    )
+    .unwrap();
+    let (dec_pt, dec_tag) = eval_lua_gcm(rt, "return aes_gcm(false, k5, iv5, ct5, aad5)");
     assert_eq!(dec_pt, tc5_pt);
     assert_eq!(dec_tag, tc5_tag);
+}
+
+/// Verifies NIST SP 800-38D AES-GCM vectors (12B and 8B IV), decrypt tags, and `ring::aead` parity.
+#[test]
+fn aes_gcm_nist_arbitrary_iv_and_ring_oracle()
+{
+    let rt = LuaRuntime::new(LuaConfig::default()).expect("LuaRuntime should initialize");
+    let tc5_k = hex("feffe9928665731c6d6a8f9467308308");
+    let tc5_pt = hex("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a72\
+         1c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39");
+    assert_nist_gcm_cases(&rt, &tc5_k);
 
     // Non-12B IVs (1B, 16B, 60B) + tampered AAD decrypt tag mismatch behavior
     for iv_len in [1usize, 16, 60]
     {
-        let iv: Vec<u8> = (0..iv_len).map(|i| (i * 11 + 3) as u8).collect();
+        let iv: Vec<u8> = (0..iv_len)
+            .map(|i| (i * 11 + 3) as u8)
+            .collect();
         let (c, t) = aes_gcm_crypt(true, &tc5_k, &iv, &tc5_pt, b"aad").unwrap();
         let (p_bad_aad, t_bad_aad) = aes_gcm_crypt(false, &tc5_k, &iv, &c, b"wrong").unwrap();
         assert_eq!(p_bad_aad, tc5_pt);
@@ -271,7 +398,9 @@ fn aes_gcm_nist_arbitrary_iv_and_ring_oracle()
     let iv12 = [0x42u8; 12];
     for (alg, key_len) in [(&AES_128_GCM, 16usize), (&AES_256_GCM, 32usize)]
     {
-        let key: Vec<u8> = (0..key_len).map(|i| (i * 7 + 1) as u8).collect();
+        let key: Vec<u8> = (0..key_len)
+            .map(|i| (i * 7 + 1) as u8)
+            .collect();
         for use_aad in [false, true]
         {
             let aad_bytes: &[u8] = if use_aad { b"header-aad" } else { b"" };
@@ -294,7 +423,15 @@ fn aes_gcm_nist_arbitrary_iv_and_ring_oracle()
     }
 
     // Verify 4-arg omission of optional AAD works cleanly in Lua.
-    g.set("iv12", rt.lua().create_string(iv12).unwrap()).unwrap();
+    rt.lua()
+        .globals()
+        .set(
+            "iv12",
+            rt.lua()
+                .create_string(iv12)
+                .unwrap(),
+        )
+        .unwrap();
     let (no_aad_ct, no_aad_tag) = eval_lua_gcm(&rt, "return aes_gcm(true, k5, iv12, pt5)");
     let (nil_aad_ct, nil_aad_tag) = eval_lua_gcm(&rt, "return aes_gcm(true, k5, iv12, pt5, nil)");
     assert_eq!((no_aad_ct, no_aad_tag), (nil_aad_ct, nil_aad_tag));

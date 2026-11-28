@@ -126,12 +126,17 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
 {
-    let raw: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    let raw: Vec<OsString> = args
+        .into_iter()
+        .map(Into::into)
+        .collect();
     let mut found = false;
     let mut out = Vec::with_capacity(raw.len());
     let mut past_double_dash = false;
 
-    for (idx, arg) in raw.into_iter().enumerate()
+    for (idx, arg) in raw
+        .into_iter()
+        .enumerate()
     {
         if idx == 0
         {
@@ -165,7 +170,11 @@ fn run_list_mode(
 ) -> Result<(), String>
 {
     let mut sample_cover = Vec::new();
-    let domains: Vec<String> = cli.domains.iter().filter_map(|d| normalize_domain(d)).collect();
+    let domains: Vec<String> = cli
+        .domains
+        .iter()
+        .filter_map(|d| normalize_domain(d))
+        .collect();
     for &ipv in families
     {
         for &proto in protos
@@ -176,7 +185,9 @@ fn run_list_mode(
             {
                 println!("  [w={:02}] {}", spec.weight, spec.id);
             }
-            if let Some(first) = catalog.into_iter().next()
+            if let Some(first) = catalog
+                .into_iter()
+                .next()
             {
                 sample_cover.push(CoveredProfile {
                     strategy: first,
@@ -189,7 +200,11 @@ fn run_list_mode(
     if let Some(out_path) = &cli.write_config
     {
         let out_path = expand_tilde(&out_path.to_string_lossy());
-        let lua_init = resolve_lua_scripts(cli.lua_dir.as_deref()).unwrap_or_default();
+        let lua_init = resolve_lua_scripts(
+            cli.lua_dir
+                .as_deref(),
+        )
+        .unwrap_or_default();
         let toml = render_nfqws2_toml(&sample_cover, &TomlRenderOptions { qnum: cli.qnum, fwmark, lua_init });
         write_config_nofollow(&out_path, &toml)
             .map_err(|err| format!("failed to write {}: {err}", out_path.display()))?;
@@ -214,7 +229,13 @@ fn ensure_least_privilege_net_caps() -> Result<(), String>
         {
             let exe = std::env::current_exe()
                 .ok()
-                .map_or_else(|| "./target/release/nfqws2".to_owned(), |p| p.display().to_string());
+                .map_or_else(
+                    || "./target/release/nfqws2".to_owned(),
+                    |p| {
+                        p.display()
+                            .to_string()
+                    },
+                );
             return Err(format!(
                 "missing CAP_NET_ADMIN / CAP_NET_RAW capabilities.\n\
                  Grant only network capabilities once (no sudo needed at runtime):\n  \
@@ -291,10 +312,20 @@ fn resolve_scan_inputs(
     level: ScanLevel,
 ) -> Result<ResolvedScanInputs, String>
 {
-    let mut domains: Vec<String> = cli.domains.iter().filter_map(|d| normalize_domain(d)).collect();
+    let mut domains: Vec<String> = cli
+        .domains
+        .iter()
+        .filter_map(|d| normalize_domain(d))
+        .collect();
     let stop_on_first = cli.stop_on_first;
-    let lua_dir = cli.lua_dir.clone().map(|p| expand_tilde(&p.to_string_lossy()));
-    let write_config = cli.write_config.clone().map(|p| expand_tilde(&p.to_string_lossy()));
+    let lua_dir = cli
+        .lua_dir
+        .clone()
+        .map(|p| expand_tilde(&p.to_string_lossy()));
+    let write_config = cli
+        .write_config
+        .clone()
+        .map(|p| expand_tilde(&p.to_string_lossy()));
 
     let interactive = cli.interactive || (domains.is_empty() && io::stdin().is_terminal());
     if interactive
@@ -325,7 +356,10 @@ fn resolve_scan_inputs(
     {
         let mut buf = String::new();
         let _ = io::Read::read_to_string(&mut io::stdin(), &mut buf);
-        domains.extend(buf.split(|c: char| c.is_whitespace() || c == ',').filter_map(normalize_domain));
+        domains.extend(
+            buf.split(|c: char| c.is_whitespace() || c == ',')
+                .filter_map(normalize_domain),
+        );
         if domains.is_empty()
         {
             return Err("no target domains provided (pass --domain <DOMAIN> or run interactively)".to_owned());
@@ -342,14 +376,27 @@ fn execute_and_report_scan(
     fwmark: u32,
 ) -> Result<(), String>
 {
-    let lua_scripts = resolve_lua_scripts(inputs.lua_dir.as_deref())?;
+    let lua_scripts = resolve_lua_scripts(
+        inputs
+            .lua_dir
+            .as_deref(),
+    )?;
     install_signal_handlers().map_err(|err| format!("failed to install signal handlers: {err}"))?;
 
     let mut base_cfg = AppConfig { qnum: cli.qnum, fwmark, ..AppConfig::default() };
-    base_cfg.ipcache.hostname = true;
-    base_cfg.lua_init = lua_scripts.iter().cloned().map(LuaInitEntry::File).collect();
+    base_cfg
+        .ipcache
+        .hostname = true;
+    base_cfg.lua_init = lua_scripts
+        .iter()
+        .cloned()
+        .map(LuaInitEntry::File)
+        .collect();
 
-    if !cli.timeout.is_finite() || cli.timeout <= 0.0
+    if !cli
+        .timeout
+        .is_finite()
+        || cli.timeout <= 0.0
     {
         return Err(format!("invalid --timeout '{}' (expected positive seconds, e.g. 2.0)", cli.timeout));
     }
@@ -359,7 +406,10 @@ fn execute_and_report_scan(
         families: inputs.families,
         level: inputs.level,
         stop_on_first: inputs.stop_on_first,
-        timeout: Duration::from_secs_f64(cli.timeout.clamp(0.2, 60.0)),
+        timeout: Duration::from_secs_f64(
+            cli.timeout
+                .clamp(0.2, 60.0),
+        ),
         force_blocked: cli.force_blocked,
     };
 
@@ -375,9 +425,12 @@ fn execute_and_report_scan(
         #[cfg(target_os = "linux")]
         {
             Some(
-                NftFirewallBackend::new(cli.nft_bin.clone())
-                    .install(cli.qnum, fwmark, &tcp_ports, &udp_ports)
-                    .map_err(|err| format!("{err}"))?,
+                NftFirewallBackend::new(
+                    cli.nft_bin
+                        .clone(),
+                )
+                .install(cli.qnum, fwmark, &tcp_ports, &udp_ports)
+                .map_err(|err| format!("{err}"))?,
             )
         }
         #[cfg(not(target_os = "linux"))]
@@ -390,7 +443,10 @@ fn execute_and_report_scan(
         }
     };
 
-    let probe = CurlProbeBackend::new(cli.curl_bin.clone());
+    let probe = CurlProbeBackend::new(
+        cli.curl_bin
+            .clone(),
+    );
     let report = run_scan(&scan_cfg, &probe, &mut worker, quit_flag(), |ev| match ev
     {
         ProgressEvent::Http3Unavailable => eprintln!("[warn] curl lacks HTTP3 support; skipping http3"),
@@ -417,7 +473,9 @@ fn execute_and_report_scan(
 
     if let Some(out_path) = inputs.write_config
     {
-        if report.cover.is_empty()
+        if report
+            .cover
+            .is_empty()
         {
             eprintln!("No working strategies found; skipping config write to {}", out_path.display());
         }
@@ -442,7 +500,9 @@ fn execute_and_report_scan(
 /// Executes a parsed [`StratFinderCli`] session, launching the interactive wizard when appropriate.
 pub fn run_strat_finder(cli: StratFinderCli) -> Result<(), String>
 {
-    let level: ScanLevel = cli.level.parse()?;
+    let level: ScanLevel = cli
+        .level
+        .parse()?;
     let mut protos = Vec::new();
     for raw in &cli.protos
     {

@@ -44,7 +44,9 @@ fn ingest_discovered_hostname(
     now_sec: i64,
 ) -> (Option<String>, bool, bool)
 {
-    let Some(raw_host) = ps.host.take()
+    let Some(raw_host) = ps
+        .host
+        .take()
     else
     {
         return (None, false, false);
@@ -61,11 +63,15 @@ fn ingest_discovered_hostname(
             entry.check_done = false;
             entry.hostname_ah_check = false;
         }
-        if entry.hostname.is_none()
+        if entry
+            .hostname
+            .is_none()
         {
             entry.hostname = Some(norm.clone());
             entry.hostname_is_ip = is_ip;
-            svc.ipcache.borrow_mut().put_hostname(ps.target_ip, &norm, is_ip, now_sec);
+            svc.ipcache
+                .borrow_mut()
+                .put_hostname(ps.target_ip, &norm, is_ip, now_sec);
             discovered_hostname = true;
         }
     }
@@ -101,7 +107,10 @@ fn evaluate_autolist_membership(
                 {
                     return;
                 };
-                let Some(h) = rc.borrow().hostname.clone()
+                let Some(h) = rc
+                    .borrow()
+                    .hostname
+                    .clone()
                 else
                 {
                     return;
@@ -110,8 +119,17 @@ fn evaluate_autolist_membership(
                 &owned_host
             }
         };
-        let is_ip = effective_is_ip || ps.ctrack_replay.as_ref().is_some_and(|rc| rc.borrow().hostname_is_ip);
-        let outcome = svc.profile_runtimes[idx].hostlists.check(host_str, is_ip, false);
+        let is_ip = effective_is_ip
+            || ps
+                .ctrack_replay
+                .as_ref()
+                .is_some_and(|rc| {
+                    rc.borrow()
+                        .hostname_is_ip
+                });
+        let outcome = svc.profile_runtimes[idx]
+            .hostlists
+            .check(host_str, is_ip, false);
         *check_result = outcome.matched;
         *check_excluded = outcome.excluded;
         *check_done = true;
@@ -162,23 +180,38 @@ pub(crate) fn dp_rediscovery(
         Some(rc) =>
         {
             let e = rc.borrow();
-            ((e.check_done, e.check_result, e.check_excluded), e.hostname.is_some())
+            (
+                (e.check_done, e.check_result, e.check_excluded),
+                e.hostname
+                    .is_some(),
+            )
         }
         None => ((false, false, false), false),
     };
 
-    let needs_autolist_check =
-        !check_state.0 && ps.profile_idx.is_some_and(|i| svc.profile_runtimes[i].autolist.is_some());
+    let needs_autolist_check = !check_state.0
+        && ps
+            .profile_idx
+            .is_some_and(|i| {
+                svc.profile_runtimes[i]
+                    .autolist
+                    .is_some()
+            });
     if effective_host.is_none() && (discovered_l7 || needs_autolist_check)
     {
         if let Some(entry_rc) = &ps.ctrack_replay
         {
             let entry = entry_rc.borrow();
-            effective_host = entry.hostname.clone();
+            effective_host = entry
+                .hostname
+                .clone();
             effective_is_ip = entry.hostname_is_ip;
         }
         else if !ps.b_reverse
-            && let Some((cached, is_ip)) = svc.ipcache.borrow().get_hostname(ps.target_ip)
+            && let Some((cached, is_ip)) = svc
+                .ipcache
+                .borrow()
+                .get_hostname(ps.target_ip)
         {
             effective_host = Some(cached.to_owned());
             effective_is_ip = is_ip;
@@ -189,7 +222,9 @@ pub(crate) fn dp_rediscovery(
     {
         let match_input = FullMatchInput {
             base: ProfileMatchInput {
-                is_v6: dis.ip6.is_some(),
+                is_v6: dis
+                    .ip6
+                    .is_some(),
                 l4proto: dis.l4proto,
                 port: ps.target_port,
                 icmp_type: 0xFF,
@@ -213,13 +248,18 @@ pub(crate) fn dp_rediscovery(
         }
         if next_idx != prev_idx
         {
-            on_profile_changed(ps.ctrack_replay.as_ref());
+            on_profile_changed(
+                ps.ctrack_replay
+                    .as_ref(),
+            );
             check_state = (false, false, false);
         }
     }
 
     if let Some(idx) = ps.profile_idx
-        && svc.profile_runtimes[idx].autolist.is_some()
+        && svc.profile_runtimes[idx]
+            .autolist
+            .is_some()
         && (effective_host.is_some() || entry_has_host)
     {
         evaluate_autolist_membership(
@@ -228,24 +268,32 @@ pub(crate) fn dp_rediscovery(
             idx,
             effective_host.as_deref(),
             effective_is_ip,
-            dis.tcp.is_some(),
+            dis.tcp
+                .is_some(),
             &mut check_state,
         );
     }
 
     if dis.l4proto == IPPROTO_UDP
     {
-        let fail_tgt = ps.profile_idx.map(|i| AutohostFailTarget {
-            profile_slot: i,
-            profile: svc.profiles[i].as_ref(),
-            runtime: &svc.profile_runtimes[i],
-            server: svc.server,
-            client_label: &ps.client_label,
-            debug_log: svc.hostlist_auto_debug,
-            target_endpoint: (ps.target_ip, ps.target_port),
-            auto_confirm: None,
-        });
-        handle_udp_fail(ps.ctrack_replay.as_ref(), tpos_override, fail_tgt.as_ref());
+        let fail_tgt = ps
+            .profile_idx
+            .map(|i| AutohostFailTarget {
+                profile_slot: i,
+                profile: svc.profiles[i].as_ref(),
+                runtime: &svc.profile_runtimes[i],
+                server: svc.server,
+                client_label: &ps.client_label,
+                debug_log: svc.hostlist_auto_debug,
+                target_endpoint: (ps.target_ip, ps.target_port),
+                auto_confirm: None,
+            });
+        handle_udp_fail(
+            ps.ctrack_replay
+                .as_ref(),
+            tpos_override,
+            fail_tgt.as_ref(),
+        );
     }
 
     !(check_state.0 && !check_state.1)

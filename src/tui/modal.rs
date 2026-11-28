@@ -111,13 +111,17 @@ impl AuthModal
     /// Returns the number of password characters currently typed (for masked rendering).
     pub fn password_len(&self) -> usize
     {
-        self.password.chars().count()
+        self.password
+            .chars()
+            .count()
     }
 
     /// Takes ownership of the typed password string and zeroizes the modal's internal buffer.
     pub fn take_password(&mut self) -> String
     {
-        let out = self.password.clone();
+        let out = self
+            .password
+            .clone();
         zeroize_string(&mut self.password);
         out
     }
@@ -125,7 +129,10 @@ impl AuthModal
     /// Handles keyboard input while this floating modal has focus.
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalKeyResult
     {
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
+        if key
+            .modifiers
+            .contains(KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('c')
         {
             zeroize_string(&mut self.password);
             return ModalKeyResult::Close;
@@ -145,13 +152,15 @@ impl AuthModal
             }
             KeyCode::Backspace if self.needs_password =>
             {
-                self.password.pop();
+                self.password
+                    .pop();
                 self.error = None;
                 ModalKeyResult::KeepOpen
             }
             KeyCode::Char(c) if self.needs_password =>
             {
-                self.password.push(c);
+                self.password
+                    .push(c);
                 self.error = None;
                 ModalKeyResult::KeepOpen
             }
@@ -177,11 +186,15 @@ pub fn run_sudo_silent(args: &[&str], password: Option<&str>) -> Result<(), Stri
     let mut cmd = Command::new(sudo_bin);
     if password.is_some()
     {
-        cmd.args(["-S", "-p", ""]).args(args).stdin(Stdio::piped());
+        cmd.args(["-S", "-p", ""])
+            .args(args)
+            .stdin(Stdio::piped());
     }
     else
     {
-        cmd.arg("-n").args(args).stdin(Stdio::null());
+        cmd.arg("-n")
+            .args(args)
+            .stdin(Stdio::null());
     }
     let mut child = cmd
         .stdout(Stdio::null())
@@ -190,21 +203,35 @@ pub fn run_sudo_silent(args: &[&str], password: Option<&str>) -> Result<(), Stri
         .map_err(|err| format!("failed to spawn sudo: {err}"))?;
 
     if let Some(pw) = password
-        && let Some(mut stdin) = child.stdin.take()
+        && let Some(mut stdin) = child
+            .stdin
+            .take()
     {
         let _ = stdin.write_all(pw.as_bytes());
         let _ = stdin.write_all(b"\n");
     }
-    let output = child.wait_with_output().map_err(|err| format!("failed waiting for sudo: {err}"))?;
-    if output.status.success()
+    let output = child
+        .wait_with_output()
+        .map_err(|err| format!("failed waiting for sudo: {err}"))?;
+    if output
+        .status
+        .success()
     {
         Ok(())
     }
     else
     {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let first = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("authentication failed");
-        Err(first.trim().to_owned())
+        let first = stderr
+            .lines()
+            .find(|l| {
+                !l.trim()
+                    .is_empty()
+            })
+            .unwrap_or("authentication failed");
+        Err(first
+            .trim()
+            .to_owned())
     }
 }
 
@@ -309,7 +336,11 @@ fn draw_auth_modal_middle(frame: &mut Frame, area: Rect, modal: &AuthModal, is_c
             " Right-click zapret-rs.exe and select \"Run as administrator\", then retry.",
             Style::default().fg(t.warn_bright),
         )))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.warn)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.warn)),
+        );
         frame.render_widget(notice, area);
     }
     else if modal.needs_password
@@ -317,7 +348,12 @@ fn draw_auth_modal_middle(frame: &mut Frame, area: Rect, modal: &AuthModal, is_c
         let masked = "*".repeat(modal.password_len());
         let input = Paragraph::new(Line::from(vec![
             Span::styled(masked, Style::default().fg(t.text)),
-            Span::styled("_", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "_",
+                Style::default()
+                    .fg(t.warn_bright)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]))
         .block(
             Block::default()
@@ -333,7 +369,11 @@ fn draw_auth_modal_middle(frame: &mut Frame, area: Rect, modal: &AuthModal, is_c
             " sudo credentials cached — press Enter to run immediately",
             Style::default().fg(t.ok_bright),
         )))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(t.ok)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.ok)),
+        );
         frame.render_widget(cached, area);
     }
 }
@@ -354,8 +394,17 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
     let (title, summary, border_col, action_hint) = auth_modal_metadata(modal.purpose, t);
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_col).add_modifier(Modifier::BOLD))
-        .title(Span::styled(title, Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)));
+        .border_style(
+            Style::default()
+                .fg(border_col)
+                .add_modifier(Modifier::BOLD),
+        )
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(t.warn_bright)
+                .add_modifier(Modifier::BOLD),
+        ));
     let inner = outer.inner(popup);
     frame.render_widget(outer, popup);
 
@@ -379,7 +428,12 @@ pub fn draw_auth_modal(frame: &mut Frame, modal: &AuthModal, t: &Theme)
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(preview_label, Style::default().fg(t.subtle)),
-            Span::styled(modal.command_preview.as_str(), Style::default().fg(t.accent_bright)),
+            Span::styled(
+                modal
+                    .command_preview
+                    .as_str(),
+                Style::default().fg(t.accent_bright),
+            ),
         ]))
         .wrap(Wrap { trim: true }),
         rows[1],

@@ -150,6 +150,7 @@ Core subsystems live under [src/](src): `packet`, `rawsend`, `intercepter`, `con
 ### Running Checks & Tests
 
 ```bash
+cargo +nightly fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo nextest run
 cargo bench

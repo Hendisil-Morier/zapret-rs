@@ -35,14 +35,18 @@ pub(crate) fn stream_sse_loop(stream: &mut TcpStream, ipc: &WebIpcBridge, stop: 
                 X-Frame-Options: DENY\r\n\
                 Content-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\n\
                 Connection: keep-alive\r\n\r\n";
-    if stream.write_all(head.as_bytes()).is_err()
+    if stream
+        .write_all(head.as_bytes())
+        .is_err()
     {
         return;
     }
     if let Ok(json) = serde_json::to_string(&initial)
     {
         let first = format!("event: status\ndata: {json}\n\n");
-        if stream.write_all(first.as_bytes()).is_err()
+        if stream
+            .write_all(first.as_bytes())
+            .is_err()
         {
             return;
         }
@@ -64,14 +68,24 @@ fn drain_sse_frames(stream: &mut TcpStream, rx: Receiver<String>, stop: &AtomicB
                 {
                     continue;
                 }
-                if stream.write_all(frame.as_bytes()).is_err() || stream.flush().is_err()
+                if stream
+                    .write_all(frame.as_bytes())
+                    .is_err()
+                    || stream
+                        .flush()
+                        .is_err()
                 {
                     break;
                 }
             }
             Err(RecvTimeoutError::Timeout) =>
             {
-                if stream.write_all(b": keepalive\n\n").is_err() || stream.flush().is_err()
+                if stream
+                    .write_all(b": keepalive\n\n")
+                    .is_err()
+                    || stream
+                        .flush()
+                        .is_err()
                 {
                     break;
                 }

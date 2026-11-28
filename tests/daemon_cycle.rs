@@ -73,7 +73,9 @@ fn shift_r_requests_restart_on_tab2_whether_attached_or_not()
     state.tab = ActiveTab::Run;
     assert_eq!(press(&mut state), AppAction::RestartDaemon);
 
-    state.run.status = RunStatus::Attached;
+    state
+        .run
+        .status = RunStatus::Attached;
     assert_eq!(press(&mut state), AppAction::RestartDaemon);
 
     // Other tabs must not trigger a restart.

@@ -69,7 +69,8 @@ impl Hash for IfaceKey
 {
     fn hash<H: Hasher>(&self, state: &mut H)
     {
-        self.as_bytes().hash(state);
+        self.as_bytes()
+            .hash(state);
     }
 }
 
@@ -157,51 +158,73 @@ impl IpCache
     /// Returns the number of active cached `(ip, iface)` entries.
     pub fn len(&self) -> usize
     {
-        self.entries.len()
+        self.entries
+            .len()
     }
 
     /// Returns `true` when the cache contains no entries.
     pub fn is_empty(&self) -> bool
     {
-        self.entries.is_empty()
+        self.entries
+            .is_empty()
     }
 
     /// Removes all entries from the cache (`ipcacheDestroy`).
     pub fn clear(&mut self)
     {
-        self.entries.clear();
+        self.entries
+            .clear();
     }
 
     /// Looks up an entry by `(addr, iface)` without refreshing its timestamp (`ipcacheFind`).
     pub fn find(&self, addr: IpAddr, iface: &str) -> Option<&IpCacheEntry>
     {
-        self.entries.get(&(addr, IfaceKey::new(iface)))
+        self.entries
+            .get(&(addr, IfaceKey::new(iface)))
     }
 
     /// Inserts or refreshes `(addr, iface)`, purging expired items and evicting the oldest if full.
     fn touch_inner(&mut self, addr: IpAddr, iface: &str, now_sec: i64) -> &mut IpCacheEntry
     {
         let key = (addr, IfaceKey::new(iface));
-        if self.max_entries > 0 && self.entries.len() >= self.max_entries && !self.entries.contains_key(&key)
+        if self.max_entries > 0
+            && self
+                .entries
+                .len()
+                >= self.max_entries
+            && !self
+                .entries
+                .contains_key(&key)
         {
             self.purge_rate_limited(now_sec);
-            while self.entries.len() >= self.max_entries
+            while self
+                .entries
+                .len()
+                >= self.max_entries
             {
-                let oldest = self.entries.iter().min_by_key(|(_, e)| e.last_sec).map(|(k, _)| k.clone());
+                let oldest = self
+                    .entries
+                    .iter()
+                    .min_by_key(|(_, e)| e.last_sec)
+                    .map(|(k, _)| k.clone());
                 let Some(evict_key) = oldest
                 else
                 {
                     break;
                 };
-                self.entries.remove(&evict_key);
+                self.entries
+                    .remove(&evict_key);
             }
         }
-        let entry = self.entries.entry(key).or_insert_with(|| IpCacheEntry {
-            last_sec: now_sec,
-            hostname: None,
-            hostname_is_ip: false,
-            ttl: 0,
-        });
+        let entry = self
+            .entries
+            .entry(key)
+            .or_insert_with(|| IpCacheEntry {
+                last_sec: now_sec,
+                hostname: None,
+                hostname_is_ip: false,
+                ttl: 0,
+            });
         entry.last_sec = now_sec;
         entry
     }
@@ -228,7 +251,10 @@ impl IpCache
             return;
         }
         let entry = self.touch(addr, "", now_sec);
-        if entry.hostname.as_deref() != Some(hostname)
+        if entry
+            .hostname
+            .as_deref()
+            != Some(hostname)
         {
             entry.hostname = Some(hostname.to_owned());
             entry.hostname_is_ip = hostname_is_ip;
@@ -243,7 +269,10 @@ impl IpCache
             return None;
         }
         let entry = self.find(addr, "")?;
-        entry.hostname.as_deref().map(|h| (h, entry.hostname_is_ip))
+        entry
+            .hostname
+            .as_deref()
+            .map(|h| (h, entry.hostname_is_ip))
     }
 
     /// Updates cached `(addr, iface)` TTL from `incoming_ttl`, or populates `incoming_ttl` from cache.
@@ -282,7 +311,9 @@ impl IpCache
         {
             return None;
         }
-        self.find(addr, iface).map(|e| e.ttl).filter(|&ttl| ttl != 0)
+        self.find(addr, iface)
+            .map(|e| e.ttl)
+            .filter(|&ttl| ttl != 0)
     }
 
     /// Evicts entries whose `last_sec + lifetime_sec <= now_sec` when `lifetime_sec > 0`.
@@ -293,7 +324,13 @@ impl IpCache
             return;
         }
         let lifetime = self.lifetime_sec;
-        self.entries.retain(|_, entry| now_sec < entry.last_sec.saturating_add(lifetime));
+        self.entries
+            .retain(|_, entry| {
+                now_sec
+                    < entry
+                        .last_sec
+                        .saturating_add(lifetime)
+            });
     }
 
     /// Runs [`Self::purge`] at most once per monotonic boottime second (`ipcachePurgeRateLimited`).

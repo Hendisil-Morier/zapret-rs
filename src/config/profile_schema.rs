@@ -20,8 +20,8 @@ use crate::config::model::{DesyncAction, DesyncProfile};
 use crate::config::range::PacketRange;
 /// Validated per-profile hostlist/ipset configuration model.
 use crate::config::runtime_cfg::ProfileListsConfig;
-/// Relative config path resolver shared with top-level TOML parsing.
-use crate::config::schema::resolve_path;
+/// Optional field assignment and relative config path helpers shared with top-level TOML parsing.
+use crate::config::schema::{assign_some, resolve_path};
 /// Per-profile autohostlist thresholds structure.
 use crate::lists::AutoHostlistSettings;
 
@@ -167,7 +167,10 @@ fn parse_comma_list<T>(
 /// Maps relative filesystem paths inside list fields against `base_dir`.
 fn resolve_paths(paths: Vec<PathBuf>, base_dir: Option<&Path>) -> Vec<PathBuf>
 {
-    paths.into_iter().map(|path| resolve_path(path, base_dir)).collect()
+    paths
+        .into_iter()
+        .map(|path| resolve_path(path, base_dir))
+        .collect()
 }
 
 /// Converts a raw TOML profile into a validated [`DesyncProfile`] with `filter_defaults` applied.
@@ -207,14 +210,19 @@ pub(super) fn build_profile(
     }
 
     let filter_l7 = parse_l7_proto_mask(&raw.filter_l7)?;
-    let filter_mark = match raw.filter_mark.as_deref()
+    let filter_mark = match raw
+        .filter_mark
+        .as_deref()
     {
         Some(raw_mark) => MarkFilter::parse(raw_mark)?,
         None => MarkFilter::default(),
     };
     let lists = build_profile_lists(&raw, base_dir)?;
 
-    let mut actions = Vec::with_capacity(raw.actions.len());
+    let mut actions = Vec::with_capacity(
+        raw.actions
+            .len(),
+    );
     for raw_action in raw.actions
     {
         actions.push(build_action(raw_action)?);
@@ -241,50 +249,17 @@ pub(super) fn build_profile(
 fn build_profile_lists(raw: &RawProfile, base_dir: Option<&Path>) -> Result<ProfileListsConfig, ConfigError>
 {
     let mut settings = AutoHostlistSettings::default();
-    if let Some(v) = raw.hostlist_auto_fail_threshold
-    {
-        settings.fail_threshold = v;
-    }
-    if let Some(v) = raw.hostlist_auto_fail_time
-    {
-        settings.fail_time_sec = v;
-    }
-    if let Some(v) = raw.hostlist_auto_retrans_threshold
-    {
-        settings.retrans_threshold = v;
-    }
-    if let Some(v) = raw.hostlist_auto_retrans_maxseq
-    {
-        settings.retrans_maxseq = v;
-    }
-    if let Some(v) = raw.hostlist_auto_retrans_reset
-    {
-        settings.retrans_reset = v;
-    }
-    if let Some(v) = raw.hostlist_auto_incoming_maxseq
-    {
-        settings.incoming_maxseq = v;
-    }
-    if let Some(v) = raw.hostlist_auto_udp_out
-    {
-        settings.udp_out = v;
-    }
-    if let Some(v) = raw.hostlist_auto_udp_in
-    {
-        settings.udp_in = v;
-    }
-    if let Some(v) = raw.hostlist_auto_fail_cooldown
-    {
-        settings.fail_cooldown_sec = v;
-    }
-    if let Some(v) = raw.hostlist_auto_sibling_threshold
-    {
-        settings.sibling_threshold = v;
-    }
-    if let Some(v) = raw.hostlist_auto_confirm
-    {
-        settings.confirm_block = v;
-    }
+    assign_some(&mut settings.fail_threshold, raw.hostlist_auto_fail_threshold);
+    assign_some(&mut settings.fail_time_sec, raw.hostlist_auto_fail_time);
+    assign_some(&mut settings.retrans_threshold, raw.hostlist_auto_retrans_threshold);
+    assign_some(&mut settings.retrans_maxseq, raw.hostlist_auto_retrans_maxseq);
+    assign_some(&mut settings.retrans_reset, raw.hostlist_auto_retrans_reset);
+    assign_some(&mut settings.incoming_maxseq, raw.hostlist_auto_incoming_maxseq);
+    assign_some(&mut settings.udp_out, raw.hostlist_auto_udp_out);
+    assign_some(&mut settings.udp_in, raw.hostlist_auto_udp_in);
+    assign_some(&mut settings.fail_cooldown_sec, raw.hostlist_auto_fail_cooldown);
+    assign_some(&mut settings.sibling_threshold, raw.hostlist_auto_sibling_threshold);
+    assign_some(&mut settings.confirm_block, raw.hostlist_auto_confirm);
     if let Err(msg) = settings.validate()
     {
         return Err(ConfigError::Validation(msg.to_owned()));
@@ -295,15 +270,34 @@ fn build_profile_lists(raw: &RawProfile, base_dir: Option<&Path>) -> Result<Prof
     };
 
     Ok(ProfileListsConfig {
-        hostlist: resolve_paths(raw.hostlist.clone(), base_dir),
+        hostlist: resolve_paths(
+            raw.hostlist
+                .clone(),
+            base_dir,
+        ),
         hostlist_domains: split_tokens(&raw.hostlist_domains)?,
-        hostlist_exclude: resolve_paths(raw.hostlist_exclude.clone(), base_dir),
+        hostlist_exclude: resolve_paths(
+            raw.hostlist_exclude
+                .clone(),
+            base_dir,
+        ),
         hostlist_exclude_domains: split_tokens(&raw.hostlist_exclude_domains)?,
-        hostlist_auto: raw.hostlist_auto.clone().map(|p| resolve_path(p, base_dir)),
+        hostlist_auto: raw
+            .hostlist_auto
+            .clone()
+            .map(|p| resolve_path(p, base_dir)),
         hostlist_auto_settings: settings,
-        ipset: resolve_paths(raw.ipset.clone(), base_dir),
+        ipset: resolve_paths(
+            raw.ipset
+                .clone(),
+            base_dir,
+        ),
         ipset_ip: split_tokens(&raw.ipset_ip)?,
-        ipset_exclude: resolve_paths(raw.ipset_exclude.clone(), base_dir),
+        ipset_exclude: resolve_paths(
+            raw.ipset_exclude
+                .clone(),
+            base_dir,
+        ),
         ipset_exclude_ip: split_tokens(&raw.ipset_exclude_ip)?,
     })
 }
@@ -342,18 +336,25 @@ fn parse_l3_filters(items: &[String]) -> Result<(bool, bool), ConfigError>
 /// Converts a raw TOML action block into a validated [`DesyncAction`].
 fn build_action(raw: RawAction) -> Result<DesyncAction, ConfigError>
 {
-    let func = raw.func.trim().to_owned();
+    let func = raw
+        .func
+        .trim()
+        .to_owned();
     if func.is_empty()
     {
         return Err(ConfigError::Validation("action `func` name cannot be empty".to_owned()));
     }
     let payload_mask = parse_l7_payload_mask(&raw.payload)?;
-    let in_range = match raw.in_range.as_deref()
+    let in_range = match raw
+        .in_range
+        .as_deref()
     {
         Some(expr) => PacketRange::parse(expr)?,
         None => PacketRange::NEVER,
     };
-    let out_range = match raw.out_range.as_deref()
+    let out_range = match raw
+        .out_range
+        .as_deref()
     {
         Some(expr) => PacketRange::parse(expr)?,
         None => PacketRange::ALWAYS,

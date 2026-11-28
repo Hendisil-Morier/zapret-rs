@@ -73,15 +73,27 @@ fn reconstruct_options_control_checksums_and_ipv6_next_headers()
     let kept =
         reconstruct_packet(&tcp_pkt, &ReconstructOptions { keepsum: true, ..ReconstructOptions::default() })
             .expect("keepsum should succeed");
-    assert_eq!(dissect_packet(&kept, false).tcp.expect("tcp").checksum, 0x1357);
+    assert_eq!(
+        dissect_packet(&kept, false)
+            .tcp
+            .expect("tcp")
+            .checksum,
+        0x1357
+    );
 
     let good = reconstruct_packet(&tcp_pkt, &ReconstructOptions::default()).expect("good sum");
     let bad =
         reconstruct_packet(&tcp_pkt, &ReconstructOptions { badsum: true, ..ReconstructOptions::default() })
             .expect("badsum");
     assert_ne!(
-        dissect_packet(&good, false).tcp.expect("good").checksum,
-        dissect_packet(&bad, false).tcp.expect("bad").checksum
+        dissect_packet(&good, false)
+            .tcp
+            .expect("good")
+            .checksum,
+        dissect_packet(&bad, false)
+            .tcp
+            .expect("bad")
+            .checksum
     );
 
     // UDP badsum must never produce checksum 0x0000.
@@ -98,7 +110,9 @@ fn reconstruct_options_control_checksums_and_ipv6_next_headers()
             &ReconstructOptions { badsum: true, ..ReconstructOptions::default() },
         )
         .expect("badsum udp");
-        let parsed = dissect_packet(&bad_udp, false).udp.expect("udp");
+        let parsed = dissect_packet(&bad_udp, false)
+            .udp
+            .expect("udp");
         assert_ne!(parsed.checksum, 0);
     }
 
@@ -120,7 +134,11 @@ fn reconstruct_options_control_checksums_and_ipv6_next_headers()
     assert_eq!(dissect_packet(&wire_ipip, false).l4proto, IPPROTO_IPIP);
 
     // Preserving explicit `next` in extension header when `ip6_preserve_next = true`.
-    ipip_dis.ip6.as_mut().expect("ip6").next_header = IPPROTO_HOPOPTS;
+    ipip_dis
+        .ip6
+        .as_mut()
+        .expect("ip6")
+        .next_header = IPPROTO_HOPOPTS;
     let preserved = reconstruct_packet(
         &ipip_dis,
         &ReconstructOptions {
@@ -146,12 +164,28 @@ fn ipv4_and_ipv6_fragment_slicing_and_dissect_roundtrip()
         payload: Some(payload.clone()),
         ..DissectedPacket::default()
     };
-    v4_frag1.ip.as_mut().expect("ip").frag_off = IP_MF;
-    v4_frag1.ip.as_mut().expect("ip").total_len = 20 + 16;
+    v4_frag1
+        .ip
+        .as_mut()
+        .expect("ip")
+        .frag_off = IP_MF;
+    v4_frag1
+        .ip
+        .as_mut()
+        .expect("ip")
+        .total_len = 20 + 16;
 
     let mut v4_frag2 = v4_frag1.clone();
-    v4_frag2.ip.as_mut().expect("ip").frag_off = 16 >> 3;
-    v4_frag2.ip.as_mut().expect("ip").total_len = 20 + (8 + 40 - 16);
+    v4_frag2
+        .ip
+        .as_mut()
+        .expect("ip")
+        .frag_off = 16 >> 3;
+    v4_frag2
+        .ip
+        .as_mut()
+        .expect("ip")
+        .total_len = 20 + (8 + 40 - 16);
 
     let f1_bytes = reconstruct_packet(&v4_frag1, &ReconstructOptions::default()).expect("v4 f1");
     let f2_bytes = reconstruct_packet(&v4_frag2, &ReconstructOptions::default()).expect("v4 f2");
@@ -160,7 +194,11 @@ fn ipv4_and_ipv6_fragment_slicing_and_dissect_roundtrip()
 
     let f2_dis = dissect_packet(&f2_bytes, false);
     assert_eq!(f2_dis.frag_off, Some(16));
-    assert!(f2_dis.udp.is_none());
+    assert!(
+        f2_dis
+            .udp
+            .is_none()
+    );
 
     // IPv6 fragment 2 starting at offset 24 with custom trailing `next` preserved via `ip6_preserve_next`.
     let mut v6_frag2 = DissectedPacket {
@@ -177,8 +215,16 @@ fn ipv4_and_ipv6_fragment_slicing_and_dissect_roundtrip()
         ..DissectedPacket::default()
     };
     // Full unfragmentable extra headers = 16 bytes; fragmentable part = 48 - 24 = 24 bytes -> ip6_plen = 40.
-    v6_frag2.ip6.as_mut().expect("ip6").next_header = IPPROTO_HOPOPTS;
-    v6_frag2.ip6.as_mut().expect("ip6").payload_len = Some(16 + 24);
+    v6_frag2
+        .ip6
+        .as_mut()
+        .expect("ip6")
+        .next_header = IPPROTO_HOPOPTS;
+    v6_frag2
+        .ip6
+        .as_mut()
+        .expect("ip6")
+        .payload_len = Some(16 + 24);
 
     let v6_f2_bytes = reconstruct_packet(
         &v6_frag2,
@@ -190,7 +236,11 @@ fn ipv4_and_ipv6_fragment_slicing_and_dissect_roundtrip()
     let v6_f2_dis = dissect_packet(&v6_f2_bytes, false);
     assert_eq!(v6_f2_dis.frag_off, Some(24));
     assert_eq!(v6_f2_dis.l4proto, IPPROTO_TCP);
-    assert!(v6_f2_dis.icmp.is_none());
+    assert!(
+        v6_f2_dis
+            .icmp
+            .is_none()
+    );
 
     // Re-reconstructing the dissected non-first fragment preserves payload bytes verbatim.
     let rebuilt = reconstruct_packet(&v6_f2_dis, &ReconstructOptions::default())

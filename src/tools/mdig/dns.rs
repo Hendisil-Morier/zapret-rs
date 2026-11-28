@@ -93,7 +93,9 @@ pub fn build_dns_query_with_id(op: u8, domain: &str, class: u8, qtype: u8, id: u
     {
         return None;
     }
-    let trimmed = raw.strip_suffix(b".").unwrap_or(raw);
+    let trimmed = raw
+        .strip_suffix(b".")
+        .unwrap_or(raw);
     if trimmed.ends_with(b".") || trimmed.len() > 253
     {
         return None;
@@ -124,7 +126,10 @@ pub fn build_dns_query_with_id(op: u8, domain: &str, class: u8, qtype: u8, id: u
 /// Builds a standard IN `A`/`AAAA` DNS query packet for `domain` with a clock-seeded ID.
 pub fn build_dns_query(domain: &str, family: MdigFamily) -> Option<Vec<u8>>
 {
-    let nsec = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
+    let nsec = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
     let id = (nsec as u16).wrapping_add((nsec >> 16) as u16);
     build_dns_query_with_id(0, domain, DNS_CLASS_IN, family.query_qtype(), id)
 }
@@ -165,7 +170,9 @@ pub fn read_and_parse_dns_reply<R: Read, W: Write>(reader: &mut R, writer: &mut 
 -> Result<(), MdigDnsError>
 {
     let mut buf = Vec::with_capacity(512);
-    let read_res = reader.take(MDIG_DNS_REPLY_MAX as u64).read_to_end(&mut buf);
+    let read_res = reader
+        .take(MDIG_DNS_REPLY_MAX as u64)
+        .read_to_end(&mut buf);
     if read_res.is_err() || buf.is_empty()
     {
         return Err(MdigDnsError::ReadFailed);

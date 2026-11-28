@@ -39,12 +39,22 @@ pub fn prepare_control_socket_dir(
     target_gid: Option<u32>,
 ) -> Result<(), ControlServerError>
 {
-    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty())
+    let Some(parent) = socket_path
+        .parent()
+        .filter(|p| {
+            !p.as_os_str()
+                .is_empty()
+        })
     else
     {
         return Ok(());
     };
-    if let Some(grandparent) = parent.parent().filter(|p| !p.as_os_str().is_empty())
+    if let Some(grandparent) = parent
+        .parent()
+        .filter(|p| {
+            !p.as_os_str()
+                .is_empty()
+        })
     {
         DirBuilder::new()
             .recursive(true)
@@ -52,7 +62,9 @@ pub fn prepare_control_socket_dir(
             .create(grandparent)
             .map_err(|source| ControlServerError::Io { path: grandparent.to_path_buf(), source })?;
     }
-    let created_fresh = match DirBuilder::new().mode(0o700).create(parent)
+    let created_fresh = match DirBuilder::new()
+        .mode(0o700)
+        .create(parent)
     {
         Ok(()) => true,
         Err(err) if err.kind() == ErrorKind::AlreadyExists => false,
@@ -62,7 +74,12 @@ pub fn prepare_control_socket_dir(
         }
     };
 
-    let c_dir = CString::new(parent.as_os_str().as_bytes()).map_err(|_| ControlServerError::Io {
+    let c_dir = CString::new(
+        parent
+            .as_os_str()
+            .as_bytes(),
+    )
+    .map_err(|_| ControlServerError::Io {
         path: parent.to_path_buf(),
         source: std::io::Error::from_raw_os_error(libc::EINVAL),
     })?;
@@ -130,7 +147,12 @@ pub fn prepare_control_socket_dir(
     _target_gid: Option<u32>,
 ) -> Result<(), ControlServerError>
 {
-    let Some(parent) = socket_path.parent().filter(|p| !p.as_os_str().is_empty())
+    let Some(parent) = socket_path
+        .parent()
+        .filter(|p| {
+            !p.as_os_str()
+                .is_empty()
+        })
     else
     {
         return Ok(());

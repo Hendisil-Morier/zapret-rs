@@ -183,7 +183,13 @@ unsafe fn load_sym<T: Copy>(module: isize, name: &[u8]) -> io::Result<T>
         fn GetProcAddress(h_module: isize, lp_proc_name: *const c_char) -> *const c_void;
     }
     // SAFETY: `module` is a valid `HMODULE` and `name` is NUL-terminated.
-    let ptr = unsafe { GetProcAddress(module, name.as_ptr().cast()) };
+    let ptr = unsafe {
+        GetProcAddress(
+            module,
+            name.as_ptr()
+                .cast(),
+        )
+    };
     if ptr.is_null()
     {
         return Err(io::Error::last_os_error());
@@ -211,7 +217,10 @@ impl WinDivertApi
 
         let exe_dll = std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|dir| dir.join("WinDivert.dll")))
+            .and_then(|p| {
+                p.parent()
+                    .map(|dir| dir.join("WinDivert.dll"))
+            })
             .filter(|p| p.is_file());
         let (target_os, flags): (&OsStr, u32) = match &exe_dll
         {
@@ -221,7 +230,10 @@ impl WinDivertApi
                 LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
             ),
         };
-        let wide: Vec<u16> = target_os.encode_wide().chain(std::iter::once(0)).collect();
+        let wide: Vec<u16> = target_os
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
         // SAFETY: `wide` is NUL-terminated UTF-16 and flags prohibit current working directory search.
         let raw_module = unsafe { LoadLibraryExW(wide.as_ptr(), 0, flags) };
         if raw_module == 0
@@ -314,15 +326,10 @@ impl WinDivertHandle
         }
         // SAFETY: Kernel reads/writes only within `[buf..buf+cap]`, `addr`, `addr_len`, and `overlapped`.
         let ok = unsafe {
-            (self.api.recv_ex_fn)(
-                self.handle,
-                buf.cast(),
-                cap,
-                ptr::null_mut(),
-                0,
-                addr,
-                addr_len,
-                overlapped,
+            (self
+                .api
+                .recv_ex_fn)(
+                self.handle, buf.cast(), cap, ptr::null_mut(), 0, addr, addr_len, overlapped
             )
         };
         if ok != 0
@@ -340,9 +347,13 @@ impl WinDivertHandle
         let len = u32::try_from(packet.len()).unwrap_or(u32::MAX);
         // SAFETY: `packet` and `addr` point to valid readable memory for `len` bytes.
         let ok = unsafe {
-            (self.api.send_fn)(
+            (self
+                .api
+                .send_fn)(
                 self.handle,
-                packet.as_ptr().cast(),
+                packet
+                    .as_ptr()
+                    .cast(),
                 len,
                 &raw mut send_len,
                 ptr::from_ref(addr),
@@ -360,15 +371,29 @@ impl WinDivertHandle
     {
         let len = u32::try_from(packet.len()).unwrap_or(u32::MAX);
         // SAFETY: `packet` and `addr` point to valid mutable buffers of `len` bytes.
-        let _ =
-            unsafe { (self.api.calc_checksums_fn)(packet.as_mut_ptr().cast(), len, ptr::from_mut(addr), 0) };
+        let _ = unsafe {
+            (self
+                .api
+                .calc_checksums_fn)(
+                packet
+                    .as_mut_ptr()
+                    .cast(),
+                len,
+                ptr::from_mut(addr),
+                0,
+            )
+        };
     }
 
     /// Shuts down both recv and send directions so a blocked `recv()` wakes cleanly.
     pub(crate) fn shutdown(&self)
     {
         // SAFETY: `handle` is an open WinDivert handle.
-        let _ = unsafe { (self.api.shutdown_fn)(self.handle, WINDIVERT_SHUTDOWN_BOTH) };
+        let _ = unsafe {
+            (self
+                .api
+                .shutdown_fn)(self.handle, WINDIVERT_SHUTDOWN_BOTH)
+        };
     }
 }
 
@@ -379,6 +404,10 @@ impl Drop for WinDivertHandle
     {
         self.shutdown();
         // SAFETY: `handle` is exclusively owned and closed once on `Drop`.
-        let _ = unsafe { (self.api.close_fn)(self.handle) };
+        let _ = unsafe {
+            (self
+                .api
+                .close_fn)(self.handle)
+        };
     }
 }

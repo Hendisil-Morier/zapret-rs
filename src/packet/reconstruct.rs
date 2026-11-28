@@ -41,21 +41,31 @@ pub struct ReconstructOptions
 /// Determines the IPv6 trailing protocol number automatically from present L4 headers.
 fn auto_ipv6_last_proto(dis: &DissectedPacket) -> u8
 {
-    if dis.tcp.is_some()
+    if dis
+        .tcp
+        .is_some()
     {
         IPPROTO_TCP
     }
-    else if dis.udp.is_some()
+    else if dis
+        .udp
+        .is_some()
     {
         IPPROTO_UDP
     }
-    else if dis.icmp.is_some()
+    else if dis
+        .icmp
+        .is_some()
     {
-        if dis.ip.is_some()
+        if dis
+            .ip
+            .is_some()
         {
             IPPROTO_ICMP
         }
-        else if dis.ip6.is_some()
+        else if dis
+            .ip6
+            .is_some()
         {
             IPPROTO_ICMPV6
         }
@@ -192,9 +202,21 @@ fn apply_l4_checksums(
 /// matching `zapret2`'s `lua_reconstruct_dissect`.
 pub fn reconstruct_packet(dis: &DissectedPacket, opts: &ReconstructOptions) -> PEResult<Vec<u8>>
 {
-    let is_frag_dissect = dis.frag_off.is_some();
-    let has_l4 = dis.tcp.is_some() || dis.udp.is_some() || dis.icmp.is_some();
-    let last_proto_opt = opts.ip6_last_proto.unwrap_or(IPPROTO_NONE);
+    let is_frag_dissect = dis
+        .frag_off
+        .is_some();
+    let has_l4 = dis
+        .tcp
+        .is_some()
+        || dis
+            .udp
+            .is_some()
+        || dis
+            .icmp
+            .is_some();
+    let last_proto_opt = opts
+        .ip6_last_proto
+        .unwrap_or(IPPROTO_NONE);
     let effective_preserve_next =
         opts.ip6_preserve_next || is_frag_dissect || (last_proto_opt == IPPROTO_NONE && !has_l4);
     let effective_last_proto =
@@ -214,8 +236,13 @@ pub fn reconstruct_packet(dis: &DissectedPacket, opts: &ReconstructOptions) -> P
     };
 
     let l3_len = buf.len();
-    let is_v4 = dis.ip.is_some();
-    let payload = dis.payload.as_deref().unwrap_or(&[]);
+    let is_v4 = dis
+        .ip
+        .is_some();
+    let payload = dis
+        .payload
+        .as_deref()
+        .unwrap_or(&[]);
 
     if is_frag_dissect
     {

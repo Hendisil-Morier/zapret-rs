@@ -59,7 +59,12 @@ pub fn ctrack_to_lua(
     {
         tbl.raw_set("incoming_ttl", i64::from(entry.incoming_ttl))?;
     }
-    tbl.raw_set("l7proto", entry.l7proto.as_str())?;
+    tbl.raw_set(
+        "l7proto",
+        entry
+            .l7proto
+            .as_str(),
+    )?;
     match &entry.hostname
     {
         Some(host) =>
@@ -80,10 +85,19 @@ pub fn ctrack_to_lua(
     }
     tbl.raw_set("lua_in_cutoff", entry.lua_in_cutoff)?;
     tbl.raw_set("lua_out_cutoff", entry.lua_out_cutoff)?;
-    tbl.raw_set("t_start", entry.t_start.as_secs_f64())?;
+    tbl.raw_set(
+        "t_start",
+        entry
+            .t_start
+            .as_secs_f64(),
+    )?;
 
     let pos_tbl = lua.create_table_with_capacity(0, 5)?;
-    pos_tbl.raw_set("dt", tpos.t_last.elapsed_secs_f64(entry.t_start))?;
+    pos_tbl.raw_set(
+        "dt",
+        tpos.t_last
+            .elapsed_secs_f64(entry.t_start),
+    )?;
 
     let client_tbl = ctrack_pos_to_lua(lua, &tpos.client, tpos.ipproto)?;
     let server_tbl = ctrack_pos_to_lua(lua, &tpos.server, tpos.ipproto)?;

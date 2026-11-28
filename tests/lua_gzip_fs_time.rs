@@ -83,8 +83,10 @@ fn runtime_with_zapret_tests() -> LuaRuntime
 {
     let sender = Rc::new(RefCell::new(CapturingSender::default()));
     let rt = LuaRuntime::with_sender(LuaConfig::default(), sender).expect("LuaRuntime should initialize");
-    rt.exec_file(Path::new(ZAPRET_LIB_LUA)).expect("zapret-lib.lua should load");
-    rt.exec_file(Path::new(ZAPRET_TESTS_LUA)).expect("zapret-tests.lua should load");
+    rt.exec_file(Path::new(ZAPRET_LIB_LUA))
+        .expect("zapret-lib.lua should load");
+    rt.exec_file(Path::new(ZAPRET_TESTS_LUA))
+        .expect("zapret-tests.lua should load");
     rt
 }
 
@@ -112,7 +114,9 @@ fn build_full_rfc1952_gzip(payload: &[u8]) -> Vec<u8>
         }
         let flush = if rem.is_empty() { FlushCompress::Finish } else { FlushCompress::None };
         let before_in = comp.total_in();
-        let status = comp.compress_vec(rem, &mut deflated, flush).expect("compress");
+        let status = comp
+            .compress_vec(rem, &mut deflated, flush)
+            .expect("compress");
         rem = &rem[(comp.total_in() - before_in) as usize..];
         if matches!(status, Status::StreamEnd)
         {
@@ -123,8 +127,16 @@ fn build_full_rfc1952_gzip(payload: &[u8]) -> Vec<u8>
 
     let mut dcrc = Crc::new();
     dcrc.update(payload);
-    out.extend_from_slice(&dcrc.sum().to_le_bytes());
-    out.extend_from_slice(&dcrc.amount().to_le_bytes());
+    out.extend_from_slice(
+        &dcrc
+            .sum()
+            .to_le_bytes(),
+    );
+    out.extend_from_slice(
+        &dcrc
+            .amount()
+            .to_le_bytes(),
+    );
     out
 }
 
@@ -142,11 +154,27 @@ fn zapret_tests_gzip_and_time_pass()
 fn gzip_byte_by_byte_full_headers_and_corruption_checks()
 {
     let rt = runtime_with_zapret_tests();
-    let payload: Vec<u8> = (0..18000usize).map(|i| ((i * 29) ^ (i >> 4)) as u8).collect();
+    let payload: Vec<u8> = (0..18000usize)
+        .map(|i| ((i * 29) ^ (i >> 4)) as u8)
+        .collect();
     let gz_bytes = build_full_rfc1952_gzip(&payload);
-    let g = rt.lua().globals();
-    g.set("raw_payload", rt.lua().create_string(&payload).unwrap()).unwrap();
-    g.set("full_gz", rt.lua().create_string(&gz_bytes).unwrap()).unwrap();
+    let g = rt
+        .lua()
+        .globals();
+    g.set(
+        "raw_payload",
+        rt.lua()
+            .create_string(&payload)
+            .unwrap(),
+    )
+    .unwrap();
+    g.set(
+        "full_gz",
+        rt.lua()
+            .create_string(&gz_bytes)
+            .unwrap(),
+    )
+    .unwrap();
 
     rt.exec_str(
         r#"
@@ -186,12 +214,30 @@ fn gzip_byte_by_byte_full_headers_and_corruption_checks()
 fn gzip_modes_file_helpers_and_lifecycle_errors()
 {
     let tmp = TempDir::new("zapret_rs_gzip");
-    let plain_path = tmp.path().join("plain.txt");
-    let gz_path = tmp.path().join("packed.gz");
+    let plain_path = tmp
+        .path()
+        .join("plain.txt");
+    let gz_path = tmp
+        .path()
+        .join("packed.gz");
     let rt = runtime_with_zapret_tests();
-    let g = rt.lua().globals();
-    g.set("plain_path", plain_path.to_string_lossy().as_ref()).unwrap();
-    g.set("gz_path", gz_path.to_string_lossy().as_ref()).unwrap();
+    let g = rt
+        .lua()
+        .globals();
+    g.set(
+        "plain_path",
+        plain_path
+            .to_string_lossy()
+            .as_ref(),
+    )
+    .unwrap();
+    g.set(
+        "gz_path",
+        gz_path
+            .to_string_lossy()
+            .as_ref(),
+    )
+    .unwrap();
 
     rt.exec_str(
         r#"
@@ -256,19 +302,52 @@ fn gzip_modes_file_helpers_and_lifecycle_errors()
 fn stat_and_calendar_time_bindings_match_posix()
 {
     let tmp = TempDir::new("zapret_rs_stat");
-    let file_path = tmp.path().join("data.bin");
-    let link_path = tmp.path().join("data.link");
-    let missing_path = tmp.path().join("missing.bin");
+    let file_path = tmp
+        .path()
+        .join("data.bin");
+    let link_path = tmp
+        .path()
+        .join("data.link");
+    let missing_path = tmp
+        .path()
+        .join("missing.bin");
     fs::write(&file_path, b"0123456789abcdef").unwrap();
     symlink(&file_path, &link_path).unwrap();
 
     let rt = LuaRuntime::new(LuaConfig::default()).expect("LuaRuntime should initialize");
-    let g = rt.lua().globals();
-    g.set("f_path", file_path.to_string_lossy().as_ref()).unwrap();
-    g.set("d_path", tmp.path().to_string_lossy().as_ref()).unwrap();
-    g.set("l_path", link_path.to_string_lossy().as_ref()).unwrap();
-    g.set("m_path", missing_path.to_string_lossy().as_ref()).unwrap();
-    g.set("enoent_code", i64::from(libc::ENOENT)).unwrap();
+    let g = rt
+        .lua()
+        .globals();
+    g.set(
+        "f_path",
+        file_path
+            .to_string_lossy()
+            .as_ref(),
+    )
+    .unwrap();
+    g.set(
+        "d_path",
+        tmp.path()
+            .to_string_lossy()
+            .as_ref(),
+    )
+    .unwrap();
+    g.set(
+        "l_path",
+        link_path
+            .to_string_lossy()
+            .as_ref(),
+    )
+    .unwrap();
+    g.set(
+        "m_path",
+        missing_path
+            .to_string_lossy()
+            .as_ref(),
+    )
+    .unwrap();
+    g.set("enoent_code", i64::from(libc::ENOENT))
+        .unwrap();
 
     rt.exec_str(
         r#"
@@ -319,30 +398,50 @@ fn writable_dir_config_cli_and_nfqws2_runtime_e2e()
     assert_eq!(resolve_default_writable_dir(None), PathBuf::from("/tmp/zapret-rs"));
 
     let tmp = TempDir::new("zapret_rs_writable");
-    let blocker = tmp.path().join("not_a_dir");
+    let blocker = tmp
+        .path()
+        .join("not_a_dir");
     fs::write(&blocker, b"file").unwrap();
     let err = ensure_writable_dir(&WritableDirConfig::Custom(blocker), None)
         .expect_err("file blocking writable dir must fail");
-    assert!(err.to_string().contains("could not prepare writable dir"));
+    assert!(
+        err.to_string()
+            .contains("could not prepare writable dir")
+    );
 
     let cfg_dir = AppConfig::from_toml_str("writable = \"sub/lua_tmp\"\n", Some(tmp.path()))
         .expect("TOML writable path parses");
-    assert_eq!(cfg_dir.writable, Some(WritableDirConfig::Custom(tmp.path().join("sub/lua_tmp"))));
+    assert_eq!(
+        cfg_dir.writable,
+        Some(WritableDirConfig::Custom(
+            tmp.path()
+                .join("sub/lua_tmp")
+        ))
+    );
     let cfg_bool = AppConfig::from_toml_str("writable = true\n", None).unwrap();
     assert_eq!(cfg_bool.writable, Some(WritableDirConfig::Default));
     let cfg_off = AppConfig::from_toml_str("writable = false\n", None).unwrap();
     assert_eq!(cfg_off.writable, None);
 
     let cli_def = CliArgs::try_parse_from(["nfqws2", "--writable"]).unwrap();
-    assert_eq!(resolve_config(&cli_def).unwrap().writable, Some(WritableDirConfig::Default));
+    assert_eq!(
+        resolve_config(&cli_def)
+            .unwrap()
+            .writable,
+        Some(WritableDirConfig::Default)
+    );
     let cli_custom = CliArgs::try_parse_from(["nfqws2", "--writable=/tmp/explicit_w"]).unwrap();
     assert_eq!(
-        resolve_config(&cli_custom).unwrap().writable,
+        resolve_config(&cli_custom)
+            .unwrap()
+            .writable,
         Some(WritableDirConfig::Custom(PathBuf::from("/tmp/explicit_w")))
     );
 
     // End-to-end `nfqws2 --intercept=0 --writable` under custom TMPDIR -> `<TMPDIR>/zapret-rs`
-    let tmp_env = tmp.path().join("tmp_root");
+    let tmp_env = tmp
+        .path()
+        .join("tmp_root");
     fs::create_dir_all(&tmp_env).unwrap();
     let zapret_lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("lua/zapret-lib.lua");
     let out1 = nfqws2_cmd()
@@ -366,13 +465,16 @@ fn writable_dir_config_cli_and_nfqws2_runtime_e2e()
         .output()
         .expect("spawn nfqws2 --writable");
     assert!(
-        out1.status.success(),
+        out1.status
+            .success(),
         "nfqws2 --writable failed: stderr={}",
         String::from_utf8_lossy(&out1.stderr)
     );
 
     // Explicit `--writable=<path>`
-    let explicit = tmp.path().join("explicit_writable");
+    let explicit = tmp
+        .path()
+        .join("explicit_writable");
     let out2 = nfqws2_cmd()
         .env_remove("WRITABLE")
         .args([
@@ -383,6 +485,9 @@ fn writable_dir_config_cli_and_nfqws2_runtime_e2e()
         ])
         .output()
         .expect("spawn nfqws2 --writable=<explicit>");
-    assert!(out2.status.success());
+    assert!(
+        out2.status
+            .success()
+    );
     assert!(explicit.is_dir());
 }
