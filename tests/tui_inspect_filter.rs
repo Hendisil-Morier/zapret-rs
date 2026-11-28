@@ -1,12 +1,20 @@
 //! Unit tests for Tab 2 Packet Inspector advanced `/` query filtering.
 
-/// Keyboard key codes used to drive [`PacketInspectorState::handle_key`].
-use crossterm::event::KeyCode;
+/// Keyboard events and key codes used to drive [`PacketInspectorState::handle_key_with_binds`].
+use crossterm::event::{KeyCode, KeyEvent};
 
 /// Shared packet snapshot and outcome classification types.
 use zapret_rs::telemetry::{PacketRecord, PacketVerdict};
+/// Default keymap passed into inspector key handler tests.
+use zapret_rs::tui::Keybinds;
 /// Packet inspector state, verdict filter, and query matcher under test.
 use zapret_rs::tui::inspect::{PacketInspectorState, VerdictFilter, matches_query};
+
+/// Sends one unmodified key press to `insp` using the default keybinding map.
+fn send_key(insp: &mut PacketInspectorState, code: KeyCode) -> Option<String>
+{
+    insp.handle_key_with_binds(KeyEvent::from(code), &Keybinds::default())
+}
 
 /// Builds a synthetic [`PacketRecord`] for filter unit tests (`flow = (dir, proto, src, dst)`).
 fn sample_pkt(
@@ -99,30 +107,30 @@ fn inspector_slash_key_edits_applies_and_clears_query_with_verdict_filter()
     ));
 
     assert_eq!(insp.visible_packets().len(), 3);
-    assert!(insp.handle_key(KeyCode::Char('/')).is_some());
+    assert!(send_key(&mut insp, KeyCode::Char('/')).is_some());
     assert!(insp.filter_editing);
 
     for ch in "port:443".chars()
     {
-        insp.handle_key(KeyCode::Char(ch));
+        send_key(&mut insp, KeyCode::Char(ch));
     }
     assert_eq!(insp.filter_query, "port:443");
     assert_eq!(insp.visible_packets().len(), 2);
 
-    insp.handle_key(KeyCode::Enter);
+    send_key(&mut insp, KeyCode::Enter);
     assert!(!insp.filter_editing);
     assert_eq!(insp.visible_packets().len(), 2);
 
     // Combine query with VerdictFilter (`f` -> DesyncOnly).
-    insp.handle_key(KeyCode::Char('f'));
+    send_key(&mut insp, KeyCode::Char('f'));
     assert_eq!(insp.filter, VerdictFilter::DesyncOnly);
     let hits = insp.visible_packets();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].seq, 1);
 
     // Re-open with `/` and press Esc to clear the query.
-    insp.handle_key(KeyCode::Char('/'));
-    insp.handle_key(KeyCode::Esc);
+    send_key(&mut insp, KeyCode::Char('/'));
+    send_key(&mut insp, KeyCode::Esc);
     assert!(!insp.filter_editing);
     assert!(insp.filter_query.is_empty());
     assert_eq!(insp.visible_packets().len(), 2);

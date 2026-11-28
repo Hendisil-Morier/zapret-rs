@@ -3,8 +3,8 @@
 /// Bounded ring buffer holding recently captured packets for Tab 2 inspection.
 use std::collections::VecDeque;
 
-/// Keyboard events and key codes handled by [`PacketInspectorState`].
-use crossterm::event::{KeyCode, KeyEvent};
+/// Keyboard events handled by [`PacketInspectorState`].
+use crossterm::event::KeyEvent;
 
 /// Shared packet record and outcome classification model.
 use crate::telemetry::{PacketRecord, PacketVerdict};
@@ -272,12 +272,6 @@ impl PacketInspectorState
             return Some("No packet selected to inspect.".to_owned());
         }
         None
-    }
-
-    /// Backwards-compatible wrapper handling `code` using default [`Keybinds`].
-    pub fn handle_key(&mut self, code: KeyCode) -> Option<String>
-    {
-        self.handle_key_with_binds(KeyEvent::from(code), &Keybinds::default())
     }
 }
 
