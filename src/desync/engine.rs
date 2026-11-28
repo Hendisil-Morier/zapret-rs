@@ -329,8 +329,8 @@ impl DesyncEngine
             return Decision::Pass;
         }
 
-        match self.try_run_profile(
-            idx,
+        match self.try_run_profile(ProfileRunInput {
+            profile_slot: idx,
             profile,
             instances,
             replay,
@@ -340,7 +340,7 @@ impl DesyncEngine
             pos_opt,
             reasm_data,
             decrypt_data,
-        )
+        })
         {
             Ok(decision) =>
             {
@@ -364,86 +364,50 @@ impl DesyncEngine
     }
 
     /// Executes matching profile actions in Lua and translates the combined verdict to [`Decision`].
-    #[allow(clippy::too_many_arguments)]
-    fn try_run_profile(
-        &self,
-        profile_slot: usize,
-        profile: &Rc<DesyncProfile>,
-        instances: &[String],
-        replay: &ReplayContext<'_>,
-        pkt: &QueuedPacket<'_>,
-        dis: &DissectedPacket,
-        ps: &PlayState,
-        mut pos_opt: Option<crate::conntrack::CtrackPosition>,
-        reasm_data: Option<&[u8]>,
-        decrypt_data: Option<&[u8]>,
-    ) -> Result<Decision, String>
+    fn try_run_profile(&self, run: ProfileRunInput<'_>) -> Result<Decision, String>
     {
+        let mut pos_opt = run.pos_opt;
         let lua = self.runtime.lua();
         let ctx_state = self.runtime.desync_ctx_state();
         let mut state = ctx_state.borrow_mut();
-        state.profile = Some(Rc::clone(profile));
-        state.profile_n = profile.index;
-        state.incoming = ps.incoming;
-        state.ctrack = ps.ctrack_replay.clone();
+        state.profile = Some(Rc::clone(run.profile));
+        state.profile_n = run.profile.index;
+        state.incoming = run.ps.incoming;
+        state.ctrack = run.ps.ctrack_replay.clone();
         state.cancel = false;
         state.valid = false;
         state.raw_packet.clear();
-        state.raw_packet.extend_from_slice(pkt.payload);
+        state.raw_packet.extend_from_slice(run.pkt.payload);
         drop(state);
         let _session_guard = SessionCtxGuard(ctx_state);
 
-        let track_ref = ps.ctrack_replay.as_ref().map(|rc| rc.borrow());
-        let table_input = DesyncTableInput {
-            dis,
-            profile,
-            incoming: ps.incoming,
-            ifin: pkt.ifin,
-            ifout: pkt.ifout,
-            fwmark: pkt.mark,
-            target_ip4: ps.target_ip4,
-            target_ip6: ps.target_ip6,
-            target_port: ps.target_port,
-            l7payload: ps.l7payload,
-            l7proto: ps.l7proto,
-            track: track_ref.as_deref(),
-            tpos: replay.tpos,
-            b_reverse: ps.b_reverse,
-            replay_piece: replay.replay_piece,
-            replay_piece_count: replay.replay_piece_count,
-            reasm_offset: replay.reasm_offset,
-            reasm_data,
-            decrypt_data,
-        };
-        let desync_tbl = build_desync_table(lua, &table_input)
-            .map_err(|e| format!("failed to build desync table: {e}"))?;
-        drop(track_ref);
+        let desync_tbl = build_profile_desync_table(lua, &run)?;
         let ctx_ud = self
             .runtime
             .desync_ctx_userdata()
             .map_err(|e| format!("failed to fetch desync ctx userdata: {e}"))?;
 
-        let mut active_ctrack = ps.ctrack_replay.clone();
-        let mut active_incoming = ps.incoming;
+        let mut active_ctrack = run.ps.ctrack_replay.clone();
+        let mut active_incoming = run.ps.incoming;
         let mut verdict = VERDICT_PASS;
-        for (idx, action) in profile.actions.iter().enumerate()
+        for (idx, action) in run.profile.actions.iter().enumerate()
         {
             let func_n = (idx as u32) + 1;
-            let instance = &instances[idx];
+            let instance = &run.instances[idx];
             if !action_is_runnable(
                 action,
-                profile.index,
+                run.profile.index,
                 instance,
                 active_ctrack.as_ref(),
                 pos_opt.as_ref(),
                 active_incoming,
-                ps.l7payload,
+                run.ps.l7payload,
             )
             {
                 continue;
             }
 
-            let func = self.runtime.resolve_cached_action(profile_slot, idx, &action.func)?;
+            let func = self.runtime.resolve_cached_action(run.profile_slot, idx, &action.func)?;
             let Some(arg_tbl) = build_action_args_table(lua, &action.args, Some(&desync_tbl), true)
                 .map_err(|e| format!("failed to build args for '{}': {e}", action.func))?
             else
@@ -483,6 +447,59 @@ impl DesyncEngine
             }
         }
 
-        finalize_decision(lua, &desync_tbl, verdict, pkt.payload.len(), self.debug)
+        finalize_decision(lua, &desync_tbl, verdict, run.pkt.payload.len(), self.debug)
     }
+}
+
+/// Constructs the per-profile Lua `desync` table from `run` packet and conntrack state.
+fn build_profile_desync_table(lua: &mlua::Lua, run: &ProfileRunInput<'_>) -> Result<mlua::Table, String>
+{
+    let track_ref = run.ps.ctrack_replay.as_ref().map(|rc| rc.borrow());
+    let table_input = DesyncTableInput {
+        dis: run.dis,
+        profile: run.profile,
+        incoming: run.ps.incoming,
+        ifin: run.pkt.ifin,
+        ifout: run.pkt.ifout,
+        fwmark: run.pkt.mark,
+        target_ip4: run.ps.target_ip4,
+        target_ip6: run.ps.target_ip6,
+        target_port: run.ps.target_port,
+        l7payload: run.ps.l7payload,
+        l7proto: run.ps.l7proto,
+        track: track_ref.as_deref(),
+        tpos: run.replay.tpos,
+        b_reverse: run.ps.b_reverse,
+        replay_piece: run.replay.replay_piece,
+        replay_piece_count: run.replay.replay_piece_count,
+        reasm_offset: run.replay.reasm_offset,
+        reasm_data: run.reasm_data,
+        decrypt_data: run.decrypt_data,
+    };
+    build_desync_table(lua, &table_input).map_err(|e| format!("failed to build desync table: {e}"))
+}
+
+/// Bundled per-packet profile execution inputs passed to `DesyncEngine::try_run_profile`.
+struct ProfileRunInput<'a>
+{
+    /// Slot index of the active profile within the engine table.
+    profile_slot: usize,
+    /// Selected desync profile definition and action list.
+    profile: &'a Rc<DesyncProfile>,
+    /// Precomputed action instance identifiers aligned with `profile.actions`.
+    instances: &'a [String],
+    /// Replay metadata distinguishing live packets from chunked/reassembled replays.
+    replay: &'a ReplayContext<'a>,
+    /// Intercepted wire packet wrapper including interface names and fwmark.
+    pkt: &'a QueuedPacket<'a>,
+    /// Dissected L3/L4 headers for the current packet.
+    dis: &'a DissectedPacket,
+    /// Flow play state resolved before executing profile actions.
+    ps: &'a PlayState,
+    /// Optional directional conntrack stream position counters.
+    pos_opt: Option<crate::conntrack::CtrackPosition>,
+    /// Optional reassembled payload buffer passed to Lua desync tables.
+    reasm_data: Option<&'a [u8]>,
+    /// Optional decrypted TLS/QUIC payload slice passed to Lua desync tables.
+    decrypt_data: Option<&'a [u8]>,
 }

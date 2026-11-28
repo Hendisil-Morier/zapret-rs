@@ -13,10 +13,29 @@ use ratatui::{
 use crate::tui::hostlist_tab::{HostlistFocus, visible_list_window};
 /// Top-level TUI application state read while rendering Tab 6.
 use crate::tui::state::AppState;
-/// Shared bordered panel builder and keycap badge helper.
-use crate::tui::theme::{panel_block, styled_key_hints_owned};
+/// Shared bordered panel builder for Tab 6 cards.
+use crate::tui::theme::panel_block;
 
-/// Builds the top search/shortcut bar line for Tab 6.
+/// Display parameters for rendering one selectable domain column inside Tab 6.
+struct DomainColumnView<'a>
+{
+    /// Target sub-area inside the Tab 6 column split.
+    area: Rect,
+    /// Formatted header title including domain count and source file badge.
+    title: &'a str,
+    /// Filtered domain items displayed inside the column.
+    items: &'a [&'a str],
+    /// Currently highlighted item index within `items`.
+    selected: usize,
+    /// Whether this column holds keyboard focus on Tab 6.
+    focused: bool,
+    /// Placeholder message shown when `items` is empty.
+    empty_msg: &'a str,
+    /// Title highlight color matching Auto Hostlist or Blacklist status.
+    accent: Color,
+}
+
+/// Builds the top search/status strip line for Tab 6 (keybinds live in `[?] Keys`).
 fn build_hostlist_header<'a>(state: &AppState, auto_count: usize, black_count: usize) -> Line<'a>
 {
     let t = &state.theme;
@@ -28,7 +47,7 @@ fn build_hostlist_header<'a>(state: &AppState, auto_count: usize, black_count: u
                 format!("{}_", state.hostlist.filter),
                 Style::default().fg(t.text).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("   [Enter] Keep  [Esc] Clear", Style::default().fg(t.muted)),
+            Span::styled("   (Enter keeps filter, Esc clears)", Style::default().fg(t.muted)),
         ]);
     }
     if !state.hostlist.filter.is_empty()
@@ -38,36 +57,21 @@ fn build_hostlist_header<'a>(state: &AppState, auto_count: usize, black_count: u
                 format!(" Filter: \"{}\"  ", state.hostlist.filter),
                 Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("([/] Edit  [Esc] Clear)  ", Style::default().fg(t.muted)),
             Span::styled(
                 format!("Auto: {auto_count}  Blacklist: {black_count}"),
                 Style::default().fg(t.info),
             ),
         ]);
     }
-    let hl = &state.keybinds.hostlist;
-    let nav = &state.keybinds.nav;
-    let move_lbl = hl.move_entry.joined_label();
-    let dir_label =
-        if state.hostlist.focus == HostlistFocus::AutoHostlist { "->Blacklist" } else { "->Auto" };
-    let del_label = if hl.delete.joined_label() == "d/Del/Backspace"
-    {
-        "d/Del".to_owned()
-    }
-    else
-    {
-        hl.delete.joined_label()
-    };
-    let hint = format!(
-        " [{}/{}] Select  [{del_label}] Remove  [{move_lbl}] {dir_label}  [{}] Add  [{}] Blacklist  [{}] Filter  [{}] Reload",
-        nav.up.primary_label(),
-        nav.down.primary_label(),
-        hl.add_auto.primary_label(),
-        hl.add_blacklist.primary_label(),
-        hl.filter.primary_label(),
-        hl.reload.primary_label(),
-    );
-    Line::from(styled_key_hints_owned(&hint, t))
+    let focus_label =
+        if state.hostlist.focus == HostlistFocus::AutoHostlist { "Auto Hostlist" } else { "Blacklist" };
+    Line::from(vec![
+        Span::styled(
+            format!(" Auto Hostlist: {auto_count}   Blacklist: {black_count}   Focus: {focus_label}"),
+            Style::default().fg(t.info),
+        ),
+        Span::styled("   (Filter: none)", Style::default().fg(t.muted)),
+    ])
 }
 
 /// Renders Tab 6: top status/filter strip plus selectable Auto Hostlist and Blacklist columns.
@@ -118,26 +122,29 @@ pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
     {
         format!(" Auto Hostlist ({}, off) ", auto_items.len())
     };
+    let auto_empty = if !auto_on
+    {
+        "Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist)"
+    }
+    else if state.config.autohostlist_entries.is_empty()
+    {
+        "No learned domains yet — press 'a' to add or wait for live failures"
+    }
+    else
+    {
+        "No Auto Hostlist entries match filter"
+    };
     draw_domain_column(
         frame,
-        cols[0],
-        &auto_title,
-        &auto_items,
-        state.hostlist.auto_sel,
-        state.hostlist.focus == HostlistFocus::AutoHostlist,
-        if !auto_on
-        {
-            "Auto Hostlist is off (set Tab 1 Domain Scope to Auto Hostlist)"
-        }
-        else if state.config.autohostlist_entries.is_empty()
-        {
-            "No learned domains yet — press 'a' to add or wait for live failures"
-        }
-        else
-        {
-            "No Auto Hostlist entries match filter"
+        &DomainColumnView {
+            area: cols[0],
+            title: &auto_title,
+            items: &auto_items,
+            selected: state.hostlist.auto_sel,
+            focused: state.hostlist.focus == HostlistFocus::AutoHostlist,
+            empty_msg: auto_empty,
+            accent: t.ok_bright,
         },
-        t.ok_bright,
         state,
     );
 
@@ -155,50 +162,43 @@ pub(crate) fn draw_hostlist_tab(frame: &mut Frame, area: Rect, state: &AppState)
     };
     draw_domain_column(
         frame,
-        cols[1],
-        &format!(" Blacklist ({}) ", black_items.len()),
-        &black_items,
-        state.hostlist.blacklist_sel,
-        state.hostlist.focus == HostlistFocus::Blacklist,
-        &black_empty,
-        t.warn_bright,
+        &DomainColumnView {
+            area: cols[1],
+            title: &format!(" Blacklist ({}) ", black_items.len()),
+            items: &black_items,
+            selected: state.hostlist.blacklist_sel,
+            focused: state.hostlist.focus == HostlistFocus::Blacklist,
+            empty_msg: &black_empty,
+            accent: t.warn_bright,
+        },
         state,
     );
 }
 
 /// Renders one selectable, cursor-highlighted domain column inside Tab 6.
-#[allow(clippy::too_many_arguments)]
-fn draw_domain_column(
-    frame: &mut Frame,
-    area: Rect,
-    title: &str,
-    items: &[&str],
-    selected: usize,
-    focused: bool,
-    empty_msg: &str,
-    accent: Color,
-    state: &AppState,
-)
+fn draw_domain_column(frame: &mut Frame, view: &DomainColumnView<'_>, state: &AppState)
 {
     let t = &state.theme;
-    let border = if focused { t.accent_bright } else { t.frame };
-    if items.is_empty()
+    let border = if view.focused { t.accent_bright } else { t.frame };
+    if view.items.is_empty()
     {
-        let p =
-            Paragraph::new(Line::from(Span::styled(format!("  {empty_msg}"), Style::default().fg(t.muted))))
-                .wrap(Wrap { trim: false })
-                .block(panel_block(title, border, accent));
-        frame.render_widget(p, area);
+        let p = Paragraph::new(Line::from(Span::styled(
+            format!("  {}", view.empty_msg),
+            Style::default().fg(t.muted),
+        )))
+        .wrap(Wrap { trim: false })
+        .block(panel_block(view.title, border, view.accent));
+        frame.render_widget(p, view.area);
         return;
     }
 
-    let capacity = usize::from(area.height.saturating_sub(2)).max(1);
-    let (start, end) = visible_list_window(items.len(), selected, capacity);
+    let capacity = usize::from(view.area.height.saturating_sub(2)).max(1);
+    let (start, end) = visible_list_window(view.items.len(), view.selected, capacity);
     let rows: Vec<ListItem> = (start..end)
         .map(|idx| {
-            let domain = items[idx];
-            let is_sel = idx == selected;
-            let prefix = if is_sel && focused
+            let domain = view.items[idx];
+            let is_sel = idx == view.selected;
+            let prefix = if is_sel && view.focused
             {
                 "> "
             }
@@ -210,13 +210,13 @@ fn draw_domain_column(
             {
                 "  "
             };
-            let style = if is_sel && focused
+            let style = if is_sel && view.focused
             {
                 Style::default().fg(Color::Black).bg(t.accent_bright).add_modifier(Modifier::BOLD)
             }
             else if is_sel
             {
-                Style::default().fg(accent).add_modifier(Modifier::BOLD)
+                Style::default().fg(view.accent).add_modifier(Modifier::BOLD)
             }
             else
             {
@@ -225,6 +225,6 @@ fn draw_domain_column(
             ListItem::new(Line::from(Span::styled(format!("{prefix}{domain}"), style)))
         })
         .collect();
-    let list = List::new(rows).block(panel_block(title, border, accent));
-    frame.render_widget(list, area);
+    let list = List::new(rows).block(panel_block(view.title, border, view.accent));
+    frame.render_widget(list, view.area);
 }

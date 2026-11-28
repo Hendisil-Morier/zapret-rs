@@ -231,6 +231,22 @@ fn cooldown_coalesces_parallel_bursts_and_siblings_promote_safely()
     assert!(!content.contains("github.io\n"));
 }
 
+/// Spawns a single-shot TCP server replying with a static byte slice after reading ClientHello.
+fn spawn_canned_tcp_responder(payload: &'static [u8], accept_count: usize) -> (u16, thread::JoinHandle<()>)
+{
+    let srv = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+    let port = srv.local_addr().expect("addr").port();
+    let handle = thread::spawn(move || {
+        for mut s in srv.incoming().take(accept_count).flatten()
+        {
+            let mut discard = [0u8; 1024];
+            let _ = s.read(&mut discard);
+            let _ = s.write_all(payload);
+        }
+    });
+    (port, handle)
+}
+
 /// Verifies `probe_endpoint_for_dpi` and end-to-end `DesyncEngine` background `confirm_block` promotion.
 #[test]
 fn background_active_confirmation_verifies_tls_and_http_blocks_and_healthy_origins()
@@ -238,53 +254,15 @@ fn background_active_confirmation_verifies_tls_and_http_blocks_and_healthy_origi
     let dir = clean_temp_dir("confirm");
     let auto_path = dir.join("auto.txt");
 
-    // Server 1: TLS Fatal Alert emitter (`handshake_failure` level 2).
-    let alert_srv = TcpListener::bind(("127.0.0.1", 0)).expect("bind alert listener");
-    let alert_port = alert_srv.local_addr().expect("addr").port();
-    let alert_handle = thread::spawn(move || {
-        for mut s in alert_srv.incoming().take(2).flatten()
-        {
-            let mut discard = [0u8; 1024];
-            let _ = s.read(&mut discard);
-            let _ = s.write_all(&[0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28]);
-        }
-    });
-
-    // Server 2: Healthy TLS ServerHello responder.
-    let ok_srv = TcpListener::bind(("127.0.0.1", 0)).expect("bind ok listener");
-    let ok_port = ok_srv.local_addr().expect("addr").port();
-    let ok_handle = thread::spawn(move || {
-        if let Ok((mut s, _)) = ok_srv.accept()
-        {
-            let mut discard = [0u8; 1024];
-            let _ = s.read(&mut discard);
-            let mut sh = [0u8; 64];
-            sh[0] = 0x16;
-            sh[1] = 0x03;
-            sh[2] = 0x03;
-            sh[3] = 0x00;
-            sh[4] = 59;
-            sh[5] = 0x02;
-            sh[6] = 0x00;
-            sh[7] = 0x00;
-            sh[8] = 55;
-            sh[9] = 0x03;
-            sh[10] = 0x03;
-            let _ = s.write_all(&sh);
-        }
-    });
-
-    // Server 3: HTTP 451 censor emitter.
-    let http_srv = TcpListener::bind(("127.0.0.1", 0)).expect("bind http451 listener");
-    let http_port = http_srv.local_addr().expect("addr").port();
-    let http_handle = thread::spawn(move || {
-        if let Ok((mut s, _)) = http_srv.accept()
-        {
-            let mut discard = [0u8; 1024];
-            let _ = s.read(&mut discard);
-            let _ = s.write_all(b"HTTP/1.1 451 Unavailable For Legal Reasons\r\nContent-Length: 0\r\n\r\n");
-        }
-    });
+    let (alert_port, alert_handle) =
+        spawn_canned_tcp_responder(&[0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28], 2);
+    let mut sh = [0u8; 64];
+    sh[..11].copy_from_slice(&[0x16, 0x03, 0x03, 0x00, 59, 0x02, 0x00, 0x00, 55, 0x03, 0x03]);
+    let (ok_port, ok_handle) = spawn_canned_tcp_responder(Box::leak(Box::new(sh)), 1);
+    let (http_port, http_handle) = spawn_canned_tcp_responder(
+        b"HTTP/1.1 451 Unavailable For Legal Reasons\r\nContent-Length: 0\r\n\r\n",
+        1,
+    );
 
     let loopback = IpAddr::V4(Ipv4Addr::LOCALHOST);
     let timeout = Duration::from_secs(2);

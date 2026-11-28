@@ -147,6 +147,40 @@ fn zapret_tests_network_topology_suites_pass()
     .expect("zapret-tests get_source_ip and ifaddrs suites must pass");
 }
 
+/// Verifies repeated UDP, `badsum`, direct `rawsend`, and IPv4 fragment packet metadata.
+fn assert_udp_and_frag4_captures(captured: &[CapturedPacket])
+{
+    let expected_v4_dst: IpAddr = "10.1.1.2".parse().expect("valid IPv4");
+    for pkt in &captured[0..3]
+    {
+        assert_eq!(pkt.dst, expected_v4_dst);
+        assert_eq!(pkt.fwmark, 0x4000_50EA);
+        assert_eq!(pkt.ifout.as_deref(), Some("eth9"));
+        let dis = dissect_packet(&pkt.data, false);
+        assert_eq!(dis.l4proto, IPPROTO_UDP);
+        assert_eq!(dis.payload.as_ref().expect("pl").len(), 160);
+    }
+
+    let good_udp_sum = dissect_packet(&captured[0].data, false).udp.expect("good").checksum;
+    let bad_udp = dissect_packet(&captured[3].data, false).udp.expect("bad");
+    assert_ne!(bad_udp.checksum, good_udp_sum);
+    assert_ne!(bad_udp.checksum, 0);
+    let expected_good_sum =
+        udp_ipv4_checksum([10, 1, 1, 1], [10, 1, 1, 2], &captured[0].data[20..28], &captured[0].data[28..]);
+    assert_eq!(good_udp_sum, expected_good_sum);
+
+    for pkt in &captured[4..6]
+    {
+        assert_eq!(pkt.fwmark, 0x4000_0020);
+        assert_eq!(pkt.data, captured[0].data);
+    }
+
+    let f4_1 = dissect_packet(&captured[6].data, false);
+    let f4_2 = dissect_packet(&captured[7].data, false);
+    assert_eq!(f4_1.frag_off, Some(0));
+    assert_eq!(f4_2.frag_off, Some(80));
+}
+
 /// Verifies `rawsend` and `rawsend_dissect` across repeats, fwmarks, interfaces, `badsum`,
 /// IPv4/IPv6 `ipfrag2` (with HOPOPTS/DSTOPTS and `ip6_preserve_next`), ICMP, and IPIP via mock sender.
 #[test]
@@ -239,41 +273,8 @@ fn lua_rawsend_and_rawsend_dissect_emit_valid_wire_packets()
     let captured = &sender.borrow().packets;
     assert_eq!(captured.len(), 14, "expected 3+1+2+2+2+2+2 = 14 packets");
 
-    // Verify first 3 repeated IPv4 UDP packets: fwmark OR'd with desync_fwmark, ifout, valid UDP checksum.
-    let expected_v4_dst: IpAddr = "10.1.1.2".parse().expect("valid IPv4");
     let expected_v6_dst: IpAddr = "fd00::2".parse().expect("valid IPv6");
-    for pkt in &captured[0..3]
-    {
-        assert_eq!(pkt.dst, expected_v4_dst);
-        assert_eq!(pkt.fwmark, 0x4000_50EA);
-        assert_eq!(pkt.ifout.as_deref(), Some("eth9"));
-        let dis = dissect_packet(&pkt.data, false);
-        assert_eq!(dis.l4proto, IPPROTO_UDP);
-        assert_eq!(dis.payload.as_ref().expect("pl").len(), 160);
-    }
-
-    // Verify `badsum = true` corrupted the UDP checksum compared to the valid packet.
-    let good_udp_sum = dissect_packet(&captured[0].data, false).udp.expect("good").checksum;
-    let bad_udp = dissect_packet(&captured[3].data, false).udp.expect("bad");
-    assert_ne!(bad_udp.checksum, good_udp_sum);
-    assert_ne!(bad_udp.checksum, 0);
-    // Double-check against pure Rust RFC checksum helper.
-    let expected_good_sum =
-        udp_ipv4_checksum([10, 1, 1, 1], [10, 1, 1, 2], &captured[0].data[20..28], &captured[0].data[28..]);
-    assert_eq!(good_udp_sum, expected_good_sum);
-
-    // Verify direct `rawsend` repeats.
-    for pkt in &captured[4..6]
-    {
-        assert_eq!(pkt.fwmark, 0x4000_0020);
-        assert_eq!(pkt.data, captured[0].data);
-    }
-
-    // Verify IPv4 UDP fragments (indices 6, 7).
-    let f4_1 = dissect_packet(&captured[6].data, false);
-    let f4_2 = dissect_packet(&captured[7].data, false);
-    assert_eq!(f4_1.frag_off, Some(0));
-    assert_eq!(f4_2.frag_off, Some(80));
+    assert_udp_and_frag4_captures(captured);
 
     // Verify IPv6 UDP fragments (indices 8, 9): HOPOPTS, DSTOPTS, FRAGMENT, DSTOPTS2, plus forged TCP next on frag 2.
     let f6_1 = dissect_packet(&captured[8].data, false);

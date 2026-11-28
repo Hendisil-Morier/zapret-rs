@@ -100,6 +100,47 @@ impl PortRewrite for Vec<u8>
     }
 }
 
+/// Sends SYN, SYNACK, and 4 outgoing payloads over port 443 to trigger instance and lua cutoffs.
+fn run_443_cutoff_sequence(engine: &DesyncEngine)
+{
+    let syn = build_tcp4_pkt(
+        false,
+        1000,
+        0,
+        TH_SYN,
+        4096,
+        vec![TcpOption { kind: TCP_KIND_MSS, data: Some(vec![0x05, 0xB4]) }],
+        &[],
+        64,
+    );
+    let synack = build_tcp4_pkt(
+        true,
+        2000,
+        1001,
+        TH_SYN | TH_ACK,
+        4096,
+        vec![TcpOption { kind: TCP_KIND_MSS, data: Some(vec![0x05, 0x78]) }],
+        &[],
+        55,
+    );
+    let d1 = build_tcp4_pkt(false, 1001, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload1", 64);
+    let d2 = build_tcp4_pkt(false, 1009, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload2", 64);
+    let d3 = build_tcp4_pkt(false, 1017, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload3", 64);
+    let d4 = build_tcp4_pkt(false, 1025, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload4", 64);
+
+    let out_pkt =
+        |id, raw| QueuedPacket { packet_id: id, mark: 0, ifin: None, ifout: Some("eth0"), payload: raw };
+    let in_pkt =
+        |id, raw| QueuedPacket { packet_id: id, mark: 0, ifin: Some("eth0"), ifout: None, payload: raw };
+
+    assert_eq!(engine.process_packet(&out_pkt(1, &syn)), Decision::Pass);
+    assert_eq!(engine.process_packet(&in_pkt(2, &synack)), Decision::Pass);
+    assert_eq!(engine.process_packet(&out_pkt(3, &d1)), Decision::Pass);
+    assert_eq!(engine.process_packet(&out_pkt(4, &d2)), Decision::Pass);
+    assert_eq!(engine.process_packet(&out_pkt(5, &d3)), Decision::Drop);
+    assert_eq!(engine.process_packet(&out_pkt(6, &d4)), Decision::Pass); // stopped by lua_out_cutoff
+}
+
 /// Verifies `desync.track` fields (`incoming_ttl`, aliasing, `lua_state`, `tcp_mss`), ranges, and cutoffs.
 #[test]
 fn desync_engine_exposes_track_lua_state_ranges_and_cutoffs()
@@ -159,42 +200,9 @@ fn desync_engine_exposes_track_lua_state_ranges_and_cutoffs()
     let sender_trait: Rc<RefCell<dyn PacketSender>> = Rc::clone(&sender) as _;
     let engine = DesyncEngine::with_sender(&cfg, sender_trait).expect("engine builds");
 
-    let syn = build_tcp4_pkt(
-        false,
-        1000,
-        0,
-        TH_SYN,
-        4096,
-        vec![TcpOption { kind: TCP_KIND_MSS, data: Some(vec![0x05, 0xB4]) }],
-        &[],
-        64,
-    );
-    let synack = build_tcp4_pkt(
-        true,
-        2000,
-        1001,
-        TH_SYN | TH_ACK,
-        4096,
-        vec![TcpOption { kind: TCP_KIND_MSS, data: Some(vec![0x05, 0x78]) }],
-        &[],
-        55,
-    );
-    let d1 = build_tcp4_pkt(false, 1001, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload1", 64);
-    let d2 = build_tcp4_pkt(false, 1009, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload2", 64);
-    let d3 = build_tcp4_pkt(false, 1017, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload3", 64);
-    let d4 = build_tcp4_pkt(false, 1025, 2001, TH_ACK | TH_PUSH, 4096, vec![], b"payload4", 64);
-
+    run_443_cutoff_sequence(&engine);
     let out_pkt =
         |id, raw| QueuedPacket { packet_id: id, mark: 0, ifin: None, ifout: Some("eth0"), payload: raw };
-    let in_pkt =
-        |id, raw| QueuedPacket { packet_id: id, mark: 0, ifin: Some("eth0"), ifout: None, payload: raw };
-
-    assert_eq!(engine.process_packet(&out_pkt(1, &syn)), Decision::Pass);
-    assert_eq!(engine.process_packet(&in_pkt(2, &synack)), Decision::Pass);
-    assert_eq!(engine.process_packet(&out_pkt(3, &d1)), Decision::Pass);
-    assert_eq!(engine.process_packet(&out_pkt(4, &d2)), Decision::Pass);
-    assert_eq!(engine.process_packet(&out_pkt(5, &d3)), Decision::Drop);
-    assert_eq!(engine.process_packet(&out_pkt(6, &d4)), Decision::Pass); // stopped by lua_out_cutoff
 
     engine
         .runtime()

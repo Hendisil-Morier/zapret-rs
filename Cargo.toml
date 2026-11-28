@@ -43,3 +43,11 @@ unsafe_op_in_unsafe_fn = "warn"
 
 [lints.clippy]
 perf = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+manual_let_else = "warn"
+cloned_instead_of_copied = "warn"
+large_types_passed_by_value = "warn"
+todo = "warn"
+unimplemented = "warn"

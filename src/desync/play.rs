@@ -212,20 +212,32 @@ fn resolve_ctrack_endpoints(
     })
 }
 
-/// Resolves cached or initial matching profile index and populates tracked hostname if absent.
-#[allow(clippy::too_many_arguments)]
-fn resolve_initial_profile(
-    svc: &EngineServices<'_>,
-    ctrack_replay: Option<&Rc<RefCell<CtrackEntry>>>,
-    replay: &ReplayContext<'_>,
-    dis: &DissectedPacket,
-    target_ip: IpAddr,
-    target_port: u16,
-    b_reverse: bool,
-    fwmark: u32,
-    l7proto: &mut L7Proto,
-) -> Option<usize>
+/// Inputs needed to resolve a cached or initial matching profile for a packet.
+struct InitialProfileLookup<'a>
 {
+    /// Shared engine services holding profiles, runtimes, and IP cache.
+    svc: &'a EngineServices<'a>,
+    /// Conntrack handle readable during live and replay lookups.
+    ctrack_replay: Option<&'a Rc<RefCell<CtrackEntry>>>,
+    /// Replay state distinguishing live discovery from chunked replays.
+    replay: &'a ReplayContext<'a>,
+    /// Dissected L3/L4 packet headers.
+    dis: &'a DissectedPacket,
+    /// Remote endpoint IP address used for IP cache and ipset matching.
+    target_ip: IpAddr,
+    /// Remote endpoint transport port.
+    target_port: u16,
+    /// Whether the matched flow is in the server-to-client direction.
+    b_reverse: bool,
+    /// Packet firewall mark matched against profile filters.
+    fwmark: u32,
+}
+
+/// Resolves cached or initial matching profile index and populates tracked hostname if absent.
+fn resolve_initial_profile(lookup: &InitialProfileLookup<'_>, l7proto: &mut L7Proto) -> Option<usize>
+{
+    let InitialProfileLookup { svc, ctrack_replay, replay, dis, target_ip, target_port, b_reverse, fwmark } =
+        *lookup;
     let mut host = None;
     let mut host_is_ip = false;
     let mut cached_prof_id = None;
@@ -360,14 +372,16 @@ pub(crate) fn play_prolog(
         .unwrap_or(0);
 
     let profile_idx = resolve_initial_profile(
-        svc,
-        ctrack_replay.as_ref(),
-        replay,
-        dis,
-        target_ip,
-        target_port,
-        b_reverse,
-        fwmark,
+        &InitialProfileLookup {
+            svc,
+            ctrack_replay: ctrack_replay.as_ref(),
+            replay,
+            dis,
+            target_ip,
+            target_port,
+            b_reverse,
+            fwmark,
+        },
         &mut l7proto,
     );
 

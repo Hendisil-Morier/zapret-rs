@@ -120,6 +120,7 @@ fn print_nft_perm_classifier_and_setcap_guidance()
     assert!(stdout.contains("nft delete table inet zapret_strat_finder"));
 
     // Running without capabilities prints the one-time `setcap` instruction instead of crashing.
+    // SAFETY: `libc::geteuid()` reads process effective UID with no memory or aliasing preconditions.
     if unsafe { libc::geteuid() } != 0
     {
         let missing = Command::new(bin)

@@ -91,6 +91,51 @@ fn connect_with_retry(sock: &Path, child: &mut ChildGuard, timeout: Duration) ->
     panic!("timed out waiting for control socket {}", sock.display());
 }
 
+/// Exercises `Status` and `ReloadConfig` commands against a live `nfqws2 --intercept=0` socket.
+fn assert_status_and_reload_commands(stream: &mut UnixStream, reader: &mut BufReader<UnixStream>, pid: u32)
+{
+    write_message(stream, &Request::Status).expect("status");
+    let Some(Response::Status(st)) = read_message::<_, Response>(reader).expect("status read")
+    else
+    {
+        panic!("expected Status reply");
+    };
+    assert_eq!((st.pid, st.qnum, st.intercept, st.pass_sample_rate), (pid, 244, false, 5));
+
+    write_message(stream, &Request::ReloadLists).expect("reload_lists");
+    assert!(matches!(
+        read_message::<_, Response>(reader).expect("reload read"),
+        Some(Response::Ack { op, .. }) if op == "reload_lists"
+    ));
+
+    // Real nfqws2 validates and swaps profiles on reload_config, rejecting invalid/qnum edits.
+    write_message(stream, &Request::ReloadConfig { toml: "qnum = 999\n".to_owned() })
+        .expect("reload_config bad qnum");
+    assert!(matches!(
+        read_message::<_, Response>(reader).expect("bad reload read"),
+        Some(Response::Error { message, .. }) if message.contains("restart")
+    ));
+
+    write_message(
+        stream,
+        &Request::ReloadConfig {
+            toml: "qnum = 244\n[[profiles]]\nname = \"live_reloaded\"\nfilter_tcp = [\"443\"]\n".to_owned(),
+        },
+    )
+    .expect("reload_config ok");
+    assert!(matches!(
+        read_message::<_, Response>(reader).expect("good reload read"),
+        Some(Response::Ack { op, .. }) if op == "reload_config"
+    ));
+    write_message(stream, &Request::Status).expect("status after reload");
+    let Some(Response::Status(st)) = read_message::<_, Response>(reader).expect("status2 read")
+    else
+    {
+        panic!("expected updated profiles in status");
+    };
+    assert_eq!(st.profile_names, vec!["live_reloaded".to_owned()]);
+}
+
 #[test]
 fn real_nfqws2_control_socket_answers_status_reloads_and_stops_cleanly()
 {
@@ -135,53 +180,8 @@ fn real_nfqws2_control_socket_answers_status_reloads_and_stops_cleanly()
         Some(Response::HelloOk { version: CONTROL_PROTOCOL_VERSION, .. })
     ));
 
-    write_message(&mut stream, &Request::Status).expect("status");
-    match read_message::<_, Response>(&mut reader).expect("status read")
-    {
-        Some(Response::Status(st)) =>
-        {
-            assert_eq!(st.pid, child.id());
-            assert_eq!(st.qnum, 244);
-            assert!(!st.intercept);
-            assert_eq!(st.pass_sample_rate, 5);
-        }
-        other => panic!("expected Status reply, got {other:?}"),
-    }
-
-    write_message(&mut stream, &Request::ReloadLists).expect("reload_lists");
-    assert!(matches!(
-        read_message::<_, Response>(&mut reader).expect("reload read"),
-        Some(Response::Ack { op, .. }) if op == "reload_lists"
-    ));
-
-    // Real nfqws2 validates and swaps profiles on reload_config, rejecting invalid/qnum edits.
-    write_message(&mut stream, &Request::ReloadConfig { toml: "qnum = 999\n".to_owned() })
-        .expect("reload_config bad qnum");
-    assert!(matches!(
-        read_message::<_, Response>(&mut reader).expect("bad reload read"),
-        Some(Response::Error { message, .. }) if message.contains("restart")
-    ));
-
-    write_message(
-        &mut stream,
-        &Request::ReloadConfig {
-            toml: "qnum = 244\n[[profiles]]\nname = \"live_reloaded\"\nfilter_tcp = [\"443\"]\n".to_owned(),
-        },
-    )
-    .expect("reload_config ok");
-    assert!(matches!(
-        read_message::<_, Response>(&mut reader).expect("good reload read"),
-        Some(Response::Ack { op, .. }) if op == "reload_config"
-    ));
-    write_message(&mut stream, &Request::Status).expect("status after reload");
-    match read_message::<_, Response>(&mut reader).expect("status2 read")
-    {
-        Some(Response::Status(st)) =>
-        {
-            assert_eq!(st.profile_names, vec!["live_reloaded".to_owned()]);
-        }
-        other => panic!("expected updated profiles in status, got {other:?}"),
-    }
+    let pid = child.id();
+    assert_status_and_reload_commands(&mut stream, &mut reader, pid);
 
     write_message(&mut stream, &Request::Stop).expect("stop");
     assert!(matches!(

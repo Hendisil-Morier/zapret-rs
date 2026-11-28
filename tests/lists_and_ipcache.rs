@@ -253,6 +253,62 @@ fn ipcache_hostnames_ttls_expiry_and_rate_limit()
     assert_eq!(immortal.get_ttl(ip4, "lo", false), Some(64));
 }
 
+/// Verifies TCP retransmission, incoming redirect/RST, `seq_within` wrap, and UDP triggers.
+fn assert_tcp_udp_autohost_triggers(settings: &AutoHostlistSettings, fail_pool: &mut HostFailPool)
+{
+    assert!(seq_within(5, u32::MAX - 10, 10));
+    let mut entry = CtrackEntry::new(None).expect("entry");
+    entry.hostname = Some("newblocked.org".to_owned());
+    entry.hostname_ah_check = true;
+    entry.pos.ipproto = IPPROTO_TCP;
+    entry.pos.state = ConnState::Established;
+    entry.pos.client.seq0 = 1000;
+    entry.pos.client.seq_last = 1001;
+    entry.pos.client.pos = 1200;
+    entry.pos.client.uppos_prev = 1300; // `uppos_prev >= pos` => retransmission
+    assert_eq!(check_tcp_retrans_trigger(&mut entry, settings), None);
+    assert_eq!(check_tcp_retrans_trigger(&mut entry, settings), Some(true));
+    assert_eq!(entry.req_retrans_counter, RETRANS_COUNTER_STOP);
+
+    // Sequence beyond `retrans_maxseq` ends failure tracking cleanly (`Some(false)` reset).
+    let mut seq_far = CtrackEntry::new(None).expect("entry");
+    seq_far.hostname_ah_check = true;
+    seq_far.pos.ipproto = IPPROTO_TCP;
+    seq_far.pos.state = ConnState::Established;
+    seq_far.pos.client.seq0 = 1000;
+    seq_far.pos.client.seq_last = 1000 + settings.retrans_maxseq + 1;
+    assert_eq!(check_tcp_retrans_trigger(&mut seq_far, settings), Some(false));
+    assert_eq!(seq_far.req_retrans_counter, RETRANS_COUNTER_STOP);
+
+    let mut inc_entry = CtrackEntry::new(None).expect("entry");
+    inc_entry.hostname = Some("example.com".to_owned());
+    inc_entry.hostname_ah_check = true;
+    inc_entry.pos.server.seq0 = 5000;
+    inc_entry.pos.server.seq_last = 5001;
+    let redir = b"HTTP/1.1 302 Found\r\nLocation: http://warning.isp.net/block\r\n\r\n";
+    assert_eq!(
+        check_tcp_incoming_trigger(&mut inc_entry, 0, Some(redir), L7Payload::HttpReply, settings),
+        Some(true)
+    );
+    let mut rst_entry = CtrackEntry::new(None).expect("entry");
+    rst_entry.hostname_ah_check = true;
+    rst_entry.pos.server.seq0 = 5000;
+    rst_entry.pos.server.seq_last = 5001;
+    assert_eq!(
+        check_tcp_incoming_trigger(&mut rst_entry, TH_RST, None, L7Payload::Empty, settings),
+        Some(true)
+    );
+
+    let mut udp_entry = CtrackEntry::new(None).expect("entry");
+    udp_entry.hostname = Some("quic.example.com".to_owned());
+    udp_entry.hostname_ah_check = true;
+    let mut tpos = CtrackPositions { ipproto: IPPROTO_UDP, ..CtrackPositions::default() };
+    tpos.client.pcounter = 3;
+    tpos.server.pcounter = 1;
+    assert_eq!(check_udp_trigger(&mut udp_entry, &tpos, settings), Some(true));
+    fail_pool.record_failure("quic.example.com", 10, 300);
+}
+
 /// Verifies `HostFailPool` fixed failure windows, autolist self-append without reload storm, and TCP/UDP triggers.
 #[test]
 fn autohostlist_fail_pool_append_and_tcp_udp_triggers()
@@ -340,58 +396,7 @@ fn autohostlist_fail_pool_append_and_tcp_udp_triggers()
     assert!(std::fs::read_to_string(&auto_path).expect("auto content").contains("newblocked.org\n"));
     assert!(std::fs::read_to_string(&dbg_path).expect("debug log").contains("adding to"));
 
-    // Verify TCP retransmission, incoming RST/DPI-redirect, `seq_within` 32-bit wrap, and UDP triggers.
-    assert!(seq_within(5, u32::MAX - 10, 10));
-    let mut entry = CtrackEntry::new(None).expect("entry");
-    entry.hostname = Some("newblocked.org".to_owned());
-    entry.hostname_ah_check = true;
-    entry.pos.ipproto = IPPROTO_TCP;
-    entry.pos.state = ConnState::Established;
-    entry.pos.client.seq0 = 1000;
-    entry.pos.client.seq_last = 1001;
-    entry.pos.client.pos = 1200;
-    entry.pos.client.uppos_prev = 1300; // `uppos_prev >= pos` => retransmission
-    assert_eq!(check_tcp_retrans_trigger(&mut entry, &settings), None);
-    assert_eq!(check_tcp_retrans_trigger(&mut entry, &settings), Some(true));
-    assert_eq!(entry.req_retrans_counter, RETRANS_COUNTER_STOP);
-
-    // Sequence beyond `retrans_maxseq` ends failure tracking cleanly (`Some(false)` reset).
-    let mut seq_far = CtrackEntry::new(None).expect("entry");
-    seq_far.hostname_ah_check = true;
-    seq_far.pos.ipproto = IPPROTO_TCP;
-    seq_far.pos.state = ConnState::Established;
-    seq_far.pos.client.seq0 = 1000;
-    seq_far.pos.client.seq_last = 1000 + settings.retrans_maxseq + 1;
-    assert_eq!(check_tcp_retrans_trigger(&mut seq_far, &settings), Some(false));
-    assert_eq!(seq_far.req_retrans_counter, RETRANS_COUNTER_STOP);
-
-    let mut inc_entry = CtrackEntry::new(None).expect("entry");
-    inc_entry.hostname = Some("example.com".to_owned());
-    inc_entry.hostname_ah_check = true;
-    inc_entry.pos.server.seq0 = 5000;
-    inc_entry.pos.server.seq_last = 5001;
-    let redir = b"HTTP/1.1 302 Found\r\nLocation: http://warning.isp.net/block\r\n\r\n";
-    assert_eq!(
-        check_tcp_incoming_trigger(&mut inc_entry, 0, Some(redir), L7Payload::HttpReply, &settings),
-        Some(true)
-    );
-    let mut rst_entry = CtrackEntry::new(None).expect("entry");
-    rst_entry.hostname_ah_check = true;
-    rst_entry.pos.server.seq0 = 5000;
-    rst_entry.pos.server.seq_last = 5001;
-    assert_eq!(
-        check_tcp_incoming_trigger(&mut rst_entry, TH_RST, None, L7Payload::Empty, &settings),
-        Some(true)
-    );
-
-    let mut udp_entry = CtrackEntry::new(None).expect("entry");
-    udp_entry.hostname = Some("quic.example.com".to_owned());
-    udp_entry.hostname_ah_check = true;
-    let mut tpos = CtrackPositions { ipproto: IPPROTO_UDP, ..CtrackPositions::default() };
-    tpos.client.pcounter = 3;
-    tpos.server.pcounter = 1;
-    assert_eq!(check_udp_trigger(&mut udp_entry, &tpos, &settings), Some(true));
-    fail_pool.record_failure("quic.example.com", 10, 300);
+    assert_tcp_udp_autohost_triggers(&settings, &mut fail_pool);
     assert_eq!(
         reset_autohost_failure(&mut fail_pool, "quic.example.com", None, 1, "p1", "", L7Proto::Quic),
         AutoHostlistAction::ResetOnSuccess

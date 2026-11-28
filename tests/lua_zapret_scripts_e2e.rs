@@ -224,11 +224,9 @@ fn all_zapret2_lua_scripts_load_and_non_live_tests_pass()
         .expect("timer callbacks scheduled by test_timer() must fire cleanly");
 }
 
-/// Verifies `syndata`, `fake+tls_mod`, `multisplit`, `multidisorder`, `fakedsplit`, and `hostfakesplit`.
-#[test]
-fn zapret_antidpi_tcp_strategies_work_unmodified()
+/// Verifies `syndata` and `fake` with `tls_mod = "rnd,rndsni,dupsid"` via `zapret-antidpi.lua`.
+fn verify_syndata_and_fake_tls_mod()
 {
-    // 1) syndata
     let (eng, cap) = engine_with_capture(
         r#"
 lua_init = ["zapret-lib.lua", "zapret-antidpi.lua"]
@@ -242,7 +240,6 @@ args = { blob = "fake_default_http" }
 "#,
     );
     let syn = build_tcp4(CLI_IP, SRV_IP, 40001, 80, 1000, 0, TH_SYN, &[]);
-    // Initial outgoing SYN DROP triggers `ct_new_postnat_fix` (TTL=1, proto=255 dummy packet).
     let Decision::Replace(postnat_dummy) = eng.process_packet(&out_pkt(1, &syn))
     else
     {
@@ -253,7 +250,6 @@ args = { blob = "fake_default_http" }
     assert_eq!(pkts.len(), 1);
     assert_eq!(dissect_packet(&pkts[0].data, false).payload.as_deref(), Some(FAKE_HTTP_REQUEST_DEFAULT));
 
-    // 2) fake + tls_mod = "rnd,rndsni,dupsid"
     let tls_hello = fs::read(TLS_HELLO_FIXTURE).expect("read TLS ClientHello fixture");
     let (eng, cap) = engine_with_capture(
         r#"
@@ -275,6 +271,13 @@ args = { blob = "fake_default_tls", tls_mod = "rnd,rndsni,dupsid", ip_ttl = 3 }
     let fake_pl = fake_dis.payload.as_deref().expect("fake tls payload");
     assert_eq!(&fake_pl[44..76], &tls_hello[44..76], "dupsid must copy client session id");
     assert_ne!(tls_hello_extract_host(fake_pl, true).as_deref(), Some("www.iana.org"));
+}
+
+/// Verifies `syndata`, `fake+tls_mod`, `multisplit`, `multidisorder`, `fakedsplit`, and `hostfakesplit`.
+#[test]
+fn zapret_antidpi_tcp_strategies_work_unmodified()
+{
+    verify_syndata_and_fake_tls_mod();
 
     let http_req = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
 

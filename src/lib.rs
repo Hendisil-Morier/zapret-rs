@@ -1,21 +1,6 @@
 //! Core library modules for `zapret-rs` packet interception, dissection, injection, and Lua scripting.
 
-#![cfg_attr(
-    not(test),
-    warn(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::undocumented_unsafe_blocks,
-        clippy::cognitive_complexity,
-        clippy::too_many_lines,
-        clippy::manual_let_else,
-        clippy::cloned_instead_of_copied,
-        clippy::large_types_passed_by_value,
-    )
-)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 /// Profile filters, built-in blobs, TOML configuration schema, and CLI overrides.
 pub mod config;

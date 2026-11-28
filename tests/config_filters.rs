@@ -25,34 +25,22 @@ fn unique_temp_path(suffix: &str) -> PathBuf
 fn port_filter_parses_ranges_negations_and_rejects_invalid()
 {
     let star = PortFilter::parse("*").expect("* should parse");
-    assert!(star.matches(1));
-    assert!(star.matches(65535));
-    assert!(!star.matches(0));
+    assert!(star.matches(1) && star.matches(65535) && !star.matches(0));
 
     let single = PortFilter::parse("443").expect("443");
-    assert!(single.matches(443));
-    assert!(!single.matches(80));
-    assert!(!single.matches(0));
+    assert!(single.matches(443) && !single.matches(80) && !single.matches(0));
 
     let range = PortFilter::parse("80-90").expect("80-90");
-    assert!(range.matches(80));
-    assert!(range.matches(85));
-    assert!(range.matches(90));
-    assert!(!range.matches(79));
+    assert!(range.matches(80) && range.matches(85) && range.matches(90) && !range.matches(79));
 
     let neg = PortFilter::parse("~22").expect("~22");
-    assert!(!neg.matches(22));
-    assert!(neg.matches(80));
-    assert!(!neg.matches(0));
+    assert!(!neg.matches(22) && neg.matches(80) && !neg.matches(0));
 
     // Port "0" or "~0" always acts as deny-all matching C `pf_parse`.
     let zero = PortFilter::parse("0").expect("0");
     let neg_zero = PortFilter::parse("~0").expect("~0");
-    assert!(zero.neg);
-    assert!(neg_zero.neg);
-    assert!(!zero.matches(80));
-    assert!(!neg_zero.matches(443));
-    assert!(!PortFilter::deny_all().matches(80));
+    assert!(zero.neg && neg_zero.neg);
+    assert!(!zero.matches(80) && !neg_zero.matches(443) && !PortFilter::deny_all().matches(80));
 
     assert!(port_filters_match(&[], 80));
     assert!(port_filters_match(&[single, range], 85));
@@ -74,16 +62,12 @@ fn icmp_and_ipp_filters_match_and_reject_invalid()
 
     assert_eq!(any.mode, FilterMode::Any);
     assert_eq!(skip.mode, FilterMode::Skip);
-    assert!(echo.matches(8, 0));
-    assert!(echo.matches(8, 9));
-    assert!(!frag.matches(3, 3));
-    assert!(frag.matches(3, 4));
-    assert!(!skip.matches(8, 0));
+    assert!(echo.matches(8, 0) && echo.matches(8, 9));
+    assert!(!frag.matches(3, 3) && frag.matches(3, 4) && !skip.matches(8, 0));
 
     assert!(icmp_filters_match(&[], 8, 0));
     assert!(icmp_filters_match(&[skip, frag], 3, 4));
     assert!(!icmp_filters_match(&[IcmpFilter::skip()], 8, 0));
-
     assert!(matches!(IcmpFilter::parse("256"), Err(ConfigError::InvalidIcmpFilter(_))));
     assert!(matches!(IcmpFilter::parse("3:256"), Err(ConfigError::InvalidIcmpFilter(_))));
     assert!(matches!(IcmpFilter::parse("3:4:5"), Err(ConfigError::InvalidIcmpFilter(_))));
@@ -91,10 +75,7 @@ fn icmp_and_ipp_filters_match_and_reject_invalid()
     let ipp_any = IppFilter::parse("*").expect("*");
     let ipp_skip = IppFilter::skip();
     let gre = IppFilter::parse("47").expect("47");
-    assert!(ipp_any.matches(6));
-    assert!(!ipp_skip.matches(47));
-    assert!(gre.matches(47));
-    assert!(!gre.matches(50));
+    assert!(ipp_any.matches(6) && !ipp_skip.matches(47) && gre.matches(47) && !gre.matches(50));
     assert!(ipp_filters_match(&[ipp_skip, gre], 47));
     assert!(matches!(IppFilter::parse("256"), Err(ConfigError::InvalidIppFilter(_))));
     assert!(matches!(IppFilter::parse("abc"), Err(ConfigError::InvalidIppFilter(_))));

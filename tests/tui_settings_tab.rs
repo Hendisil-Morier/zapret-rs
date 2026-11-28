@@ -41,6 +41,53 @@ fn render_to_string(state: &AppState) -> String
     out
 }
 
+/// Saves Tab 7 mutations surgically and confirms reset removes modified overrides cleanly.
+fn assert_surgical_settings_save_and_reset(
+    state: &mut AppState,
+    cfg_path: &std::path::Path,
+    theme_path: &std::path::Path,
+)
+{
+    let msg = save_settings_surgically(
+        &state.app_config_path,
+        &state.finder.output_path,
+        &state.finder.lua_dir_input,
+        state.finder.no_nft,
+        state.run.control_socket_override.as_deref(),
+        state.theme,
+        &state.keybinds,
+    )
+    .expect("surgical save");
+    assert!(msg.contains("theme.toml"), "expected sibling theme note: {msg}");
+
+    let saved_cfg = fs::read_to_string(cfg_path).expect("read saved config");
+    assert!(saved_cfg.contains("# Keep my personal header comment"));
+    assert!(saved_cfg.contains("import = \"./theme.toml\""));
+    assert!(saved_cfg.contains("no_nft = true"));
+    assert!(saved_cfg.contains("help = \"[\""));
+    assert!(!saved_cfg.contains("prev_tab"));
+    assert!(!saved_cfg.contains("[keybinds.hostlist]"));
+
+    let saved_theme = fs::read_to_string(theme_path).expect("read saved theme.toml");
+    assert!(saved_theme.contains(&format!("preset = \"{}\"", state.theme.name)));
+
+    assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::None);
+    assert_eq!(state.keybinds.global.help.primary_label(), "?");
+    save_settings_surgically(
+        &state.app_config_path,
+        &state.finder.output_path,
+        &state.finder.lua_dir_input,
+        false,
+        None,
+        state.theme,
+        &state.keybinds,
+    )
+    .expect("re-save clean");
+    let cleaned_cfg = fs::read_to_string(cfg_path).expect("read cleaned config");
+    assert!(!cleaned_cfg.contains("[keybinds"));
+    assert!(!cleaned_cfg.contains("no_nft"));
+}
+
 /// Verifies Tab 7 interactive option edits, live key capture (even `'q'`/`'H'`), reset, and surgical save.
 #[test]
 fn tab7_settings_rebinds_keys_toggles_options_and_saves_sparsely_preserving_comments()
@@ -93,52 +140,12 @@ fn tab7_settings_rebinds_keys_toggles_options_and_saves_sparsely_preserving_comm
     assert!(capturing_screen.contains("<press new key...>"));
     assert!(capturing_screen.contains("[MODIFIED]"));
 
-    // Pressing `q` during capture binds `q` cleanly to `global.help` instead of quitting!
+    // Pressing `q` during capture binds `[` cleanly to `global.help` instead of quitting!
     assert_eq!(state.handle_key(key(KeyCode::Char('['))), AppAction::None);
     assert!(!state.settings.capturing_rebind);
     assert_eq!(state.keybinds.global.help.primary_label(), "[");
 
-    // Save sparsely: preserves header comment + `import`, updates sibling `theme.toml`, writes ONLY changed keybind!
-    let msg = save_settings_surgically(
-        &state.app_config_path,
-        &state.finder.output_path,
-        &state.finder.lua_dir_input,
-        state.finder.no_nft,
-        state.run.control_socket_override.as_deref(),
-        state.theme,
-        &state.keybinds,
-    )
-    .expect("surgical save");
-    assert!(msg.contains("theme.toml"), "expected sibling theme note: {msg}");
-
-    let saved_cfg = fs::read_to_string(&cfg_path).expect("read saved config");
-    assert!(saved_cfg.contains("# Keep my personal header comment"));
-    assert!(saved_cfg.contains("import = \"./theme.toml\""));
-    assert!(saved_cfg.contains("no_nft = true"));
-    assert!(saved_cfg.contains("help = \"[\""));
-    // Unchanged keybinds and redundant defaults remain absent from disk.
-    assert!(!saved_cfg.contains("prev_tab"));
-    assert!(!saved_cfg.contains("[keybinds.hostlist]"));
-
-    let saved_theme = fs::read_to_string(&theme_path).expect("read saved theme.toml");
-    assert!(saved_theme.contains(&format!("preset = \"{}\"", state.theme.name)));
-
-    // Resetting `global.help` (`r`) and re-saving removes `[keybinds]` completely from `config.toml`.
-    assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::None);
-    assert_eq!(state.keybinds.global.help.primary_label(), "?");
-    save_settings_surgically(
-        &state.app_config_path,
-        &state.finder.output_path,
-        &state.finder.lua_dir_input,
-        false,
-        None,
-        state.theme,
-        &state.keybinds,
-    )
-    .expect("re-save clean");
-    let cleaned_cfg = fs::read_to_string(&cfg_path).expect("read cleaned config");
-    assert!(!cleaned_cfg.contains("[keybinds"));
-    assert!(!cleaned_cfg.contains("no_nft"));
+    assert_surgical_settings_save_and_reset(&mut state, &cfg_path, &theme_path);
 
     let _ = fs::remove_dir_all(&dir);
 }

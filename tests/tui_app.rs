@@ -57,12 +57,9 @@ fn render_to_string(state: &AppState, width: u16, height: u16) -> String
     out
 }
 
-/// Verifies form editing, text-input key isolation (`q`/`1`), toggles, scan event handling,
-/// and tab transitions across all three views.
-#[test]
-fn tui_state_machine_handles_form_editing_scan_events_and_navigation()
+/// Drives Strategy Finder form editing and scan completion events against `state`.
+fn verify_finder_form_and_scan_events(state: &mut AppState)
 {
-    let mut state = AppState::new(None, None, false);
     assert_eq!(state.tab, ActiveTab::Finder);
     assert_eq!(state.focused_field(), FinderField::Domains);
 
@@ -77,7 +74,6 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation()
     assert!(!state.finder.editing_text);
     assert_eq!(state.finder.domains_input, "q1.example.com");
 
-    // Toggle HTTP off, cycle IP mode to V6, cycle ScanLevel to Standard.
     state.handle_key(key(KeyCode::Down)); // ProtoHttp
     assert_eq!(state.focused_field(), FinderField::ProtoHttp);
     state.handle_key(key(KeyCode::Char(' ')));
@@ -91,14 +87,12 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation()
     state.handle_key(key(KeyCode::Enter));
     assert_eq!(state.finder.level, ScanLevel::Standard);
 
-    // Build scan config from form state and verify fields.
     let cfg = state.build_scan_config().expect("valid scan config");
     assert_eq!(cfg.domains, vec!["q1.example.com".to_owned()]);
     assert!(!cfg.protos.contains(&ProbeProtocol::Http));
     assert_eq!(cfg.families, vec![IpFamily::V6]);
     assert_eq!(cfg.level, ScanLevel::Standard);
 
-    // Trigger scan start and feed synthetic ScanUiEvents.
     assert_eq!(state.handle_key(key(KeyCode::Char('r'))), AppAction::StartScan);
     state.finder.status = FinderStatus::Scanning;
     assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::StopScan);
@@ -148,6 +142,15 @@ fn tui_state_machine_handles_form_editing_scan_events_and_navigation()
 
     assert_eq!(state.finder.status, FinderStatus::Done);
     assert_eq!(state.config.parsed_profiles, vec![spec.id]);
+}
+
+/// Verifies form editing, text-input key isolation (`q`/`1`), toggles, scan event handling,
+/// and tab transitions across all three views.
+#[test]
+fn tui_state_machine_handles_form_editing_scan_events_and_navigation()
+{
+    let mut state = AppState::new(None, None, false);
+    verify_finder_form_and_scan_events(&mut state);
 
     // Press 'a' to switch to Run tab, start daemon, reset counters, and quit.
     assert_eq!(state.handle_key(key(KeyCode::Char('a'))), AppAction::None);
@@ -253,9 +256,8 @@ fn zapret_rs_tui_binary_cli_version_and_help()
 }
 
 /// Verifies live packet inspector decoding (HTTP Host, TCP flags, verdicts, hex dump),
-/// filtering (`f`), pausing (`p`), and floating packet detail rendering (`d` / `Esc`).
-#[test]
-fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal()
+/// Builds a synthetic outbound HTTP packet and checks decoded inspector record + hex dump fields.
+fn build_and_verify_sample_http_packet() -> (Vec<u8>, zapret_rs::telemetry::PacketRecord)
 {
     let http_payload = b"GET / HTTP/1.1\r\nHost: store.steampowered.com\r\n\r\n".to_vec();
     let dis = DissectedPacket {
@@ -309,6 +311,16 @@ fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal()
     let dump = format_hex_dump(&rec_desync.payload_preview);
     assert!(dump[0].starts_with("0000: 47 45 54 20"));
     assert!(dump[0].contains("|GET / HTTP/1.1"));
+    (wire, rec_desync)
+}
+
+/// filtering (`f`), pausing (`p`), and floating packet detail rendering (`d` / `Esc`).
+#[test]
+fn tui_packet_inspector_decodes_filters_pauses_and_renders_detail_modal()
+{
+    let (wire, rec_desync) = build_and_verify_sample_http_packet();
+    let qpkt = QueuedPacket { packet_id: 1, mark: 0, ifin: None, ifout: Some("eth0"), payload: &wire };
+    let desync_outcome = PacketOutcome::Desync(Some("tls13:ipv4:multisplit:2".to_owned()));
 
     let mut state = AppState::new(None, None, false);
     state.tab = ActiveTab::Run;
@@ -435,10 +447,10 @@ fn firewall_backends_supply_distinct_preview_titles_and_unsupported_error()
     let unsupported = UnsupportedFirewallBackend;
     assert_eq!(unsupported.preview_title(), " Packet Filter Preview ");
     assert!(unsupported.preview_filter(200, 0x4000_0000, &[443], &[]).contains("not implemented"));
-    let err = match unsupported.install(200, 0x4000_0000, &[443], &[])
+    let Err(err) = unsupported.install(200, 0x4000_0000, &[443], &[])
+    else
     {
-        Ok(_) => panic!("unsupported backend should not install firewall rules"),
-        Err(e) => e,
+        panic!("unsupported backend should not install firewall rules");
     };
     assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
 

@@ -36,6 +36,23 @@ const CLIENT_WRITE_TIMEOUT: Duration = Duration::from_millis(150);
 /// Maximum time a synchronous control command waits for the packet loop to reply.
 const COMMAND_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Per-connection handles and shared server state passed to client request dispatchers.
+struct ClientSessionContext<'a>
+{
+    /// Unique numeric subscriber/session identifier assigned to this client.
+    id: u64,
+    /// Immutable server configuration checked during handshake and `hello`.
+    config: &'a ControlServerConfig,
+    /// Shared telemetry hub storing status snapshots, subscribers, and command queues.
+    hub: &'a Arc<TelemetryHub>,
+    /// Bounded outbound response queue drained by the dedicated writer thread.
+    out_tx: &'a SyncSender<Response>,
+    /// Shared liveness flag cleared when the client disconnects or encounters errors.
+    client_alive: &'a Arc<AtomicBool>,
+    /// Underlying socket handle wrapped for subscriber registration and shutdown.
+    stream_ref: &'a ControlStream,
+}
+
 /// Runs dedicated reader + writer tasks for one UID-authenticated control socket client.
 pub(crate) fn serve_client(
     id: u64,
@@ -70,17 +87,15 @@ pub(crate) fn serve_client(
         {
             Ok(Some(req)) =>
             {
-                let keep_open = handle_client_request(
+                let ctx = ClientSessionContext {
                     id,
-                    req,
-                    &mut handshaked,
-                    &config,
-                    &hub,
-                    &out_tx,
-                    &client_alive,
-                    reader.get_ref().get_ref(),
-                );
-                if !keep_open
+                    config: &config,
+                    hub: &hub,
+                    out_tx: &out_tx,
+                    client_alive: &client_alive,
+                    stream_ref: reader.get_ref().get_ref(),
+                };
+                if !handle_client_request(&ctx, req, &mut handshaked)
                 {
                     break;
                 }
@@ -109,44 +124,43 @@ pub(crate) fn serve_client(
 }
 
 /// Dispatches one decoded client [`Request`], returning `false` if the connection should close.
-#[allow(clippy::too_many_arguments)]
-fn handle_client_request(
-    id: u64,
-    req: Request,
-    handshaked: &mut bool,
-    config: &ControlServerConfig,
-    hub: &Arc<TelemetryHub>,
-    out_tx: &SyncSender<Response>,
-    client_alive: &Arc<AtomicBool>,
-    stream_ref: &ControlStream,
-) -> bool
+fn handle_client_request(ctx: &ClientSessionContext<'_>, req: Request, handshaked: &mut bool) -> bool
 {
     if !*handshaked
     {
-        return handle_pre_handshake(req, handshaked, config, out_tx);
+        return handle_pre_handshake(req, handshaked, ctx.config, ctx.out_tx);
     }
 
     match req
     {
-        Request::Hello { version } => handle_hello(version, &config.daemon_version, out_tx),
-        Request::Status => send_or_close(out_tx, Response::Status(hub.status_snapshot())),
-        Request::Subscribe { pass_sample_rate } =>
-        {
-            register_subscriber(id, pass_sample_rate, hub, out_tx, client_alive, stream_ref)
-        }
+        Request::Hello { version } => handle_hello(version, &ctx.config.daemon_version, ctx.out_tx),
+        Request::Status => send_or_close(ctx.out_tx, Response::Status(ctx.hub.status_snapshot())),
+        Request::Subscribe { pass_sample_rate } => register_subscriber(
+            ctx.id,
+            pass_sample_rate,
+            ctx.hub,
+            ctx.out_tx,
+            ctx.client_alive,
+            ctx.stream_ref,
+        ),
         Request::Unsubscribe =>
         {
-            hub.remove_subscriber(id);
-            send_or_close(out_tx, Response::Ack { op: "unsubscribe".to_owned(), message: None })
+            ctx.hub.remove_subscriber(ctx.id);
+            send_or_close(ctx.out_tx, Response::Ack { op: "unsubscribe".to_owned(), message: None })
         }
-        Request::ReloadLists =>
-        {
-            dispatch_loop_command("reload_lists", hub, out_tx, |reply| ControlCommand::ReloadLists { reply })
-        }
-        Request::ReloadConfig { toml } => dispatch_loop_command("reload_config", hub, out_tx, |reply| {
-            ControlCommand::ReloadConfig { toml, reply }
+        Request::ReloadLists => dispatch_loop_command("reload_lists", ctx.hub, ctx.out_tx, |reply| {
+            ControlCommand::ReloadLists { reply }
         }),
-        Request::Stop => dispatch_loop_command("stop", hub, out_tx, |reply| ControlCommand::Stop { reply }),
+        Request::ReloadConfig { toml } =>
+        {
+            dispatch_loop_command("reload_config", ctx.hub, ctx.out_tx, |reply| {
+                ControlCommand::ReloadConfig { toml, reply }
+            })
+        }
+        Request::Stop =>
+        {
+            dispatch_loop_command("stop", ctx.hub, ctx.out_tx, |reply| ControlCommand::Stop { reply })
+        }
     }
 }
 

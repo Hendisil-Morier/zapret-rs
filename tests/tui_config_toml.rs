@@ -232,7 +232,7 @@ fn remapped_keybinds_control_navigation_actions_saving_and_ui_hints()
 
     let main_screen = render_to_string(&state, 120, 32);
     assert!(main_screen.contains("[F1] Keys"));
-    assert!(main_screen.contains("[Z] Remove"));
+    assert!(!main_screen.contains("[Z] Remove"));
 
     assert_eq!(state.handle_key(key(KeyCode::F(1))), AppAction::None);
     assert!(state.help_open);

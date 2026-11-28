@@ -163,6 +163,22 @@ fn unauthorized_peer_uid_is_closed_before_any_reply()
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// Connects a Unix stream client, performs the hello handshake, and optionally subscribes.
+fn connect_hello_client(sock: &std::path::Path, subscribe: bool) -> (UnixStream, BufReader<UnixStream>)
+{
+    let mut client = UnixStream::connect(sock).expect("connect client");
+    let mut reader = BufReader::new(client.try_clone().expect("clone client"));
+    write_message(&mut client, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("hello");
+    assert!(matches!(read_message::<_, Response>(&mut reader).expect("r"), Some(Response::HelloOk { .. })));
+    if subscribe
+    {
+        write_message(&mut client, &Request::Subscribe { pass_sample_rate: None }).expect("sub");
+        assert!(matches!(read_message::<_, Response>(&mut reader).expect("r"), Some(Response::Ack { .. })));
+        assert!(matches!(read_message::<_, Response>(&mut reader).expect("r"), Some(Response::Counters(_))));
+    }
+    (client, reader)
+}
+
 #[test]
 fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands_route()
 {
@@ -175,27 +191,8 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
     cfg.client_sndbuf = Some(4096);
     let srv = ControlServer::start(cfg, Arc::clone(&hub)).expect("start server");
 
-    let mut slow = UnixStream::connect(&sock).expect("connect slow");
-    let mut slow_reader = BufReader::new(slow.try_clone().expect("clone slow"));
-    write_message(&mut slow, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("hello slow");
-    assert!(matches!(
-        read_message::<_, Response>(&mut slow_reader).expect("r"),
-        Some(Response::HelloOk { .. })
-    ));
-    write_message(&mut slow, &Request::Subscribe { pass_sample_rate: None }).expect("sub slow");
-    assert!(matches!(read_message::<_, Response>(&mut slow_reader).expect("r"), Some(Response::Ack { .. })));
-    assert!(matches!(read_message::<_, Response>(&mut slow_reader).expect("r"), Some(Response::Counters(_))));
-
-    let mut fast = UnixStream::connect(&sock).expect("connect fast");
-    let mut fast_reader = BufReader::new(fast.try_clone().expect("clone fast"));
-    write_message(&mut fast, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("hello fast");
-    assert!(matches!(
-        read_message::<_, Response>(&mut fast_reader).expect("r"),
-        Some(Response::HelloOk { .. })
-    ));
-    write_message(&mut fast, &Request::Subscribe { pass_sample_rate: None }).expect("sub fast");
-    assert!(matches!(read_message::<_, Response>(&mut fast_reader).expect("r"), Some(Response::Ack { .. })));
-    assert!(matches!(read_message::<_, Response>(&mut fast_reader).expect("r"), Some(Response::Counters(_))));
+    let (slow, mut slow_reader) = connect_hello_client(&sock, true);
+    let (fast, mut fast_reader) = connect_hello_client(&sock, true);
 
     fast.set_read_timeout(Some(Duration::from_secs(2))).expect("timeout");
     let fast_thread = thread::spawn(move || {
@@ -241,14 +238,8 @@ fn slow_subscriber_is_disconnected_without_blocking_healthy_clients_and_commands
     }
     assert!(saw_disconnect, "stalled subscriber must be disconnected cleanly");
 
-    let mut cmd_client = UnixStream::connect(&sock).expect("connect cmd client");
-    let mut cmd_reader = BufReader::new(cmd_client.try_clone().expect("clone cmd client"));
+    let (mut cmd_client, mut cmd_reader) = connect_hello_client(&sock, false);
     cmd_client.set_read_timeout(Some(Duration::from_secs(2))).expect("cmd timeout");
-    write_message(&mut cmd_client, &Request::Hello { version: CONTROL_PROTOCOL_VERSION }).expect("hello cmd");
-    assert!(matches!(
-        read_message::<_, Response>(&mut cmd_reader).expect("r"),
-        Some(Response::HelloOk { .. })
-    ));
 
     let cmd_hub = Arc::clone(&hub);
     let responder = thread::spawn(move || {

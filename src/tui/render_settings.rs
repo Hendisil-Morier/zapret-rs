@@ -15,10 +15,10 @@ use crate::tui::keybind_schema::Keybinds;
 use crate::tui::settings_tab::{KEYBIND_ENTRIES, SettingRow, SettingsFocus, SettingsTabState};
 /// Shared TUI state rendered inside Tab 7.
 use crate::tui::state::AppState;
-/// Shared bordered panel builder and keycap badge helper.
-use crate::tui::theme::{panel_block, styled_key_hints_owned};
+/// Shared bordered panel builder for Tab 7 cards.
+use crate::tui::theme::panel_block;
 
-/// Renders Tab 7: top settings action strip, left `Options` pane, and right `Keybindings` table.
+/// Renders Tab 7: top settings status strip, left `Options` pane, and right `Keybindings` table.
 pub(crate) fn draw_settings_tab(frame: &mut Frame, area: Rect, state: &AppState)
 {
     let t = &state.theme;
@@ -27,15 +27,13 @@ pub(crate) fn draw_settings_tab(frame: &mut Frame, area: Rect, state: &AppState)
         .constraints([Constraint::Length(3), Constraint::Min(8)])
         .split(area);
 
-    let sk = &state.keybinds.settings;
-    let nav = &state.keybinds.nav;
     let header_line = if state.settings.capturing_rebind
     {
         let target = KEYBIND_ENTRIES.get(state.settings.keybind_sel).map_or("", |s| s.id);
         Line::from(vec![
             Span::styled(" Rebinding ", Style::default().fg(t.warn_bright).add_modifier(Modifier::BOLD)),
             Span::styled(target, Style::default().fg(t.accent_bright).add_modifier(Modifier::BOLD)),
-            Span::styled(": press new key or chord  ([Esc] cancel)", Style::default().fg(t.text)),
+            Span::styled(": press new key or chord  (Esc cancels)", Style::default().fg(t.text)),
         ])
     }
     else if state.settings.editing_option
@@ -49,24 +47,26 @@ pub(crate) fn draw_settings_tab(frame: &mut Frame, area: Rect, state: &AppState)
                 format!("{}_", state.settings.edit_buf),
                 Style::default().fg(t.text).add_modifier(Modifier::BOLD),
             ),
-            Span::styled("   [Enter] Apply  [Esc] Cancel", Style::default().fg(t.muted)),
+            Span::styled("   (Enter applies, Esc cancels)", Style::default().fg(t.muted)),
         ])
     }
     else
     {
-        let hint = format!(
-            " [{}/{}] Select  [{}/{}] Column  [{}] Edit/Rebind  [{}] Reset  [{}] Save  [{}] Reload  [{}] $EDITOR",
-            nav.up.primary_label(),
-            nav.down.primary_label(),
-            nav.left.primary_label(),
-            nav.right.primary_label(),
-            sk.rebind.primary_label(),
-            sk.reset.primary_label(),
-            sk.save.primary_label(),
-            sk.reload.primary_label(),
-            sk.edit.primary_label(),
-        );
-        Line::from(styled_key_hints_owned(&hint, t))
+        let focus_label =
+            if state.settings.focus == SettingsFocus::Options { "Options" } else { "Keybindings" };
+        let defaults = Keybinds::default();
+        let custom_count = KEYBIND_ENTRIES
+            .iter()
+            .filter(|spec| (spec.get)(&state.keybinds) != (spec.get)(&defaults))
+            .count();
+        Line::from(Span::styled(
+            format!(
+                " Theme: {}   Custom keybinds: {custom_count}/{}   Focus: {focus_label}",
+                state.theme.name,
+                KEYBIND_ENTRIES.len(),
+            ),
+            Style::default().fg(t.info),
+        ))
     };
 
     let status_tag = if state.settings.dirty { "[MODIFIED]" } else { "[SAVED]" };

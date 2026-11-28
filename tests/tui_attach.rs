@@ -21,7 +21,7 @@ use zapret_rs::control::{
 use zapret_rs::desync::PacketOutcome;
 use zapret_rs::intercepter::QueuedPacket;
 use zapret_rs::telemetry::{PacketCounters, PacketVerdict, build_packet_record};
-use zapret_rs::tui::remote::RemoteEvent;
+use zapret_rs::tui::remote::{AttachedDaemon, RemoteEvent};
 use zapret_rs::tui::{
     ActiveTab, AppAction, AppState, ModalPurpose, RunStatus, connect_remote_daemon, detect_control_socket,
     draw_app,
@@ -75,6 +75,82 @@ fn sample_pkt(seq: u64, outcome: PacketOutcome) -> zapret_rs::telemetry::PacketR
     build_packet_record(seq, &qp, &outcome)
 }
 
+/// Awaits both `REASM` and `DESYNC` records from the attached daemon and verifies Tab 2 rendering.
+fn await_and_verify_attached_stream(attached: &mut AttachedDaemon, hub: &TelemetryHub, state: &mut AppState)
+{
+    hub.publish_packet(sample_pkt(11, PacketOutcome::Reasm));
+    hub.publish_packet(sample_pkt(12, PacketOutcome::Desync(Some("tls13:multisplit:2".to_owned()))));
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut got_reasm = false;
+    let mut got_desync = false;
+    while Instant::now() < deadline && !(got_reasm && got_desync)
+    {
+        while let Some(rec) = attached.try_recv_desync()
+        {
+            got_reasm |= rec.verdict == PacketVerdict::Reasm;
+            got_desync |= rec.verdict == PacketVerdict::Desync;
+            state.inspector.push(rec);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(got_reasm && got_desync, "expected both REASM and DESYNC records in attach stream");
+
+    let screen = render_to_string(state, 120, 36);
+    assert!(screen.contains("ATTACHED"), "header/controller must show ATTACHED");
+    assert!(screen.contains("PID 99123"), "must show remote daemon PID");
+    assert!(screen.contains("tls13:multisplit:2"));
+    assert!(screen.contains("REASM") && screen.contains("DESYNC"));
+    assert!(screen.contains("[?] Keys"));
+}
+
+/// Verifies Tab 2/3 attached key actions and `ConfirmStopDaemon` modal popup flow.
+fn verify_attached_key_actions_and_stop(attached: &AttachedDaemon, hub: &TelemetryHub, state: &mut AppState)
+{
+    state.handle_key(key(KeyCode::Char('?')));
+    let help_screen = render_to_string(state, 120, 36);
+    assert!(help_screen.contains("[x] Detach") && help_screen.contains("[S] Stop Daemon"));
+    state.handle_key(key(KeyCode::Esc));
+
+    state.tab = ActiveTab::Config;
+    state.set_active_toml("[[profiles]]\nname = \"pushed_p\"\nfilter_tcp = [\"443\"]\n".to_owned());
+    assert_eq!(state.handle_key(key(KeyCode::Char('p'))), AppAction::PushConfigToDaemon);
+    state.handle_key(key(KeyCode::Char('?')));
+    let config_help = render_to_string(state, 120, 36);
+    assert!(config_help.contains("[p] Push Config"));
+    state.handle_key(key(KeyCode::Char('?')));
+    state.tab = ActiveTab::Run;
+
+    assert_eq!(state.handle_key(key(KeyCode::Char('l'))), AppAction::ReloadRemoteLists);
+    assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::DetachDaemon);
+
+    assert_eq!(state.handle_key(key(KeyCode::Char('S'))), AppAction::None);
+    let modal = state.modal.as_ref().expect("'S' must open ConfirmStopDaemon popup");
+    assert_eq!(modal.purpose, ModalPurpose::ConfirmStopDaemon);
+    assert!(render_to_string(state, 120, 36).contains("Confirm Stop Daemon"));
+    assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
+    assert!(state.modal.is_none());
+
+    assert_eq!(state.handle_key(key(KeyCode::Char('S'))), AppAction::None);
+    assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitModal);
+    state.modal = None;
+
+    attached.send_command(&Request::Stop).expect("send stop");
+    let cmd_deadline = Instant::now() + Duration::from_secs(2);
+    let mut saw_stop = false;
+    while Instant::now() < cmd_deadline
+    {
+        if let Some(ControlCommand::Stop { reply }) = hub.try_recv_command()
+        {
+            let _ = reply.send(Ok("stopping".to_owned()));
+            saw_stop = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(saw_stop, "server hub must forward Stop command");
+}
+
 #[test]
 fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect()
 {
@@ -110,84 +186,8 @@ fn attach_streams_telemetry_renders_attached_handles_keys_and_disconnect()
     state.set_attached(rmeta);
     assert_eq!(state.run.counters.snapshot().0, 10);
 
-    // Stream REASM and DESYNC packets from the daemon hub into TUI channels.
-    hub.publish_packet(sample_pkt(11, PacketOutcome::Reasm));
-    hub.publish_packet(sample_pkt(12, PacketOutcome::Desync(Some("tls13:multisplit:2".to_owned()))));
-
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let mut got_reasm = false;
-    let mut got_desync = false;
-    while Instant::now() < deadline && !(got_reasm && got_desync)
-    {
-        while let Some(rec) = attached.try_recv_desync()
-        {
-            if rec.verdict == PacketVerdict::Reasm
-            {
-                got_reasm = true;
-            }
-            if rec.verdict == PacketVerdict::Desync
-            {
-                got_desync = true;
-            }
-            state.inspector.push(rec);
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    assert!(got_reasm && got_desync, "expected both REASM and DESYNC records in attach stream");
-
-    let screen = render_to_string(&state, 120, 36);
-    assert!(screen.contains("ATTACHED"), "header/controller must show ATTACHED");
-    assert!(screen.contains("PID 99123"), "must show remote daemon PID");
-    assert!(screen.contains("tls13:multisplit:2"));
-    assert!(screen.contains("REASM") && screen.contains("DESYNC"));
-    assert!(screen.contains("[?] Keys"));
-
-    state.handle_key(key(KeyCode::Char('?')));
-    let help_screen = render_to_string(&state, 120, 36);
-    assert!(help_screen.contains("[x] Detach") && help_screen.contains("[S] Stop Daemon"));
-    state.handle_key(key(KeyCode::Esc));
-
-    // Verify Tab 3 'p' key triggers PushConfigToDaemon and StatusUpdated refreshes profiles.
-    state.tab = ActiveTab::Config;
-    state.set_active_toml("[[profiles]]\nname = \"pushed_p\"\nfilter_tcp = [\"443\"]\n".to_owned());
-    assert_eq!(state.handle_key(key(KeyCode::Char('p'))), AppAction::PushConfigToDaemon);
-    state.handle_key(key(KeyCode::Char('?')));
-    let config_help = render_to_string(&state, 120, 36);
-    assert!(config_help.contains("[p] Push Config"));
-    state.handle_key(key(KeyCode::Char('?')));
-    state.tab = ActiveTab::Run;
-
-    // Keys on Tab 2 in Attached state: 'l' reloads remote lists, 'x' detaches, 'S' confirms stop.
-    assert_eq!(state.handle_key(key(KeyCode::Char('l'))), AppAction::ReloadRemoteLists);
-    assert_eq!(state.handle_key(key(KeyCode::Char('x'))), AppAction::DetachDaemon);
-
-    assert_eq!(state.handle_key(key(KeyCode::Char('S'))), AppAction::None);
-    let modal = state.modal.as_ref().expect("'S' must open ConfirmStopDaemon popup");
-    assert_eq!(modal.purpose, ModalPurpose::ConfirmStopDaemon);
-    let popup_screen = render_to_string(&state, 120, 36);
-    assert!(popup_screen.contains("Confirm Stop Daemon"));
-    assert_eq!(state.handle_key(key(KeyCode::Esc)), AppAction::None);
-    assert!(state.modal.is_none());
-
-    assert_eq!(state.handle_key(key(KeyCode::Char('S'))), AppAction::None);
-    assert_eq!(state.handle_key(key(KeyCode::Enter)), AppAction::SubmitModal);
-    state.modal = None;
-
-    // Send a stop command through `AttachedDaemon` and see the hub receive it.
-    attached.send_command(&Request::Stop).expect("send stop");
-    let cmd_deadline = Instant::now() + Duration::from_secs(2);
-    let mut saw_stop = false;
-    while Instant::now() < cmd_deadline
-    {
-        if let Some(ControlCommand::Stop { reply }) = hub.try_recv_command()
-        {
-            let _ = reply.send(Ok("stopping".to_owned()));
-            saw_stop = true;
-            break;
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
-    assert!(saw_stop, "server hub must forward Stop command");
+    await_and_verify_attached_stream(&mut attached, &hub, &mut state);
+    verify_attached_key_actions_and_stop(&attached, &hub, &mut state);
 
     // Shutting down server simulates connection loss -> reader emits Disconnected without panic.
     srv.shutdown();

@@ -26,6 +26,30 @@ fn unique_temp_dir(label: &str) -> PathBuf
     std::env::temp_dir().join(format!("zapret-rs-{}-{label}", std::process::id()))
 }
 
+/// Verifies decoded action and profile filter fields from the golden TOML configuration.
+fn assert_golden_profile_fields(cfg: &AppConfig)
+{
+    assert_eq!(cfg.profiles.len(), 1);
+    let profile = &cfg.profiles[0];
+    assert_eq!(profile.index, 1);
+    assert_eq!(profile.name.as_deref(), Some("https"));
+    assert_eq!(profile.cookie.as_deref(), Some("profile-cookie"));
+    assert!(profile.filter_ipv4);
+    assert!(!profile.filter_ipv6);
+
+    assert_eq!(profile.actions.len(), 1);
+    let action = &profile.actions[0];
+    assert_eq!(action.func, "fake");
+    assert!(l7_payload_matches(L7Payload::TlsClientHello, action.payload_mask));
+    assert!(!l7_payload_matches(L7Payload::HttpReq, action.payload_mask));
+    assert_eq!(action.in_range, PacketRange::NEVER);
+    assert_eq!(action.out_range, PacketRange::parse("-d1").expect("-d1"));
+    assert_eq!(action.args["blob"], "fake_default_tls");
+    assert_eq!(action.args["tcp_md5"], "");
+    assert!(!action.args.contains_key("disabled_flag"));
+    assert_eq!(action.args["repeats"], "3");
+}
+
 /// Verifies the golden TOML configuration shape deserializes blobs, init scripts, profiles, and action args.
 #[test]
 fn toml_file_loads_blobs_profiles_actions_and_relative_paths()
@@ -90,26 +114,7 @@ args = { blob = "fake_default_tls", tcp_md5 = true, disabled_flag = false, repea
     assert_eq!(cfg.blobs["custom_tls"], b"\x16\x03\x01\x00\x05hello");
     assert!(cfg.blobs.contains_key("fake_default_tls"));
 
-    // Skipped profile is excluded, leaving the active profile as index 1.
-    assert_eq!(cfg.profiles.len(), 1);
-    let profile = &cfg.profiles[0];
-    assert_eq!(profile.index, 1);
-    assert_eq!(profile.name.as_deref(), Some("https"));
-    assert_eq!(profile.cookie.as_deref(), Some("profile-cookie"));
-    assert!(profile.filter_ipv4);
-    assert!(!profile.filter_ipv6);
-
-    assert_eq!(profile.actions.len(), 1);
-    let action = &profile.actions[0];
-    assert_eq!(action.func, "fake");
-    assert!(l7_payload_matches(L7Payload::TlsClientHello, action.payload_mask));
-    assert!(!l7_payload_matches(L7Payload::HttpReq, action.payload_mask));
-    assert_eq!(action.in_range, PacketRange::NEVER);
-    assert_eq!(action.out_range, PacketRange::parse("-d1").expect("-d1"));
-    assert_eq!(action.args["blob"], "fake_default_tls");
-    assert_eq!(action.args["tcp_md5"], "");
-    assert!(!action.args.contains_key("disabled_flag"));
-    assert_eq!(action.args["repeats"], "3");
+    assert_golden_profile_fields(&cfg);
 }
 
 /// Verifies `filter_defaults`: specifying `filter_tcp` implicitly denies UDP, ICMP, and other IP protocols.
@@ -246,6 +251,29 @@ fn clap_cli_parses_numeric_bools_and_lua_init_entries()
     assert!(matches!(resolve_config(&empty_file), Err(ConfigError::Validation(_))));
 }
 
+/// Verifies parsed per-profile hostlist, autohostlist, and ipset paths under `dir`.
+fn assert_m3_profile_lists(cfg: &AppConfig, dir: &std::path::Path)
+{
+    let p = &cfg.profiles[0];
+    assert_eq!(p.lists.hostlist, vec![dir.join("lists/include.txt")]);
+    assert_eq!(p.lists.hostlist_domains, vec!["example.com", "example.org"]);
+    assert_eq!(p.lists.hostlist_exclude, vec![dir.join("lists/exclude.txt.gz")]);
+    assert_eq!(p.lists.hostlist_exclude_domains, vec!["skip.example.com"]);
+    assert_eq!(p.lists.hostlist_auto, Some(dir.join("lists/auto.txt")));
+    assert_eq!(p.lists.hostlist_auto_settings.fail_threshold, 4);
+    assert_eq!(p.lists.hostlist_auto_settings.fail_time_sec, 90);
+    assert!(!p.lists.hostlist_auto_settings.retrans_reset);
+    assert_eq!(p.lists.hostlist_auto_settings.udp_out, 6);
+    assert_eq!(p.lists.hostlist_auto_settings.udp_in, 2);
+    assert_eq!(p.lists.hostlist_auto_settings.fail_cooldown_sec, 5);
+    assert_eq!(p.lists.hostlist_auto_settings.sibling_threshold, 3);
+    assert!(p.lists.hostlist_auto_settings.confirm_block);
+    assert_eq!(p.lists.ipset, vec![dir.join("lists/cidrs.txt")]);
+    assert_eq!(p.lists.ipset_ip, vec!["10.0.0.0/8", "192.0.2.1"]);
+    assert_eq!(p.lists.ipset_exclude, vec![dir.join("lists/skip-cidrs.txt")]);
+    assert_eq!(p.lists.ipset_exclude_ip, vec!["127.0.0.0/8"]);
+}
+
 /// Verifies M3 TOML options, relative list path resolution, `to_lua_config`, and autohostlist guards.
 #[test]
 fn parses_m3_toml_lists_timeouts_and_validates_autohostlist_constraints()
@@ -303,24 +331,7 @@ ipset_exclude_ip = ["127.0.0.0/8"]
     assert_ne!(cfg.reasm_disable, 0);
     assert_eq!(cfg.hostlist_auto_debug, Some(dir.join("logs/auto.log")));
 
-    let p = &cfg.profiles[0];
-    assert_eq!(p.lists.hostlist, vec![dir.join("lists/include.txt")]);
-    assert_eq!(p.lists.hostlist_domains, vec!["example.com", "example.org"]);
-    assert_eq!(p.lists.hostlist_exclude, vec![dir.join("lists/exclude.txt.gz")]);
-    assert_eq!(p.lists.hostlist_exclude_domains, vec!["skip.example.com"]);
-    assert_eq!(p.lists.hostlist_auto, Some(dir.join("lists/auto.txt")));
-    assert_eq!(p.lists.hostlist_auto_settings.fail_threshold, 4);
-    assert_eq!(p.lists.hostlist_auto_settings.fail_time_sec, 90);
-    assert!(!p.lists.hostlist_auto_settings.retrans_reset);
-    assert_eq!(p.lists.hostlist_auto_settings.udp_out, 6);
-    assert_eq!(p.lists.hostlist_auto_settings.udp_in, 2);
-    assert_eq!(p.lists.hostlist_auto_settings.fail_cooldown_sec, 5);
-    assert_eq!(p.lists.hostlist_auto_settings.sibling_threshold, 3);
-    assert!(p.lists.hostlist_auto_settings.confirm_block);
-    assert_eq!(p.lists.ipset, vec![dir.join("lists/cidrs.txt")]);
-    assert_eq!(p.lists.ipset_ip, vec!["10.0.0.0/8", "192.0.2.1"]);
-    assert_eq!(p.lists.ipset_exclude, vec![dir.join("lists/skip-cidrs.txt")]);
-    assert_eq!(p.lists.ipset_exclude_ip, vec!["127.0.0.0/8"]);
+    assert_m3_profile_lists(&cfg, &dir);
 
     let lcfg = LuaConfig::from(&cfg);
     assert!(lcfg.cache_hostname);

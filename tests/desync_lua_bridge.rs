@@ -177,10 +177,10 @@ fn startup_missing_function_fails_and_runtime_errors_degrade_to_pass()
         None,
     )
     .expect("TOML parses cleanly");
-    let err = match DesyncEngine::new(&missing_cfg)
+    let Err(err) = DesyncEngine::new(&missing_cfg)
+    else
     {
-        Ok(_) => panic!("expected MissingFunction error"),
-        Err(err) => err,
+        panic!("expected MissingFunction error");
     };
     assert!(matches!(err, LuaEngineError::MissingFunction(ref name) if name == "does_not_exist"));
 
