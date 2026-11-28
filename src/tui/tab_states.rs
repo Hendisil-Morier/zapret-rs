@@ -18,6 +18,8 @@ use crate::tools::{
     CoveredProfile, DEFAULT_STRAT_QNUM, DnsPreset, DomainScope, ScanLevel, TargetScanResult,
     default_output_config_path, detect_lua_dir,
 };
+/// Persistent Tab 1 scan preferences stored in centralized `config.toml`.
+use crate::tui::app_config::FinderPrefs;
 /// Attached remote daemon metadata stored on Tab 2.
 use crate::tui::remote::RemoteDaemonMeta;
 /// Diagnostic component check row struct rendered on Tab 5 (`Status`).
@@ -88,6 +90,17 @@ impl FinderState
     /// Initializes Tab 1 state from CLI config/Lua path overrides and `--no-nft`.
     pub fn from_cli(initial_config: Option<PathBuf>, initial_lua_dir: Option<PathBuf>, no_nft: bool) -> Self
     {
+        Self::from_startup(initial_config, initial_lua_dir, no_nft, FinderPrefs::default())
+    }
+
+    /// Initializes Tab 1 state from CLI path overrides and persisted [`FinderPrefs`].
+    pub fn from_startup(
+        initial_config: Option<PathBuf>,
+        initial_lua_dir: Option<PathBuf>,
+        no_nft: bool,
+        prefs: FinderPrefs,
+    ) -> Self
+    {
         let lua_dir_input = initial_lua_dir
             .or_else(|| detect_lua_dir(None))
             .map_or_else(String::new, |p| {
@@ -104,17 +117,17 @@ impl FinderState
             text_cursor: 0,
             text_scroll: 0,
             domains_input: String::new(),
-            proto_http: true,
-            proto_tls12: true,
-            proto_tls13: true,
-            proto_http3: true,
-            ip_mode: IpMode::V4,
-            level: ScanLevel::Quick,
-            stop_on_first: true,
+            proto_http: prefs.proto_http,
+            proto_tls12: prefs.proto_tls12,
+            proto_tls13: prefs.proto_tls13,
+            proto_http3: prefs.proto_http3,
+            ip_mode: prefs.ip_mode,
+            level: prefs.level,
+            stop_on_first: prefs.stop_on_first,
             no_nft,
             lua_dir_input,
             output_path,
-            domain_scope: DomainScope::default(),
+            domain_scope: prefs.domain_scope,
             qnum: DEFAULT_STRAT_QNUM,
             fwmark: DEFAULT_DESYNC_FWMARK,
             status: FinderStatus::Idle,

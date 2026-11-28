@@ -7,7 +7,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use crate::tools::expand_tilde;
 /// Centralized `config.toml` parser, default generator, and surgical saver.
 use crate::tui::app_config::{ResolvedAppConfig, parse_app_config_str};
-use crate::tui::app_config_save::{ensure_default_app_config_file, save_settings_surgically};
+use crate::tui::app_config_save::{ensure_default_app_config_file, save_settings_surgically_with_finder};
 /// Unprivileged `$VISUAL` / `$EDITOR` launcher reused for editing `config.toml`.
 use crate::tui::editor::{resolve_editor_command, spawn_unprivileged_editor};
 /// Terminal alternate-screen session wrapper suspended cleanly while `$EDITOR` runs.
@@ -19,10 +19,11 @@ use crate::tui::state::AppState;
 /// Shared visible-window slice helper aligned with `draw_settings_tab`.
 use crate::tui::types::visible_window;
 
-/// Saves active Tab 7 settings, theme, and customized keybinds sparsely into `state.app_config_path`.
+/// Saves active Tab 7 settings, `[finder]` prefs, theme, and customized keybinds into `state.app_config_path`.
 pub(crate) fn save_app_config_from_settings(state: &mut AppState)
 {
-    match save_settings_surgically(
+    let finder = state.finder_prefs();
+    match save_settings_surgically_with_finder(
         &state.app_config_path,
         &state
             .finder
@@ -37,6 +38,7 @@ pub(crate) fn save_app_config_from_settings(state: &mut AppState)
             .run
             .control_socket_override
             .as_deref(),
+        Some(&finder),
         state.theme,
         &state.keybinds,
     )
@@ -73,6 +75,7 @@ pub(crate) fn reload_app_config_from_disk(state: &mut AppState)
         {
             state.theme = resolved.theme;
             state.keybinds = resolved.keybinds;
+            state.apply_finder_prefs(resolved.finder);
             if let Some(p) = resolved.nfqws2_config
             {
                 state
@@ -138,6 +141,7 @@ pub(crate) fn edit_app_config_in_editor(state: &mut AppState, session: &mut Term
             .run
             .control_socket_override
             .clone(),
+        finder: state.finder_prefs(),
         theme: state.theme,
         keybinds: state
             .keybinds
@@ -213,7 +217,7 @@ pub(crate) fn handle_settings_mouse(
         {
             state
                 .settings
-                .move_selection(if dir < 0 { -3 } else { 3 });
+                .move_selection(if dir < 0 { -1 } else { 1 });
         }
         else if is_left && pos.y > cols[1].y + 1 && pos.y + 1 < cols[1].bottom()
         {

@@ -193,6 +193,7 @@ pub(crate) fn try_start_scan(state: &mut AppState, active_scan: &mut Option<Acti
         Ok(scan) =>
         {
             save_domains_history(state);
+            state.save_finder_prefs();
             *active_scan = Some(scan);
         }
         Err(err) => state.apply_scan_event(ScanUiEvent::Failed(err)),

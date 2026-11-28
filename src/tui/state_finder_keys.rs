@@ -1,7 +1,7 @@
 //! Tab 1 Strategy Finder setup navigation, field toggles, text editing, and key handling.
 
-/// Keyboard key codes and events handled inside the Strategy Finder form and text editor.
-use crossterm::event::{KeyCode, KeyEvent};
+/// Keyboard key codes, modifiers, and events handled inside the Strategy Finder form and text editor.
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Strategy scan thoroughness cycled by the Strategy Level field.
 use crate::tools::ScanLevel;
@@ -196,7 +196,7 @@ impl AppState
     }
 
     /// Returns a mutable reference to the active text field buffer, or `None` for non-text fields.
-    fn focused_text_buf_mut(&mut self) -> Option<&mut String>
+    pub(crate) fn focused_text_buf_mut(&mut self) -> Option<&mut String>
     {
         match self.focused_field()
         {
@@ -220,8 +220,21 @@ impl AppState
     }
 
     /// Edits the active text field buffer while `editing_text` is `true`.
-    pub(crate) fn handle_text_edit_key(&mut self, code: KeyCode) -> AppAction
+    pub(crate) fn handle_text_edit_key(&mut self, key: KeyEvent) -> AppAction
     {
+        if key
+            .modifiers
+            .contains(KeyModifiers::CONTROL)
+        {
+            return match key.code
+            {
+                KeyCode::Char('c' | 'C') => AppAction::Quit,
+                KeyCode::Char('v' | 'V') => AppAction::PasteClipboard,
+                KeyCode::Char('y' | 'Y') => AppAction::CopyContextText,
+                _ => AppAction::None,
+            };
+        }
+        let code = key.code;
         if matches!(code, KeyCode::Esc | KeyCode::Enter)
         {
             self.finder
@@ -274,7 +287,11 @@ impl AppState
             ),
             KeyCode::Home => Some(0),
             KeyCode::End => Some(buf.len()),
-            KeyCode::Char(c) =>
+            KeyCode::Char(c)
+                if !c.is_control()
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 buf.insert(pos, c);
                 Some(pos + c.len_utf8())

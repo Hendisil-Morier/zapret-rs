@@ -98,7 +98,7 @@ fn push_global_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState)
         .is_some()
     {
         let extra = format!(
-            "[{}] Open Web UI   [{}] Copy Passcode   [{}] Stop Web UI   (click URL/passcode also works)",
+            "[{}] Open Web UI   [{}] Copy Passcode   [Ctrl+y] Copy Selection   [Ctrl+v] Paste   [{}] Stop Web UI",
             g.open_web_ui
                 .primary_label(),
             g.copy_web_passcode
@@ -110,7 +110,12 @@ fn push_global_keybinds(lines: &mut Vec<Line<'static>>, state: &AppState)
     }
     else
     {
-        push_help_section(lines, "Global", false, &[global_row], t);
+        let extra = format!(
+            "[{} / Ctrl+y] Copy Selection   [Ctrl+v / Shift+Ins] Paste into active input",
+            g.copy_web_passcode
+                .primary_label(),
+        );
+        push_help_section(lines, "Global", false, &[global_row, extra], t);
     }
 }
 

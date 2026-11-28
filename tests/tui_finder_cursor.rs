@@ -107,3 +107,114 @@ fn arrow_keys_scroll_long_text_row_without_entering_edit_mode()
     let at_home = render_lines(&state);
     assert!(line_with(&at_home, "Domains").contains("alpha-first"));
 }
+
+/// Verifies `Ctrl+v` dispatch, bracketed paste sanitization, and inline paste across Finder, modals, and filters.
+#[test]
+fn tui_paste_inserts_into_finder_modals_and_filters()
+{
+    use zapret_rs::tui::clipboard::sanitize_paste_text;
+    use zapret_rs::tui::clipboard_context::apply_paste_to_state;
+    use zapret_rs::tui::{ActiveTab, AppAction, PromptKind, PromptModal};
+
+    assert_eq!(sanitize_paste_text("one.com\ntwo.com\x07\r\n"), "one.com two.com");
+
+    let mut state = AppState::new(None, None, false);
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+        AppAction::PasteClipboard
+    );
+    assert!(apply_paste_to_state(&mut state, "store.steampowered.com\n"));
+    assert_eq!(
+        state
+            .finder
+            .domains_input,
+        "store.steampowered.com"
+    );
+
+    // While actively editing a Finder field, Ctrl+v stays PasteClipboard instead of typing literal 'v'.
+    state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+        AppAction::PasteClipboard
+    );
+    assert!(apply_paste_to_state(&mut state, ", "));
+    assert_eq!(
+        state
+            .finder
+            .domains_input,
+        "store.steampowered.co, m"
+    );
+
+    // PromptModal accepts paste and ignores literal Ctrl+v character insertion.
+    state.prompt_modal = Some(PromptModal::open(PromptKind::BlacklistDomain));
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+        AppAction::PasteClipboard
+    );
+    assert!(apply_paste_to_state(&mut state, "bank.example"));
+    assert_eq!(
+        state
+            .prompt_modal
+            .as_ref()
+            .map(|p| p
+                .input
+                .as_str()),
+        Some("bank.example")
+    );
+    state.prompt_modal = None;
+
+    // Inspector filter paste works when `/` filter mode is open.
+    state
+        .finder
+        .editing_text = false;
+    state.tab = ActiveTab::Run;
+    state
+        .inspector
+        .filter_editing = true;
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+        AppAction::PasteClipboard
+    );
+    assert!(apply_paste_to_state(&mut state, "tls13"));
+    assert_eq!(
+        state
+            .inspector
+            .filter_query,
+        "tls13"
+    );
+}
+
+/// Verifies `y` / `Ctrl+y` triggers contextual selection copy and resolves Tab 1, Tab 3, and Tab 6 text.
+#[test]
+fn tui_copy_extracts_context_selection_across_tabs()
+{
+    use zapret_rs::tui::clipboard_context::copyable_selection_text;
+    use zapret_rs::tui::{ActiveTab, AppAction};
+
+    let mut state = AppState::new(None, None, false);
+    state
+        .finder
+        .domains_input = "example.com".to_owned();
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+        AppAction::CopyContextText
+    );
+    assert_eq!(
+        state.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)),
+        AppAction::CopyContextText
+    );
+    assert_eq!(copyable_selection_text(&state), Some(("field value", "example.com".to_owned())));
+
+    state.tab = ActiveTab::Config;
+    state.set_active_toml("qnum = 200\nfwmark = 0x40000000\n".to_owned());
+    assert_eq!(
+        copyable_selection_text(&state),
+        Some(("nfqws2.toml", "qnum = 200\nfwmark = 0x40000000\n".to_owned()))
+    );
+
+    state.tab = ActiveTab::Hostlist;
+    state
+        .config
+        .autohostlist_entries = vec!["blocked.example".to_owned()];
+    assert_eq!(copyable_selection_text(&state), Some(("domain", "blocked.example".to_owned())));
+}

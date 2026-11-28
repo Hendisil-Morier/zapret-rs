@@ -3,17 +3,19 @@
 /// Path resolution for centralized `config.toml` and referenced `nfqws2.toml` files.
 use std::path::{Path, PathBuf};
 
-/// Deserialization for centralized `config.toml` sections.
-use serde::Deserialize;
+/// Deserialization and serialization for centralized `config.toml` sections.
+use serde::{Deserialize, Serialize};
 
-/// Shared config directory helper, `~/` expander, and symlink-safe TOML writer.
-use crate::tools::{default_output_config_path, expand_tilde, write_config_nofollow};
+/// Shared config directory helper, `~/` expander, scan enums, and symlink-safe TOML writer.
+use crate::tools::{DomainScope, ScanLevel, default_output_config_path, expand_tilde, write_config_nofollow};
 /// Recursive `import` / `imports` resolution and TOML table merging helper.
 use crate::tui::app_config_import::{load_merged_app_table, resolve_import_path};
 /// Complete remappable keybinding map across global chrome and all six tabs.
 use crate::tui::keybind_schema::Keybinds;
 /// Shared theme override schema and preset/color resolver.
 use crate::tui::theme_config::{RawThemeFile, Theme, resolve_theme};
+/// Selectable Tab 1 IP mode enum stored inside persistent `[finder]` preferences.
+use crate::tui::types::IpMode;
 
 /// Keys exclusive to `nfqws2.toml` used to distinguish `--config nfqws2.toml` from `config.toml`.
 const NFQWS2_ONLY_KEYS: &[&str] = &[
@@ -47,7 +49,48 @@ const NFQWS2_ONLY_KEYS: &[&str] = &[
 
 /// Keys exclusive to centralized TUI `config.toml`.
 const APP_CONFIG_ONLY_KEYS: &[&str] =
-    &["import", "imports", "nfqws2_config", "lua_dir", "no_nft", "theme", "keybinds"];
+    &["import", "imports", "nfqws2_config", "lua_dir", "no_nft", "finder", "theme", "keybinds"];
+
+/// Persistent Tab 1 (`Strategy Finder`) protocol, IP family, scan level, and scope preferences.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FinderPrefs
+{
+    /// Enabled HTTP (TCP 80) probing checkbox.
+    pub proto_http: bool,
+    /// Enabled TLS 1.2 (TCP 443) probing checkbox.
+    pub proto_tls12: bool,
+    /// Enabled TLS 1.3 (TCP 443) probing checkbox.
+    pub proto_tls13: bool,
+    /// Enabled HTTP/3 QUIC (UDP 443) probing checkbox.
+    pub proto_http3: bool,
+    /// Selected IP family (`V4`, `V6`, `Both`).
+    pub ip_mode: IpMode,
+    /// Selected scan thoroughness (`quick`, `standard`, `force`).
+    pub level: ScanLevel,
+    /// Stop sweeping once the first working strategy passes for a target.
+    pub stop_on_first: bool,
+    /// Domain scoping mode used when generating `nfqws2.toml` profiles.
+    pub domain_scope: DomainScope,
+}
+
+impl Default for FinderPrefs
+{
+    /// Returns the built-in default Tab 1 scan preferences.
+    fn default() -> Self
+    {
+        Self {
+            proto_http: true,
+            proto_tls12: true,
+            proto_tls13: true,
+            proto_http3: true,
+            ip_mode: IpMode::V4,
+            level: ScanLevel::Quick,
+            stop_on_first: true,
+            domain_scope: DomainScope::ScannedOnly,
+        }
+    }
+}
 
 /// Combined startup settings loaded from `config.toml` and CLI overrides.
 #[derive(Debug, Clone)]
@@ -63,6 +106,8 @@ pub struct ResolvedAppConfig
     pub no_nft: bool,
     /// Optional configured daemon Unix control socket override.
     pub control_socket: Option<PathBuf>,
+    /// Persistent Tab 1 Strategy Finder form preferences loaded from `[finder]`.
+    pub finder: FinderPrefs,
     /// Active TUI color theme resolved from `--theme` or `[theme]`.
     pub theme: Theme,
     /// Active remappable keymap loaded from `[keybinds.*]` or defaults.
@@ -80,6 +125,7 @@ impl ResolvedAppConfig
             lua_dir: None,
             no_nft: false,
             control_socket: None,
+            finder: FinderPrefs::default(),
             theme: Theme::neon(),
             keybinds: Keybinds::default(),
         }
@@ -99,6 +145,8 @@ struct RawAppConfigFile
     no_nft: Option<bool>,
     /// Default Unix control socket override (`--control-socket`).
     control_socket: Option<String>,
+    /// Optional `[finder]` overrides preserving Tab 1 form selections across restarts.
+    finder: FinderPrefs,
     /// Optional `[theme]` preset and palette color overrides.
     theme: Option<RawThemeFile>,
     /// Optional `[keybinds.*]` overrides merged on top of built-in defaults.
@@ -169,6 +217,7 @@ pub fn parse_app_config_str(
             .control_socket
             .as_deref()
             .and_then(|s| resolve_import_path(s, base_dir, expand_tilde)),
+        finder: raw.finder,
         theme,
         keybinds: raw.keybinds,
     };

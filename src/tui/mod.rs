@@ -8,6 +8,10 @@ pub mod app_config;
 pub mod app_config_import;
 /// Sparse diff-only `config.toml` serializer and comment-preserving updater.
 pub mod app_config_save;
+/// System clipboard and terminal OSC 52 I/O helpers.
+pub mod clipboard;
+/// Context-aware TUI copy selection extraction and active-input paste handlers.
+pub mod clipboard_context;
 /// Stop-then-start daemon cycle behind the Tab 2 restart key.
 pub mod daemon_cycle;
 /// Detached background `nfqws2` and `systemd` daemon launcher for persistent Tab 2 starts.
@@ -60,6 +64,8 @@ pub mod render_status;
 pub mod runner;
 /// Terminal alternate-screen session RAII guard and unprivileged `$EDITOR` launcher.
 pub mod session;
+/// Serializable form and config snapshot preserved across seamless `exec()` restarts.
+pub(crate) mod session_reexec;
 /// Tab 7 side-effectful `config.toml` save, reload, `$EDITOR`, and mouse helpers.
 pub mod settings_actions;
 /// Interactive Tab 7 (`Settings`) configuration, theme preset, and keybind remapper.
@@ -103,8 +109,8 @@ pub mod workers;
 
 /// Re-exported shared telemetry counters, verdicts, decoded records, and builder.
 pub use crate::telemetry::{PacketCounters, PacketRecord, PacketVerdict, build_packet_record};
-/// Re-exported centralized app configuration loader and remappable keybind types.
-pub use app_config::ResolvedAppConfig;
+/// Re-exported centralized app configuration loader, persistent Finder prefs, and keybind types.
+pub use app_config::{FinderPrefs, ResolvedAppConfig};
 /// Re-exported Tab 6 interactive Auto Hostlist focus and selection state.
 pub use hostlist_tab::{HostlistFocus, HostlistTabState};
 /// Re-exported live packet inspector state and verdict filter helpers.

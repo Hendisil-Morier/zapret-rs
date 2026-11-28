@@ -318,6 +318,10 @@ pub enum AppAction
     StopWebUi,
     /// Copy the active Web UI pairing passcode (or URL) to the clipboard / OSC 52.
     CopyWebPasscode,
+    /// Copy the currently selected or focused TUI item/pane to the OS clipboard / OSC 52.
+    CopyContextText,
+    /// Paste plain text from the OS clipboard (`Ctrl+v`) into the focused text input.
+    PasteClipboard,
     /// Open the active Web UI URL in the default browser and copy its pairing passcode.
     OpenWebUi,
     /// Run the confirmed before/after speed comparison on Tab 4.

@@ -34,6 +34,10 @@ use crate::tui::actions::{
 use crate::tui::app_config::{
     StartupConfigRequest, ensure_default_app_config_file, resolve_startup_app_config,
 };
+/// Context-aware clipboard copy and bracketed/`Ctrl+v` paste handlers.
+use crate::tui::clipboard_context::{
+    apply_paste_to_state, copy_context_selection, paste_clipboard_into_state,
+};
 /// Stop-then-start daemon restart job and its per-tick driver.
 use crate::tui::daemon_cycle::{DaemonCycle, begin_restart, poll_daemon_cycle};
 /// Tab 6 Auto Hostlist / Blacklist deletion, exclude transfer, and reload helpers.
@@ -46,11 +50,13 @@ use crate::tui::mouse::handle_mouse_event;
 use crate::tui::remote::detect_control_socket;
 /// Pure TUI frame renderer.
 use crate::tui::render::draw_app;
-/// Terminal RAII session wrapper, seamless re-exec snapshot, and TOML file I/O helpers.
+/// Terminal RAII session wrapper and TOML file I/O helpers.
 use crate::tui::session::{
-    REEXEC_STATE_ENV, ReexecSnapshot, SEAMLESS_REEXEC_ENV, TerminalSession, drop_fw_tui,
-    edit_config_in_editor, reload_toml_from_disk, save_toml_to_disk, seed_domains_on_startup,
+    TerminalSession, drop_fw_tui, edit_config_in_editor, reload_toml_from_disk, save_toml_to_disk,
+    seed_domains_on_startup,
 };
+/// Seamless `setcap` restart snapshot serialization and environment marker keys.
+use crate::tui::session_reexec::{REEXEC_STATE_ENV, ReexecSnapshot, SEAMLESS_REEXEC_ENV};
 /// Tab 7 Settings sparse save, reload, and `$EDITOR` helpers.
 use crate::tui::settings_actions::{
     edit_app_config_in_editor, reload_app_config_from_disk, save_app_config_from_settings,
@@ -451,6 +457,8 @@ fn handle_tui_key_action(action: AppAction, state: &mut AppState, rt: &mut TuiSe
         }
         AppAction::StopWebUi => stop_web_ui(state, &mut rt.web_ui),
         AppAction::CopyWebPasscode => copy_web_passcode(state),
+        AppAction::CopyContextText => copy_context_selection(state),
+        AppAction::PasteClipboard => paste_clipboard_into_state(state),
         AppAction::OpenWebUi => open_web_ui(state),
     }
     false
@@ -513,6 +521,10 @@ fn teardown_tui_session(state: &mut AppState, mut rt: TuiSessionHandles) -> Resu
         let _ = disable_raw_mode();
         let _ = execute!(io::stdout(), LeaveAlternateScreen);
         return Err(format!("failed to restart {}: {err}", exe.display()));
+    }
+    if !rt.reexec_after_exit
+    {
+        state.save_finder_prefs();
     }
     drop(rt.session);
     Ok(())
@@ -609,11 +621,11 @@ pub fn run_tui(opts: TuiOptions) -> Result<(), String>
                         break;
                     }
                 }
-                Event::Key(_)
-                | Event::Resize(_, _)
-                | Event::FocusGained
-                | Event::FocusLost
-                | Event::Paste(_) =>
+                Event::Paste(text) =>
+                {
+                    let _ = apply_paste_to_state(&mut state, &text);
+                }
+                Event::Key(_) | Event::Resize(_, _) | Event::FocusGained | Event::FocusLost =>
                 {}
             }
         }

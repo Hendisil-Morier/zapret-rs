@@ -157,7 +157,11 @@ impl AuthModal
                 self.error = None;
                 ModalKeyResult::KeepOpen
             }
-            KeyCode::Char(c) if self.needs_password =>
+            KeyCode::Char(c)
+                if self.needs_password
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.password
                     .push(c);
@@ -166,6 +170,14 @@ impl AuthModal
             }
             _ => ModalKeyResult::KeepOpen,
         }
+    }
+
+    /// Appends pasted text into the secret password buffer and clears any stale auth error.
+    pub(crate) fn append_password(&mut self, text: &str)
+    {
+        self.password
+            .push_str(text);
+        self.error = None;
     }
 }
 

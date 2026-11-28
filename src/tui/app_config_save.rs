@@ -6,7 +6,7 @@ use std::path::Path;
 /// Shared `nfqws2.toml` default path, `~/` expander, and auto-detected Lua folder check.
 use crate::tools::{default_output_config_path, detect_lua_dir, expand_tilde};
 /// Theme and config table constructors for sparse TOML diffing.
-use crate::tui::app_config::{ResolvedAppConfig, parse_app_config_str, save_app_config_to_path};
+use crate::tui::app_config::{FinderPrefs, ResolvedAppConfig, parse_app_config_str, save_app_config_to_path};
 /// Path expansion and imported fragment classification helpers.
 use crate::tui::app_config_import::resolve_import_path;
 /// Keybinding schema compared against built-in defaults before serializing.
@@ -54,6 +54,45 @@ pub(crate) fn sparse_theme_table(theme: Theme) -> toml::Table
     tbl
 }
 
+/// Builds a minimal `[finder]` TOML table containing only fields differing from defaults.
+pub(crate) fn sparse_finder_table(finder: &FinderPrefs) -> Option<toml::Table>
+{
+    let cur = toml::Value::try_from(finder)
+        .ok()?
+        .as_table()?
+        .clone();
+    let def = toml::Value::try_from(FinderPrefs::default())
+        .ok()?
+        .as_table()?
+        .clone();
+    let mut out = toml::Table::new();
+    for (k, v) in cur
+    {
+        if def.get(&k) != Some(&v)
+        {
+            out.insert(k, v);
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// Serializes `[finder]` wrapped under its section header when `finder` differs from defaults.
+fn format_finder_block(finder: &FinderPrefs) -> Result<Option<String>, String>
+{
+    let Some(tbl) = sparse_finder_table(finder)
+    else
+    {
+        return Ok(None);
+    };
+    let mut wrap = toml::Table::new();
+    wrap.insert("finder".to_owned(), toml::Value::Table(tbl));
+    let s = toml::to_string_pretty(&wrap).map_err(|e| format!("serialize [finder] failed: {e}"))?;
+    Ok(Some(
+        s.trim_end()
+            .to_owned(),
+    ))
+}
+
 /// Returns a `[keybinds]` table containing only sections and actions that differ from defaults.
 pub(crate) fn sparse_keybinds_table(keybinds: &Keybinds) -> Option<toml::Table>
 {
@@ -93,12 +132,14 @@ pub(crate) fn sparse_keybinds_table(keybinds: &Keybinds) -> Option<toml::Table>
     (!out.is_empty()).then_some(out)
 }
 
-/// Formats active settings concisely (omitting defaults and uncustomized keybinds).
-pub fn render_sparse_app_config(
+/// Formats active settings concisely (omitting defaults, uncustomized keybinds, and default Finder prefs).
+#[allow(clippy::too_many_arguments)]
+pub fn render_sparse_app_config_with_finder(
     nfqws2_config: Option<&str>,
     lua_dir: Option<&str>,
     no_nft: bool,
     control_socket: Option<&Path>,
+    finder: Option<&FinderPrefs>,
     theme: Option<Theme>,
     import_path: Option<&str>,
     keybinds: &Keybinds,
@@ -136,6 +177,11 @@ pub fn render_sparse_app_config(
             ),
         );
     }
+    if let Some(f) = finder
+        && let Some(tbl) = sparse_finder_table(f)
+    {
+        root.insert("finder".to_owned(), toml::Value::Table(tbl));
+    }
     if let Some(t) = theme
     {
         root.insert("theme".to_owned(), toml::Value::Table(sparse_theme_table(t)));
@@ -146,6 +192,29 @@ pub fn render_sparse_app_config(
     }
     let body = toml::to_string_pretty(&root).map_err(|err| format!("serialize config.toml failed: {err}"))?;
     Ok(format!("{SPARSE_HEADER}{body}"))
+}
+
+/// Formats active settings concisely (omitting defaults and uncustomized keybinds).
+pub fn render_sparse_app_config(
+    nfqws2_config: Option<&str>,
+    lua_dir: Option<&str>,
+    no_nft: bool,
+    control_socket: Option<&Path>,
+    theme: Option<Theme>,
+    import_path: Option<&str>,
+    keybinds: &Keybinds,
+) -> Result<String, String>
+{
+    render_sparse_app_config_with_finder(
+        nfqws2_config,
+        lua_dir,
+        no_nft,
+        control_socket,
+        None,
+        theme,
+        import_path,
+        keybinds,
+    )
 }
 
 /// Returns `lua_dir` only when set and different from the auto-detected system Lua directory.
@@ -194,13 +263,15 @@ pub fn ensure_default_app_config_file(resolved: &ResolvedAppConfig, active_lua_d
         .err()
 }
 
-/// Saves Tab 7 settings sparsely, preserving comments, `import` lines, and standalone `theme.toml`.
-pub fn save_settings_surgically(
+/// Saves Tab 7 settings sparsely (preserving `[finder]` unless `finder` is passed explicitly).
+#[allow(clippy::too_many_arguments)]
+pub fn save_settings_surgically_with_finder(
     app_cfg_path: &Path,
     nfqws2_config: &str,
     lua_dir: &str,
     no_nft: bool,
     control_socket: Option<&Path>,
+    finder: Option<&FinderPrefs>,
     theme: Theme,
     keybinds: &Keybinds,
 ) -> Result<String, String>
@@ -208,11 +279,12 @@ pub fn save_settings_surgically(
     let Ok(existing) = std::fs::read_to_string(app_cfg_path)
     else
     {
-        let fresh = render_sparse_app_config(
+        let fresh = render_sparse_app_config_with_finder(
             Some(nfqws2_config),
             Some(lua_dir),
             no_nft,
             control_socket,
+            finder,
             Some(theme),
             None,
             keybinds,
@@ -253,6 +325,12 @@ pub fn save_settings_surgically(
         control_socket,
     );
 
+    if let Some(f) = finder
+    {
+        let finder_block = format_finder_block(f)?;
+        updated = replace_sections(&updated, |h| h == "finder", finder_block.as_deref());
+    }
+
     if write_inline_theme
     {
         let mut wrap = toml::Table::new();
@@ -281,6 +359,53 @@ pub fn save_settings_surgically(
     parse_app_config_str(&updated, app_cfg_path.to_path_buf(), app_cfg_path.parent())?;
     save_app_config_to_path(app_cfg_path, &updated)?;
     Ok(format!("Saved {}{}", app_cfg_path.display(), note))
+}
+
+/// Saves Tab 7 settings sparsely, preserving comments, `import` lines, `[finder]`, and `theme.toml`.
+pub fn save_settings_surgically(
+    app_cfg_path: &Path,
+    nfqws2_config: &str,
+    lua_dir: &str,
+    no_nft: bool,
+    control_socket: Option<&Path>,
+    theme: Theme,
+    keybinds: &Keybinds,
+) -> Result<String, String>
+{
+    save_settings_surgically_with_finder(
+        app_cfg_path,
+        nfqws2_config,
+        lua_dir,
+        no_nft,
+        control_socket,
+        None,
+        theme,
+        keybinds,
+    )
+}
+
+/// Persists only the `[finder]` section inside `app_cfg_path` while preserving all other sections.
+pub(crate) fn save_finder_prefs_only(app_cfg_path: &Path, finder: &FinderPrefs) -> Result<(), String>
+{
+    let finder_block = format_finder_block(finder)?;
+    let Ok(existing) = std::fs::read_to_string(app_cfg_path)
+    else
+    {
+        let Some(block) = finder_block
+        else
+        {
+            return Ok(());
+        };
+        let content = format!("{SPARSE_HEADER}{block}\n");
+        return save_app_config_to_path(app_cfg_path, &content);
+    };
+    let updated = replace_sections(&existing, |h| h == "finder", finder_block.as_deref());
+    if updated == existing
+    {
+        return Ok(());
+    }
+    parse_app_config_str(&updated, app_cfg_path.to_path_buf(), app_cfg_path.parent())?;
+    save_app_config_to_path(app_cfg_path, &updated)
 }
 
 /// Checks whether `existing` imports a standalone theme file directly (`import = "./theme.toml"`).

@@ -10,8 +10,12 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Interactive path expansion for loading initial `nfqws2.toml`.
 use crate::tools::expand_tilde;
-/// Centralized TUI `config.toml` defaults and startup resolution types.
-use crate::tui::app_config::{ResolvedAppConfig, default_app_config_path};
+/// Centralized TUI `config.toml` defaults, persistent Finder preferences, and startup resolution types.
+use crate::tui::app_config::{FinderPrefs, ResolvedAppConfig, default_app_config_path};
+/// Sparse surgical persistence helper writing `[finder]` updates into `config.toml`.
+use crate::tui::app_config_save::save_finder_prefs_only;
+/// Application clipboard shortcut detector mapping `Ctrl+v` / `Ctrl+y` cleanly before mode dispatch.
+use crate::tui::clipboard_context::has_paste_target;
 /// Tab 6 interactive Auto Hostlist and Blacklist manager state.
 use crate::tui::hostlist_tab::HostlistTabState;
 /// Live packet inspector state for Tab 2.
@@ -90,6 +94,7 @@ impl AppState
             lua_dir: initial_lua_dir,
             no_nft,
             control_socket: None,
+            finder: FinderPrefs::default(),
             theme: Theme::neon(),
             keybinds: Keybinds::default(),
         };
@@ -99,7 +104,12 @@ impl AppState
     /// Builds TUI state from pre-resolved centralized `config.toml`, CLI overrides, and warnings.
     pub fn from_startup_config(resolved: ResolvedAppConfig, warning: Option<String>) -> Self
     {
-        let finder = FinderState::from_cli(resolved.nfqws2_config, resolved.lua_dir, resolved.no_nft);
+        let finder = FinderState::from_startup(
+            resolved.nfqws2_config,
+            resolved.lua_dir,
+            resolved.no_nft,
+            resolved.finder,
+        );
         let help_key = resolved
             .keybinds
             .global
@@ -145,6 +155,64 @@ impl AppState
             state.status_banner = warn;
         }
         state
+    }
+
+    /// Extracts persistent Tab 1 scan preferences into a [`FinderPrefs`] snapshot.
+    pub fn finder_prefs(&self) -> FinderPrefs
+    {
+        FinderPrefs {
+            proto_http: self
+                .finder
+                .proto_http,
+            proto_tls12: self
+                .finder
+                .proto_tls12,
+            proto_tls13: self
+                .finder
+                .proto_tls13,
+            proto_http3: self
+                .finder
+                .proto_http3,
+            ip_mode: self
+                .finder
+                .ip_mode,
+            level: self
+                .finder
+                .level,
+            stop_on_first: self
+                .finder
+                .stop_on_first,
+            domain_scope: self
+                .finder
+                .domain_scope,
+        }
+    }
+
+    /// Applies persisted [`FinderPrefs`] onto the active Tab 1 form state.
+    pub fn apply_finder_prefs(&mut self, prefs: FinderPrefs)
+    {
+        self.finder
+            .proto_http = prefs.proto_http;
+        self.finder
+            .proto_tls12 = prefs.proto_tls12;
+        self.finder
+            .proto_tls13 = prefs.proto_tls13;
+        self.finder
+            .proto_http3 = prefs.proto_http3;
+        self.finder
+            .ip_mode = prefs.ip_mode;
+        self.finder
+            .level = prefs.level;
+        self.finder
+            .stop_on_first = prefs.stop_on_first;
+        self.finder
+            .domain_scope = prefs.domain_scope;
+    }
+
+    /// Persists active Tab 1 scan preferences surgically into `self.app_config_path`.
+    pub(crate) fn save_finder_prefs(&self)
+    {
+        let _ = save_finder_prefs_only(&self.app_config_path, &self.finder_prefs());
     }
 
     /// Returns the currently focused [`FinderField`].
@@ -220,9 +288,30 @@ impl AppState
         );
     }
 
+    /// Handles universal `Ctrl+v` paste and `Ctrl+y` selection copy shortcuts across all overlays and tabs.
+    fn handle_clipboard_shortcut(&self, key: KeyEvent) -> Option<AppAction>
+    {
+        if !key
+            .modifiers
+            .contains(KeyModifiers::CONTROL)
+        {
+            return None;
+        }
+        match key.code
+        {
+            KeyCode::Char('v' | 'V') if has_paste_target(self) => Some(AppAction::PasteClipboard),
+            KeyCode::Char('y' | 'Y') => Some(AppAction::CopyContextText),
+            _ => None,
+        }
+    }
+
     /// Processes a terminal key press and returns any side-effect [`AppAction`] for the runner.
     pub fn handle_key(&mut self, key: KeyEvent) -> AppAction
     {
+        if let Some(clip_act) = self.handle_clipboard_shortcut(key)
+        {
+            return clip_act;
+        }
         if let Some(modal) = self
             .modal
             .as_mut()
@@ -311,7 +400,7 @@ impl AppState
             .finder
             .editing_text
         {
-            return self.handle_text_edit_key(key.code);
+            return self.handle_text_edit_key(key);
         }
         if self
             .inspector

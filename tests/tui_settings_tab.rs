@@ -220,3 +220,92 @@ fn tab7_settings_rebinds_keys_toggles_options_and_saves_sparsely_preserving_comm
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// Verifies `[finder]` preferences persist sparsely in `config.toml` and reload into Tab 1 state.
+#[test]
+fn finder_prefs_persist_sparsely_in_config_toml_and_reload()
+{
+    use zapret_rs::tools::{DomainScope, ScanLevel};
+    use zapret_rs::tui::IpMode;
+    use zapret_rs::tui::app_config::parse_app_config_str;
+    use zapret_rs::tui::app_config_save::save_settings_surgically_with_finder;
+
+    let dir = std::env::temp_dir().join(format!("zapret-rs-finder-prefs-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create temp dir");
+    let cfg_path = dir.join("config.toml");
+
+    let mut state = AppState::new(None, None, false);
+    state.app_config_path = cfg_path.clone();
+    state
+        .finder
+        .proto_http3 = false;
+    state
+        .finder
+        .ip_mode = IpMode::Both;
+    state
+        .finder
+        .level = ScanLevel::Standard;
+    state
+        .finder
+        .stop_on_first = false;
+    state
+        .finder
+        .domain_scope = DomainScope::AutoHostlist;
+
+    let prefs = state.finder_prefs();
+    save_settings_surgically_with_finder(
+        &cfg_path,
+        &state
+            .finder
+            .output_path,
+        &state
+            .finder
+            .lua_dir_input,
+        false,
+        None,
+        Some(&prefs),
+        state.theme,
+        &state.keybinds,
+    )
+    .expect("save finder prefs");
+
+    let raw = fs::read_to_string(&cfg_path).expect("read config.toml");
+    assert!(raw.contains("[finder]"));
+    assert!(raw.contains("proto_http3 = false"));
+    assert!(!raw.contains("proto_http = true"), "default finder fields should stay omitted");
+
+    let (resolved, _) = parse_app_config_str(&raw, cfg_path.clone(), cfg_path.parent()).expect("re-parse");
+    let reloaded = AppState::from_startup_config(resolved, None);
+    assert_eq!(reloaded.finder_prefs(), prefs);
+    assert!(
+        !reloaded
+            .finder
+            .proto_http3
+    );
+    assert_eq!(
+        reloaded
+            .finder
+            .ip_mode,
+        IpMode::Both
+    );
+    assert_eq!(
+        reloaded
+            .finder
+            .level,
+        ScanLevel::Standard
+    );
+    assert!(
+        !reloaded
+            .finder
+            .stop_on_first
+    );
+    assert_eq!(
+        reloaded
+            .finder
+            .domain_scope,
+        DomainScope::AutoHostlist
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}

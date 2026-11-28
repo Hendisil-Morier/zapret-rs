@@ -1,10 +1,8 @@
 //! TUI side-effect executors for Blacklist (`hostlist_exclude`), Auto Hostlist, and Web UI actions.
 
-/// Standard I/O and terminal detection for OSC 52 clipboard writes.
-use std::io::{self, IsTerminal, Write};
 /// Bind address parsing and non-sending UDP outbound route discovery for LAN URL display.
 use std::net::{SocketAddr, UdpSocket};
-/// Child process spawning for `wl-copy`/`xclip`/`xsel`/`xdg-open` desktop helpers.
+/// Child process spawning for `xdg-open` / desktop URL launchers.
 use std::process::{Command, Stdio};
 
 /// Wire request enum sent to attached background `nfqws2` daemons after list/config updates.
@@ -14,6 +12,8 @@ use crate::tools::{
     DEFAULT_WEB_BIND, WebAuth, WebConfig, WebServerHandle, expand_tilde, mutate_exclude_domains_toml,
     mutate_hostlist_file, parse_clean_domain, start_web_server, write_config_nofollow,
 };
+/// Re-exported clipboard / OSC 52 writer used by Web UI passcode actions and tests.
+pub use crate::tui::clipboard::copy_to_clipboard;
 /// Prompt modal variants handled on Tab 3 submission and Web UI launch.
 use crate::tui::prompt_modal::PromptKind;
 /// Shared TUI state mutated after disk/Web UI updates.
@@ -37,96 +37,6 @@ pub struct ActiveWebUi
 pub fn resolve_web_bind(mode: &str) -> &'static str
 {
     if mode.eq_ignore_ascii_case("local") { DEFAULT_WEB_BIND } else { LAN_WEB_BIND }
-}
-
-/// Encodes arbitrary bytes into standard RFC 4648 base64 for terminal OSC 52 sequences.
-fn encode_base64(bytes: &[u8]) -> String
-{
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(
-        bytes
-            .len()
-            .div_ceil(3)
-            * 4,
-    );
-    for chunk in bytes.chunks(3)
-    {
-        let b0 = u32::from(chunk[0]);
-        let b1 = u32::from(
-            *chunk
-                .get(1)
-                .unwrap_or(&0),
-        );
-        let b2 = u32::from(
-            *chunk
-                .get(2)
-                .unwrap_or(&0),
-        );
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(TABLE[((n >> 18) & 63) as usize] as char);
-        out.push(TABLE[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { TABLE[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[(n & 63) as usize] as char } else { '=' });
-    }
-    out
-}
-
-/// Pipes `text` to an external clipboard helper command when available.
-fn run_clipboard_tool(program: &str, args: &[&str], text: &str) -> bool
-{
-    let Ok(mut child) = Command::new(program)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    else
-    {
-        return false;
-    };
-    if let Some(mut stdin) = child
-        .stdin
-        .take()
-    {
-        let _ = stdin.write_all(text.as_bytes());
-    }
-    child
-        .wait()
-        .is_ok_and(|st| st.success())
-}
-
-/// Copies `text` via terminal OSC 52 and native OS clipboard utilities (`wl-copy`/`xclip`/`xsel`).
-pub fn copy_to_clipboard(text: &str) -> Result<&'static str, String>
-{
-    let mut osc52_ok = false;
-    if io::stdout().is_terminal()
-    {
-        let b64 = encode_base64(text.as_bytes());
-        let mut out = io::stdout().lock();
-        if write!(out, "\x1b]52;c;{b64}\x07").is_ok()
-            && out
-                .flush()
-                .is_ok()
-        {
-            osc52_ok = true;
-        }
-    }
-    #[cfg(target_os = "macos")]
-    let os_ok = run_clipboard_tool("pbcopy", &[], text);
-    #[cfg(windows)]
-    let os_ok = run_clipboard_tool("clip", &[], text);
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let os_ok = (std::env::var_os("WAYLAND_DISPLAY").is_some() && run_clipboard_tool("wl-copy", &[], text))
-        || run_clipboard_tool("xclip", &["-selection", "clipboard"], text)
-        || run_clipboard_tool("xsel", &["--clipboard", "--input"], text);
-
-    match (os_ok, osc52_ok)
-    {
-        (true, true) => Ok("clipboard & OSC 52"),
-        (true, false) => Ok("clipboard"),
-        (false, true) => Ok("terminal OSC 52"),
-        (false, false) => Err("no clipboard tool (wl-copy/xclip/xsel) and non-TTY stdout".to_owned()),
-    }
 }
 
 /// Launches `url` in the system's default browser without blocking the TUI event loop.

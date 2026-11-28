@@ -1,7 +1,7 @@
 //! Top-level navigation tabs and shared metadata descriptors of the `zapret-rs` TUI.
 
 /// Key codes and full key events matched by shared log/pane scrolling helpers.
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 /// Serialization support for preserving the active tab across seamless `setcap` restarts.
 use serde::{Deserialize, Serialize};
 
@@ -306,7 +306,11 @@ pub(crate) fn handle_inline_text_key(buf: &mut String, key: KeyEvent) -> TextInp
             buf.pop();
             TextInputOutcome::Edited
         }
-        KeyCode::Char(c) if !c.is_control() =>
+        KeyCode::Char(c)
+            if !c.is_control()
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
         {
             buf.push(c);
             TextInputOutcome::Edited

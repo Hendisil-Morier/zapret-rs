@@ -110,14 +110,22 @@ impl AppState
             self.dismiss_finder_hover();
             return Some(AppAction::None);
         }
-        if !detail_open
-            && self
-                .web_status
-                .is_some()
-            && g.copy_web_passcode
-                .contains(key)
+        if g.copy_web_passcode
+            .contains(key)
         {
-            return Some(AppAction::CopyWebPasscode);
+            return Some(
+                if !detail_open
+                    && self
+                        .web_status
+                        .is_some()
+                {
+                    AppAction::CopyWebPasscode
+                }
+                else
+                {
+                    AppAction::CopyContextText
+                },
+            );
         }
         if !detail_open
             && self

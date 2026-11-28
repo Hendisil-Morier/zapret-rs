@@ -7,273 +7,27 @@ use std::io::{self, Stdout};
 /// Path resolution for the sibling domain history file beside `nfqws2.toml`.
 use std::path::PathBuf;
 
-/// `crossterm` terminal raw-mode, alternate-screen, and mouse-capture lifecycle commands.
+/// `crossterm` terminal raw-mode, alternate-screen, mouse-capture, and bracketed-paste lifecycle commands.
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 /// `ratatui` terminal abstraction over `crossterm`.
 use ratatui::{Terminal, backend::CrosstermBackend};
-/// Serialization helpers for preserving TUI form state across seamless `setcap` restarts.
-use serde::{Deserialize, Serialize};
 
 /// Validated `AppConfig` parser used to extract `hostlist_domains` when seeding Tab 1.
 use crate::config::AppConfig;
-/// Symlink-safe TOML writer, `~/` expansion, scan level enum, and domain extractor.
+/// Symlink-safe TOML writer, `~/` expansion, firewall handle, and domain extractor.
 use crate::tools::{
-    DomainScope, FirewallHandle, ScanLevel, expand_tilde, extract_hostlist_domains, normalize_domain,
-    write_config_nofollow,
+    FirewallHandle, expand_tilde, extract_hostlist_domains, normalize_domain, write_config_nofollow,
 };
-/// Centralized `config.toml` snapshot and keybinding serializer across `exec()` restarts.
-use crate::tui::app_config::{parse_app_config_str, render_app_config_toml};
 /// Unprivileged `$VISUAL`/`$EDITOR` launcher and starter TOML template generator.
 use crate::tui::editor::{build_starter_toml, resolve_editor_command, spawn_unprivileged_editor};
+/// Seamless `exec()` environment marker checked during terminal alternate-screen startup.
+use crate::tui::session_reexec::SEAMLESS_REEXEC_ENV;
 /// Application state read and updated around external editing.
 use crate::tui::state::AppState;
-/// Navigation, IP mode, and deferred post-restart action types.
-use crate::tui::types::{ActiveTab, IpMode, PostCapsAction};
-
-/// Environment marker set across seamless post-`setcap` `exec()` restarts to avoid screen flash.
-pub(crate) const SEAMLESS_REEXEC_ENV: &str = "ZAPRET_RS_SEAMLESS_REEXEC";
-/// Environment payload carrying JSON-encoded [`ReexecSnapshot`] across seamless restarts.
-pub(crate) const REEXEC_STATE_ENV: &str = "ZAPRET_RS_REEXEC_STATE";
-
-/// Serializable form and navigation snapshot preserved across `setcap` `exec()` restarts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ReexecSnapshot
-{
-    /// Active tab visible when the restart started.
-    pub tab: ActiveTab,
-    /// Focused form row index on Tab 1.
-    pub focus_idx: usize,
-    /// Target domains typed by the user.
-    pub domains_input: String,
-    /// HTTP (TCP 80) toggle.
-    pub proto_http: bool,
-    /// TLS 1.2 (TCP 443) toggle.
-    pub proto_tls12: bool,
-    /// TLS 1.3 (TCP 443) toggle.
-    pub proto_tls13: bool,
-    /// HTTP/3 QUIC (UDP 443) toggle.
-    pub proto_http3: bool,
-    /// Selected IP family mode.
-    pub ip_mode: IpMode,
-    /// Serialized scan thoroughness level (`"quick"`, `"standard"`, `"force"`).
-    pub level: String,
-    /// Stop-on-first-match toggle.
-    pub stop_on_first: bool,
-    /// Manual `nftables` toggle.
-    pub no_nft: bool,
-    /// Lua scripts directory field.
-    pub lua_dir_input: String,
-    /// Config TOML path field.
-    pub output_path: String,
-    /// Optional action to launch immediately once capabilities are active.
-    pub pending_action: Option<PostCapsAction>,
-    /// Active serialized `config.toml` payload (theme + keybinds) preserved across seamless restarts.
-    #[serde(default)]
-    pub app_config_toml: Option<String>,
-    /// Centralized `config.toml` target path preserved across seamless `exec()` restarts.
-    #[serde(default)]
-    pub app_config_path: Option<PathBuf>,
-    /// Selected Tab 1 domain scope preserved across seamless `exec()` restarts.
-    #[serde(default)]
-    pub domain_scope: DomainScope,
-}
-
-impl ReexecSnapshot
-{
-    /// Captures current form and navigation state from `state`.
-    pub(crate) fn capture(state: &AppState) -> Self
-    {
-        Self {
-            tab: state.tab,
-            focus_idx: state
-                .finder
-                .focus_idx,
-            domains_input: state
-                .finder
-                .domains_input
-                .clone(),
-            proto_http: state
-                .finder
-                .proto_http,
-            proto_tls12: state
-                .finder
-                .proto_tls12,
-            proto_tls13: state
-                .finder
-                .proto_tls13,
-            proto_http3: state
-                .finder
-                .proto_http3,
-            ip_mode: state
-                .finder
-                .ip_mode,
-            level: state
-                .finder
-                .level
-                .as_str()
-                .to_owned(),
-            stop_on_first: state
-                .finder
-                .stop_on_first,
-            no_nft: state
-                .finder
-                .no_nft,
-            lua_dir_input: state
-                .finder
-                .lua_dir_input
-                .clone(),
-            output_path: state
-                .finder
-                .output_path
-                .clone(),
-            pending_action: state.pending_caps_action,
-            app_config_toml: render_app_config_toml(
-                Some(
-                    state
-                        .finder
-                        .output_path
-                        .as_str(),
-                ),
-                Some(
-                    state
-                        .finder
-                        .lua_dir_input
-                        .as_str(),
-                ),
-                state
-                    .finder
-                    .no_nft,
-                state
-                    .run
-                    .control_socket_override
-                    .as_deref(),
-                &state.theme,
-                &state.keybinds,
-            )
-            .ok(),
-            app_config_path: Some(
-                state
-                    .app_config_path
-                    .clone(),
-            ),
-            domain_scope: state
-                .finder
-                .domain_scope,
-        }
-    }
-
-    /// Encodes the snapshot into JSON for [`REEXEC_STATE_ENV`].
-    pub(crate) fn encode(&self) -> Option<String>
-    {
-        serde_json::to_string(self).ok()
-    }
-
-    /// Restores any serialized snapshot from [`REEXEC_STATE_ENV`] when running after `exec()`.
-    ///
-    /// Returns `(from_reexec, pending_action)`.
-    pub(crate) fn restore_from_env(state: &mut AppState) -> (bool, Option<PostCapsAction>)
-    {
-        if std::env::var_os(SEAMLESS_REEXEC_ENV).is_none()
-        {
-            return (false, None);
-        }
-        let Some(raw) = std::env::var_os(REEXEC_STATE_ENV)
-        else
-        {
-            return (true, None);
-        };
-        let Ok(snap) = serde_json::from_str::<Self>(&raw.to_string_lossy())
-        else
-        {
-            return (true, None);
-        };
-        state.tab = snap.tab;
-        state
-            .finder
-            .focus_idx = snap.focus_idx;
-        state
-            .finder
-            .domains_input = snap.domains_input;
-        state
-            .finder
-            .proto_http = snap.proto_http;
-        state
-            .finder
-            .proto_tls12 = snap.proto_tls12;
-        state
-            .finder
-            .proto_tls13 = snap.proto_tls13;
-        state
-            .finder
-            .proto_http3 = snap.proto_http3;
-        state
-            .finder
-            .ip_mode = snap.ip_mode;
-        state
-            .finder
-            .level = match snap
-            .level
-            .as_str()
-        {
-            "standard" => ScanLevel::Standard,
-            "force" => ScanLevel::Force,
-            _ => ScanLevel::Quick,
-        };
-        state
-            .finder
-            .stop_on_first = snap.stop_on_first;
-        state
-            .finder
-            .no_nft = snap.no_nft;
-        state
-            .finder
-            .lua_dir_input = snap.lua_dir_input;
-        state
-            .finder
-            .domain_scope = snap.domain_scope;
-        if snap.output_path
-            != state
-                .finder
-                .output_path
-        {
-            state
-                .finder
-                .output_path = snap.output_path;
-            let cfg_path = expand_tilde(
-                &state
-                    .finder
-                    .output_path,
-            );
-            if let Ok(text) = fs::read_to_string(&cfg_path)
-            {
-                state.set_active_toml(text);
-            }
-        }
-        if let Some(path) = snap.app_config_path
-        {
-            state.app_config_path = path;
-        }
-        if let Some(raw_app_cfg) = snap.app_config_toml
-            && let Ok((parsed, _)) = parse_app_config_str(
-                &raw_app_cfg,
-                state
-                    .app_config_path
-                    .clone(),
-                state
-                    .app_config_path
-                    .parent(),
-            )
-        {
-            state.theme = parsed.theme;
-            state.keybinds = parsed.keybinds;
-        }
-        (true, snap.pending_action)
-    }
-}
 
 /// RAII wrapper keeping `crossterm` raw mode and alternate screen paired with clean teardown.
 pub(crate) struct TerminalSession
@@ -312,7 +66,7 @@ impl TerminalSession
             let _ = disable_raw_mode();
             return Err(format!("failed to enter alternate screen: {err}"));
         }
-        let _ = execute!(stdout, EnableMouseCapture);
+        let _ = execute!(stdout, EnableMouseCapture, EnableBracketedPaste);
         let backend = CrosstermBackend::new(stdout);
         let mut terminal =
             Terminal::new(backend).map_err(|err| format!("failed to initialize terminal: {err}"))?;
@@ -327,6 +81,7 @@ impl TerminalSession
         let _ = execute!(
             self.terminal
                 .backend_mut(),
+            DisableBracketedPaste,
             DisableMouseCapture,
             LeaveAlternateScreen
         );
@@ -336,7 +91,8 @@ impl TerminalSession
             self.terminal
                 .backend_mut(),
             EnterAlternateScreen,
-            EnableMouseCapture
+            EnableMouseCapture,
+            EnableBracketedPaste
         );
         let _ = enable_raw_mode();
         let _ = self
@@ -356,6 +112,7 @@ impl Drop for TerminalSession
             let _ = execute!(
                 self.terminal
                     .backend_mut(),
+                DisableBracketedPaste,
                 DisableMouseCapture,
                 LeaveAlternateScreen
             );
@@ -580,6 +337,7 @@ pub(crate) fn save_toml_to_disk(state: &mut AppState)
         return;
     }
     save_domains_history(state);
+    state.save_finder_prefs();
     seed_autohostlists_from_domains(state);
     let path = expand_tilde(
         &state

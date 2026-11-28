@@ -5,6 +5,9 @@ use std::fmt;
 /// CLI parsing support for [`ScanLevel`] and [`ProbeProtocol`].
 use std::str::FromStr;
 
+/// Serialization support for storing user-selected scan level in TUI `config.toml`.
+use serde::{Deserialize, Serialize};
+
 /// Profile, action, L7 filter, and packet-range models constructed by the catalog.
 use crate::config::{
     DesyncAction, DesyncProfile, IcmpFilter, IppFilter, L7Payload, L7Proto, MarkFilter, PortFilter,
@@ -14,10 +17,12 @@ use crate::config::{
 use crate::tools::strat::catalog_rules::build_catalog_entries;
 
 /// Scan thoroughness controlling the number of strategy candidates expanded per protocol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScanLevel
 {
     /// High-yield subset targeting fast discovery.
+    #[default]
     Quick,
     /// Practical default sweep matching typical `blockcheck2` coverage.
     Standard,
